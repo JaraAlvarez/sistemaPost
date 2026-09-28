@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Contratos de la capa de aplicación. Sin dependencias de infraestructura. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Application.Abstractions</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pos.SharedKernel\Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,28 @@
+# Build
+bin/
+obj/
+artifacts/
+publish/
+*.user
+*.suo
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Tests / cobertura
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Datos locales de desarrollo (logs, BD, backups)
+.data/
+
+# Paquetes
+*.nupkg
+packages/
+
+# SO
+Thumbs.db
+.DS_Store

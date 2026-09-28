@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Servidor de tienda: API REST local. Se ejecuta como consola (desarrollo) o como Servicio de Windows. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Server.Host</RootNamespace>
+    <AssemblyName>Pos.Server.Host</AssemblyName>
+    <UserSecretsId>pos-server-host</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\Pos.Api.Abstractions\Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Pos.Infrastructure\Pos.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
+  </ItemGroup>
+</Project>

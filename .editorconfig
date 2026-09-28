@@ -1,0 +1,64 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,xml,csproj,props,targets,slnx,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# Estilo
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = when_multiline:suggestion
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:warning
+
+# Campos privados: _camelCase
+dotnet_naming_rule.private_fields.symbols = private_fields
+dotnet_naming_rule.private_fields.style = underscore_camel
+dotnet_naming_rule.private_fields.severity = warning
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+dotnet_naming_style.underscore_camel.required_prefix = _
+
+dotnet_naming_rule.private_static_readonly.symbols = private_static_readonly
+dotnet_naming_rule.private_static_readonly.style = pascal
+dotnet_naming_rule.private_static_readonly.severity = warning
+dotnet_naming_symbols.private_static_readonly.applicable_kinds = field
+dotnet_naming_symbols.private_static_readonly.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_readonly.required_modifiers = static, readonly
+dotnet_naming_style.pascal.capitalization = pascal_case
+dotnet_naming_rule.private_static_readonly.priority = 1
+dotnet_naming_rule.private_fields.priority = 2
+
+dotnet_naming_rule.private_const.symbols = private_const
+dotnet_naming_rule.private_const.style = pascal
+dotnet_naming_rule.private_const.severity = warning
+dotnet_naming_symbols.private_const.applicable_kinds = field
+dotnet_naming_symbols.private_const.required_modifiers = const
+dotnet_naming_rule.private_const.priority = 0
+
+# Análisis: la app no es librería pública; no forzar ConfigureAwait.
+dotnet_diagnostic.CA2007.severity = none
+# Mensajes de error en español: no exigir recursos localizados.
+dotnet_diagnostic.CA1303.severity = none
+# Solución exclusivamente C#: las palabras reservadas de VB (p. ej. "Error") no aplican.
+dotnet_diagnostic.CA1716.severity = none
+
+[tests/**.cs]
+# Nombres de pruebas descriptivos con guion bajo.
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1515.severity = none
+dotnet_diagnostic.CA2000.severity = none

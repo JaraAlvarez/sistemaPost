@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/Pos.Api.Abstractions/Pos.Api.Abstractions.csproj" />
+    <Project Path="src/BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <Project Path="src/BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <Project Path="src/BuildingBlocks/Pos.SharedKernel/Pos.SharedKernel.csproj" />
+  </Folder>
+  <Folder Name="/src/Server/">
+    <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
+    <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
+    <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
+    <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Contratos HTTP compartidos por las capas Api de los módulos (IModule, Result → HTTP). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Api.Abstractions</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pos.SharedKernel\Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

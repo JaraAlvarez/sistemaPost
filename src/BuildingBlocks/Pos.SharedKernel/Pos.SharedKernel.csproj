@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Dominio puro: sin dependencias de paquetes ni de otros proyectos (verificado por Pos.ArchitectureTests). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.SharedKernel</RootNamespace>
+  </PropertyGroup>
+</Project>

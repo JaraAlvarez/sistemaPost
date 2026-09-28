@@ -1,0 +1,53 @@
+# Fase 1 · Peticiones de verificación del servidor (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dotnet run --project src/Server/Pos.Server.Host
+# Documentación interactiva de la API: http://localhost:5480/scalar/v1
+
+@host = http://localhost:5480
+
+### El proceso está vivo
+GET {{host}}/health/live
+
+### Listo para atender (desde la Fase 2 incluye la base de datos)
+GET {{host}}/health/ready
+
+### Versión, entorno y hora del negocio (Bogotá)
+GET {{host}}/api/v1/system/info
+X-Correlation-Id: prueba-manual-001
+
+### Comando válido: pasa por el despachador (validación + handler) → 200
+POST {{host}}/api/v1/dev/echo
+Content-Type: application/json
+
+{ "text": "hola caja" }
+
+### Validación fallida → 400 VALIDATION.FAILED con errores por campo
+POST {{host}}/api/v1/dev/echo
+Content-Type: application/json
+
+{ "text": "" }
+
+### Regla de negocio del handler → 422 DEV.ECHO_REJECTED
+POST {{host}}/api/v1/dev/echo
+Content-Type: application/json
+
+{ "text": "fallar" }
+
+### JSON mal formado → 400 REQUEST.INVALID
+POST {{host}}/api/v1/dev/echo
+Content-Type: application/json
+
+{ esto no es json
+
+### Error inesperado → 500 SYSTEM.UNEXPECTED (revisar el log con el correlationId)
+GET {{host}}/api/v1/dev/errors/unexpected
+X-Correlation-Id: prueba-error-500
+
+### Invariante de dominio → 422 DEV.SAMPLE_RULE
+GET {{host}}/api/v1/dev/errors/domain
+
+### Result fallido → 404 DEV.SAMPLE_NOT_FOUND
+GET {{host}}/api/v1/dev/errors/not-found
+
+### Ruta inexistente → 404 como ProblemDetails
+GET {{host}}/api/v1/no-existe

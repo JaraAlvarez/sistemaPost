@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Referencia el host: así se copian (y se verifican) todos los ensamblados de producción, incluidos los módulos futuros. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Server\Pos.Server.Host\Pos.Server.Host.csproj" />
+  </ItemGroup>
+</Project>

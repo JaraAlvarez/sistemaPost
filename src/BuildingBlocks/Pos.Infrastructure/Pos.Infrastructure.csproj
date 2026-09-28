@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Implementaciones técnicas transversales (despachador, reloj, IDs; desde la Fase 2: EF Core, outbox, auditoría). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pos.Application.Abstractions\Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="..\Pos.SharedKernel\Pos.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Infrastructure.UnitTests" />
+  </ItemGroup>
+</Project>
