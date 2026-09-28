@@ -17,6 +17,15 @@
 | [11-estructura-proyecto.md](11-estructura-proyecto.md) | Estructura de carpetas y proyectos | R |
 | [12-plan-riesgos-decisiones.md](12-plan-riesgos-decisiones.md) | Plan por fases, decisiones pendientes y riesgos | S, T |
 
+## Fases
+
+| Fase | Documentos | Estado |
+|---|---|---|
+| 1 · Arquitectura general | [propuesta](fases/fase-01-propuesta.md) · [informe](fases/fase-01-informe.md) | Implementada — pendiente de validar el Servicio de Windows |
+| 2 · Arquitectura de datos y núcleo organizacional | [propuesta](fases/fase-02-propuesta.md) | Propuesta — pendiente de revisión |
+
+Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
+
 ## Decisiones clave propuestas (resumen)
 
 - **Stack:** .NET 10 LTS (servidor como Servicio de Windows) + PostgreSQL local + UI web desacoplada (se define en Fase 15).
