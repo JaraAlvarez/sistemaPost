@@ -1,0 +1,26 @@
+# Proxy HTTPS del servidor de licencias. Caddy obtiene y renueva el certificado de Let's Encrypt automáticamente
+# (el registro DNS de licencias.<DOMINIO> debe apuntar al VPS y los puertos 80/443 deben estar abiertos).
+{
+	email {$ACME_EMAIL}
+}
+
+licencias.{$DOMINIO} {
+	encode zstd gzip
+
+	# Límite de tamaño de las peticiones (la API del POS y el portal envían cuerpos pequeños).
+	request_body {
+		max_size 1MB
+	}
+
+	# La aplicación agrega sus propias cabeceras de seguridad (CSP, HSTS, nosniff…); aquí solo se oculta el servidor.
+	header -Server
+
+	# Blazor Server usa WebSockets: reverse_proxy los maneja sin configuración adicional.
+	# Caddy reemplaza los X-Forwarded-* que envíe el cliente por los suyos.
+	reverse_proxy app:8080
+
+	log {
+		output stdout
+		format json
+	}
+}

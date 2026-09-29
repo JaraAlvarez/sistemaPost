@@ -1,0 +1,13 @@
+# Solo para la prueba local (docker-compose.local.yml): certificado de la CA interna de Caddy, sin Let's Encrypt.
+{
+	# El puerto 443 del contenedor se publica en 127.0.0.1:8443.
+	https_port 443
+	auto_https disable_redirects
+}
+
+licencias.localhost {
+	tls internal
+	encode zstd gzip
+	header -Server
+	reverse_proxy app:8080
+}

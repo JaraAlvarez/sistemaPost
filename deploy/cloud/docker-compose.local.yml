@@ -1,0 +1,17 @@
+# Prueba LOCAL del mismo despliegue (no usar en el VPS). Superpone al docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml --env-file .env.local up -d --build
+# - La aplicación se publica solo en 127.0.0.1:8089 (HTTP, para /health).
+# - Caddy usa un certificado interno (tls internal) en https://licencias.localhost:8443 (el navegador pedirá aceptarlo).
+# Puertos elegidos para no chocar con otros servicios del equipo (5432, 5433, 5435, 5488, 6379, 5480, 5490).
+services:
+  app:
+    ports:
+      - "127.0.0.1:8089:8080"
+
+  caddy:
+    ports: !override
+      - "127.0.0.1:8443:443"
+    volumes: !override
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config

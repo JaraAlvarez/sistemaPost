@@ -1,0 +1,7 @@
+# Nunca confirmar valores reales ni claves.
+.env
+.env.local
+secrets/
+*.pem
+*.age
+*.dump
