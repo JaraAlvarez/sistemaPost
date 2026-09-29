@@ -56,6 +56,9 @@
     <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Infrastructure/Pos.Modules.Expenses.Infrastructure.csproj" />
     <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Api/Pos.Modules.Expenses.Api.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Promotions/">
+    <Project Path="src/Modules/Promotions/Pos.Modules.Promotions.Contracts/Pos.Modules.Promotions.Contracts.csproj" />
+  </Folder>
   <Folder Name="/src/Server/">
     <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />
     <Project Path="src/Server/Pos.Server.Migrations/Pos.Server.Migrations.csproj" />
