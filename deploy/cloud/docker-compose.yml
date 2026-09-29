@@ -1,0 +1,122 @@
+# Servidor de licencias (Fase 12-A) en el VPS: aplicación + PostgreSQL 18 + Caddy (HTTPS automático con Let's Encrypt).
+# Guía completa: docs/despliegue-nube.md.
+#   cp .env.example .env   # y complete los valores
+#   docker compose up -d --build
+# Solo Caddy publica puertos (80/443). La aplicación y PostgreSQL quedan en la red interna de Docker.
+name: pos-cloud
+
+x-app-image: &app-image
+  image: ${POS_CLOUD_IMAGE:-pos-cloud:local}
+  build:
+    context: ../..
+    dockerfile: src/Cloud/Pos.Cloud.Host/Dockerfile
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?Defina POSTGRES_SUPERUSER_PASSWORD en .env}
+      # Solo scram-sha-256 para las conexiones por red.
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      # PostgreSQL 18: el volumen se monta en /var/lib/postgresql (los datos quedan en 18/docker).
+      - pgdata:/var/lib/postgresql
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    shm_size: 128mb
+
+  # Crea (o actualiza) la BD pos_cloud y los roles pos_owner/pos_migrator/pos_app/pos_backup y aplica las migraciones.
+  # Es idempotente: se ejecuta en cada `docker compose up` y termina; la aplicación arranca solo si terminó bien.
+  db-init:
+    <<: *app-image
+    restart: "no"
+    command:
+      - setup-database
+      - --superuser
+      - "Host=postgres;Port=5432;Username=postgres;Password=${POSTGRES_SUPERUSER_PASSWORD};Database=postgres"
+      - --database
+      - pos_cloud
+      - --migrator-password
+      - "${DB_MIGRATOR_PASSWORD:?Defina DB_MIGRATOR_PASSWORD en .env}"
+      - --app-password
+      - "${DB_APP_PASSWORD:?Defina DB_APP_PASSWORD en .env}"
+      - --backup-password
+      - "${DB_BACKUP_PASSWORD:?Defina DB_BACKUP_PASSWORD en .env}"
+    healthcheck:
+      disable: true
+    networks: [backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    <<: *app-image
+    restart: unless-stopped
+    environment:
+      Cloud__Database__ConnectionString: "Host=postgres;Port=5432;Database=pos_cloud;Username=pos_app;Password=${DB_APP_PASSWORD}"
+      # Las migraciones las aplica db-init con pos_migrator: la aplicación no tiene credenciales de DDL.
+      Cloud__Database__MigrateOnStartup: "false"
+      Cloud__DataProtectionKeysPath: /var/lib/pos-cloud/dataprotection
+      # Solo Caddy llega a la aplicación (su puerto no se publica).
+      Cloud__TrustForwardedHeaders: "true"
+      Licensing__Signing__PrivateKeyPath: /run/secrets/signing_key
+      Licensing__LatestPosVersion: ${LATEST_POS_VERSION:-}
+      TZ: America/Bogota
+      # Registros: información propia; el detalle de ASP.NET Core y EF Core solo desde advertencias.
+      Serilog__MinimumLevel__Default: Information
+      Serilog__MinimumLevel__Override__Microsoft.AspNetCore: Warning
+      Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore: Warning
+    secrets:
+      - signing_key
+    volumes:
+      - dataprotection:/var/lib/pos-cloud/dataprotection
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [backend, frontend]
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMINIO: ${DOMINIO:?Defina DOMINIO en .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Defina ACME_EMAIL en .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [frontend]
+    depends_on:
+      - app
+
+# La clave privada Ed25519 ACTIVA se monta como archivo de solo lectura en /run/secrets/signing_key.
+# En el servidor: dueño UID 1654 (usuario de la imagen) y permisos 400 (ver la guía).
+secrets:
+  signing_key:
+    file: ${SIGNING_KEY_FILE:-./secrets/signing-key.pem}
+
+networks:
+  backend:
+    internal: true
+  frontend:
+
+volumes:
+  pgdata:
+  dataprotection:
+  caddy_data:
+  caddy_config:

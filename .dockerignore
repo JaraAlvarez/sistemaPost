@@ -1,0 +1,26 @@
+# Contexto de Docker (raíz del repositorio): solo código fuente, nunca binarios, datos locales ni secretos.
+**/bin/
+**/obj/
+**/TestResults/
+**/coverage/
+.git/
+.github/
+.claude/
+.vs/
+.vscode/
+.idea/
+.data/
+artifacts/
+publish/
+docs/
+tests/
+tools/
+http/
+deploy/
+**/*.user
+**/*.pem
+**/*.key
+**/*.age
+**/*.dump
+**/.env
+**/secrets/
