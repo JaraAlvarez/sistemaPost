@@ -47,6 +47,6 @@ public class PaymentMethodTests
         PaymentMethodMapping.Db(PaymentMethodKind.DebitCard).ShouldBe("DEBIT_CARD");
         PaymentMethodMapping.Db(PaymentMethodKind.CreditCard).ShouldBe("CREDIT_CARD");
         PaymentMethodMapping.Db(MasterStatus.Active).ShouldBe("ACTIVE");
-        new CashPermissionCatalog().GetPermissions().Count().ShouldBe(1);
+        new CashPermissionCatalog().GetPermissions().Count().ShouldBe(7);
     }
 }

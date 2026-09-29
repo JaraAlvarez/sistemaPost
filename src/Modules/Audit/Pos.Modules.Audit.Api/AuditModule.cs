@@ -40,6 +40,11 @@ public sealed class AuditModule : IModule
         group.MapPost("/verify", async (IDispatcher d, CancellationToken ct) => (await d.Send(new VerifyAuditQuery(), ct)).ToHttpResult())
             .RequirePermission(AuditPermissions.LogVerify)
             .WithSummary("Verifica filas, sellos y cadena; devuelve el código del último sello");
+
+        group.MapGet("/seals/{sealNo:long}/check", async (long sealNo, string code, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new CheckSealQuery(sealNo, code), ct)).ToHttpResult())
+            .RequirePermission(AuditPermissions.LogVerify)
+            .WithSummary("Comprueba el sello impreso en un reporte Z (número y código) contra la bitácora");
     }
 }
 

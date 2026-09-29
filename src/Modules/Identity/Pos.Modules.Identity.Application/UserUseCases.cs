@@ -147,7 +147,8 @@ internal sealed class UpdateUserHandler(IIdentityStore store, UserMutations muta
 /// <summary>Activar o desactivar. Desactivar revoca sus sesiones (RN-SEC-07) y nunca deja la empresa sin administrador (RN-SEC-04).</summary>
 public sealed record SetUserActiveCommand(Guid UserId, bool Active) : ICommand;
 
-internal sealed class SetUserActiveHandler(IIdentityStore store, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current, IAuditWriter audit)
+internal sealed class SetUserActiveHandler(
+    IIdentityStore store, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current, IAuditWriter audit, Pos.Modules.Cash.Contracts.ICashRegister cash)
     : ICommandHandler<SetUserActiveCommand>
 {
     public async Task<Result> Handle(SetUserActiveCommand request, CancellationToken cancellationToken)
@@ -168,6 +169,12 @@ internal sealed class SetUserActiveHandler(IIdentityStore store, PrivilegeGuard 
         {
             user.Activate();
             return Result.Success();
+        }
+
+        // RN-SEC-07: no se desactiva a quien tiene una jornada de caja sin cerrar (primero se cierra, aunque sea por supervisor).
+        if (await cash.HasOpenSessionAsync(user.Id, cancellationToken))
+        {
+            return IdentityErrors.UserHasOpenCashSession;
         }
 
         var keeps = await guard.KeepsAnAdministratorAsync(user, cancellationToken);

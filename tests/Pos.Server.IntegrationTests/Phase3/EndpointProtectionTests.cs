@@ -62,7 +62,7 @@ public class EndpointProtectionTests
 
     private static string Url(string pattern)
     {
-        // Sustituye los parámetros de ruta ({id:guid}, {key}) por valores válidos.
+        // Sustituye los parámetros de ruta ({id:guid}, {n:long}, {key}) por valores válidos.
         var builder = new StringBuilder();
         var inside = false;
         var parameter = new StringBuilder();
@@ -76,7 +76,9 @@ public class EndpointProtectionTests
             else if (c == '}')
             {
                 inside = false;
-                builder.Append(parameter.ToString().Contains(":guid", StringComparison.Ordinal) ? Guid.CreateVersion7().ToString() : "valor");
+                var text = parameter.ToString();
+                builder.Append(text.Contains(":guid", StringComparison.Ordinal) ? Guid.CreateVersion7().ToString()
+                    : text.Contains(":long", StringComparison.Ordinal) || text.Contains(":int", StringComparison.Ordinal) ? "1" : "valor");
             }
             else if (inside)
             {

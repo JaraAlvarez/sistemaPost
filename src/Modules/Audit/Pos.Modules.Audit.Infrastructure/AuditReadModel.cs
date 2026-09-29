@@ -55,6 +55,13 @@ internal sealed class AuditReadModel(NpgsqlDataSource dataSource, AuditVerifier 
         return new AuditLogPage(items, filter.Page, filter.PageSize, hasMore);
     }
 
+    public async Task<AuditSealCheckDto> CheckSealAsync(long sealNo, string code, CancellationToken cancellationToken)
+    {
+        var seal = await verifier.CheckSealCodeAsync(installation.NodeId, sealNo, code, cancellationToken);
+        var report = await verifier.VerifyAsync(cancellationToken);
+        return new AuditSealCheckDto(sealNo, seal is not null, seal?.Matches ?? false, report.IsValid, seal?.SealedAt);
+    }
+
     public async Task<AuditVerificationDto> VerifyAsync(CancellationToken cancellationToken)
     {
         var report = await verifier.VerifyAsync(cancellationToken);

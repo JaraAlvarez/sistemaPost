@@ -26,7 +26,7 @@
 | 3 · Autenticación, usuarios, permisos y equipos | [propuesta](fases/fase-03-propuesta.md) · [informe](fases/fase-03-informe.md) | Implementada — pendiente de validación |
 | 4 · Productos e inventario | [propuesta](fases/fase-04-propuesta.md) · [informe](fases/fase-04-informe.md) | Implementada — pendiente de validación |
 | 5 · Terceros, proveedores y compras | [propuesta](fases/fase-05-propuesta.md) · [informe](fases/fase-05-informe.md) | Implementada — pendiente de validación |
-| 6 · Caja: jornadas, arqueos y cierres | [propuesta](fases/fase-06-propuesta.md) | Aprobada — en implementación |
+| 6 · Caja: jornadas, arqueos y cierres | [propuesta](fases/fase-06-propuesta.md) · [informe](fases/fase-06-informe.md) | Implementada — pendiente de validación |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
 

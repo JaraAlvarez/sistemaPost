@@ -3,6 +3,7 @@ using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
+using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Purchasing.Contracts;
 using Pos.Modules.Purchasing.Domain;
 using Pos.SharedKernel.Identifiers;
@@ -88,9 +89,14 @@ internal sealed class GetSupplierStatementHandler(IInstallationContext installat
 
 public sealed record AllocationRequest(Guid AccountId, decimal Amount);
 
-/// <summary>Pago a proveedor aplicado a una o varias cuentas del mismo proveedor (no puede superar el saldo de cada una).</summary>
+/// <summary>
+/// Pago a proveedor aplicado a una o varias cuentas del mismo proveedor (no puede superar el saldo de cada una). Con
+/// <c>CashSessionId</c> el dinero sale de la jornada de caja (movimiento SUPPLIER_PAYMENT, en efectivo y sin dejarla
+/// negativa, Fase 6).
+/// </summary>
 public sealed record RegisterPaymentCommand(
-    Guid SupplierId, DateOnly? PaymentDate, Guid PaymentMethodId, string? Reference, string? Notes, IReadOnlyList<AllocationRequest> Allocations)
+    Guid SupplierId, DateOnly? PaymentDate, Guid PaymentMethodId, string? Reference, string? Notes, IReadOnlyList<AllocationRequest> Allocations,
+    Guid? CashSessionId = null)
     : ICommand<PaymentDto>;
 
 internal sealed class RegisterPaymentHandler(
@@ -99,6 +105,7 @@ internal sealed class RegisterPaymentHandler(
     IPurchasingQueries queries,
     PaymentMethodGuard methods,
     IDocumentNumberAllocator numbers,
+    ICashRegister cash,
     IActorContext actor,
     IAuditWriter audit,
     IIdGenerator ids,
@@ -138,10 +145,22 @@ internal sealed class RegisterPaymentHandler(
         var number = await numbers.NextForBranchAsync("PAYABLE_PAYMENT", local.Value.BranchId, cancellationToken);
         var payment = PayablePayment.Create(
             ids.NewId(), local.Value.CompanyId, local.Value.BranchId, supplier.Id, number.Number, request.PaymentDate ?? clock.Today, method.Value.Id,
-            request.Reference, request.Notes, [.. allocations.Select(a => new AllocationInput(a.AccountId, a.Amount))], ids.NewId);
+            request.Reference, request.Notes, [.. allocations.Select(a => new AllocationInput(a.AccountId, a.Amount))], ids.NewId, request.CashSessionId);
         if (payment.IsFailure)
         {
             return payment.Error;
+        }
+
+        if (request.CashSessionId is { } sessionId)
+        {
+            var moved = await cash.RecordOutflowAsync(
+                new CashOutflowRequest(sessionId, "SUPPLIER_PAYMENT", method.Value.Id, payment.Value.Amount, "PAYABLE_PAYMENT", payment.Value.Id,
+                    payment.Value.Number, $"Pago a proveedor {supplier.Code}"),
+                cancellationToken);
+            if (moved.IsFailure)
+            {
+                return moved.Error;
+            }
         }
 
         var userId = actor.ActorId!.Value;
@@ -197,7 +216,7 @@ internal sealed class GetPaymentHandler(IPurchasingStore store, IPurchasingQueri
 public sealed record VoidPaymentCommand(Guid PaymentId, string Reason) : ICommand<PaymentDto>;
 
 internal sealed class VoidPaymentHandler(
-    IPurchasingStore store, IPurchasingQueries queries, IActorContext actor, IAuditWriter audit, IIdGenerator ids, IClock clock)
+    IPurchasingStore store, IPurchasingQueries queries, ICashRegister cash, IActorContext actor, IAuditWriter audit, IIdGenerator ids, IClock clock)
     : ICommandHandler<VoidPaymentCommand, PaymentDto>
 {
     public async Task<Result<PaymentDto>> Handle(VoidPaymentCommand request, CancellationToken cancellationToken)
@@ -213,6 +232,19 @@ internal sealed class VoidPaymentHandler(
         if (voided.IsFailure)
         {
             return voided.Error;
+        }
+
+        if (payment.CashSessionId is { } sessionId)
+        {
+            // El dinero vuelve al cajón con una corrección en la misma jornada, que debe seguir abierta (RN-CSH-08).
+            var returned = await cash.ReturnOutflowAsync(
+                new CashOutflowRequest(sessionId, "SUPPLIER_PAYMENT", payment.PaymentMethodId, payment.Amount, "PAYABLE_PAYMENT_VOID", payment.Id, payment.Number, null),
+                $"Anulación del pago {payment.Number}: {payment.VoidReason}",
+                cancellationToken);
+            if (returned.IsFailure)
+            {
+                return returned.Error;
+            }
         }
 
         var accounts = (await store.GetPayablesAsync([.. payment.Allocations.Select(a => a.AccountId)], cancellationToken)).ToDictionary(a => a.Id);

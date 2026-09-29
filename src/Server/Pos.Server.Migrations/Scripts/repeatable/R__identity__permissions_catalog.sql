@@ -8,13 +8,21 @@
 INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUES
     ('audit.log.verify',              'audit',        'Verificar la integridad de la bitácora de auditoría',                           true),
     ('audit.log.view',                'audit',        'Consultar la bitácora de auditoría',                                            true),
+    ('cash.drawer.open',              'cash',         'Abrir el cajón sin venta (admite autorización de supervisor)',                  true),
+    ('cash.movement.withdraw',        'cash',         'Retirar efectivo de la caja (admite autorización de supervisor)',               true),
     ('cash.payment_method.manage',    'cash',         'Crear y modificar medios de pago',                                              true),
+    ('cash.report.view',              'cash',         'Ver reportes X y Z de cualquier caja y el esperado antes del arqueo',           true),
+    ('cash.session.close_any',        'cash',         'Cerrar la jornada de otro cajero (cierre por supervisor)',                      true),
+    ('cash.session.operate',          'cash',         'Abrir y cerrar la propia jornada, registrar ingresos y gastos menores',         false),
+    ('cash.session.review',           'cash',         'Revisar cierres con diferencia y registrar correcciones de caja',               true),
     ('catalog.import.run',            'catalog',      'Importar productos y precios desde archivos',                                   true),
     ('catalog.master.manage',         'catalog',      'Categorías, marcas, listas de precios y reglas de báscula',                     false),
     ('catalog.price.manage',          'catalog',      'Fijar, programar y cancelar precios de venta',                                  true),
     ('catalog.product.manage',        'catalog',      'Crear y modificar productos, presentaciones, códigos e impuestos del producto', false),
     ('catalog.product.view',          'catalog',      'Consultar productos, códigos y precios vigentes',                               false),
     ('catalog.tax.manage',            'catalog',      'Crear impuestos y cambiar sus tarifas',                                         true),
+    ('expenses.expense.manage',       'expenses',     'Registrar y anular gastos y sus categorías',                                    true),
+    ('expenses.expense.view',         'expenses',     'Consultar gastos',                                                              false),
     ('identity.permission.view',      'identity',     'Consultar el catálogo de permisos y los roles',                                 false),
     ('identity.role.manage',          'identity',     'Crear, clonar y editar roles; asignar roles y excepciones',                     true),
     ('identity.session.revoke',       'identity',     'Cerrar sesiones de otros usuarios',                                             true),
@@ -67,4 +75,5 @@ WHERE code NOT IN (
     'settings.setting.view', 'cash.payment_method.manage', 'parties.party.manage', 'parties.party.view',
     'purchasing.order.approve', 'purchasing.order.manage', 'purchasing.payable.pay', 'purchasing.payable.view',
     'purchasing.purchase.manage', 'purchasing.purchase.post', 'purchasing.purchase.view', 'purchasing.purchase.void',
-    'purchasing.return.manage', 'purchasing.supplier.manage');
+    'purchasing.return.manage', 'purchasing.supplier.manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',
+    'cash.session.close_any', 'cash.session.operate', 'cash.session.review', 'expenses.expense.manage', 'expenses.expense.view');

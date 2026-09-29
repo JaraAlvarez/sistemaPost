@@ -109,6 +109,11 @@ Las reglas son configurables (`variable_barcode_rules`) porque cada marca de bá
 
 ## Caja (punto 8)
 
+> Implementado en la Fase 6 ([informe](fases/fase-06-informe.md), ADR-0027 a 0029): jornadas desde la caja emparejada (o el
+> equipo Caja Única), movimientos de solo inserción, arqueo ciego por denominación y por medio, cierre en dos pasos, cierre por
+> supervisor, revisión de diferencias y reportes X y Z (texto de 80 mm y JSON) con el sello de la auditoría. Gastos y pagos a
+> proveedores (y compras de contado) desde la caja.
+
 ### Trazabilidad completa
 
 ```

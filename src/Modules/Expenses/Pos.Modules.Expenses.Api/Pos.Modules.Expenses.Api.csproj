@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Expenses · Endpoints HTTP y registro del módulo (IModule). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Expenses.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Api.Abstractions/Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Expenses.Infrastructure/Pos.Modules.Expenses.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

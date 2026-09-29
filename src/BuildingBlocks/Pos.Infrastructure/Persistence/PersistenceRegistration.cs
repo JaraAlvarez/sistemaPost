@@ -104,6 +104,7 @@ public static class PersistenceRegistration
         services.AddSingleton<AuditVerifier>();
         services.AddOptions<AuditSealingOptions>();
         services.AddSingleton<AuditSealer>();
+        services.AddSingleton<IAuditAnchor, AuditAnchor>();
         services.TryAddSingleton(TimeProvider.System);
 
         // Pipeline: Logging → Validación → Transacción (esta última envuelve al handler).

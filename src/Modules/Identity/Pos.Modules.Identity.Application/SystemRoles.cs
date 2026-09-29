@@ -1,8 +1,10 @@
 using Pos.Modules.Audit.Contracts;
+using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
 using Pos.Modules.Inventory.Contracts;
+using Pos.Modules.Expenses.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Parties.Contracts;
 using Pos.Modules.Purchasing.Contracts;
@@ -29,9 +31,12 @@ public static class SystemRoles
         new(Administrator, "Administrador", "Administra la operación y la configuración.", allPermissions),
         new(CashSupervisor, "Supervisor de caja", "Supervisa cajas, autoriza anulaciones y revisa cierres.",
             [OrganizationPermissions.BranchView, SettingsPermissions.SettingView, IdentityPermissions.UserView, IdentityPermissions.SessionRevoke,
-             CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView]),
+             CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView,
+             CashPermissions.SessionOperate, CashPermissions.MovementWithdraw, CashPermissions.DrawerOpen, CashPermissions.SessionCloseAny,
+             CashPermissions.SessionReview, CashPermissions.ReportView]),
         new(Cashier, "Cajero", "Vende y opera su caja.",
-            [CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView]),
+            [CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView,
+             CashPermissions.SessionOperate]),
         new(Inventory, "Inventario", "Gestiona existencias, ajustes y conteos.",
             [OrganizationPermissions.BranchView, CatalogPermissions.ProductView, CatalogPermissions.ProductManage, CatalogPermissions.MasterManage,
              CatalogPermissions.ImportRun, InventoryPermissions.StockView, InventoryPermissions.CostView, InventoryPermissions.AdjustmentManage,
@@ -45,6 +50,7 @@ public static class SystemRoles
         new(Accountant, "Contador", "Consulta información contable y de auditoría.",
             [OrganizationPermissions.CompanyView, OrganizationPermissions.BranchView, SettingsPermissions.SettingView,
              AuditPermissions.LogView, IdentityPermissions.PermissionView, CatalogPermissions.ProductView, InventoryPermissions.StockView,
-             InventoryPermissions.CostView, PartiesPermissions.PartyView, PurchasingPermissions.PurchaseView, PurchasingPermissions.PayableView]),
+             InventoryPermissions.CostView, PartiesPermissions.PartyView, PurchasingPermissions.PurchaseView, PurchasingPermissions.PayableView,
+             CashPermissions.ReportView, ExpensesPermissions.ExpenseView]),
     ];
 }

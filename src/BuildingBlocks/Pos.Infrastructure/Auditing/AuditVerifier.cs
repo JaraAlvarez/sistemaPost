@@ -50,6 +50,26 @@ public sealed class AuditVerifier(NpgsqlDataSource dataSource)
         old_values::text, new_values::text, summary, authorized_by, severity, row_hash
         """;
 
+    /// <summary>
+    /// ¿El código impreso (reporte Z) corresponde al sello <paramref name="sealNo"/> del nodo? Devuelve la fecha del sello
+    /// o <c>null</c> si el sello no existe. La integridad de la cadena la da <see cref="VerifyAsync"/>.
+    /// </summary>
+    public async Task<(bool Matches, DateTimeOffset SealedAt)?> CheckSealCodeAsync(Guid nodeId, long sealNo, string code, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT seal_hash, sealed_at FROM audit.audit_seals WHERE node_id = @nodeId AND seal_no = @sealNo", connection);
+        command.Parameters.AddWithValue("nodeId", nodeId);
+        command.Parameters.AddWithValue("sealNo", sealNo);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var normalized = (code ?? string.Empty).Trim().ToUpperInvariant();
+        return (AuditHasher.ShortCode(reader.GetString(0)) == normalized, reader.GetFieldValue<DateTimeOffset>(1));
+    }
+
     public async Task<AuditVerificationReport> VerifyAsync(CancellationToken cancellationToken = default)
     {
         var findings = new List<AuditFinding>();

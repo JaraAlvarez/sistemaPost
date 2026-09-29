@@ -1,0 +1,113 @@
+# Fase 6 · Caja: jornadas, movimientos, arqueos, cierres y gastos (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica las migraciones 014–015) y `dotnet run --project src/Server/Pos.Server.Host`.
+# La jornada se abre con una SESIÓN DE CAJA (código + PIN) desde la caja emparejada o desde el equipo Caja Única
+# (en Multicaja, empareje antes el equipo como caja: ver http/fase-03.http).
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. Entrar a la caja con código de cajero y PIN
+# @name pos
+POST {{api}}/auth/pos-login
+Content-Type: application/json
+
+{ "posCode": "100", "pin": "4826" }
+
+@token = {{pos.response.body.token}}
+
+### 2. Medios de pago y denominaciones (billetes y monedas)
+# @name methods
+GET {{api}}/cash/payment-methods
+Authorization: Bearer {{token}}
+
+###
+# @name denominations
+GET {{api}}/cash/denominations
+Authorization: Bearer {{token}}
+
+### 3. Abrir la jornada con $200.000 (4 billetes de $50.000)
+# @name session
+POST {{api}}/cash/sessions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "openingFloat": 200000,
+  "openingCount": [ { "paymentMethodId": "{{methods.response.body.$[0].id}}", "denominationId": "{{denominations.response.body.$[1].id}}", "quantity": 4 } ]
+}
+
+### 4. Ingreso de efectivo (cambio traído del banco)
+POST {{api}}/cash/sessions/{{session.response.body.id}}/cash-in
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "amount": 50000, "reason": "Cambio traído del banco" }
+
+### 5. Gasto menor pagado desde la caja
+# @name categories
+GET {{api}}/expenses/categories
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/expenses/from-cash
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categoryId": "{{categories.response.body.$[0].id}}", "description": "Bolsas de basura", "amount": 30000, "taxAmount": 0,
+  "paymentMethodId": "{{methods.response.body.$[0].id}}", "cashSessionId": "{{session.response.body.id}}"
+}
+
+### 6. Retiro (sangría). Un cajero sin el permiso recibe 403 AUTH.AUTHORIZATION_REQUIRED con "action":
+###    el supervisor autoriza en POST /auth/authorizations y el retiro se repite con la cabecera X-Authorization-Grant.
+POST {{api}}/cash/sessions/{{session.response.body.id}}/withdrawals
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "amount": 100000, "reason": "Sangría a la caja fuerte" }
+
+### 7. Apertura del cajón sin venta (con motivo)
+POST {{api}}/cash/sessions/{{session.response.body.id}}/drawer-openings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Cambio para un cliente" }
+
+### 8. Reporte X (parcial; con arqueo ciego lo ve quien tiene cash.report.view)
+GET {{api}}/cash/sessions/{{session.response.body.id}}/report-x?format=text
+Authorization: Bearer {{token}}
+
+### 9. Iniciar el cierre (no se admiten más ventas) y confirmar el arqueo
+POST {{api}}/cash/sessions/{{session.response.body.id}}/start-closing
+Authorization: Bearer {{token}}
+
+###
+# @name z
+POST {{api}}/cash/sessions/{{session.response.body.id}}/close
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "count": [ { "paymentMethodId": "{{methods.response.body.$[0].id}}", "amount": 110000 } ],
+  "differenceNote": "Faltó un billete de $10.000"
+}
+
+### 10. Reporte Z para imprimir (80 mm) con el sello de la auditoría
+GET {{api}}/cash/sessions/{{session.response.body.id}}/report-z?format=text
+Authorization: Bearer {{token}}
+
+### 11. Comprobar el sello impreso contra la bitácora (también: Pos.Server.Migrator verify-audit --seal N --code …)
+GET {{api}}/audit/seals/{{z.response.body.sealNo}}/check?code={{z.response.body.sealCode}}
+Authorization: Bearer {{token}}
+
+### 12. Cierres con diferencia pendientes de revisión y revisión del supervisor
+GET {{api}}/cash/sessions?pendingReview=true
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/cash/sessions/{{session.response.body.id}}/review
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "note": "Se descuenta al cajero según el reglamento" }

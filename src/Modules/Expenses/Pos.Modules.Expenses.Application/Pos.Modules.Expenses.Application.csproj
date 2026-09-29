@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Expenses · Casos de uso (comandos y consultas) y puertos de persistencia. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Expenses.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Expenses.Domain/Pos.Modules.Expenses.Domain.csproj" />
+    <ProjectReference Include="../Pos.Modules.Expenses.Contracts/Pos.Modules.Expenses.Contracts.csproj" />
+    <ProjectReference Include="../../Cash/Pos.Modules.Cash.Contracts/Pos.Modules.Cash.Contracts.csproj" />
+    <ProjectReference Include="../../Parties/Pos.Modules.Parties.Contracts/Pos.Modules.Parties.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Modules.Expenses.UnitTests" />
+  </ItemGroup>
+</Project>

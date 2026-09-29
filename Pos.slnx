@@ -50,6 +50,11 @@
     <Project Path="src/Modules/Purchasing/Pos.Modules.Purchasing.Application/Pos.Modules.Purchasing.Application.csproj" />
     <Project Path="src/Modules/Purchasing/Pos.Modules.Purchasing.Infrastructure/Pos.Modules.Purchasing.Infrastructure.csproj" />
     <Project Path="src/Modules/Purchasing/Pos.Modules.Purchasing.Api/Pos.Modules.Purchasing.Api.csproj" />
+    <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Domain/Pos.Modules.Expenses.Domain.csproj" />
+    <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Contracts/Pos.Modules.Expenses.Contracts.csproj" />
+    <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Application/Pos.Modules.Expenses.Application.csproj" />
+    <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Infrastructure/Pos.Modules.Expenses.Infrastructure.csproj" />
+    <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Api/Pos.Modules.Expenses.Api.csproj" />
   </Folder>
   <Folder Name="/src/Server/">
     <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />
@@ -61,6 +66,7 @@
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Catalog.UnitTests/Pos.Modules.Catalog.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Expenses.UnitTests/Pos.Modules.Expenses.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Inventory.UnitTests/Pos.Modules.Inventory.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Organization.UnitTests/Pos.Modules.Organization.UnitTests.csproj" />

@@ -39,6 +39,11 @@ public sealed record AuditLogPage(IReadOnlyList<AuditLogEntryDto> Items, int Pag
 /// <summary>Hallazgo de la verificación.</summary>
 public sealed record AuditFindingDto(string Kind, Guid NodeId, long? SealNo, long? Seq, string Message);
 
+/// <summary>
+/// Comprobación del sello impreso en un reporte Z: el código corresponde al sello del nodo y la bitácora está íntegra.
+/// </summary>
+public sealed record AuditSealCheckDto(long SealNo, bool Exists, bool CodeMatches, bool AuditIsValid, DateTimeOffset? SealedAt);
+
 /// <summary>Resultado de la verificación de integridad.</summary>
 public sealed record AuditVerificationDto(
     bool IsValid,

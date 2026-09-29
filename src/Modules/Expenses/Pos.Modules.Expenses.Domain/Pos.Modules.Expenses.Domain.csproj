@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Expenses · Dominio puro: gastos y sus categorías. Solo depende del SharedKernel. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Expenses.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.SharedKernel/Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

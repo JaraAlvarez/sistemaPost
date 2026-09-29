@@ -17,7 +17,8 @@ using Pos.Server.Migrations;
 //   Pos.Server.Migrator migrate  [--connection "<cadena pos_migrator>"]
 //   Pos.Server.Migrator status   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify   [--connection "<cadena>"]
-//   Pos.Server.Migrator verify-audit [--connection "<cadena>"]   (filas, sellos y cadena de la auditoría)
+//   Pos.Server.Migrator verify-audit [--seal <n> --code <XXXX-XXXX-XXXX-XXXX>] [--connection "<cadena>"]
+//                                    (filas, sellos y cadena de la auditoría; con --seal, además el sello impreso en un Z)
 //   Pos.Server.Migrator reset-owner --username <usuario> [--connection "<cadena pos_migrator>"]
 //                       Recuperación de emergencia del Propietario: contraseña temporal, auditoría crítica.
 //   Pos.Server.Migrator verify-stock [--connection "<cadena>"]   (saldos de inventario contra el kardex)
@@ -99,6 +100,29 @@ try
                 }
 
                 Console.WriteLine(audit.IsValid ? "Auditoría íntegra." : "LA AUDITORÍA TIENE HALLAZGOS.");
+                if (options.TryGetValue("seal", out var sealText) && long.TryParse(sealText, System.Globalization.CultureInfo.InvariantCulture, out var sealNo))
+                {
+                    var nodes = new List<Guid>();
+                    await using (var command = dataSource.CreateCommand("SELECT DISTINCT node_id FROM audit.audit_seals WHERE seal_no = $1"))
+                    {
+                        command.Parameters.AddWithValue(sealNo);
+                        await using var reader = await command.ExecuteReaderAsync();
+                        while (await reader.ReadAsync())
+                        {
+                            nodes.Add(reader.GetGuid(0));
+                        }
+                    }
+
+                    var matches = false;
+                    foreach (var node in nodes)
+                    {
+                        matches |= (await new AuditVerifier(dataSource).CheckSealCodeAsync(node, sealNo, options.GetValueOrDefault("code") ?? string.Empty))?.Matches == true;
+                    }
+
+                    Console.WriteLine(matches ? $"El sello #{sealNo} impreso coincide con la bitácora." : $"EL SELLO #{sealNo} IMPRESO NO COINCIDE.");
+                    return audit.IsValid && matches ? 0 : 4;
+                }
+
                 return audit.IsValid ? 0 : 4;
             }
 

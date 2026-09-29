@@ -657,6 +657,11 @@ authorization_id
 
 ### H.9 `cash` — Caja
 
+> Implementado en la Fase 6 (`V2026.10.014`, ADR-0027 a 0029) con cambios: `cash_movements` de solo inserción con `line_no` por
+> jornada, dirección fijada por el tipo y `authorized_by`; jornadas con fecha de negocio, arqueo ciego, cierre por supervisor,
+> revisión y sello del Z (`z_seal_no`, `z_seal_code`); índices únicos parciales (una jornada sin cerrar por caja y por cajero);
+> totales por medio en `cash_session_totals`. Gastos en el esquema `expenses` (`V2026.10.015`).
+
 **cash.denominations** — `currency_code, value numeric(19,4), kind CK IN ('BILL','COIN'), status`
 
 **cash.cash_sessions** (jornada de caja)

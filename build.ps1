@@ -34,6 +34,7 @@ $coverageThresholds = @{
     'Pos.Modules.Parties.Domain'      = 90
     'Pos.Modules.Cash.Domain'         = 90
     'Pos.Modules.Purchasing.Domain'   = 90
+    'Pos.Modules.Expenses.Domain'     = 90
     'Pos.Infrastructure'              = 85
     'Pos.Server.Migrations'           = 85
 }

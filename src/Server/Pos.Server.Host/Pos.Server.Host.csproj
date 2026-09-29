@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\Modules\Parties\Pos.Modules.Parties.Api\Pos.Modules.Parties.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Cash\Pos.Modules.Cash.Api\Pos.Modules.Cash.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Purchasing\Pos.Modules.Purchasing.Api\Pos.Modules.Purchasing.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Expenses\Pos.Modules.Expenses.Api\Pos.Modules.Expenses.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Organization\Pos.Modules.Organization.Api\Pos.Modules.Organization.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Api\Pos.Modules.Reference.Api.csproj" />
     <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />

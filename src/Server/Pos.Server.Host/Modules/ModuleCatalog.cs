@@ -2,6 +2,7 @@ using Pos.Api.Abstractions;
 using Pos.Modules.Audit.Api;
 using Pos.Modules.Cash.Api;
 using Pos.Modules.Catalog.Api;
+using Pos.Modules.Expenses.Api;
 using Pos.Modules.Identity.Api;
 using Pos.Modules.Inventory.Api;
 using Pos.Modules.Organization.Api;
@@ -29,5 +30,6 @@ internal static class ModuleCatalog
         new PartiesModule(),
         new CashModule(),
         new PurchasingModule(),
+        new ExpensesModule(),
     ];
 }

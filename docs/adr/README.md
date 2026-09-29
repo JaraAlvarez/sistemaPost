@@ -31,3 +31,6 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0024](0024-costo-neto-de-compra.md) | Costo neto de entrada de las compras | Aceptada | 2026-09-28 |
 | [0025](0025-lotes-solo-con-cantidades-y-fefo.md) | Lotes solo con cantidades y salidas FEFO | Aceptada | 2026-09-28 |
 | [0026](0026-cartera-por-pagar-como-libro.md) | Cuentas por pagar como libro de asientos | Aceptada | 2026-09-28 |
+| [0027](0027-movimientos-de-caja-de-solo-insercion.md) | Movimientos de caja de solo inserción y esperado calculado | Aceptada | 2026-09-29 |
+| [0028](0028-fecha-de-negocio-y-cierre-definitivo.md) | Fecha de negocio de la jornada y cierre definitivo | Aceptada | 2026-09-29 |
+| [0029](0029-sello-de-auditoria-en-el-reporte-z.md) | Sello de la auditoría en el reporte Z | Aceptada | 2026-09-29 |

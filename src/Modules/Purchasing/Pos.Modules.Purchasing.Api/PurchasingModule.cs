@@ -124,8 +124,8 @@ public sealed class PurchasingModule : IModule
                 (await d.Send(new UpdatePurchaseCommand(purchaseId, r), ct)).ToHttpResult())
             .RequirePermission(PurchasingPermissions.PurchaseManage)
             .WithSummary("Reemplaza encabezado, líneas, cargos y retenciones del borrador (recalcula el costeo)");
-        group.MapPost("/{purchaseId:guid}/post", async (Guid purchaseId, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new PostPurchaseCommand(purchaseId), ct)).ToHttpResult())
+        group.MapPost("/{purchaseId:guid}/post", async (Guid purchaseId, PostPurchaseRequest? r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new PostPurchaseCommand(purchaseId, r?.CashSessionId), ct)).ToHttpResult())
             .RequirePermission(PurchasingPermissions.PurchasePost)
             .WithSummary("Contabiliza: kardex al costo neto, lotes, cuenta por pagar (y pago si es de contado); devuelve alertas");
         group.MapPost("/{purchaseId:guid}/void", async (Guid purchaseId, ReasonRequest r, IDispatcher d, CancellationToken ct) =>
@@ -198,5 +198,8 @@ public sealed record SupplierProductRequest(Guid ProductId, Guid? PackagingId, s
 public sealed record UpdateOrderRequest(DateOnly OrderDate, DateOnly? ExpectedDate, string? Notes, IReadOnlyList<OrderLineRequest> Lines);
 
 public sealed record ReasonRequest(string Reason);
+
+/// <summary>Compra de contado pagada desde una jornada de caja abierta (opcional).</summary>
+public sealed record PostPurchaseRequest(Guid? CashSessionId);
 
 public sealed record SettleReturnRequest(ReturnSettlement Settlement, string Reference);

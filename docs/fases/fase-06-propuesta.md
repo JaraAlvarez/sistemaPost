@@ -1,6 +1,6 @@
 # Fase 6 · Caja: jornadas, movimientos, arqueos y cierres — Propuesta
 
-> Estado: **APROBADA (2026-09-28)** con todas las recomendaciones de la §15: arqueo ciego por defecto; fecha de negocio = fecha de
+> Estado: **IMPLEMENTADA (2026-09-29)** — ver [informe](fase-06-informe.md). Aprobada el 2026-09-28 con todas las recomendaciones de la §15: arqueo ciego por defecto; fecha de negocio = fecha de
 > apertura; umbral de diferencia $5.000 ⚙️; cambio de cajero = cierre y nueva apertura; medios de pago iniciales Efectivo, Tarjeta
 > débito, Tarjeta crédito, Transferencia, Nequi, Daviplata y Bono; un cajero por caja a la vez; módulo de gastos incluido.
 > Requisitos previos: Fase 5 aprobada (usa sus medios de pago y registra pagos a proveedores desde la caja).

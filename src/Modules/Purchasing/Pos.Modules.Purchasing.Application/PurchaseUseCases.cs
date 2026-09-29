@@ -277,7 +277,8 @@ internal sealed class GetPurchaseHandler(IPurchasingStore store, IPurchasingQuer
 /// precio bajo el costo y de variación de costo. Dos usuarios que contabilizan a la vez: la concurrencia optimista deja
 /// pasar a uno solo.
 /// </summary>
-public sealed record PostPurchaseCommand(Guid PurchaseId) : ICommand<PurchaseDto>;
+/// <remarks>Compra de contado desde la caja (Fase 6): con <c>CashSessionId</c> el pago sale de esa jornada.</remarks>
+public sealed record PostPurchaseCommand(Guid PurchaseId, Guid? CashSessionId = null) : ICommand<PurchaseDto>;
 
 internal sealed class PostPurchaseHandler(
     IPurchasingStore store,
@@ -289,6 +290,7 @@ internal sealed class PostPurchaseHandler(
     IInventoryLots lots,
     ISettingsReader settings,
     IDocumentNumberAllocator numbers,
+    ICashRegister cash,
     IActorContext actor,
     IAuditWriter audit,
     IIdGenerator ids,
@@ -378,9 +380,24 @@ internal sealed class PostPurchaseHandler(
             var number = await numbers.NextForBranchAsync("PAYABLE_PAYMENT", purchase.BranchId, cancellationToken);
             var payment = PayablePayment.Create(
                 ids.NewId(), purchase.CompanyId, purchase.BranchId, purchase.SupplierId, number.Number, purchase.InvoiceDate, method.Id, purchase.PaymentReference,
-                $"Pago de contado de la compra {purchase.Number}", [new AllocationInput(account.Id, account.Balance)], ids.NewId).Value;
+                $"Pago de contado de la compra {purchase.Number}", [new AllocationInput(account.Id, account.Balance)], ids.NewId, request.CashSessionId).Value;
             store.Add(payment);
             account.ApplyPayment(ids.NewId(), payment.Amount, payment.Id, payment.Number, userId, now);
+            if (request.CashSessionId is { } sessionId)
+            {
+                var moved = await cash.RecordOutflowAsync(
+                    new CashOutflowRequest(sessionId, "SUPPLIER_PAYMENT", method.Id, payment.Amount, "PAYABLE_PAYMENT", payment.Id, payment.Number,
+                        $"Compra de contado {purchase.Number} (factura {purchase.SupplierInvoiceNumber})"),
+                    cancellationToken);
+                if (moved.IsFailure)
+                {
+                    return moved.Error;
+                }
+            }
+        }
+        else if (request.CashSessionId is not null)
+        {
+            return Error.Validation("PURCHASING.CASH_SESSION_ONLY_FOR_CASH", "Solo una compra de contado se paga desde la caja.");
         }
 
         var alerts = await UpdateSupplierCostsAndAlertAsync(purchase, supplier.Value, products, context, now, cancellationToken);

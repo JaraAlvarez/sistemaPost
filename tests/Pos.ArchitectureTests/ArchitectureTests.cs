@@ -13,6 +13,8 @@ public class ArchitectureTests
             "Pos.Modules.Cash.Infrastructure",
             "Pos.Modules.Catalog.Api", "Pos.Modules.Catalog.Application", "Pos.Modules.Catalog.Contracts", "Pos.Modules.Catalog.Domain",
             "Pos.Modules.Catalog.Infrastructure",
+            "Pos.Modules.Expenses.Api", "Pos.Modules.Expenses.Application", "Pos.Modules.Expenses.Contracts", "Pos.Modules.Expenses.Domain",
+            "Pos.Modules.Expenses.Infrastructure",
             "Pos.Modules.Identity.Api", "Pos.Modules.Identity.Application", "Pos.Modules.Identity.Contracts",
             "Pos.Modules.Identity.Domain", "Pos.Modules.Identity.Infrastructure",
             "Pos.Modules.Inventory.Api", "Pos.Modules.Inventory.Application", "Pos.Modules.Inventory.Contracts", "Pos.Modules.Inventory.Domain",

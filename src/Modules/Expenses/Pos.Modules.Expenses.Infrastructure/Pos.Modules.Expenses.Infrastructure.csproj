@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Expenses · Persistencia del módulo: mapeo EF Core, consultas y traducción de restricciones. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Expenses.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Expenses.Application/Pos.Modules.Expenses.Application.csproj" />
+  </ItemGroup>
+</Project>

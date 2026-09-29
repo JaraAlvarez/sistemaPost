@@ -22,6 +22,17 @@ public interface IAuditReadModel
     Task<AuditLogPage> SearchAsync(AuditLogFilter filter, CancellationToken cancellationToken);
 
     Task<AuditVerificationDto> VerifyAsync(CancellationToken cancellationToken);
+
+    Task<AuditSealCheckDto> CheckSealAsync(long sealNo, string code, CancellationToken cancellationToken);
+}
+
+/// <summary>¿El sello impreso en un reporte Z (número + código) corresponde a la bitácora de este nodo? (D6-08)</summary>
+public sealed record CheckSealQuery(long SealNo, string Code) : IQuery<AuditSealCheckDto>;
+
+internal sealed class CheckSealHandler(IAuditReadModel read) : IQueryHandler<CheckSealQuery, AuditSealCheckDto>
+{
+    public async Task<Result<AuditSealCheckDto>> Handle(CheckSealQuery request, CancellationToken cancellationToken) =>
+        await read.CheckSealAsync(request.SealNo, request.Code, cancellationToken);
 }
 
 public sealed record SearchAuditLogQuery(

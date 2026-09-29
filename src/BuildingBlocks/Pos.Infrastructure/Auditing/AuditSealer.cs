@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
 using Pos.Infrastructure.Persistence;
 
@@ -42,6 +43,8 @@ public sealed partial class AuditSealer(
 
     private static readonly TimeSpan PartitionCheckInterval = TimeSpan.FromHours(12);
 
+    private readonly SemaphoreSlim _tick = new(1, 1);
+
     private (long SeqTo, DateTimeOffset TakenAt)? _snapshot;
     private DateTimeOffset _lastPartitionCheck = DateTimeOffset.MinValue;
 
@@ -67,6 +70,29 @@ public sealed partial class AuditSealer(
 
     /// <summary>Un ciclo: sella la foto anterior si ya pasó el horizonte y toma una foto nueva.</summary>
     public async Task TickAsync(CancellationToken cancellationToken = default)
+    {
+        // El ciclo lo llaman el temporizador y el sellado a demanda (cierre de caja): nunca a la vez.
+        await _tick.WaitAsync(cancellationToken);
+        try
+        {
+            await TickCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            _tick.Release();
+        }
+    }
+
+    /// <summary>Último sello del nodo (o <c>null</c> si aún no hay).</summary>
+    public async Task<(long SealNo, string SealHash, DateTime SealedAt)?> LastSealAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<(long, string, DateTime)?>(new CommandDefinition(
+            "SELECT seal_no, seal_hash, sealed_at FROM audit.audit_seals WHERE node_id = @nodeId ORDER BY seal_no DESC LIMIT 1",
+            new { nodeId = installation.NodeId }, cancellationToken: cancellationToken));
+    }
+
+    private async Task TickCoreAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         if (now - _lastPartitionCheck >= PartitionCheckInterval)
@@ -160,4 +186,16 @@ public sealed partial class AuditSealer(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Falló el sellado de la auditoría; se reintentará")]
     private static partial void LogSealFailed(ILogger logger, Exception exception);
+}
+
+/// <summary>Sellado a demanda para el reporte Z (<see cref="IAuditAnchor"/>).</summary>
+internal sealed class AuditAnchor(AuditSealer sealer) : IAuditAnchor
+{
+    public async Task<AuditSealInfo?> SealNowAsync(CancellationToken cancellationToken = default)
+    {
+        await sealer.TickAsync(cancellationToken);
+        return await sealer.LastSealAsync(cancellationToken) is { } seal
+            ? new AuditSealInfo(seal.SealNo, AuditHasher.ShortCode(seal.SealHash), new DateTimeOffset(DateTime.SpecifyKind(seal.SealedAt, DateTimeKind.Utc)))
+            : null;
+    }
 }

@@ -32,6 +32,9 @@ public class PosServerFactory : WebApplicationFactory<Program>
     /// <summary>Edición instalada: SINGLE (Caja Única) o MULTI (Multicaja).</summary>
     protected virtual string Edition => "MULTI";
 
+    /// <summary>Configuración adicional de una fábrica derivada.</summary>
+    protected virtual IEnumerable<KeyValuePair<string, string?>> ExtraSettings => [];
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -43,7 +46,7 @@ public class PosServerFactory : WebApplicationFactory<Program>
             ["Pos:Database:Edition"] = Edition,
             ["Pos:Security:LoginPermitsPerMinute"] = "10000",
             ["Pos:Security:PairingPermitsPer15Minutes"] = "10000",
-        }));
+        }).AddInMemoryCollection(ExtraSettings));
         builder.ConfigureServices(services => services.AddSingleton<IStartupFilter, SimulatedNetworkStartupFilter>());
     }
 
@@ -89,4 +92,16 @@ public class PosServerFactory : WebApplicationFactory<Program>
 public sealed class SingleTerminalServerFactory : PosServerFactory
 {
     protected override string Edition => "SINGLE";
+}
+
+/// <summary>Caja Única con el sellado de la auditoría acelerado: el reporte Z lleva un sello real en segundos.</summary>
+public sealed class CashServerFactory : PosServerFactory
+{
+    protected override string Edition => "SINGLE";
+
+    protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
+    [
+        new("Pos:Audit:Interval", "00:00:00.500"),
+        new("Pos:Audit:SafetyHorizon", "00:00:02"),
+    ];
 }

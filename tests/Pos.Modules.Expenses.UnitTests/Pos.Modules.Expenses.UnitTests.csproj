@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas de gastos: categorías de dos niveles, gastos y su anulación. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Expenses\Pos.Modules.Expenses.Domain\Pos.Modules.Expenses.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Expenses\Pos.Modules.Expenses.Application\Pos.Modules.Expenses.Application.csproj" />
+  </ItemGroup>
+</Project>

@@ -107,6 +107,10 @@
 
 ### RN-CSH — Caja
 
+> Implementadas en la Fase 6 ([informe](fases/fase-06-informe.md), ADR-0027 y 0028). RN-CSH-05: `cash.difference_threshold`
+> ($5.000). RN-CSH-06/07: retiro y apertura sin venta con permiso o autorización de supervisor de un solo uso (`authorized_by`).
+> RN-SEC-07 completa: no se desactiva un usuario con jornada sin cerrar (`IDENTITY.USER_HAS_OPEN_SESSION`).
+
 | Código | Regla |
 |---|---|
 | RN-CSH-01 | Una caja tiene como máximo una jornada no cerrada. Un cajero tiene como máximo una jornada abierta ⚙️. |
