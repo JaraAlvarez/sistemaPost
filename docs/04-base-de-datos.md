@@ -5,6 +5,12 @@
 
 ## F. Arquitectura de la base de datos
 
+> **Actualización Fase 2 (implementada).** El esquema real de `system`, `ref`, `org`, `identity` y `audit` está en
+> `src/Server/Pos.Server.Migrations/Scripts` y en la [propuesta de la Fase 2 (v2)](fases/fase-02-propuesta.md), que
+> prevalecen sobre este documento. Cambios principales: esquema `ref` (tipos de identificación, DIVIPOLA),
+> `org.nodes`, bodegas únicas por sucursal, `system.document_series` (numeración interna, ADR-0013), auditoría con
+> sellado por nodo (ADR-0012), `row_version` en maestros sincronizables, outbox con `node_seq` e inbox (ADR-0014).
+
 ### Principios
 
 1. **Normalizada (3FN)** en datos maestros; **desnormalización controlada** solo en: snapshots de documentos (por diseño legal/histórico) y saldos de inventario (derivados del kardex, siempre reconstruibles).

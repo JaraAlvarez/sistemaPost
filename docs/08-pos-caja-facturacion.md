@@ -198,4 +198,9 @@ public interface IFiscalProvider
 - Cambiar de proveedor = escribir un adaptador; ventas, caja e inventario no cambian.
 - **Contingencia**: sin conexión, el documento se numera y se entrega al cliente con su numeración y leyenda de contingencia según norma ⚙️; se transmite al restablecer la conexión.
 
+> **Actualización Fase 2 (decisión del propietario):** el proveedor tecnológico será **Factus**, que asigna el número
+> fiscal y el CUFE **en línea**. La venta se completa con su número interno y el documento fiscal queda `PENDING` sin
+> número hasta que haya conexión (ADR-0013, revisión §10.3). Pendiente de validar con Factus y el contador antes de la
+> Fase 7: documento equivalente POS, costo por volumen y tratamiento legal de la venta sin Internet.
+
 > ⚠️ Ver **doc 12, riesgo R-01**: en Colombia el tiquete POS debe ser *documento equivalente electrónico* (DIAN). Esto afecta el alcance del plan Básico y el orden de las fases.

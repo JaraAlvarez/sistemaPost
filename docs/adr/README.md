@@ -14,3 +14,9 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0007](0007-idioma-del-codigo.md) | Código en inglés; documentación y UI en español | Aceptada | 2026-09-28 |
 | [0008](0008-colombia-pais-inicial.md) | Colombia como país inicial | Aceptada | 2026-09-28 |
 | [0009](0009-pruebas-microsoft-testing-platform.md) | xUnit v3 sobre Microsoft Testing Platform; reglas de arquitectura propias | Aceptada | 2026-09-28 |
+| [0010](0010-migraciones-sql-first.md) | Migraciones SQL-first con migrador propio | Aceptada | 2026-09-28 |
+| [0011](0011-colacion-builtin.md) | Colación `builtin C.UTF-8` y orden español explícito | Aceptada | 2026-09-28 |
+| [0012](0012-auditoria-por-nodo.md) | Auditoría con sellado por nodo, horizonte seguro y anclas externas | Aceptada | 2026-09-28 |
+| [0013](0013-numeracion-interna-vs-fiscal.md) | Numeración interna separada de la fiscal | Aceptada | 2026-09-28 |
+| [0014](0014-nodos-y-propiedad-de-datos.md) | Nodos, propiedad de datos y convenciones de sincronización | Aceptada | 2026-09-28 |
+| [0015](0015-ediciones-caja-unica-multicaja.md) | Ediciones Caja Única y Multicaja como única diferencia comercial | Aceptada | 2026-09-28 |

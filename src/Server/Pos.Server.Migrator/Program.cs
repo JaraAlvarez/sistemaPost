@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using Pos.Infrastructure.Auditing;
 using Pos.Server.Migrations;
 
 // Uso:
@@ -9,8 +11,10 @@ using Pos.Server.Migrations;
 //   Pos.Server.Migrator migrate  [--connection "<cadena pos_migrator>"]
 //   Pos.Server.Migrator status   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify   [--connection "<cadena>"]
+//   Pos.Server.Migrator verify-audit [--connection "<cadena>"]   (filas, sellos y cadena de la auditoría)
 // Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION.
-// Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes.
+// Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
+//                    4 = la auditoría tiene hallazgos (posible manipulación).
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole(o => o.SingleLine = true));
 var logger = loggerFactory.CreateLogger<DatabaseMigrator>();
@@ -19,7 +23,7 @@ var appVersion = Assembly.GetExecutingAssembly()
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify");
+    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit");
     return 2;
 }
 
@@ -71,6 +75,21 @@ try
             await migrator.VerifyAsync(Connection(options));
             Console.WriteLine("Esquema verificado: checksums correctos y sin migraciones pendientes.");
             return 0;
+
+        case "verify-audit":
+            await using (var dataSource = NpgsqlDataSource.Create(Connection(options)))
+            {
+                var audit = await new AuditVerifier(dataSource).VerifyAsync();
+                Console.WriteLine($"Nodos: {audit.NodesChecked} · sellos: {audit.SealsChecked} · filas: {audit.RowsChecked} (sin sellar: {audit.UnsealedRows})");
+                Console.WriteLine($"Último sello: {audit.LastSealShortCode ?? "(ninguno)"}");
+                foreach (var finding in audit.Findings)
+                {
+                    Console.WriteLine($"  {finding.Kind}: {finding.Message}");
+                }
+
+                Console.WriteLine(audit.IsValid ? "Auditoría íntegra." : "LA AUDITORÍA TIENE HALLAZGOS.");
+                return audit.IsValid ? 0 : 4;
+            }
 
         default:
             Console.Error.WriteLine($"Comando desconocido: {args[0]}");

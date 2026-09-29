@@ -4,6 +4,11 @@
 
 ## O. Estrategia de funcionamiento offline
 
+> **Actualización Fase 2 (decisiones del propietario):** cada venta sube a la nube en cuanto hay Internet; si un día no
+> hubo conexión, la tienda exporta un **paquete `.possync`** (solo los eventos pendientes, cifrado) y se carga en el
+> portal web desde otro equipo; el portal también permite editar maestros y descargar los cambios para la tienda. El
+> **backup en la nube** se agrega como destino de la sección P. Ver [revisión §9–§10](fases/fase-02-revision-arquitectonica.md) y ADR-0014.
+
 El sistema es **local-first**: la tienda es autónoma. Analizamos cada falla posible:
 
 | Escenario | Impacto en ventas | Comportamiento |

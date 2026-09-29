@@ -119,5 +119,5 @@ Responde: **quién** (usuario + sesión + equipo + IP), **cuándo** (UTC, mostra
 ### Garantías
 
 - Se escribe en la **misma transacción** que el cambio: si el cambio se guarda, la auditoría también; si falla, ninguno.
-- Append-only por permisos de BD + **cadena de hash** verificable (detección de manipulación directa en la BD).
+- Append-only por permisos de BD + triggers, con **sellado por lotes por nodo** y anclas externas (ADR-0012, reemplaza la cadena fila a fila): detecta filas alteradas, borradas o insertadas en rangos sellados.
 - Consultas: historial de una entidad, actividad de un usuario, acciones por tipo y fecha, reporte antifraude.

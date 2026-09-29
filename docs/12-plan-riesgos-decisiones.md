@@ -4,6 +4,11 @@
 
 ## S. Plan de desarrollo por fases
 
+> **Actualización Fase 2:** se agrega la fase **"Sincronización y portal web"** (nube multiempresa, sincronización en
+> vivo, paquetes `.possync`, portal con consultas, edición de maestros y bandeja de conflictos), después de POS y ventas
+> y junto a la infraestructura en la nube del servidor de licencias. Ediciones Caja Única / Multicaja (ADR-0015);
+> facturación con Factus (ADR-0013).
+
 Respeto tu lista de 15 fases, con **cuatro ajustes** que evitan retrabajo (marcados ⚠️):
 
 | # | Fase | Contenido | Entregable verificable (sin UI) |

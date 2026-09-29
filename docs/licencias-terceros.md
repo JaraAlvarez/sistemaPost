@@ -13,6 +13,13 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD o PostgreSQL**. Toda
 | Serilog.AspNetCore (incluye Sinks.File, Sinks.Console, Formatting.Compact, Settings.Configuration) | 10.0.0 | Apache-2.0 | Logs |
 | Scalar.AspNetCore | 2.17.10 | MIT | Interfaz de la documentación de la API (solo desarrollo) |
 | PostgreSQL *(desde la Fase 2)* | 18 | PostgreSQL License | Base de datos |
+| Npgsql | 10.0.3 | PostgreSQL License | Conector de PostgreSQL |
+| Npgsql.EntityFrameworkCore.PostgreSQL | 10.0.3 | PostgreSQL License | Proveedor de EF Core |
+| Microsoft.EntityFrameworkCore.Relational | 10.0.12 | MIT | Persistencia (EF Core) |
+| EFCore.NamingConventions | 10.0.1 | Apache-2.0 | Nombres `snake_case` en el mapeo |
+| Dapper | 2.1.89 | Apache-2.0 | Lecturas y SQL directo (numeración, sellado, reportes) |
+| System.Security.Cryptography.ProtectedData | 10.0.12 | MIT | Secretos de la instalación con DPAPI |
+| Datos DIVIPOLA (DANE, datos.gov.co) | 2026-09-28 | Datos abiertos del Gobierno de Colombia | Catálogo de departamentos y municipios |
 
 ## Solo desarrollo y pruebas (no se distribuyen)
 
@@ -22,6 +29,8 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD o PostgreSQL**. Toda
 | Shouldly | 4.3.0 | BSD-3-Clause |
 | coverlet.MTP | 10.1.0 | MIT |
 | Microsoft.AspNetCore.Mvc.Testing | 10.0.12 | MIT |
+| Testcontainers.PostgreSql | 4.15.0 | MIT |
+| Imagen Docker `postgres:18` (desarrollo y pruebas) | 18 | PostgreSQL License |
 
 ## Descartadas por licencia
 

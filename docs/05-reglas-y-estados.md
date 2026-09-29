@@ -15,7 +15,7 @@
 | RN-GEN-03 | Todo documento almacena **snapshot** de los datos que lo definen (nombre, precio, impuestos, costo, cliente). Cambiar un producto nunca altera documentos históricos. |
 | RN-GEN-04 | Toda modificación de maestros relevantes (precio, costo, impuesto, usuario, permisos, configuración) genera auditoría con valor anterior y nuevo. |
 | RN-GEN-05 | Toda acción sensible exige permiso; si el usuario no lo tiene, puede autorizarla un supervisor (queda registrado quién autorizó). |
-| RN-GEN-06 | Los números de documento son consecutivos por serie, asignados al contabilizar, nunca reutilizados ni recalculados. |
+| RN-GEN-06 | *(Redacción v2, Fase 2 — ADR-0013)* **Fiscal:** consecutivo y sin repetir dentro del rango autorizado (lo asigna el proveedor de facturación electrónica). **Interno:** único por serie, asignado al contabilizar dentro de la transacción del documento, nunca reutilizado ni recalculado; sin huecos en operación normal y con **huecos justificados** (evento `NUMBERING_GAP`) solo ante restauraciones o pérdida de una caja autónoma. |
 | RN-GEN-07 | Todo importe se calcula con decimales exactos; el redondeo se aplica en puntos definidos (línea → impuesto por línea → total) y cualquier diferencia de redondeo se registra explícitamente. |
 | RN-GEN-08 | Las fechas se guardan en UTC; los documentos operativos tienen además `business_date` = fecha de la jornada de caja (o del día contable). |
 | RN-GEN-09 | Una operación crítica repetida con la misma clave de idempotencia devuelve el mismo resultado sin duplicar efectos. |
@@ -138,7 +138,7 @@
 |---|---|
 | RN-LIC-01 | La pérdida de conexión con el servidor de licencias **nunca** interrumpe ventas mientras el token firmado local esté vigente o en periodo de gracia. |
 | RN-LIC-02 | Una restricción por licencia **nunca** afecta a una venta en curso ni a una jornada ya abierta: se aplica al intentar abrir una nueva jornada. |
-| RN-LIC-03 | El número de cajas con jornada abierta simultánea ≤ límite del plan. |
+| RN-LIC-03 | *(Redacción v2, Fase 2 — ADR-0015)* Sin límite de cajas. La edición **Caja Única** admite exactamente una caja (`LICENSE.EDITION_SINGLE_TERMINAL`); la edición **Multicaja**, cajas y equipos administrativos ilimitados. |
 | RN-LIC-04 | Con licencia vencida/restringida siempre se permite: consultar, reportar, exportar, respaldar y restaurar datos. Los datos son del cliente. |
 | RN-LIC-05 | Un retroceso del reloj del sistema mayor a la tolerancia ⚙️ (24 h) respecto al máximo observado exige verificación en línea. |
 

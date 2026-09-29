@@ -22,7 +22,7 @@
 | Fase | Documentos | Estado |
 |---|---|---|
 | 1 · Arquitectura general | [propuesta](fases/fase-01-propuesta.md) · [informe](fases/fase-01-informe.md) | Implementada — pendiente de validar el Servicio de Windows |
-| 2 · Arquitectura de datos y núcleo organizacional | [propuesta](fases/fase-02-propuesta.md) | Propuesta — pendiente de revisión |
+| 2 · Arquitectura de datos y núcleo organizacional | [revisión](fases/fase-02-revision-arquitectonica.md) · [propuesta v2](fases/fase-02-propuesta.md) · [informe](fases/fase-02-informe.md) | Implementada — pendiente de tu validación |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
 

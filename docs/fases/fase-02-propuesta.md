@@ -1,6 +1,6 @@
 # Fase 2 · Arquitectura de datos y núcleo organizacional — Propuesta
 
-> Estado: **PROPUESTA v2 — incorpora la [revisión arquitectónica](fase-02-revision-arquitectonica.md) (cambios P1–P9) y las decisiones del propietario del 2026-09-28. Pendiente de aprobación explícita para implementar.**
+> Estado: **APROBADA e IMPLEMENTADA (2026-09-28)** — ver el [informe de la fase](fase-02-informe.md). Incorpora la [revisión arquitectónica](fase-02-revision-arquitectonica.md) (cambios P1–P9) y las decisiones del propietario.
 > Requisito previo: validación de la Fase 1 (`tools/scripts/service-smoke-test.ps1`).
 >
 > **Cambios de la v2:** BD por **nodo** y registro `org.nodes` · asistente con dos modos · bodegas únicas por sucursal · numeración interna separada de la fiscal (Factus asigna el número fiscal) · auditoría por nodo con horizonte seguro y anclas · reglas de configuración · convenciones de sincronización con la nube (`row_version`, outbox con consecutivo por nodo, inbox) · ediciones **Caja Única / Multicaja** sin límite de cajas.

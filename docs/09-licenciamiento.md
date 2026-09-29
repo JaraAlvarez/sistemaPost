@@ -71,6 +71,10 @@ erDiagram
 
 ## Planes (ejemplo configurable, no fijado en código)
 
+> **Reemplazado en la Fase 2 (ADR-0015):** no habrá planes por módulos ni límite de cajas. La única diferencia
+> comercial es la **edición**: Caja Única (un equipo) o Multicaja (cajas y equipos ilimitados). El token de licencia
+> llevará `edition`, vigencia y dispositivos. La tabla siguiente queda como referencia histórica.
+
 | Feature / límite | Básico | Profesional | Empresarial |
 |---|---|---|---|
 | `max_terminals` | 1 | 3 | ilimitado (o por contrato) |

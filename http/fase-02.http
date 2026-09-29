@@ -1,0 +1,135 @@
+# Fase 2 · Verificación de la base de datos, la organización, la configuración y la auditoría (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes:
+#   1. Docker Desktop encendido.
+#   2. powershell -File tools/scripts/dev-db.ps1          (PostgreSQL 18 de desarrollo + migraciones)
+#      (para empezar de cero: dev-db.ps1 -Reset)
+#   3. dotnet run --project src/Server/Pos.Server.Host    (en desarrollo migra al arrancar; edición MULTI)
+# Documentación interactiva: http://localhost:5480/scalar/v1
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. La BD está lista y con la versión de esquema esperada
+GET {{host}}/health/ready
+
+### 2. Estado del asistente inicial y edición instalada
+GET {{api}}/setup/status
+
+### 3. Catálogos que usa el asistente (búsqueda sin tildes)
+GET {{api}}/reference/municipalities?search=medellin
+
+###
+GET {{api}}/reference/identification-types
+
+### 4. Asistente inicial: empresa + sucursal + 3 bodegas + caja + series + roles + usuario system + nodo (una transacción)
+# @name setup
+POST {{api}}/setup
+Content-Type: application/json
+
+{
+  "company": {
+    "legalName": "Supermercado La Economía SAS",
+    "tradeName": "La Economía",
+    "personType": "Legal",
+    "identificationType": "NIT",
+    "identificationNumber": "900123456",
+    "checkDigit": "8",
+    "taxRegime": "48",
+    "fiscalResponsibilities": ["O-15", "R-99-PN"],
+    "municipalityCode": "05001",
+    "address": "Calle 50 # 45-20",
+    "phone": "6045551234",
+    "email": "contacto@laeconomia.co"
+  },
+  "branch": { "code": "S01", "name": "Centro", "municipalityCode": "05001", "address": "Calle 50 # 45-20" },
+  "terminal": { "code": "C01", "name": "Caja 1" }
+}
+
+### 5. Repetir el asistente → 409 SETUP.ALREADY_COMPLETED
+POST {{api}}/setup
+Content-Type: application/json
+
+{ "company": { "legalName": "x", "tradeName": "x", "personType": "Legal", "identificationType": "NIT", "identificationNumber": "800197268", "checkDigit": "4", "taxRegime": "48", "fiscalResponsibilities": [], "municipalityCode": "05001", "address": "x" },
+  "branch": { "code": "S01", "name": "x", "municipalityCode": "05001", "address": "x" } }
+
+### 6. Empresa
+GET {{api}}/organization/company
+
+### 7. Sucursal con sus bodegas y cajas
+GET {{api}}/organization/branches/{{setup.response.body.branchId}}
+
+### 8. Segunda caja (Multicaja: permitido; en Caja Única → 409 LICENSE.EDITION_SINGLE_TERMINAL)
+POST {{api}}/organization/branches/{{setup.response.body.branchId}}/terminals
+Content-Type: application/json
+
+{ "code": "C02", "name": "Caja 2" }
+
+### 9. Caja con código repetido → 409 ORGANIZATION.TERMINAL_CODE_DUPLICATED
+POST {{api}}/organization/branches/{{setup.response.body.branchId}}/terminals
+Content-Type: application/json
+
+{ "code": "C02", "name": "Otra" }
+
+### 10. Bodega de averías que vende → 422 ORGANIZATION.WAREHOUSE_KIND_CANNOT_SELL
+POST {{api}}/organization/branches/{{setup.response.body.branchId}}/warehouses
+Content-Type: application/json
+
+{ "code": "AVE2", "name": "Averías 2", "kind": "Damaged", "allowsSales": true }
+
+### 11. Nueva sucursal: nace con Piso de venta, Averías y En tránsito, y sus series S02
+POST {{api}}/organization/branches
+Content-Type: application/json
+
+{ "code": "S02", "name": "Norte", "municipalityCode": "11001", "address": "Carrera 7 # 72-10" }
+
+### 12. Inactivar la sucursal de esta instalación → 422 ORGANIZATION.HOME_BRANCH
+POST {{api}}/organization/branches/{{setup.response.body.branchId}}/deactivate
+
+### 13. Configuración: valores efectivos de la caja C01 con su origen
+GET {{api}}/settings?terminalId={{setup.response.body.posTerminalId}}
+
+### 14. Excepciones en tres niveles (empresa → sucursal → caja)
+PUT {{api}}/settings/documents.receipt_footer_message
+Content-Type: application/json
+
+{ "scope": "Company", "value": "Gracias por comprar en La Economía" }
+
+###
+PUT {{api}}/settings/documents.receipt_footer_message
+Content-Type: application/json
+
+{ "scope": "Branch", "scopeId": "{{setup.response.body.branchId}}", "value": "Sucursal Centro · abierta hasta las 9 p. m." }
+
+###
+PUT {{api}}/settings/documents.receipt_footer_message
+Content-Type: application/json
+
+{ "scope": "Terminal", "scopeId": "{{setup.response.body.posTerminalId}}", "value": "Caja rápida · máx. 10 artículos" }
+
+### 15. La caja obtiene SU valor (source = Terminal; inheritedValue = el de la sucursal)
+GET {{api}}/settings?terminalId={{setup.response.body.posTerminalId}}
+
+### 16. Eliminar la excepción de la caja: vuelve a heredar de la sucursal
+DELETE {{api}}/settings/documents.receipt_footer_message?scope=Terminal&scopeId={{setup.response.body.posTerminalId}}
+
+### 17. Alcance no permitido → 422 SETTINGS.SCOPE_NOT_ALLOWED (el redondeo del efectivo no se define por caja)
+PUT {{api}}/settings/finance.cash_increment
+Content-Type: application/json
+
+{ "scope": "Terminal", "scopeId": "{{setup.response.body.posTerminalId}}", "value": 100 }
+
+### 18. Roles de sistema y catálogo de permisos
+GET {{api}}/identity/roles
+
+###
+GET {{api}}/identity/permissions
+
+### 19. Bitácora de auditoría (todo lo anterior quedó registrado con antes/después)
+GET {{api}}/audit/logs?pageSize=50
+
+### 20. Historial de un registro
+GET {{api}}/audit/logs?entityId={{setup.response.body.branchId}}
+
+### 21. Verificación de integridad (filas, sellos y cadena). El sellado ocurre cada 60 s + 45 s de horizonte.
+POST {{api}}/audit/verify
