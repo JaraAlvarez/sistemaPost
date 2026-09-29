@@ -18,6 +18,7 @@ namespace Pos.Server.IntegrationTests.Phase7;
 /// en paralelo, con pagos mixtos, anulaciones autorizadas y cambios de mercancía; dos cajas compiten por la última unidad; al
 /// cerrar, lo vendido por medio de pago cuadra al centavo con la caja y el kardex no tiene diferencias.
 /// </summary>
+[Collection(PerformanceCollection.Name)]
 public class DayOfOperationTests
 {
     /// <summary>Ventas del día (repartidas entre las cajas). Si la prueba se volviera lenta (&gt; 5 min), bajar aquí.</summary>
