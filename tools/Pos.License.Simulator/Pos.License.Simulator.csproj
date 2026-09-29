@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Simulador de POS (Fase 12-A): biblioteca + consola que se comporta como un POS frente al servidor de licencias (activar con
+       la clave y la huella, check-in, recibir suspensión o renovación, liberar el equipo) y verifica CADA token con las claves
+       públicas usando SOLO el contrato compartido (Pos.Licensing.Contracts), igual que lo hará el POS en la Fase 12-B. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Pos.License.Simulator</RootNamespace>
+    <AssemblyName>Pos.License.Simulator</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\Pos.Licensing.Contracts\Pos.Licensing.Contracts.csproj" />
+  </ItemGroup>
+</Project>

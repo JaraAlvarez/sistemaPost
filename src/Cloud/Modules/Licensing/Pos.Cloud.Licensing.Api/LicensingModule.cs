@@ -23,8 +23,9 @@ public sealed class LicensingModule : IModule
 
     public void Register(IServiceCollection services, IConfiguration configuration)
     {
-        var options = configuration.GetSection(LicensingOptions.SectionName).Get<LicensingOptions>() ?? new LicensingOptions();
-        LicensingInfrastructureRegistration.Register(services, options);
+        // Se lee al resolver (no al registrar): así vale la configuración FINAL del host (variables, secretos, pruebas).
+        var section = configuration.GetSection(LicensingOptions.SectionName);
+        LicensingInfrastructureRegistration.Register(services, _ => section.Get<LicensingOptions>() ?? new LicensingOptions());
     }
 
     public void MapEndpoints(IEndpointRouteBuilder api)

@@ -26,8 +26,9 @@ public sealed class PortalIdentityModule : IModule
 
     public void Register(IServiceCollection services, IConfiguration configuration)
     {
-        var options = configuration.GetSection(PortalIdentityOptions.SectionName).Get<PortalIdentityOptions>() ?? new PortalIdentityOptions();
-        PortalIdentityInfrastructureRegistration.Register(services, options);
+        // Se lee al resolver (no al registrar): así vale la configuración FINAL del host.
+        var section = configuration.GetSection(PortalIdentityOptions.SectionName);
+        PortalIdentityInfrastructureRegistration.Register(services, _ => section.Get<PortalIdentityOptions>() ?? new PortalIdentityOptions());
     }
 
     public void MapEndpoints(IEndpointRouteBuilder api)

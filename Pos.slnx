@@ -97,8 +97,13 @@
   <Folder Name="/src/Terminal/">
     <Project Path="src/Terminal/Pos.Terminal.Agent/Pos.Terminal.Agent.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Pos.License.Simulator/Pos.License.Simulator.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
+    <Project Path="tests/Pos.Cloud.Database.Tests/Pos.Cloud.Database.Tests.csproj" />
+    <Project Path="tests/Pos.Cloud.IntegrationTests/Pos.Cloud.IntegrationTests.csproj" />
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Pos.Licensing.Contracts.UnitTests/Pos.Licensing.Contracts.UnitTests.csproj" />

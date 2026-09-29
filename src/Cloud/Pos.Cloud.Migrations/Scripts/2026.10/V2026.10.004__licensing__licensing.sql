@@ -37,9 +37,11 @@ CREATE TABLE licensing.accounts (
 );
 
 CREATE INDEX ix_accounts__parent ON licensing.accounts (parent_account_id) WHERE parent_account_id IS NOT NULL;
+CREATE INDEX ix_accounts__created_by ON licensing.accounts (created_by);
 
 ALTER TABLE portal.portal_users
     ADD CONSTRAINT fk_portal_users__reseller_account FOREIGN KEY (reseller_account_id) REFERENCES licensing.accounts (id);
+CREATE INDEX ix_portal_users__reseller_account ON portal.portal_users (reseller_account_id) WHERE reseller_account_id IS NOT NULL;
 
 -- -----------------------------------------------------------------------------------------------------
 -- Empresas licenciadas: la licencia es de la razón social (NIT con DV), única en todo el servidor.
@@ -127,6 +129,7 @@ CREATE TABLE licensing.subscription_events (
 );
 
 CREATE INDEX ix_subscription_events__subscription ON licensing.subscription_events (subscription_id, occurred_at);
+CREATE INDEX ix_subscription_events__actor ON licensing.subscription_events (actor_id);
 
 -- -----------------------------------------------------------------------------------------------------
 -- Licencias: la clave se guarda como SHA-256 + prefijo visible (L-06). Una sola licencia vigente por empresa;
@@ -165,6 +168,8 @@ CREATE TABLE licensing.licenses (
 
 CREATE UNIQUE INDEX ux_licenses__organization_active ON licensing.licenses (organization_id) WHERE status = 'ACTIVE';
 CREATE INDEX ix_licenses__key_prefix ON licensing.licenses (key_prefix);
+CREATE INDEX ix_licenses__subscription ON licensing.licenses (subscription_id, organization_id);
+CREATE INDEX ix_licenses__replaced_by ON licensing.licenses (replaced_by) WHERE replaced_by IS NOT NULL;
 
 -- -----------------------------------------------------------------------------------------------------
 -- Instalaciones (una por sucursal), equipos y activaciones.
@@ -194,6 +199,7 @@ CREATE TABLE licensing.installations (
 );
 
 CREATE INDEX ix_installations__license ON licensing.installations (license_id, status);
+CREATE INDEX ix_installations__organization ON licensing.installations (organization_id);
 CREATE INDEX ix_installations__last_checkin ON licensing.installations (last_checkin_at) WHERE status = 'ACTIVE';
 
 CREATE TABLE licensing.devices (
@@ -237,6 +243,7 @@ CREATE TABLE licensing.activations (
 CREATE UNIQUE INDEX ux_activations__device_active ON licensing.activations (device_id) WHERE status = 'ACTIVE';
 CREATE UNIQUE INDEX ux_activations__installation_active ON licensing.activations (installation_id) WHERE status = 'ACTIVE';
 CREATE INDEX ix_activations__license ON licensing.activations (license_id, status);
+CREATE INDEX ix_activations__released_by ON licensing.activations (released_by) WHERE released_by IS NOT NULL;
 
 -- Check-ins (y rechazos de check-in): SOLO INSERCIÓN.
 CREATE TABLE licensing.checkins (
@@ -263,6 +270,7 @@ CREATE TABLE licensing.checkins (
 );
 
 CREATE INDEX ix_checkins__installation ON licensing.checkins (installation_id, occurred_at);
+CREATE INDEX ix_checkins__activation ON licensing.checkins (activation_id) WHERE activation_id IS NOT NULL;
 
 -- -----------------------------------------------------------------------------------------------------
 -- Claves de firma: solo la PÚBLICA (L-04). La privada vive en un archivo protegido fuera de la BD.
