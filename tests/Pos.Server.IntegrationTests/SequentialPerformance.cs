@@ -5,7 +5,7 @@ namespace Pos.Server.IntegrationTests;
 /// por transacción del rol de la aplicación) no dependan de las demás pruebas que se ejecutan a la vez.
 /// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class PerformanceCollection
+public sealed class SequentialPerformance
 {
     public const string Name = "Rendimiento";
 }

@@ -13,7 +13,7 @@ namespace Pos.Server.IntegrationTests.Phase4;
 /// &lt; 100 ms (p95, medidos de punta a punta en el servidor en memoria, con sesión y permisos); importación de 5.000 filas
 /// dentro del límite de 30 s por transacción del rol de la aplicación.
 /// </summary>
-[Collection(PerformanceCollection.Name)]
+[Collection(SequentialPerformance.Name)]
 public class PerformanceTests
 {
     [Fact]
