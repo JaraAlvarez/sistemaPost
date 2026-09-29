@@ -15,7 +15,7 @@
 | Suspender, renovar y reactivar desde el portal se reflejan en el siguiente check-in | ✅ | `SubscriptionLifecycleTests`: suspender, reactivar, renovar y cancelar llegan en el siguiente check-in; regenerar y revocar la clave también; liberar desde el portal permite activar el PC nuevo |
 | Simulador de POS de punta a punta | ✅ | `tools/Pos.License.Simulator` (biblioteca + consola: `keys`, `activate`, `checkin`, `deactivate`, `status`); `SimulatorEndToEndTests`: activa, hace check-in, recibe la suspensión y libera; descarta un token que no es de su equipo o no está firmado por una clave de confianza |
 | Contenedor desplegable con guía paso a paso; respaldo de la BD de la nube | ✅ (local) | `Dockerfile` multi-etapa no root, `deploy/cloud/` (Compose con `postgres:18`, `db-init`, `app`, Caddy), verificado con `docker-compose.local.yml` (`/health` y portal por Caddy); [despliegue-nube.md](../despliegue-nube.md) para Ubuntu 24.04; `backup.sh`/`restore.sh` con `pg_dump` + Data Protection cifrados con `age`. **VPS real pendiente** |
-| Auditoría de todas las acciones del portal; `build.ps1` en verde; cobertura del dominio de licencias ≥ 90 % | ✅ | `AuditTests`: cada acción con su autor y la cadena verifica; alterar una fila se detecta; cobertura `Pos.Cloud.Licensing.Domain` 99,2 %, `Pos.Cloud.PortalIdentity.Domain` 100 %, `Pos.Licensing.Contracts` 100 % (umbrales de 90 % en `build.ps1`); `build.ps1`: {{PRUEBAS}} |
+| Auditoría de todas las acciones del portal; `build.ps1` en verde; cobertura del dominio de licencias ≥ 90 % | ✅ | `AuditTests`: cada acción con su autor y la cadena verifica; alterar una fila se detecta; cobertura `Pos.Cloud.Licensing.Domain` 100 % (combinada), `Pos.Cloud.PortalIdentity.Domain` 100 %, `Pos.Licensing.Contracts` 100 % (umbrales de 90 % en `build.ps1`); `build.ps1` en verde con 1.019 pruebas |
 | Docs 09 actualizado, ADRs (nube separada, token Ed25519 con rotación, modelo por edición) e informe | ✅ | ADR-0037 a 0039; notas de implementación en el doc 09; `http/fase-12a.http`; este informe |
 
 ## 2. Qué se construyó
@@ -59,8 +59,8 @@ gracia, libera equipos y ve la auditoría; **Distribuidor** existe en el modelo 
 | Pos.Cloud.PortalIdentity.UnitTests *(nuevo)* | 58 | Usuario (roles, bloqueo por intentos, temporal), sesión por etapas, TOTP RFC 6238 (±1 paso, anti-repetición), Base32 y `otpauth://` |
 | Pos.Cloud.Database.Tests *(nuevo)* | 26 | Migraciones desde cero e idempotentes, dueño `pos_owner`, FK con índice, restricciones con nombre, conformidad del modelo EF, NIT único, hash único, una licencia y una suscripción vigentes por empresa, activación única por equipo e instalación, huella solo con hashes, FK diferida al regenerar, una clave de firma activa, `pos_app` sin `DELETE`/`TRUNCATE`, solo inserción (eventos, check-ins, auditoría) incluso para el dueño, usuario técnico |
 | Pos.Cloud.IntegrationTests *(nuevo)* | 24 | API del POS, límites 429, portal con TOTP, permisos por rol, auditoría y cadena, ciclo de la suscripción en el check-in, rotación de la clave de firma, simulador de punta a punta y reglas de arquitectura de la nube |
-| Demás proyectos (POS) | {{PRUEBAS}} | Sin cambios |
-| **Total** | **{{PRUEBAS}}** | Fase 7: 770 |
+| Demás proyectos (POS) | 770 | Sin cambios |
+| **Total** | **1.019** | Fase 7: 770 |
 
 Cobertura de líneas (combinada entre proyectos):
 
