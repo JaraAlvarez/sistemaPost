@@ -381,3 +381,25 @@ internal sealed class RevokeSigningKeyHandler(ILicensingStore store, ITrustedSig
         return Result.Success();
     }
 }
+
+/// <summary>Publica una clave de reserva desde el portal (misma regla que la consola, con permiso del superadministrador).</summary>
+[RequiresPermission(CloudPermissions.SigningKeyManage)]
+public sealed record PortalRegisterStandbySigningKeyCommand(string PublicKey) : ICommand<string>;
+
+internal sealed class PortalRegisterStandbySigningKeyHandler(ILicensingStore store, ITrustedSigningKeys trusted, IAuditWriter audit, IClock clock)
+    : ICommandHandler<PortalRegisterStandbySigningKeyCommand, string>
+{
+    public Task<Result<string>> Handle(PortalRegisterStandbySigningKeyCommand request, CancellationToken cancellationToken) =>
+        new RegisterStandbySigningKeyHandler(store, trusted, audit, clock).Handle(new RegisterStandbySigningKeyCommand(request.PublicKey?.Trim() ?? string.Empty), cancellationToken);
+}
+
+/// <summary>Revoca desde el portal una clave comprometida (de reserva o retirada; la activa se reemplaza primero en el servidor).</summary>
+[RequiresPermission(CloudPermissions.SigningKeyManage)]
+public sealed record PortalRevokeSigningKeyCommand(string Kid) : ICommand;
+
+internal sealed class PortalRevokeSigningKeyHandler(ILicensingStore store, ITrustedSigningKeys trusted, IAuditWriter audit, IClock clock)
+    : ICommandHandler<PortalRevokeSigningKeyCommand>
+{
+    public Task<Result> Handle(PortalRevokeSigningKeyCommand request, CancellationToken cancellationToken) =>
+        new RevokeSigningKeyHandler(store, trusted, audit, clock).Handle(new RevokeSigningKeyCommand(request.Kid), cancellationToken);
+}

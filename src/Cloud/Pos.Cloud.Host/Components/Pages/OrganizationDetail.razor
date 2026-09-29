@@ -66,29 +66,7 @@ else if (_detail is not null)
                     </tbody>
                 </MudSimpleTable>
 
-                <MudGrid Spacing="2">
-                    <MudItem xs="12" md="6">
-                        <MudTextField T="string" @bind-Value="_reason" Label="Motivo (suspender, reactivar, cancelar, gracia, edición)" MaxLength="300" />
-                    </MudItem>
-                    <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_payment" Label="Referencia del pago (renovar)" MaxLength="100" /></MudItem>
-                    <MudItem xs="6" md="1"><MudNumericField T="int" @bind-Value="_periods" Label="Periodos" Min="1" Max="24" /></MudItem>
-                    <MudItem xs="6" md="2"><MudNumericField T="int" @bind-Value="_graceDays" Label="Días de gracia extra" Min="1" Max="30" /></MudItem>
-                </MudGrid>
-                <MudStack Row="true" Wrap="Wrap.Wrap" Class="mt-3">
-                    <AuthorizeView Policy="@CloudPermissions.SubscriptionManage">
-                        <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new RenewSubscriptionCommand(sub.Id, _payment ?? string.Empty, _periods), "Renovación registrada."))">Renovar</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new SuspendSubscriptionCommand(sub.Id, _reason ?? string.Empty), "Suscripción suspendida."))">Suspender</MudButton>
-                        <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new ChangeEditionCommand(sub.Id, sub.Edition == "SINGLE" ? "MULTI" : "SINGLE", _reason ?? string.Empty), "Edición cambiada."))">
-                            Cambiar a @(sub.Edition == "SINGLE" ? "Multicaja" : "Caja Única")
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new CancelSubscriptionCommand(sub.Id, _reason ?? string.Empty), "Suscripción cancelada y clave revocada."))">Cancelar</MudButton>
-                    </AuthorizeView>
-                    <AuthorizeView Policy="@CloudPermissions.SubscriptionSupport">
-                        <MudButton Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new ReactivateSubscriptionCommand(sub.Id, _reason ?? string.Empty), "Suscripción reactivada."))">Reactivar</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new ExtendGraceCommand(sub.Id, _graceDays, _reason ?? string.Empty), "Gracia extendida."))">Extender gracia</MudButton>
-                    </AuthorizeView>
-                </MudStack>
-                <MudText Typo="Typo.caption" Class="mt-2">Los cambios llegan a las tiendas en su siguiente check-in (máximo 24 h, o al pulsar "verificar licencia" en el POS).</MudText>
+                <SubscriptionActions SubscriptionId="sub.Id" Edition="@sub.Edition" OnChanged="LoadAsync" />
             }
         </MudTabPanel>
 
@@ -218,9 +196,6 @@ else if (_detail is not null)
     private bool _trial = true;
     private int? _trialDays;
     private string? _payment;
-    private string? _reason;
-    private int _periods = 1;
-    private int _graceDays = 7;
     private int? _maxInstallations;
     private string? _licenseReason;
     private string? _legalName;
@@ -247,16 +222,6 @@ else if (_detail is not null)
             new CreateSubscriptionCommand(OrganizationId, _edition, _billing, _trial, _trialDays, _trial ? null : _payment), "Suscripción creada.");
         if (created.IsSuccess)
         {
-            _payment = null;
-            await LoadAsync();
-        }
-    }
-
-    private async Task SubscriptionAsync(Pos.Application.Abstractions.Messaging.IRequest<Pos.SharedKernel.Results.Result> command, string message)
-    {
-        if (await RunAsync(command, message))
-        {
-            _reason = null;
             _payment = null;
             await LoadAsync();
         }

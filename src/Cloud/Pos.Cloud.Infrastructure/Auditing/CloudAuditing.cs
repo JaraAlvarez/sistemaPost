@@ -88,7 +88,7 @@ internal sealed class CloudAuditLog(NpgsqlDataSource dataSource, AuditVerifier v
               AND (@entityId::uuid IS NULL OR entity_id = @entityId)
               AND (@text::text IS NULL OR summary ILIKE @text OR entity_label ILIKE @text OR user_display_name ILIKE @text)
             ORDER BY occurred_at DESC, seq DESC
-            LIMIT @limit
+            LIMIT @limit OFFSET @offset
             """,
             new
             {
@@ -99,6 +99,7 @@ internal sealed class CloudAuditLog(NpgsqlDataSource dataSource, AuditVerifier v
                 entityId = filter.EntityId,
                 text,
                 limit = Math.Clamp(filter.Limit, 1, 1000),
+                offset = Math.Max(0, filter.Offset),
             },
             cancellationToken: cancellationToken));
         return [.. rows.Select(r => new CloudAuditEntryDto(

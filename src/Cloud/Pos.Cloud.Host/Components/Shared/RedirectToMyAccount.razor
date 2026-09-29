@@ -1,0 +1,14 @@
+@inject NavigationManager Navigation
+
+@* Contraseña temporal: el cambio es obligatorio antes de usar el portal (también al navegar sin recargar la página). *@
+<MudText Typo="Typo.body2">Debe cambiar su contraseña temporal…</MudText>
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.NavigateTo(MustChangePasswordMiddleware.MyAccountPath);
+        }
+    }
+}

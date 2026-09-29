@@ -1,0 +1,263 @@
+@page "/usuarios"
+@attribute [Authorize(Policy = CloudPermissions.PortalUserManage)]
+@inherits PortalPageBase
+@inject IDialogService Dialogs
+
+<PageTitle>Usuarios del portal · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Usuarios del portal</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Solo el equipo del propietario. Cada usuario entra con contraseña y doble factor (TOTP) obligatorio; la contraseña inicial es
+    temporal y se cambia en el primer ingreso.
+</MudText>
+
+@if (_temporary is not null)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _temporary = null)">
+        <MudText Typo="Typo.subtitle1">Contraseña temporal de @_temporary.Email — se muestra UNA sola vez. Entréguela por un canal seguro:</MudText>
+        <div class="key-once">@_temporary.TemporaryPassword</div>
+    </MudAlert>
+}
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6">Nuevo usuario</MudText>
+    <MudGrid Spacing="2">
+        <MudItem xs="12" md="4"><MudTextField T="string" @bind-Value="_newEmail" Label="Correo" MaxLength="120" /></MudItem>
+        <MudItem xs="12" md="4"><MudTextField T="string" @bind-Value="_newName" Label="Nombre" MaxLength="120" /></MudItem>
+        <MudItem xs="12" md="4">
+            <MudSelect T="string" @bind-Value="_newRole" Label="Rol">
+                <MudSelectItem T="string" Value="@PortalRoles.Support">@RoleName(PortalRoles.Support)</MudSelectItem>
+                <MudSelectItem T="string" Value="@PortalRoles.Superadmin">@RoleName(PortalRoles.Superadmin)</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="CreateAsync">Crear con contraseña temporal</MudButton>
+</MudPaper>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+
+<MudSimpleTable Dense="true" Hover="true" Outlined="true">
+    <thead><tr><th>Correo</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Doble factor</th><th>Último ingreso</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var u in _users)
+        {
+            <tr class="@(u.Id == _selected?.Id ? "row-selected" : null)">
+                <td>@u.Email</td>
+                <td>@u.DisplayName</td>
+                <td>@RoleName(u.Role)</td>
+                <td>
+                    <MudChip T="string" Size="Size.Small" Color="@(u.Status == "ACTIVE" ? Color.Success : Color.Error)">@(u.Status == "ACTIVE" ? "Activo" : "Bloqueado")</MudChip>
+                    @if (IsLocked(u))
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Bloqueado por intentos hasta @Date(u.LockedUntil)</MudChip>
+                    }
+                    @if (u.MustChangePassword)
+                    {
+                        <MudChip T="string" Size="Size.Small">Contraseña temporal</MudChip>
+                    }
+                </td>
+                <td>@(u.TotpEnabled ? "Configurado" : "Pendiente")</td>
+                <td>@Date(u.LastLoginAt)</td>
+                <td><MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SelectAsync(u))">Administrar</MudButton></td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@if (_selected is { } selected)
+{
+    <MudPaper Class="pa-4 mt-4" Elevation="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.h6">@selected.Email</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _selected = null)" />
+        </MudStack>
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="5"><MudTextField T="string" @bind-Value="_editName" Label="Nombre" MaxLength="120" /></MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="string" @bind-Value="_editRole" Label="Rol">
+                    <MudSelectItem T="string" Value="@PortalRoles.Support">@RoleName(PortalRoles.Support)</MudSelectItem>
+                    <MudSelectItem T="string" Value="@PortalRoles.Superadmin">@RoleName(PortalRoles.Superadmin)</MudSelectItem>
+                    @if (selected.Role == PortalRoles.Reseller)
+                    {
+                        <MudSelectItem T="string" Value="@PortalRoles.Reseller">@RoleName(PortalRoles.Reseller)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="3"><MudCheckBox T="bool" @bind-Value="_editActive" Label="Activo (desmarcar para bloquear)" /></MudItem>
+        </MudGrid>
+        <MudText Typo="Typo.caption">Cambiar el rol o bloquear al usuario cierra todas sus sesiones.</MudText>
+
+        <MudStack Row="true" Wrap="Wrap.Wrap" Class="mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="SaveAsync">Guardar</MudButton>
+            @if (IsLocked(selected))
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="UnlockAsync">Desbloquear (intentos)</MudButton>
+            }
+            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="ResetPasswordAsync">Restablecer contraseña</MudButton>
+        </MudStack>
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-4">
+            <MudTextField T="string" @bind-Value="_totpReason" Label="Motivo para restablecer el doble factor (p. ej. teléfono perdido)" MaxLength="300" />
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="ResetTotpAsync">Restablecer doble factor</MudButton>
+        </MudStack>
+
+        <MudText Typo="Typo.h6" Class="mt-6 mb-2">Sesiones</MudText>
+        @if (_sessions.Count == 0)
+        {
+            <MudText Typo="Typo.body2">Sin sesiones registradas.</MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Outlined="true">
+                <thead><tr><th>Canal</th><th>Etapa</th><th>Inicio</th><th>Última actividad</th><th>Vence</th><th>IP</th><th>Navegador</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var s in _sessions)
+                    {
+                        <tr>
+                            <td>@(s.Channel == "API" ? "API" : "Portal")</td>
+                            <td>@StageName(s.Stage)</td>
+                            <td>@Date(s.CreatedAt)</td>
+                            <td>@Date(s.LastSeenAt)</td>
+                            <td>@Date(s.ExpiresAt)</td>
+                            <td>@(s.IpAddress ?? "—")</td>
+                            <td class="cell-ellipsis" title="@s.UserAgent">@(s.UserAgent ?? "—")</td>
+                            <td>@(s.RevokedAt is null ? (s.ExpiresAt > DateTimeOffset.UtcNow ? "Abierta" : "Vencida") : $"Revocada {Date(s.RevokedAt)}: {s.RevokedReason}")</td>
+                            <td>
+                                @if (s.RevokedAt is null && s.ExpiresAt > DateTimeOffset.UtcNow)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => RevokeSessionAsync(s.Id))">Cerrar</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<PortalUserDto> _users = [];
+    private IReadOnlyList<PortalSessionInfoDto> _sessions = [];
+    private PortalUserDto? _selected;
+    private TemporaryPasswordDto? _temporary;
+    private string? _newEmail;
+    private string? _newName;
+    private string _newRole = PortalRoles.Support;
+    private string? _editName;
+    private string _editRole = PortalRoles.Support;
+    private bool _editActive;
+    private string? _totpReason;
+
+    public static string RoleName(string? role) => role switch
+    {
+        PortalRoles.Superadmin => "Superadministrador",
+        PortalRoles.Support => "Soporte",
+        PortalRoles.Reseller => "Distribuidor",
+        _ => role ?? "—",
+    };
+
+    private static string StageName(string stage) => stage switch
+    {
+        "ACTIVE" => "Completa",
+        "PENDING_TOTP" => "Esperando código",
+        _ => "Enrolando doble factor",
+    };
+
+    private static bool IsLocked(PortalUserDto user) => user.LockedUntil is { } until && until > DateTimeOffset.UtcNow;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _users = await LoadAsync(new ListPortalUsersQuery()) ?? [];
+        if (_selected is not null)
+        {
+            _selected = _users.FirstOrDefault(u => u.Id == _selected.Id);
+            _sessions = _selected is null ? [] : await LoadAsync(new ListPortalSessionsQuery(_selected.Id)) ?? [];
+        }
+    }
+
+    private async Task SelectAsync(PortalUserDto user)
+    {
+        _selected = user;
+        _editName = user.DisplayName;
+        _editRole = user.Role;
+        _editActive = user.Status == "ACTIVE";
+        _totpReason = null;
+        _sessions = await LoadAsync(new ListPortalSessionsQuery(user.Id)) ?? [];
+    }
+
+    private async Task CreateAsync()
+    {
+        var created = await RunAsync(new CreatePortalUserCommand(_newEmail ?? string.Empty, _newName ?? string.Empty, _newRole), "Usuario creado.");
+        if (created.IsSuccess)
+        {
+            _temporary = created.Value;
+            _newEmail = null;
+            _newName = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_selected is { } user
+            && await RunAsync(new UpdatePortalUserCommand(user.Id, _editName ?? string.Empty, _editRole, user.ResellerAccountId, _editActive), "Usuario actualizado."))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task UnlockAsync()
+    {
+        if (_selected is { } user && await RunAsync(new UnlockPortalUserCommand(user.Id), "Usuario desbloqueado."))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        if (_selected is not { } user || !await ConfirmAsync($"¿Restablecer la contraseña de {user.Email}? Se cerrarán sus sesiones."))
+        {
+            return;
+        }
+
+        var reset = await RunAsync(new ResetPortalUserPasswordCommand(user.Id), "Contraseña restablecida.");
+        if (reset.IsSuccess)
+        {
+            _temporary = reset.Value;
+            await LoadAsync();
+        }
+    }
+
+    private async Task ResetTotpAsync()
+    {
+        if (_selected is not { } user || !await ConfirmAsync($"¿Restablecer el doble factor de {user.Email}? Deberá escanear un QR nuevo en su próximo ingreso."))
+        {
+            return;
+        }
+
+        if (await RunAsync(new ResetPortalUserTotpCommand(user.Id, _totpReason ?? string.Empty), "Doble factor restablecido."))
+        {
+            _totpReason = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task RevokeSessionAsync(Guid sessionId)
+    {
+        if (await RunAsync(new RevokePortalSessionCommand(sessionId, "Cerrada por un superadministrador"), "Sesión cerrada."))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task<bool> ConfirmAsync(string message) =>
+        await Dialogs.ShowMessageBoxAsync("Confirmar", message, yesText: "Sí, continuar", cancelText: "Cancelar") == true;
+}

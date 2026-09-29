@@ -88,3 +88,25 @@ html, body {
     font-size: 1.3rem;
     letter-spacing: 1px;
 }
+
+.row-selected td {
+    background: rgba(89, 74, 226, 0.08);
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.cell-ellipsis {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.audit-values {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 0.8rem;
+    margin: 0 0 8px;
+}
