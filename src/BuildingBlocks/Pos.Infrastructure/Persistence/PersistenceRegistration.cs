@@ -78,6 +78,9 @@ public static class PersistenceRegistration
         services.TryAddScoped<IRequestContext, NoRequestContext>();
         services.AddScoped<IActorContext, ActorContext>();
         services.TryAddScoped<IPermissionChecker, PermissiveFase2PermissionChecker>();
+        services.TryAddScoped<IClientContext, LocalClientContext>();
+        services.AddScoped<IAuthorizationScope, AuthorizationScope>();
+        services.TryAddSingleton<ISecretHasher, Security.Argon2idSecretHasher>();
         services.AddScoped<IInstallationSetup, InstallationSetup>();
 
         services.AddSingleton<DatabaseReadiness>();

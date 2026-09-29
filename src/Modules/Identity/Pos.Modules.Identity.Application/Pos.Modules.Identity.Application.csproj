@@ -11,4 +11,8 @@
     <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
     <ProjectReference Include="../../Audit/Pos.Modules.Audit.Contracts/Pos.Modules.Audit.Contracts.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
 </Project>

@@ -11,5 +11,8 @@ public static class OrganizationInfrastructureRegistration
         services.AddSingleton<IModelContributor, OrganizationModelContributor>();
         services.AddSingleton<IConstraintErrorProvider, OrganizationConstraintErrors>();
         services.AddScoped<IOrganizationStore, OrganizationStore>();
+        services.AddScoped<Application.Devices.IDeviceStore, DeviceStore>();
+        services.AddSingleton<Contracts.IDeviceAuthenticator, DeviceAuthenticator>();
+        services.AddSingleton<Contracts.ITerminalDirectory, TerminalDirectory>();
     }
 }

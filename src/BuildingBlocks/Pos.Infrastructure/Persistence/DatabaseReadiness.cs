@@ -17,6 +17,15 @@ public enum DatabaseStatus
 }
 
 /// <summary>
+/// Tarea de un módulo que se ejecuta cada vez que la BD queda lista al arrancar (p. ej. actualizar los permisos de los
+/// roles de sistema). Recibe un ámbito de servicios propio.
+/// </summary>
+public interface IDatabaseReadyHook
+{
+    Task RunAsync(IServiceProvider scopedServices, CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Estado compartido de la BD. El host lo actualiza al arrancar (y reintenta si falla); los procesos en segundo plano
 /// y los endpoints de negocio no trabajan mientras no esté <see cref="DatabaseStatus.Ready"/>.
 /// </summary>

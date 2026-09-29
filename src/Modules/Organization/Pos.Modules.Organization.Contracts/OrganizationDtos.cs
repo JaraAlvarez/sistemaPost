@@ -40,7 +40,7 @@ public sealed record TerminalDto(Guid Id, Guid BranchId, string Code, string Nam
 public sealed record BranchDetailDto(BranchDto Branch, IReadOnlyList<WarehouseDto> Warehouses, IReadOnlyList<TerminalDto> Terminals);
 
 /// <summary>Estado del asistente inicial y edición instalada.</summary>
-public sealed record SetupStatusDto(bool IsCompleted, string Edition, Guid NodeId, Guid? CompanyId, Guid? BranchId);
+public sealed record SetupStatusDto(bool IsCompleted, string Edition, Guid NodeId, Guid? CompanyId, Guid? BranchId, bool OwnerPending);
 
 /// <summary>Resultado del asistente inicial.</summary>
 public sealed record SetupResultDto(
@@ -50,4 +50,5 @@ public sealed record SetupResultDto(
     Guid SalesFloorWarehouseId,
     Guid NodeId,
     Guid SystemUserId,
+    Guid OwnerUserId,
     string Edition);

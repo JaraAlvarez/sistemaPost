@@ -39,6 +39,7 @@ public sealed record TerminalInput(string Code, string Name);
 public sealed record SetupCommand(
     CompanyInput Company,
     BranchInput Branch,
+    OwnerInput Owner,
     TerminalInput? Terminal = null,
     SetupMode Mode = SetupMode.NewCompany) : ICommand<SetupResultDto>;
 
@@ -48,6 +49,10 @@ internal sealed class SetupCommandValidator : AbstractValidator<SetupCommand>
     {
         RuleFor(x => x.Company).NotNull().SetValidator(new CompanyInputValidator());
         RuleFor(x => x.Branch).NotNull().SetValidator(new BranchInputValidator());
+        RuleFor(x => x.Owner).NotNull();
+        RuleFor(x => x.Owner.Username).NotEmpty().MaximumLength(60).When(x => x.Owner is not null);
+        RuleFor(x => x.Owner.DisplayName).NotEmpty().MaximumLength(120).When(x => x.Owner is not null);
+        RuleFor(x => x.Owner.Password).NotEmpty().When(x => x.Owner is not null);
         RuleFor(x => x.Terminal!.Code).Matches("^[A-Z0-9]{2,6}$").When(x => x.Terminal is not null);
         RuleFor(x => x.Terminal!.Name).NotEmpty().MaximumLength(60).When(x => x.Terminal is not null);
     }
@@ -163,6 +168,13 @@ internal sealed class SetupCommandHandler(
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await identity.ProvisionCompanyAsync(companyId, systemUserId, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        var owner = await identity.CreateOwnerAsync(companyId, request.Owner, cancellationToken);
+        if (owner.IsFailure)
+        {
+            return owner.Error;
+        }
+
         await series.CreateBranchSeriesAsync(companyId, branchId, request.Branch.Code, cancellationToken);
         await series.CreateTerminalSeriesAsync(companyId, branchId, request.Branch.Code, terminal.Value.Id, terminalInput.Code, cancellationToken);
         await installationSetup.CompleteAsync(companyId, branchId, SetupMode.NewCompany, cancellationToken);
@@ -179,19 +191,20 @@ internal sealed class SetupCommandHandler(
                 Severity: AuditSeverity.Warning),
             cancellationToken);
 
-        return new SetupResultDto(companyId, branchId, terminal.Value.Id, branch.Value.SalesFloor.Id, installation.NodeId, systemUserId, edition);
+        return new SetupResultDto(companyId, branchId, terminal.Value.Id, branch.Value.SalesFloor.Id, installation.NodeId, systemUserId, owner.Value, edition);
     }
 }
 
 public sealed record GetSetupStatusQuery : IQuery<SetupStatusDto>;
 
-internal sealed class GetSetupStatusHandler(IInstallationContext installation) : IQueryHandler<GetSetupStatusQuery, SetupStatusDto>
+internal sealed class GetSetupStatusHandler(IInstallationContext installation, IIdentityState identity) : IQueryHandler<GetSetupStatusQuery, SetupStatusDto>
 {
-    public Task<Result<SetupStatusDto>> Handle(GetSetupStatusQuery request, CancellationToken cancellationToken) =>
-        Task.FromResult(Result.Success(new SetupStatusDto(
+    public async Task<Result<SetupStatusDto>> Handle(GetSetupStatusQuery request, CancellationToken cancellationToken) =>
+        new SetupStatusDto(
             installation.IsSetupCompleted,
             installation.NodeRole == NodeRole.StoreServer ? "MULTI" : "SINGLE",
             installation.NodeId,
             installation.CompanyId,
-            installation.BranchId)));
+            installation.BranchId,
+            await identity.IsOwnerPendingAsync(cancellationToken));
 }

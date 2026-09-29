@@ -71,8 +71,31 @@ internal sealed class OrganizationModelContributor : IModelContributor
                 .HasPrincipalKey(x => new { x.Id, x.CompanyId }).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Warehouse>().WithMany().HasForeignKey(x => new { x.WarehouseId, x.BranchId })
                 .HasPrincipalKey(x => new { x.Id, x.BranchId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Device>().WithMany().HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Restrict);
             b.HasControlColumns();
             b.HasXminConcurrency();
+        });
+
+        modelBuilder.Entity<Device>(b =>
+        {
+            b.ToTable("devices", "org");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Property(x => x.Kind).HasUpperSnakeConversion();
+            b.Property(x => x.Status).HasUpperSnakeConversion();
+            b.Property(x => x.MachineFingerprintHash).HasColumnType("char(64)");
+            b.Property(x => x.CredentialHash).HasColumnType("char(64)");
+            b.Property(x => x.CertificatePin).HasColumnType("char(64)");
+            b.HasOne<Node>().WithMany().HasForeignKey(x => x.NodeId).OnDelete(DeleteBehavior.Restrict);
+            b.HasControlColumns();
+            b.HasXminConcurrency();
+        });
+
+        modelBuilder.Entity<PairingCodeRecord>(b =>
+        {
+            b.ToTable("device_pairing_codes", "org");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.CodeHash).HasColumnType("char(64)");
         });
 
         modelBuilder.Entity<Node>(b =>
@@ -116,6 +139,9 @@ internal sealed class OrganizationStore(PosDbContext context) : IOrganizationSto
 
     public Task<PosTerminal?> GetTerminalAsync(Guid terminalId, CancellationToken cancellationToken) =>
         context.Set<PosTerminal>().SingleOrDefaultAsync(t => t.Id == terminalId, cancellationToken);
+
+    public Task<PosTerminal?> GetTerminalByDeviceAsync(Guid deviceId, CancellationToken cancellationToken) =>
+        context.Set<PosTerminal>().SingleOrDefaultAsync(t => t.DeviceId == deviceId, cancellationToken);
 
     public Task<bool> BranchCodeExistsAsync(Guid companyId, string code, CancellationToken cancellationToken) =>
         context.Set<Branch>().AnyAsync(b => b.CompanyId == companyId && b.Code == code, cancellationToken);

@@ -72,7 +72,9 @@ public class ConformityTests(PosServerFactory factory) : IClassFixture<PosServer
 
         var missing = model.GetEntityTypes()
             .Where(e => !e.IsOwned() && e.GetSchema() is "org" or "identity")
-            .Where(e => e.GetTableName() is not ("companies" or "permissions"))
+            // Excepciones justificadas: la empresa misma, el catálogo global de permisos, el historial de contraseñas
+            // (hijo del usuario) y los intentos de acceso (pueden no tener empresa: usuario inexistente).
+            .Where(e => e.GetTableName() is not ("companies" or "permissions" or "password_history" or "login_attempts"))
             .Where(e => !typeof(ICompanyOwned).IsAssignableFrom(e.ClrType))
             .Select(e => e.ClrType.FullName)
             .ToList();
@@ -126,12 +128,7 @@ public class ConformityTests(PosServerFactory factory) : IClassFixture<PosServer
     [Fact]
     public async Task La_sucursal_de_otra_empresa_no_es_visible_por_el_filtro_de_tenencia()
     {
-        var client = factory.CreateClient();
-        var status = await GetAsync<Pos.Modules.Organization.Contracts.SetupStatusDto>(client, "/api/v1/setup/status");
-        if (!status.IsCompleted)
-        {
-            await SetupAsync(client);
-        }
+        var client = await OwnerClientAsync(factory);
 
         // Una empresa ajena insertada directamente en la BD (p. ej. llegada por sincronización).
         await using (var connection = new NpgsqlConnection(factory.ConnectionString))

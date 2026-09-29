@@ -29,7 +29,8 @@ public class OrganizationApiTests
         (await GetAsync<List<JsonElement>>(client, "/api/v1/identity/roles")).Count.ShouldBe(7);
         (await ScalarAsync<long>(factory, "SELECT count(*) FROM system.document_series")).ShouldBeGreaterThan(0);
         (await ScalarAsync<string>(factory, "SELECT prefix FROM system.document_series WHERE document_type = 'SALE'")).ShouldBe("S01C01");
-        (await ScalarAsync<string>(factory, "SELECT kind FROM identity.users")).ShouldBe("SYSTEM");
+        (await ScalarAsync<long>(factory, "SELECT count(*) FROM identity.users WHERE kind = 'SYSTEM'")).ShouldBe(1);
+        (await ScalarAsync<long>(factory, $"SELECT count(*) FROM identity.users WHERE id = '{setup.OwnerUserId}' AND kind = 'HUMAN'")).ShouldBe(1);
         (await ScalarAsync<string>(factory, "SELECT kind FROM org.nodes")).ShouldBe("STORE_SERVER");
         (await ScalarAsync<long>(factory, "SELECT count(*) FROM audit.audit_log WHERE action = 'SETUP_COMPLETED'")).ShouldBe(1);
 
@@ -45,7 +46,7 @@ public class OrganizationApiTests
 
         (await GetAsync<SetupStatusDto>(client, "/api/v1/setup/status")).IsCompleted.ShouldBeFalse();
         await client.GetAsync("/api/v1/organization/company", Ct)
-            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SETUP.REQUIRED");
+            .ShouldFailWithAsync(HttpStatusCode.Unauthorized, "AUTH.REQUIRED");
     }
 
     [Fact]

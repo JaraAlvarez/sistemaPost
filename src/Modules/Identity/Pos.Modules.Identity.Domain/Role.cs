@@ -1,11 +1,12 @@
 using Pos.SharedKernel.Domain;
+using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Identity.Domain;
 
 /// <summary>Permiso concedido a un rol (tabla puente identity.role_permissions).</summary>
 public sealed record RoleGrant(string PermissionCode);
 
-/// <summary>Rol de una empresa. Los de sistema no se editan ni se borran: se clonan (Fase 3).</summary>
+/// <summary>Rol de una empresa. Los de sistema no se editan ni se borran: se clonan.</summary>
 [Audited("identity")]
 public sealed class Role : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, ISyncVersioned, IHasAuditLabel
 {
@@ -33,67 +34,59 @@ public sealed class Role : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, I
 
     public IReadOnlyCollection<RoleGrant> Permissions => _permissions.AsReadOnly();
 
+    public IReadOnlySet<string> PermissionCodes => _permissions.Select(p => p.PermissionCode).ToHashSet(StringComparer.Ordinal);
+
     public string AuditLabel => $"Rol {Code} · {Name}";
 
     public static Role CreateSystem(Guid id, Guid companyId, SystemRoleDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         var role = new Role(id, companyId, definition.Code, definition.Name, definition.Description, isSystem: true);
-        role._permissions.AddRange(definition.Permissions.Distinct(StringComparer.Ordinal).Select(p => new RoleGrant(p)));
+        role.SetPermissions(definition.Permissions);
         return role;
     }
-}
 
-/// <summary>Usuario de la empresa. En la Fase 2 solo se crea el usuario técnico <c>system</c>; el login llega en la Fase 3.</summary>
-[Audited("identity")]
-public sealed class User : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, ISyncVersioned, IHasAuditLabel
-{
-    public const string SystemUsername = "system";
-    public const string SystemDisplayName = "Sistema";
-
-    private User(Guid id, Guid companyId, string username, string displayName, UserKind kind, UserStatus status)
-        : base(id)
+    public static Result<Role> CreateCustom(Guid id, Guid companyId, string code, string name, string? description, IEnumerable<string> permissions)
     {
-        CompanyId = companyId;
-        Username = username;
-        DisplayName = displayName;
-        Kind = kind;
-        Status = status;
+        if (!IdentityRules.IsValidRoleCode(code))
+        {
+            return IdentityErrors.InvalidRoleCode;
+        }
+
+        var role = new Role(id, companyId, code, name.Trim(), description?.Trim(), isSystem: false);
+        role.SetPermissions(permissions);
+        return role;
     }
 
-    public Guid CompanyId { get; private set; }
+    /// <summary>Copia editable de un rol (la forma de "modificar" un rol de sistema).</summary>
+    public Result<Role> Clone(Guid id, string code, string name) =>
+        CreateCustom(id, CompanyId, code, name, Description, _permissions.Select(p => p.PermissionCode));
 
-    public string Username { get; private set; }
+    public Result Update(string name, string? description, IEnumerable<string> permissions)
+    {
+        if (IsSystem)
+        {
+            return IdentityErrors.SystemRoleImmutable;
+        }
 
-    public string DisplayName { get; private set; }
+        Name = name.Trim();
+        Description = description?.Trim();
+        SetPermissions(permissions);
+        return Result.Success();
+    }
 
-    public string? Email { get; private set; }
+    /// <summary>Agrega los permisos nuevos de la definición de un rol de sistema (al actualizar el producto).</summary>
+    public IReadOnlyList<string> AddMissingPermissions(IEnumerable<string> definition)
+    {
+        var missing = definition.Where(p => _permissions.All(g => g.PermissionCode != p)).Distinct(StringComparer.Ordinal).ToList();
+        _permissions.AddRange(missing.Select(p => new RoleGrant(p)));
+        return missing;
+    }
 
-    public UserKind Kind { get; private set; }
-
-    public UserStatus Status { get; private set; }
-
-    public bool MustChangePassword { get; private set; }
-
-    public string AuditLabel => $"Usuario {Username} · {DisplayName}";
-
-    /// <summary>
-    /// Usuario técnico: autor de las semillas, del asistente inicial y de los procesos automáticos.
-    /// Deshabilitado y sin credenciales: nunca puede iniciar sesión (lo garantiza también un CHECK en la BD).
-    /// </summary>
-    public static User CreateSystem(Guid id, Guid companyId) =>
-        new(id, companyId, SystemUsername, SystemDisplayName, UserKind.System, UserStatus.Disabled);
-}
-
-public enum UserKind
-{
-    Human,
-    System,
-}
-
-public enum UserStatus
-{
-    Active,
-    Locked,
-    Disabled,
+    private void SetPermissions(IEnumerable<string> permissions)
+    {
+        var codes = permissions.Distinct(StringComparer.Ordinal).ToList();
+        _permissions.RemoveAll(p => !codes.Contains(p.PermissionCode));
+        _permissions.AddRange(codes.Where(c => _permissions.All(p => p.PermissionCode != c)).Select(c => new RoleGrant(c)));
+    }
 }

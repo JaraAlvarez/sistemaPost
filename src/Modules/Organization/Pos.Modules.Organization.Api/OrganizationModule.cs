@@ -11,6 +11,7 @@ using Pos.Application.Abstractions.Settings;
 using Pos.Infrastructure;
 using Pos.Infrastructure.Persistence;
 using Pos.Modules.Organization.Application;
+using Pos.Modules.Organization.Application.Devices;
 using Pos.Modules.Organization.Application.Settings;
 using Pos.Modules.Organization.Application.Setup;
 using Pos.Modules.Organization.Contracts;
@@ -38,7 +39,38 @@ public sealed class OrganizationModule : IModule
         MapSetup(api.MapGroup("/setup").WithTags("Configuración inicial"));
         MapOrganization(api.MapGroup("/organization").WithTags("Organización"));
         MapSettings(api.MapGroup("/settings").WithTags("Configuración general"));
+        MapDevices(api.MapGroup("/devices").WithTags("Equipos"));
     }
+
+    private static void MapDevices(RouteGroupBuilder group)
+    {
+        group.MapPost("/pairing-codes", async (CreatePairingCodeCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToCreatedResult(_ => "/api/v1/devices"))
+            .RequirePermission(OrganizationPermissions.DeviceManage)
+            .WithSummary("Código de 6 dígitos, de un solo uso, para emparejar una caja o un PC administrativo (vence en 10 min)");
+
+        group.MapPost("/pair", async (PairDeviceCommand command, IDispatcher d, CancellationToken ct) =>
+            {
+                var result = await d.Send(command, ct);
+                return result.IsFailure ? result.Error.ToProblem()
+                    : result.Value.Error is { } error ? error.ToProblem()
+                    : TypedResults.Created($"/api/v1/devices/{result.Value.Value!.DeviceId}", result.Value.Value);
+            })
+            .AllowAnonymousByDesign("El equipo nuevo se identifica con el código de un solo uso.")
+            .RequireRateLimiting(DevicePairingRateLimit)
+            .WithSummary("Empareja el equipo: devuelve su credencial (solo esta vez) y la huella del certificado del servidor");
+
+        group.MapGet("/", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListDevicesQuery(), ct)).ToHttpResult())
+            .RequirePermission(OrganizationPermissions.DeviceManage);
+
+        group.MapPost("/{deviceId:guid}/revoke", async (Guid deviceId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new RevokeDeviceCommand(deviceId), ct)).ToHttpResult())
+            .RequirePermission(OrganizationPermissions.DeviceManage)
+            .WithSummary("Revoca el equipo y cierra sus sesiones de inmediato");
+    }
+
+    /// <summary>Política de límite de peticiones del emparejamiento (la define el host).</summary>
+    public const string DevicePairingRateLimit = "device-pairing";
 
     private static void MapSetup(RouteGroupBuilder group)
     {

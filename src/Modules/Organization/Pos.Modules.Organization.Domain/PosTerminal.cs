@@ -71,6 +71,11 @@ public sealed partial class PosTerminal : AggregateRoot<Guid>, ICompanyOwned, IS
 
     public void Rename(string name) => Name = name.Trim();
 
+    /// <summary>La caja queda asociada al equipo emparejado (un equipo = una caja).</summary>
+    public void AttachDevice(Guid deviceId) => DeviceId = deviceId;
+
+    public void DetachDevice() => DeviceId = null;
+
     public void Deactivate() => Status = TerminalStatus.Inactive;
 
     public void Activate() => Status = TerminalStatus.Active;

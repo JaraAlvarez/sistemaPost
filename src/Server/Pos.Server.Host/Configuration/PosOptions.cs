@@ -16,6 +16,9 @@ public sealed class PosOptions
 
 public sealed class ServerOptions
 {
-    /// <summary>Puerto HTTP de la API. Hasta la Fase 13 solo escucha en localhost.</summary>
+    /// <summary>Puerto HTTP de la API: solo en localhost.</summary>
     public int Port { get; set; } = 5480;
+
+    /// <summary>Puerto HTTPS en la LAN (solo edición Multicaja, solo equipos emparejados).</summary>
+    public int LanHttpsPort { get; set; } = 5443;
 }

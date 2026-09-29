@@ -44,3 +44,10 @@ public sealed class SensitiveAttribute : Attribute;
 /// <summary>Esta propiedad no se registra en la auditoría (p. ej. imágenes o datos derivados).</summary>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class NotAuditedAttribute : Attribute;
+
+/// <summary>
+/// Estado LOCAL del nodo (último acceso, intentos fallidos, última conexión de un equipo): no se audita, no se
+/// sincroniza y su cambio no sube el <c>row_version</c> del maestro (ADR-0014, D3-09).
+/// </summary>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class LocalOnlyAttribute : Attribute;

@@ -45,6 +45,34 @@ internal sealed class AnonymousCurrentUser : ICurrentUser
     public Guid? PosTerminalId => null;
 
     public Guid? SessionId => null;
+
+    public bool IsTerminalSession => false;
+
+    public bool MustChangePassword => false;
+}
+
+/// <summary>Cliente local por defecto (procesos en segundo plano y pruebas). El host lo reemplaza por el de la petición.</summary>
+internal sealed class LocalClientContext : IClientContext
+{
+    public bool IsLocal => true;
+
+    public Guid? DeviceId => null;
+
+    public DeviceKind? DeviceKind => null;
+
+    public Guid? PosTerminalId => null;
+
+    public IPAddress? IpAddress => null;
+
+    public string? UserAgent => null;
+}
+
+/// <summary>Autorización de supervisor consumida en la petición en curso.</summary>
+internal sealed class AuthorizationScope : IAuthorizationScope
+{
+    public ConsumedAuthorization? Current { get; private set; }
+
+    public void Use(ConsumedAuthorization authorization) => Current = authorization;
 }
 
 /// <summary>Contexto técnico vacío (procesos en segundo plano). El host lo reemplaza por uno basado en la petición HTTP.</summary>

@@ -16,6 +16,8 @@ internal sealed partial class DatabaseStartup(
     NpgsqlDataSource dataSource,
     IInstallationContext installation,
     DatabaseReadiness readiness,
+    IEnumerable<IDatabaseReadyHook> hooks,
+    IServiceScopeFactory scopes,
     ILoggerFactory loggerFactory,
     ILogger<DatabaseStartup> logger) : BackgroundService
 {
@@ -71,6 +73,15 @@ internal sealed partial class DatabaseStartup(
             }
 
             await installation.RefreshAsync(cancellationToken);
+            if (installation.IsSetupCompleted)
+            {
+                foreach (var hook in hooks)
+                {
+                    await using var scope = scopes.CreateAsyncScope();
+                    await hook.RunAsync(scope.ServiceProvider, cancellationToken);
+                }
+            }
+
             readiness.Set(DatabaseStatus.Ready, "Base de datos lista.", version, expected);
             LogReady(logger, version, installation.NodeId, installation.IsSetupCompleted);
         }

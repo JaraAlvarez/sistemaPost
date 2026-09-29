@@ -26,6 +26,8 @@ public interface IOrganizationStore
 
     Task<PosTerminal?> GetTerminalAsync(Guid terminalId, CancellationToken cancellationToken);
 
+    Task<PosTerminal?> GetTerminalByDeviceAsync(Guid deviceId, CancellationToken cancellationToken);
+
     Task<bool> BranchCodeExistsAsync(Guid companyId, string code, CancellationToken cancellationToken);
 
     Task<bool> WarehouseCodeExistsAsync(Guid branchId, string code, CancellationToken cancellationToken);

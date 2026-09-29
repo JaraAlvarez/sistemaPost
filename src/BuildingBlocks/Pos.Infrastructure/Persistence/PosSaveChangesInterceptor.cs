@@ -28,7 +28,9 @@ internal sealed class PosSaveChangesInterceptor(
     IIdGenerator ids,
     IActorContext actor,
     IRequestContext request,
-    IInstallationContext installation) : SaveChangesInterceptor
+    IInstallationContext installation,
+    ICurrentUser currentUser,
+    IAuthorizationScope authorization) : SaveChangesInterceptor
 {
     public const string Masked = "***";
 
@@ -81,7 +83,9 @@ internal sealed class PosSaveChangesInterceptor(
                 entry.Property(ModelConventions.DeletedBy).CurrentValue = RequireActor();
             }
 
-            if (entry.State == EntityState.Added && type.FindProperty(ModelConventions.CreatedAt) is not null)
+            // Solo tablas con las dos columnas de control (created_at + created_by): los registros técnicos que traen
+            // su propio created_at (sesiones, historial) conservan el valor que les dio el caso de uso.
+            if (entry.State == EntityState.Added && type.FindProperty(ModelConventions.CreatedBy) is not null)
             {
                 entry.Property(ModelConventions.CreatedAt).CurrentValue = now;
                 entry.Property(ModelConventions.CreatedBy).CurrentValue = RequireActor();
@@ -89,13 +93,13 @@ internal sealed class PosSaveChangesInterceptor(
 
             if (entry.State == EntityState.Modified)
             {
-                if (type.FindProperty(ModelConventions.UpdatedAt) is not null)
+                if (type.FindProperty(ModelConventions.UpdatedBy) is not null)
                 {
                     entry.Property(ModelConventions.UpdatedAt).CurrentValue = now;
                     entry.Property(ModelConventions.UpdatedBy).CurrentValue = RequireActor();
                 }
 
-                if (entry.Entity is ISyncVersioned)
+                if (entry.Entity is ISyncVersioned && entry.Properties.Any(p => p.IsModified && !IsLocalOnly(p) && !ControlProperties.Contains(p.Metadata.Name)))
                 {
                     var rowVersion = entry.Property(ModelConventions.RowVersion);
                     rowVersion.CurrentValue = (long)rowVersion.OriginalValue! + 1;
@@ -201,6 +205,9 @@ internal sealed class PosSaveChangesInterceptor(
             row.BranchId ??= actor.BranchId;
             row.UserId ??= actor.ActorId;
             row.UserDisplayName ??= actor.ActorDisplayName;
+            row.SessionId ??= currentUser.SessionId;
+            row.PosTerminalId ??= currentUser.PosTerminalId;
+            row.AuthorizedBy ??= authorization.Current?.AuthorizedBy;
             row.IpAddress ??= request.IpAddress;
             row.DeviceId ??= request.DeviceId;
             row.CorrelationId ??= request.CorrelationId;
@@ -220,7 +227,7 @@ internal sealed class PosSaveChangesInterceptor(
             }
 
             var member = property.Metadata.PropertyInfo;
-            if (member?.GetCustomAttribute<NotAuditedAttribute>() is not null)
+            if (member?.GetCustomAttribute<NotAuditedAttribute>() is not null || IsLocalOnly(property))
             {
                 continue;
             }
@@ -234,6 +241,9 @@ internal sealed class PosSaveChangesInterceptor(
 
         return values;
     }
+
+    private static bool IsLocalOnly(PropertyEntry property) =>
+        property.Metadata.PropertyInfo?.GetCustomAttribute<LocalOnlyAttribute>() is not null;
 
     /// <summary>Todo valor se registra como texto (salvo booleanos y null): el hash no depende de formatos numéricos.</summary>
     internal static JsonNode? AuditValue(object? value) => value switch

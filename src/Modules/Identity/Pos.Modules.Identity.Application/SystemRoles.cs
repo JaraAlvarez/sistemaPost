@@ -24,7 +24,7 @@ public static class SystemRoles
         new(Owner, "Propietario", "Dueño del negocio: acceso total.", allPermissions),
         new(Administrator, "Administrador", "Administra la operación y la configuración.", allPermissions),
         new(CashSupervisor, "Supervisor de caja", "Supervisa cajas, autoriza anulaciones y revisa cierres.",
-            [OrganizationPermissions.BranchView, SettingsPermissions.SettingView]),
+            [OrganizationPermissions.BranchView, SettingsPermissions.SettingView, IdentityPermissions.UserView, IdentityPermissions.SessionRevoke]),
         new(Cashier, "Cajero", "Vende y opera su caja.", []),
         new(Inventory, "Inventario", "Gestiona existencias, ajustes y conteos.", [OrganizationPermissions.BranchView]),
         new(Purchasing, "Compras", "Gestiona proveedores y compras.", [OrganizationPermissions.BranchView]),

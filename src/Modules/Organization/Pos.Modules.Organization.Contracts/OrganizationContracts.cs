@@ -11,6 +11,7 @@ public static class OrganizationPermissions
     public const string BranchManage = "organization.branch.manage";
     public const string WarehouseManage = "organization.warehouse.manage";
     public const string TerminalManage = "organization.terminal.manage";
+    public const string DeviceManage = "organization.device.manage";
 
     public static IEnumerable<PermissionDefinition> All =>
     [
@@ -20,6 +21,7 @@ public static class OrganizationPermissions
         new(BranchManage, "Crear, modificar e inactivar sucursales", isSensitive: true),
         new(WarehouseManage, "Crear, modificar e inactivar bodegas", isSensitive: true),
         new(TerminalManage, "Crear, modificar e inactivar cajas", isSensitive: true),
+        new(DeviceManage, "Generar códigos de emparejamiento y revocar equipos", isSensitive: true),
     ];
 }
 

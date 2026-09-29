@@ -1,6 +1,10 @@
+using System.Net;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Pos.Server.IntegrationTests;
 
@@ -10,6 +14,12 @@ namespace Pos.Server.IntegrationTests;
 /// </summary>
 public class PosServerFactory : WebApplicationFactory<Program>
 {
+    /// <summary>Cabecera de prueba: simula que la petición llega desde esta IP de la LAN.</summary>
+    public const string SimulatedRemoteIpHeader = "X-Test-Remote-Ip";
+
+    /// <summary>Cabecera de prueba: simula que la petición llegó por HTTPS.</summary>
+    public const string SimulatedHttpsHeader = "X-Test-Https";
+
     private readonly Lazy<string> _connectionString = new(() => TestPostgres.CreateMigratedDatabaseAsync().GetAwaiter().GetResult());
 
     public string DataRoot { get; } = Path.Combine(Path.GetTempPath(), "pos-tests", Guid.CreateVersion7().ToString("N"));
@@ -31,7 +41,10 @@ public class PosServerFactory : WebApplicationFactory<Program>
             ["Pos:Database:ConnectionString"] = ConnectionString,
             ["Pos:Database:MigrateOnStartup"] = "false",
             ["Pos:Database:Edition"] = Edition,
+            ["Pos:Security:LoginPermitsPerMinute"] = "10000",
+            ["Pos:Security:PairingPermitsPer15Minutes"] = "10000",
         }));
+        builder.ConfigureServices(services => services.AddSingleton<IStartupFilter, SimulatedNetworkStartupFilter>());
     }
 
     public override async ValueTask DisposeAsync()
@@ -46,6 +59,29 @@ public class PosServerFactory : WebApplicationFactory<Program>
         {
             // Limpieza de mejor esfuerzo.
         }
+    }
+
+    /// <summary>TestServer no tiene red: estas cabeceras simulan un equipo de la LAN y una conexión HTTPS.</summary>
+    private sealed class SimulatedNetworkStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, nextMiddleware) =>
+            {
+                if (IPAddress.TryParse(context.Request.Headers[SimulatedRemoteIpHeader].ToString(), out var ip))
+                {
+                    context.Connection.RemoteIpAddress = ip;
+                }
+
+                if (context.Request.Headers.ContainsKey(SimulatedHttpsHeader))
+                {
+                    context.Request.Scheme = "https";
+                }
+
+                await nextMiddleware(context);
+            });
+            next(app);
+        };
     }
 }
 
