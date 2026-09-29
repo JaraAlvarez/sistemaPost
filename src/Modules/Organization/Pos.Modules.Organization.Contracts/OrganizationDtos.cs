@@ -36,6 +36,13 @@ public sealed record WarehouseDto(Guid Id, Guid BranchId, string Code, string Na
 
 public sealed record TerminalDto(Guid Id, Guid BranchId, string Code, string Name, Guid WarehouseId, Guid? DeviceId, string Status);
 
+/// <summary>
+/// Impresora de tiquetes de la caja (Fase 7). <c>Connection</c>: FILE, NETWORK, WINDOWS_SPOOLER o SERIAL; <c>CodePage</c>: PC850 o
+/// ASCII; <c>DrawerPin</c>: PIN2 o PIN5. <c>Configured</c> = false: valores por defecto (no se ha configurado).
+/// </summary>
+public sealed record ReceiptPrinterDto(
+    Guid PosTerminalId, bool Configured, string Connection, string? Address, int PaperWidthMm, string CodePage, bool AutoCut, bool DrawerConnected, string DrawerPin);
+
 /// <summary>Sucursal con sus bodegas y cajas.</summary>
 public sealed record BranchDetailDto(BranchDto Branch, IReadOnlyList<WarehouseDto> Warehouses, IReadOnlyList<TerminalDto> Terminals);
 

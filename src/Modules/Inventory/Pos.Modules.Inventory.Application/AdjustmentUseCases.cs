@@ -231,6 +231,86 @@ internal sealed class CreateAdjustmentHandler(
     }
 }
 
+/// <summary>
+/// Ajuste rápido desde la caja (Fase 7, RN-SAL-17): el sistema dice que no hay existencias pero el producto está en la mano
+/// del cliente (p. ej. una compra sin registrar). Un supervisor lo autoriza; es una ENTRADA real del kardex al costo
+/// promedio vigente, con motivo, que se publica de inmediato y aparece en el reporte de ajustes para revisarla.
+/// </summary>
+public sealed record QuickAdjustmentCommand(Guid WarehouseId, Guid ProductId, decimal Quantity, string Reason) : ICommand<AdjustmentDto>;
+
+internal sealed class QuickAdjustmentHandler(
+    IInstallationContext installation,
+    IInventoryStore store,
+    InventoryGuards guards,
+    AdjustmentPoster poster,
+    ICatalogReader catalog,
+    IDocumentNumberAllocator numbers,
+    IAuthorizationScope authorization,
+    IActorContext actor,
+    IAuditWriter audit,
+    IIdGenerator ids,
+    IClock clock) : ICommandHandler<QuickAdjustmentCommand, AdjustmentDto>
+{
+    public async Task<Result<AdjustmentDto>> Handle(QuickAdjustmentCommand request, CancellationToken cancellationToken)
+    {
+        var local = installation.RequireLocal();
+        if (local.IsFailure)
+        {
+            return local.Error;
+        }
+
+        var note = (request.Reason ?? string.Empty).Trim();
+        if (note.Length is < 5 or > 300 || request.Quantity <= 0m)
+        {
+            return Error.Validation("INVENTORY.INVALID_QUICK_ADJUSTMENT", "Indique una cantidad mayor que cero y el motivo (de 5 a 300 caracteres).");
+        }
+
+        var warehouse = await guards.LocalWarehouseAsync(request.WarehouseId, cancellationToken);
+        if (warehouse.IsFailure)
+        {
+            return warehouse.Error;
+        }
+
+        var products = await guards.StockableAsync([(request.ProductId, request.Quantity)], cancellationToken);
+        if (products.IsFailure)
+        {
+            return products.Error;
+        }
+
+        var reason = (await store.GetReasonsAsync(cancellationToken)).Single(r => r.Code == InventoryInitializer.QuickAdjustment);
+        var number = await numbers.NextForBranchAsync("INVENTORY_ADJUSTMENT", local.Value.BranchId, cancellationToken);
+        var created = InventoryAdjustment.Create(
+            ids.NewId(), local.Value.CompanyId, local.Value.BranchId, request.WarehouseId, number.Number, clock.Today, reason, $"Ajuste rápido desde la caja: {note}",
+            [new AdjustmentLineInput(request.ProductId, request.Quantity, null, note, null, null)], ids.NewId, actor.ActorId!.Value);
+        if (created.IsFailure)
+        {
+            return created.Error;
+        }
+
+        var adjustment = created.Value;
+        store.Add(adjustment);
+        var decision = adjustment.RequestPosting(0m, decimal.MaxValue, clock.UtcNow);
+        if (decision.IsFailure)
+        {
+            return decision.Error;
+        }
+
+        var posted = await poster.PostAsync(adjustment, reason, cancellationToken);
+        if (posted.IsFailure)
+        {
+            return posted.Error;
+        }
+
+        var product = products.Value[request.ProductId];
+        await audit.WriteAsync(
+            new AuditEntry("inventory", "INVENTORY_QUICK_ADJUSTMENT", nameof(InventoryAdjustment), adjustment.Id, adjustment.AuditLabel,
+                $"Ajuste rápido {adjustment.Number}: +{request.Quantity:0.####} {product.BaseUnitCode} de {product.Sku} · {product.Name}. Motivo: {note}",
+                AuthorizedBy: authorization.Current?.AuthorizedBy, Severity: AuditSeverity.Warning),
+            cancellationToken);
+        return await adjustment.ToDtoAsync(store, catalog, cancellationToken);
+    }
+}
+
 public sealed record UpdateAdjustmentCommand(Guid AdjustmentId, Guid ReasonId, string? Notes, IReadOnlyList<AdjustmentLineRequest> Lines) : ICommand<AdjustmentDto>;
 
 internal sealed class UpdateAdjustmentHandler(IInventoryStore store, InventoryGuards guards, ICatalogReader catalog, IIdGenerator ids)

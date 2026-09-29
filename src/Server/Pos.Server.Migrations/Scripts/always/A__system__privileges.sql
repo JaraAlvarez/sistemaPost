@@ -7,15 +7,20 @@
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
-GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses TO pos_app, pos_backup;
+GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+    TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
-REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses FROM pos_app;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses FROM pos_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+    FROM pos_app;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+    FROM pos_app;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+    FROM PUBLIC;
 
 -- Negocio
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory, parties, cash, purchasing, expenses TO pos_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+    TO pos_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     system.document_series, system.settings, system.outbox_messages, system.inbox_messages,
     system.sync_cursors, system.idempotency_keys
@@ -35,6 +40,9 @@ REVOKE UPDATE, DELETE, TRUNCATE ON purchasing.payable_entries FROM pos_app;
 
 -- Movimientos de caja: cada peso trazable (D6-01).
 REVOKE UPDATE, DELETE, TRUNCATE ON cash.cash_movements FROM pos_app;
+
+-- Eventos de los documentos fiscales: solo agregar y leer (D7-12).
+REVOKE UPDATE, DELETE, TRUNCATE ON billing.fiscal_document_events FROM pos_app;
 
 -- Auditoría: solo agregar y leer
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;

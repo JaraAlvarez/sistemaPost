@@ -15,6 +15,7 @@ public static class InventoryPermissions
     public const string CountApprove = "inventory.count.approve";
     public const string TransferManage = "inventory.transfer.manage";
     public const string StockVerify = "inventory.stock.verify";
+    public const string AdjustmentQuick = "inventory.adjustment.quick";
 
     public static IEnumerable<PermissionDefinition> All =>
     [
@@ -27,6 +28,8 @@ public static class InventoryPermissions
         new(CountApprove, "Aprobar un conteo físico (genera los ajustes)", isSensitive: true),
         new(TransferManage, "Crear, despachar y recibir traslados entre bodegas", isSensitive: false),
         new(StockVerify, "Verificar y reconstruir saldos contra el kardex", isSensitive: true),
+        new(AdjustmentQuick, "Ajuste rápido de un producto desde la caja cuando el sistema no tiene existencias (admite autorización de supervisor)",
+            isSensitive: true),
     ];
 }
 
@@ -156,7 +159,17 @@ public interface IInventoryQueries
 
     /// <summary>Productos (de la lista) que tienen al menos un movimiento de inventario.</summary>
     Task<IReadOnlySet<Guid>> GetProductsWithMovementsAsync(IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Existencias para vender en una bodega (Fase 7, RN-SAL-17/18): saldo del producto y cantidad en lotes vencidos a la
+    /// fecha (FEFO los consume primero). Los productos sin saldo no aparecen.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, SaleAvailability>> GetSaleAvailabilityAsync(
+        Guid warehouseId, IReadOnlyCollection<Guid> productIds, DateOnly today, CancellationToken cancellationToken = default);
 }
+
+/// <summary>Saldo de un producto en una bodega y cantidad que está en lotes vencidos.</summary>
+public sealed record SaleAvailability(decimal OnHand, decimal ExpiredQuantity);
 
 public sealed record AdjustmentReasonDto(Guid Id, string Code, string Name, string Kind, bool RequiresNote, bool IsSystem, string Status);
 

@@ -12,7 +12,8 @@ public interface IDeviceAuthenticator
 }
 
 /// <summary>Datos de una caja para abrir una sesión en ella.</summary>
-public sealed record TerminalInfo(Guid Id, Guid CompanyId, Guid BranchId, string Code, bool IsActive);
+/// <summary>Caja vista por otros módulos. <c>WarehouseId</c>: bodega de la que vende (Fase 7).</summary>
+public sealed record TerminalInfo(Guid Id, Guid CompanyId, Guid BranchId, string Code, bool IsActive, Guid WarehouseId);
 
 /// <summary>Consultas de cajas para otros módulos.</summary>
 public interface ITerminalDirectory

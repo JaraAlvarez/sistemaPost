@@ -32,6 +32,9 @@ public sealed record PartyInfo(
 public interface IPartyDirectory
 {
     Task<IReadOnlyDictionary<Guid, PartyInfo>> GetAsync(IReadOnlyCollection<Guid> partyIds, CancellationToken cancellationToken = default);
+
+    /// <summary>"Consumidor final" de la empresa (ventas sin cliente identificado).</summary>
+    Task<PartyInfo?> GetFinalConsumerAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed record PartyContactDto(Guid Id, string Name, string? Position, string? Phone, string? Email, bool IsPrimary);

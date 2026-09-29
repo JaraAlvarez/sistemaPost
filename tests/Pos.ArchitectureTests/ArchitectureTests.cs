@@ -27,6 +27,13 @@ public class ArchitectureTests
             "Pos.Modules.Purchasing.Infrastructure",
             "Pos.Modules.Reference.Api", "Pos.Modules.Reference.Application", "Pos.Modules.Reference.Contracts",
             "Pos.Modules.Reference.Infrastructure",
+            "Pos.Modules.Sales.Api", "Pos.Modules.Sales.Application", "Pos.Modules.Sales.Contracts", "Pos.Modules.Sales.Domain",
+            "Pos.Modules.Sales.Infrastructure",
+            "Pos.Modules.Promotions.Api", "Pos.Modules.Promotions.Application", "Pos.Modules.Promotions.Contracts", "Pos.Modules.Promotions.Domain",
+            "Pos.Modules.Promotions.Infrastructure",
+            "Pos.Modules.Billing.Api", "Pos.Modules.Billing.Application", "Pos.Modules.Billing.Contracts", "Pos.Modules.Billing.Domain",
+            "Pos.Modules.Billing.Infrastructure",
+            "Pos.Printing",
         ];
 
         ProductionAssemblies.All.Select(a => a.GetName().Name).ShouldBe(

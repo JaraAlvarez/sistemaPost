@@ -53,6 +53,10 @@ public sealed class InventoryModule : IModule
 
         MapReasons(group);
         MapAdjustments(group.MapGroup("/adjustments"));
+        group.MapPost("/quick-adjustments", async (QuickAdjustmentCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToCreatedResult(a => $"/api/v1/inventory/adjustments/{a.Id}"))
+            .RequirePermission(InventoryPermissions.AdjustmentQuick, allowSupervisor: true)
+            .WithSummary("Ajuste rápido desde la caja (entrada al costo promedio, publicada de inmediato): permiso o autorización de supervisor");
         MapCounts(group.MapGroup("/counts"));
         MapTransfers(group.MapGroup("/transfers"));
 

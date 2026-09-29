@@ -31,6 +31,7 @@ public sealed class CashModule : IModule
         services.AddScoped<SessionAccess>();
         services.AddScoped<SessionLoader>();
         services.AddScoped<SessionViews>();
+        services.AddScoped<OpenSalesGuard>();
         services.AddScoped<CashRegisterService>();
         services.AddScoped<ICashRegister>(sp => sp.GetRequiredService<CashRegisterService>());
     }

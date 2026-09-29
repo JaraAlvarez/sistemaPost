@@ -48,15 +48,54 @@ public interface ICashRegister
 
     /// <summary>RN-SEC-07: el usuario tiene una jornada sin cerrar.</summary>
     Task<bool> HasOpenSessionAsync(Guid cashierId, CancellationToken cancellationToken = default);
+
+    /// <summary>Jornada ABIERTA de la caja (no en cierre): la única en la que se vende (RN-SAL-01, RN-CSH-03).</summary>
+    Task<CashSessionInfo?> GetOpenSessionAsync(Guid posTerminalId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Movimientos de una venta, su anulación o un reintegro por garantía (Fase 7): uno por medio de pago, en la jornada
+    /// indicada, que debe estar abierta. Una salida no puede dejar el esperado del medio negativo (RN-CSH-06).
+    /// </summary>
+    Task<Pos.SharedKernel.Results.Result> RecordSaleMovementsAsync(SaleCashRequest request, CancellationToken cancellationToken = default);
 }
 
-/// <summary>Medio de pago visto por otros módulos (compras, ventas). <c>Kind</c>: CASH, DEBIT_CARD, CREDIT_CARD, TRANSFER, WALLET, VOUCHER u OTHER.</summary>
+/// <summary>Jornada vista por ventas.</summary>
+public sealed record CashSessionInfo(Guid Id, string Number, Guid PosTerminalId, Guid CashierId, DateOnly BusinessDate, string Status);
+
+/// <summary>Valor de un medio de pago en un movimiento de venta.</summary>
+public sealed record SaleCashAmount(Guid PaymentMethodId, decimal Amount);
+
+/// <summary>
+/// Movimientos de caja de un documento de ventas. <c>MovementType</c>: SALE (entra), SALE_VOID o CUSTOMER_REFUND (salen).
+/// </summary>
+public sealed record SaleCashRequest(
+    Guid SessionId, string MovementType, string SourceType, Guid SourceId, string SourceNumber, IReadOnlyList<SaleCashAmount> Amounts, string? Reason,
+    Guid? AuthorizedBy);
+
+/// <summary>Venta sin terminar en una caja (en curso o suspendida).</summary>
+public sealed record OpenSaleInfo(Guid SaleId, string Status, string? HoldLabel, decimal Total, DateTimeOffset OpenedAt);
+
+/// <summary>
+/// Contrato invertido (D7-13): la caja pregunta por las ventas sin terminar antes de iniciar el cierre (RN-CSH-03). Lo
+/// implementa el módulo de ventas; así la caja no depende de él.
+/// </summary>
+public interface IOpenSalesProbe
+{
+    Task<IReadOnlyList<OpenSaleInfo>> GetOpenSalesAsync(Guid posTerminalId, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Medio de pago visto por otros módulos (compras, ventas). <c>Kind</c>: CASH, DEBIT_CARD, CREDIT_CARD, TRANSFER, WALLET, VOUCHER,
+/// OTHER o EXCHANGE_CREDIT (crédito de un cambio de mercancía: no entra al cajón y no se cuenta en el arqueo).
+/// </summary>
 public sealed record PaymentMethodInfo(
     Guid Id, string Code, string Name, string Kind, string? DianCode, bool RequiresReference, bool AffectsCashDrawer, bool IsActive);
 
 public interface IPaymentMethodDirectory
 {
     Task<PaymentMethodInfo?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<PaymentMethodInfo?> GetByCodeAsync(string code, CancellationToken cancellationToken = default);
 }
 
 public sealed record PaymentMethodDto(

@@ -195,6 +195,7 @@ public sealed class InventoryInitializer(IInventoryStore store, IIdGenerator ids
 {
     public const string InitialBalance = "INITIAL_BALANCE";
     public const string TransferShortage = "TRANSFER_SHORTAGE";
+    public const string QuickAdjustment = "QUICK_ADJUSTMENT";
 
     public int Order => 200;
 
@@ -212,6 +213,7 @@ public sealed class InventoryInitializer(IInventoryStore store, IIdGenerator ids
             ("INTERNAL_USE", "Consumo interno", ReasonKind.InternalUse, false),
             ("TASTING", "Degustación", ReasonKind.InternalUse, false),
             (TransferShortage, "Faltante en traslado", ReasonKind.Loss, false),
+            (QuickAdjustment, "Ajuste rápido desde la caja", ReasonKind.Adjustment, true),
         ];
         foreach (var (code, name, kind, note) in seeds.Where(s => !existing.Contains(s.Code)))
         {

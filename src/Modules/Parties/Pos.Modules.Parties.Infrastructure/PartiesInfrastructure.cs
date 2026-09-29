@@ -131,10 +131,19 @@ internal sealed class PartyDirectory(PosDbContext context) : IPartyDirectory
         }
 
         var parties = await context.Set<Party>().AsNoTracking().Where(p => partyIds.Contains(p.Id)).ToListAsync(cancellationToken);
-        return parties.ToDictionary(p => p.Id, p => new PartyInfo(
-            p.Id, p.DisplayName, p.PersonType.ToString().ToUpperInvariant(), p.IdentificationType, p.IdentificationNumber, p.CheckDigit, p.Email,
-            p.Status.ToString().ToUpperInvariant(), p.IsSystem, p.MergedIntoId));
+        return parties.ToDictionary(p => p.Id, ToInfo);
     }
+
+    public async Task<PartyInfo?> GetFinalConsumerAsync(CancellationToken cancellationToken = default) =>
+        await context.Set<Party>().AsNoTracking()
+            .Where(p => p.IdentificationType == Party.FinalConsumerType && p.IdentificationNumber == Party.FinalConsumerNumber)
+            .FirstOrDefaultAsync(cancellationToken) is { } party
+            ? ToInfo(party)
+            : null;
+
+    private static PartyInfo ToInfo(Party p) => new(
+        p.Id, p.DisplayName, p.PersonType.ToString().ToUpperInvariant(), p.IdentificationType, p.IdentificationNumber, p.CheckDigit, p.Email,
+        p.Status.ToString().ToUpperInvariant(), p.IsSystem, p.MergedIntoId);
 }
 
 internal sealed class PartiesConstraintErrors : IConstraintErrorProvider

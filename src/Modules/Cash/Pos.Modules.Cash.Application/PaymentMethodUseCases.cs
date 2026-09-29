@@ -56,6 +56,7 @@ public sealed class CashInitializer(ICashStore store, IIdGenerator ids) : ICompa
             ("NEQUI", "Nequi", PaymentMethodKind.Wallet, "47", true),
             ("DAVIPLATA", "Daviplata", PaymentMethodKind.Wallet, "47", true),
             ("BONO", "Bono", PaymentMethodKind.Voucher, "71", true),
+            (PaymentMethod.ExchangeCreditCode, "Crédito por cambio", PaymentMethodKind.ExchangeCredit, "ZZZ", false),
         ];
         var order = 0;
         foreach (var (code, name, kind, dian, reference) in seeds)
@@ -133,6 +134,11 @@ internal sealed class CreatePaymentMethodHandler(IInstallationContext installati
         if (installation.CompanyId is not { } companyId)
         {
             return Task.FromResult<Result<PaymentMethodDto>>(Error.BusinessRule("SETUP.REQUIRED", "Complete primero la configuración inicial (POST /api/v1/setup)."));
+        }
+
+        if (request.Kind == PaymentMethodKind.ExchangeCredit)
+        {
+            return Task.FromResult<Result<PaymentMethodDto>>(CashErrors.ExchangeCreditReserved);
         }
 
         var method = PaymentMethod.Create(ids.NewId(), companyId, request.Code, request.Name, request.Kind, request.DianCode, request.RequiresReference, request.SortOrder);

@@ -196,4 +196,53 @@ public sealed class CashRegisterService(
 
     public async Task<bool> HasOpenSessionAsync(Guid cashierId, CancellationToken cancellationToken = default) =>
         await store.GetUnclosedSessionAsync(null, cashierId, cancellationToken) is not null;
+
+    public async Task<CashSessionInfo?> GetOpenSessionAsync(Guid posTerminalId, CancellationToken cancellationToken = default) =>
+        await store.GetUnclosedSessionAsync(posTerminalId, null, cancellationToken) is { Status: CashSessionStatus.Open } session
+            ? new CashSessionInfo(session.Id, session.Number, session.PosTerminalId, session.CashierId, session.BusinessDate, session.Status.Db())
+            : null;
+
+    public async Task<Result> RecordSaleMovementsAsync(SaleCashRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var type = request.MovementType switch
+        {
+            "SALE" => CashMovementType.Sale,
+            "SALE_VOID" => CashMovementType.SaleVoid,
+            "CUSTOMER_REFUND" => CashMovementType.CustomerRefund,
+            _ => throw new ArgumentOutOfRangeException(nameof(request), "Solo ventas, anulaciones y reintegros registran movimientos de venta."),
+        };
+        var session = await store.GetSessionAsync(request.SessionId, cancellationToken);
+        if (session is null)
+        {
+            return CashErrors.SessionNotFound;
+        }
+
+        var allowed = await access.CanOperateAsync(session, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed.Error;
+        }
+
+        foreach (var amount in request.Amounts.Where(a => a.Amount > 0m).GroupBy(a => a.PaymentMethodId))
+        {
+            var method = await methods.GetAsync(amount.Key, cancellationToken);
+            if (method is null || method.Kind == "EXCHANGE_CREDIT")
+            {
+                return CashErrors.PaymentMethodNotFound;
+            }
+
+            var recorded = await RecordAsync(
+                session,
+                new CashMovementData(type, method.Id, amount.Sum(a => a.Amount), request.Reason, request.AuthorizedBy, request.SourceType, request.SourceId,
+                    request.SourceNumber),
+                cancellationToken);
+            if (recorded.IsFailure)
+            {
+                return recorded.Error;
+            }
+        }
+
+        return Result.Success();
+    }
 }
