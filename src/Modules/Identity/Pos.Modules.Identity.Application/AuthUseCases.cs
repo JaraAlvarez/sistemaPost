@@ -71,6 +71,17 @@ public sealed class AuthServices(
     /// <summary>Verifica la credencial del usuario y aplica contador, bloqueo, auditoría y rehash. Devuelve el error o <c>null</c>.</summary>
     public async Task<Error?> VerifyAsync(User? user, string identifier, string secret, SecretKind kind, string attemptKind, CancellationToken cancellationToken)
     {
+        var error = await VerifyCoreAsync(user, identifier, secret, kind, attemptKind, cancellationToken);
+        if (user is not null)
+        {
+            await store.SaveAuthenticationStateAsync(user, cancellationToken);
+        }
+
+        return error;
+    }
+
+    private async Task<Error?> VerifyCoreAsync(User? user, string identifier, string secret, SecretKind kind, string attemptKind, CancellationToken cancellationToken)
+    {
         var now = clock.UtcNow;
         var withPin = kind == SecretKind.Pin;
         var hash = withPin ? user?.PinHash : user?.PasswordHash;
@@ -125,6 +136,7 @@ public sealed class AuthServices(
     {
         var now = clock.UtcNow;
         user.RecordSuccess(now);
+        await store.SaveAuthenticationStateAsync(user, cancellationToken);
         var idleMinutes = await SettingAsync(terminal ? SecuritySettings.TerminalIdleMinutes : SecuritySettings.BackofficeIdleMinutes, branchId, cancellationToken);
         var maxHours = await SettingAsync(SecuritySettings.SessionMaxHours, null, cancellationToken);
         var token = SecureTokens.Create();
@@ -148,7 +160,7 @@ public sealed class AuthServices(
     {
         var effective = await permissions.GetEffectiveAsync(user.Id, branchId, null, cancellationToken);
         return new MeDto(user.Id, user.Username, user.DisplayName, sessionId, terminal ? "TERMINAL" : "BACKOFFICE", branchId, posTerminalId,
-            user.MustChangePassword, [.. effective.Order(StringComparer.Ordinal)]);
+            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)]);
     }
 
     public Task AuditAsync(User user, string action, string summary, AuditSeverity severity, CancellationToken cancellationToken) =>

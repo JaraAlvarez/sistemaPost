@@ -90,15 +90,10 @@ internal sealed class RequestAuthenticationMiddleware(RequestDelegate next)
             identity.Session = await sessions.AuthenticateAsync(authorization["Bearer ".Length..].Trim(), new HttpClientContext(context), context.RequestAborted);
         }
 
-        // Endpoint protegido sin sesión válida: se rechaza antes de leer el cuerpo de la petición.
-        var metadata = context.GetEndpoint()?.Metadata;
-        if (identity.Session is null && (metadata?.GetMetadata<PermissionRequirement>() is not null || metadata?.GetMetadata<AuthenticatedOnly>() is not null))
+        // Seguridad declarada por el endpoint (sesión, permiso, supervisor), antes de leer el cuerpo de la petición.
+        if (await EndpointSecurity.AuthorizeAsync(context) is { } denied)
         {
-            var ownerPending = context.RequestServices.GetService<IOwnerSetupStatus>() is { } owner && await owner.IsOwnerPendingAsync(context.RequestAborted);
-            await Reject(context, ownerPending
-                ? Error.Forbidden(EndpointSecurity.OwnerRequiredCode, "Cree primero el usuario Propietario desde el propio servidor (POST /api/v1/setup/owner).")
-                : Error.Unauthorized(EndpointSecurity.AuthenticationRequiredCode,
-                    authorization.Length > 0 ? "La sesión venció o fue cerrada. Inicie sesión de nuevo." : "Inicie sesión para continuar."));
+            await denied.ExecuteAsync(context);
             return;
         }
 

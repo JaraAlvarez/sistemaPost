@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas del dominio de Identity: permisos efectivos, políticas de credenciales, bloqueo, roles. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Identity\Pos.Modules.Identity.Domain\Pos.Modules.Identity.Domain.csproj" />
+  </ItemGroup>
+</Project>

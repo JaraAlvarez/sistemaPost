@@ -35,6 +35,7 @@
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Organization.UnitTests/Pos.Modules.Organization.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />

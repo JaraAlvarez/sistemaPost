@@ -245,6 +245,26 @@ internal sealed class IdentityStore(PosDbContext context) : IIdentityStore
 
     public void Remove(Role role) => context.Remove(role);
 
+    public async Task SaveAuthenticationStateAsync(User user, CancellationToken cancellationToken)
+    {
+        var entry = context.Entry(user);
+        if (entry.State != EntityState.Modified)
+        {
+            return;
+        }
+
+        await context.Set<User>().Where(u => u.Id == user.Id).ExecuteUpdateAsync(
+            u => u.SetProperty(x => x.FailedLoginCount, user.FailedLoginCount)
+                .SetProperty(x => x.LockedUntil, user.LockedUntil)
+                .SetProperty(x => x.LockedReason, user.LockedReason)
+                .SetProperty(x => x.Status, user.Status)
+                .SetProperty(x => x.LastLoginAt, user.LastLoginAt)
+                .SetProperty(x => x.PasswordHash, user.PasswordHash)
+                .SetProperty(x => x.PinHash, user.PinHash),
+            cancellationToken);
+        entry.State = EntityState.Unchanged;
+    }
+
     public Task<User?> GetUserAsync(Guid userId, CancellationToken cancellationToken) =>
         context.Set<User>().SingleOrDefaultAsync(u => u.Id == userId, cancellationToken);
 

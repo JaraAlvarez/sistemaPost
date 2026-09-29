@@ -1,8 +1,12 @@
 using System.Globalization;
 using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using Pos.Infrastructure;
 using Pos.Infrastructure.Auditing;
+using Pos.Infrastructure.Persistence;
+using Pos.Infrastructure.Security;
 using Pos.Server.Migrations;
 
 // Uso:
@@ -12,6 +16,8 @@ using Pos.Server.Migrations;
 //   Pos.Server.Migrator status   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify-audit [--connection "<cadena>"]   (filas, sellos y cadena de la auditoría)
+//   Pos.Server.Migrator reset-owner --username <usuario> [--connection "<cadena pos_migrator>"]
+//                       Recuperación de emergencia del Propietario: contraseña temporal, auditoría crítica.
 // Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION.
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
 //                    4 = la auditoría tiene hallazgos (posible manipulación).
@@ -23,7 +29,7 @@ var appVersion = Assembly.GetExecutingAssembly()
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit");
+    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit | reset-owner");
     return 2;
 }
 
@@ -90,6 +96,23 @@ try
                 Console.WriteLine(audit.IsValid ? "Auditoría íntegra." : "LA AUDITORÍA TIENE HALLAZGOS.");
                 return audit.IsValid ? 0 : 4;
             }
+
+        case "reset-owner":
+        {
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddPosInfrastructure(Pos.SharedKernel.Time.BusinessTimeZones.Colombia);
+            services.AddPosPersistence(new PersistenceOptions { ConnectionString = Connection(options), RunBackgroundServices = false });
+            await using var provider = services.BuildServiceProvider();
+            var reset = await new OwnerEmergencyReset(provider).ResetAsync(Required(options, "username"));
+            Console.WriteLine(reset.Message);
+            if (reset.TemporaryPassword is not null)
+            {
+                Console.WriteLine($"Contraseña temporal (entréguela en persona): {reset.TemporaryPassword}");
+            }
+
+            return reset.Succeeded ? 0 : 1;
+        }
 
         default:
             Console.Error.WriteLine($"Comando desconocido: {args[0]}");

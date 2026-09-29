@@ -130,7 +130,8 @@ internal sealed class SessionAuthenticator(NpgsqlDataSource dataSource, IClock c
 
         return new AuthenticatedSession(
             row.SessionId, row.UserId, row.DisplayName, row.CompanyId, row.BranchId, row.PosTerminalId, row.Kind == "TERMINAL",
-            row.MustChangePassword, row.SecurityVersion);
+            // La contraseña es del backoffice: una sesión de caja (código + PIN) no queda restringida por cambiarla.
+            row.MustChangePassword && row.Kind != "TERMINAL", row.SecurityVersion);
     }
 
     private sealed class SessionRow

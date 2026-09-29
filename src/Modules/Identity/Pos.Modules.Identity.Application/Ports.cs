@@ -16,6 +16,13 @@ public interface IIdentityStore
 
     void Remove(Role role);
 
+    /// <summary>
+    /// Guarda el estado de autenticación (intentos, bloqueo, último acceso, rehash) con una actualización directa, sin
+    /// concurrencia optimista: dos ingresos simultáneos del mismo usuario no deben chocar. El resto de cambios del
+    /// usuario sigue el camino normal.
+    /// </summary>
+    Task SaveAuthenticationStateAsync(User user, CancellationToken cancellationToken);
+
     Task<User?> GetUserAsync(Guid userId, CancellationToken cancellationToken);
 
     Task<User?> FindByUsernameAsync(string username, CancellationToken cancellationToken);

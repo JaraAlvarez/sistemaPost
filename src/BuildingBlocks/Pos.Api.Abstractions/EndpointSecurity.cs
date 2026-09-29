@@ -43,52 +43,6 @@ public static class EndpointSecurity
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(permissionCode);
         builder.WithMetadata(new PermissionRequirement(permissionCode, allowSupervisor));
-        builder.AddEndpointFilter(async (context, next) =>
-        {
-            var http = context.HttpContext;
-            var denied = await CheckSessionAsync(http);
-            if (denied is not null)
-            {
-                return denied;
-            }
-
-            var services = http.RequestServices;
-            if (await services.GetRequiredService<IPermissionChecker>().HasPermissionAsync(permissionCode, cancellationToken: http.RequestAborted))
-            {
-                return await next(context);
-            }
-
-            // Autorización de supervisor de un solo uso, ligada a este permiso, a esta acción y a este objetivo.
-            var current = services.GetRequiredService<ICurrentUser>();
-            if (allowSupervisor && Guid.TryParse(http.Request.Headers[GrantHeader].ToString(), out var grantId))
-            {
-                var consumed = await services.GetRequiredService<ISupervisorAuthorization>()
-                    .TryConsumeAsync(grantId, permissionCode, ActionOf(http), TargetOf(http), http.RequestAborted);
-                if (consumed is not null)
-                {
-                    services.GetRequiredService<IAuthorizationScope>().Use(consumed);
-                    return await next(context);
-                }
-            }
-
-            var supervisorPossible = allowSupervisor && current.IsTerminalSession;
-            var error = Error.Forbidden(
-                supervisorPossible ? AuthorizationRequiredCode : ForbiddenCode,
-                supervisorPossible
-                    ? $"Esta acción requiere la autorización de un supervisor ({permissionCode})."
-                    : $"No tiene el permiso '{permissionCode}'.");
-            return TypedResults.Problem(
-                title: "Acceso denegado",
-                detail: error.Message,
-                statusCode: StatusCodes.Status403Forbidden,
-                extensions: new Dictionary<string, object?>
-                {
-                    [ResultHttpExtensions.ErrorCodeExtension] = error.Code,
-                    ["permission"] = permissionCode,
-                    ["action"] = supervisorPossible ? ActionOf(http) : null,
-                    ["targetId"] = supervisorPossible ? TargetOf(http) : null,
-                });
-        });
         return builder;
     }
 
@@ -96,8 +50,62 @@ public static class EndpointSecurity
         where TBuilder : IEndpointConventionBuilder
     {
         builder.WithMetadata(new AuthenticatedOnly());
-        builder.AddEndpointFilter(async (context, next) => await CheckSessionAsync(context.HttpContext) ?? await next(context));
         return builder;
+    }
+
+    /// <summary>
+    /// Aplica la seguridad declarada por el endpoint ANTES de leer el cuerpo de la petición (la invoca el middleware de
+    /// autenticación del host). Devuelve la respuesta de rechazo o <c>null</c> si la petición puede continuar.
+    /// </summary>
+    public static async Task<IResult?> AuthorizeAsync(HttpContext http)
+    {
+        ArgumentNullException.ThrowIfNull(http);
+        var metadata = http.GetEndpoint()?.Metadata;
+        var requirement = metadata?.GetMetadata<PermissionRequirement>();
+        if (requirement is null && metadata?.GetMetadata<AuthenticatedOnly>() is null)
+        {
+            return null;
+        }
+
+        var denied = await CheckSessionAsync(http);
+        if (denied is not null || requirement is null)
+        {
+            return denied;
+        }
+
+        var services = http.RequestServices;
+        if (await services.GetRequiredService<IPermissionChecker>().HasPermissionAsync(requirement.PermissionCode, cancellationToken: http.RequestAborted))
+        {
+            return null;
+        }
+
+        // Autorización de supervisor de un solo uso, ligada a este permiso, a esta acción y a este objetivo.
+        var current = services.GetRequiredService<ICurrentUser>();
+        if (requirement.AllowSupervisor && Guid.TryParse(http.Request.Headers[GrantHeader].ToString(), out var grantId))
+        {
+            var consumed = await services.GetRequiredService<ISupervisorAuthorization>()
+                .TryConsumeAsync(grantId, requirement.PermissionCode, ActionOf(http), TargetOf(http), http.RequestAborted);
+            if (consumed is not null)
+            {
+                services.GetRequiredService<IAuthorizationScope>().Use(consumed);
+                return null;
+            }
+        }
+
+        var supervisorPossible = requirement.AllowSupervisor && current.IsTerminalSession;
+        return TypedResults.Problem(
+            title: "Acceso denegado",
+            detail: supervisorPossible
+                ? $"Esta acción requiere la autorización de un supervisor ({requirement.PermissionCode})."
+                : $"No tiene el permiso '{requirement.PermissionCode}'.",
+            statusCode: StatusCodes.Status403Forbidden,
+            extensions: new Dictionary<string, object?>
+            {
+                [ResultHttpExtensions.ErrorCodeExtension] = supervisorPossible ? AuthorizationRequiredCode : ForbiddenCode,
+                ["permission"] = requirement.PermissionCode,
+                ["action"] = supervisorPossible ? ActionOf(http) : null,
+                ["targetId"] = supervisorPossible ? TargetOf(http) : null,
+            });
     }
 
     public static TBuilder AllowAnonymousByDesign<TBuilder>(this TBuilder builder, string reason)
