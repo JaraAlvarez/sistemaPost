@@ -17,9 +17,12 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.12" />
     <PackageVersion Include="MiniExcel" Version="1.46.0" />
+    <!-- Fase 12-A (nube): componentes del portal web y código QR para el doble factor. -->
+    <PackageVersion Include="MudBlazor" Version="9.11.0" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="NSec.Cryptography" Version="26.4.0" />
+    <PackageVersion Include="QRCoder" Version="1.8.0" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.17.10" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
     <!-- Incluye Serilog.Sinks.File, Serilog.Formatting.Compact y Serilog.Settings.Configuration. -->

@@ -1,0 +1,62 @@
+@page "/clientes"
+@attribute [Authorize(Policy = CloudPermissions.LicensingView)]
+@inherits PortalPageBase
+
+<PageTitle>Clientes · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Clientes</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Cliente comercial (o distribuidor) dueño de una o varias empresas licenciadas.</MudText>
+
+<AuthorizeView Policy="@CloudPermissions.AccountManage">
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudText Typo="Typo.h6">Nuevo cliente</MudText>
+        <AccountForm Input="_new" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="CreateAsync">Registrar cliente</MudButton>
+    </MudPaper>
+</AuthorizeView>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+    <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, NIT o correo" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Buscar</MudButton>
+</MudStack>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+
+<MudSimpleTable Dense="true" Hover="true" Outlined="true">
+    <thead><tr><th>Nombre</th><th>Tipo</th><th>NIT</th><th>Contacto</th><th>Empresas</th><th>Estado</th></tr></thead>
+    <tbody>
+        @foreach (var a in _accounts)
+        {
+            <tr>
+                <td><MudLink Href="@($"/clientes/{a.Id}")">@a.Name</MudLink></td>
+                <td>@(a.Kind == "RESELLER" ? "Distribuidor" : "Directo")</td>
+                <td>@(a.Nit is null ? "—" : $"{a.Nit}-{a.NitCheckDigit}")</td>
+                <td>@(a.ContactName ?? "—") @(a.ContactEmail is null ? null : $"· {a.ContactEmail}")</td>
+                <td>@a.Organizations</td>
+                <td>@StatusName(a.Status)</td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@code {
+    private IReadOnlyList<AccountDto> _accounts = [];
+    private string? _search;
+    private AccountForm.Model _new = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _accounts = await LoadAsync(new ListAccountsQuery(_search)) ?? [];
+
+    private async Task CreateAsync()
+    {
+        var created = await RunAsync(new CreateAccountCommand(_new.ToInput()), "Cliente registrado.");
+        if (created.IsSuccess)
+        {
+            _new = new();
+            await LoadAsync();
+        }
+    }
+}

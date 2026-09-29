@@ -1,0 +1,26 @@
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated == true && context.User.HasClaim(PortalClaims_Stage, "ACTIVE"))
+                {
+                    <AccessDeniedNotice />
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)">
+            <MudText Typo="Typo.h5">No se encontró la página.</MudText>
+        </LayoutView>
+    </NotFound>
+</Router>
+
+@code {
+    private const string PortalClaims_Stage = Pos.Cloud.Infrastructure.Persistence.PortalClaims.Stage;
+}

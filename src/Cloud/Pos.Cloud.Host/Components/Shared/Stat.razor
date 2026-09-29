@@ -1,0 +1,15 @@
+<MudPaper Class="pa-4" Elevation="1">
+    <MudText Typo="Typo.caption">@Title</MudText>
+    <MudText Typo="Typo.h5" Color="Color">@Value</MudText>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public int Value { get; set; }
+
+    [Parameter]
+    public Color Color { get; set; } = Color.Default;
+}

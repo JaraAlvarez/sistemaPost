@@ -61,10 +61,28 @@
     <Project Path="src/Server/Pos.Server.Migrations/Pos.Server.Migrations.csproj" />
     <Project Path="src/Server/Pos.Server.Migrator/Pos.Server.Migrator.csproj" />
   </Folder>
+  <Folder Name="/src/Cloud/">
+    <Project Path="src/Cloud/Pos.Cloud.Abstractions/Pos.Cloud.Abstractions.csproj" />
+    <Project Path="src/Cloud/Pos.Cloud.Infrastructure/Pos.Cloud.Infrastructure.csproj" />
+    <Project Path="src/Cloud/Pos.Cloud.Migrations/Pos.Cloud.Migrations.csproj" />
+    <Project Path="src/Cloud/Pos.Cloud.Host/Pos.Cloud.Host.csproj" />
+    <Project Path="src/Cloud/Modules/Licensing/Pos.Cloud.Licensing.Domain/Pos.Cloud.Licensing.Domain.csproj" />
+    <Project Path="src/Cloud/Modules/Licensing/Pos.Cloud.Licensing.Application/Pos.Cloud.Licensing.Application.csproj" />
+    <Project Path="src/Cloud/Modules/Licensing/Pos.Cloud.Licensing.Infrastructure/Pos.Cloud.Licensing.Infrastructure.csproj" />
+    <Project Path="src/Cloud/Modules/Licensing/Pos.Cloud.Licensing.Api/Pos.Cloud.Licensing.Api.csproj" />
+    <Project Path="src/Cloud/Modules/PortalIdentity/Pos.Cloud.PortalIdentity.Domain/Pos.Cloud.PortalIdentity.Domain.csproj" />
+    <Project Path="src/Cloud/Modules/PortalIdentity/Pos.Cloud.PortalIdentity.Application/Pos.Cloud.PortalIdentity.Application.csproj" />
+    <Project Path="src/Cloud/Modules/PortalIdentity/Pos.Cloud.PortalIdentity.Infrastructure/Pos.Cloud.PortalIdentity.Infrastructure.csproj" />
+    <Project Path="src/Cloud/Modules/PortalIdentity/Pos.Cloud.PortalIdentity.Api/Pos.Cloud.PortalIdentity.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/Pos.Licensing.Contracts/Pos.Licensing.Contracts.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
+    <Project Path="tests/Pos.Licensing.Contracts.UnitTests/Pos.Licensing.Contracts.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Catalog.UnitTests/Pos.Modules.Catalog.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Expenses.UnitTests/Pos.Modules.Expenses.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />

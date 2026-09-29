@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Scripts SQL-first de la BD de la nube (incrustados). Se aplican con el mismo migrador del POS (Pos.Server.Migrations):
+       checksums inmutables, repetibles y "always", bloqueo consultivo y roles pos_owner/pos_migrator/pos_app/pos_backup. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Migrations</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Server\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Scripts\**\*.sql" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

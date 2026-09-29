@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Usuarios del portal · Persistencia (EF Core), cifrado del secreto TOTP con la protección de datos de ASP.NET Core
+       y verificación de permisos. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.PortalIdentity.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Pos.Cloud.Infrastructure\Pos.Cloud.Infrastructure.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.PortalIdentity.Application\Pos.Cloud.PortalIdentity.Application.csproj" />
+  </ItemGroup>
+</Project>

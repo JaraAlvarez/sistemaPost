@@ -1,0 +1,55 @@
+@page "/cuenta/segundo-factor"
+@layout AccountLayout
+@using Pos.Application.Abstractions.Messaging
+@inject IDispatcher Dispatcher
+@inject NavigationManager Navigation
+
+<PageTitle>Código de verificación · Licencias</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="account-error" role="alert">@_error</div>
+}
+
+<p class="account-hint">Escriba el código de 6 dígitos que muestra su aplicación autenticadora.</p>
+<EditForm Model="Input" method="post" OnValidSubmit="VerifyAsync" FormName="totp">
+    <label for="code">Código</label>
+    <InputText id="code" type="text" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" />
+    <button type="submit">Verificar</button>
+</EditForm>
+<p class="account-hint"><a href="/cuenta/ingresar">Volver a ingresar</a></p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private CodeInput Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? _error;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task VerifyAsync()
+    {
+        var result = await Dispatcher.Send(new CompleteSecondFactorCommand(HttpContext.Request.Cookies[PortalCookie.Name] ?? string.Empty, Input.Code ?? string.Empty));
+        var error = result.IsFailure ? result.Error : result.Value.Error;
+        if (error is not null)
+        {
+            _error = error.Message;
+            return;
+        }
+
+        var session = result.Value.Value!;
+        PortalCookie.Write(HttpContext.Response, session.Token, session.ExpiresAt);
+        Navigation.NavigateTo(session.User.MustChangePassword ? "/mi-cuenta" : PortalCookie.SafeReturnUrl(ReturnUrl), forceLoad: true);
+    }
+
+    private sealed class CodeInput
+    {
+        public string? Code { get; set; }
+    }
+}

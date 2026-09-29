@@ -1,0 +1,75 @@
+<MudGrid Spacing="2">
+    <MudItem xs="12" md="6">
+        <MudTextField T="string" @bind-Value="Input.Name" Label="Nombre o razón social" Required="true" MaxLength="200" />
+    </MudItem>
+    <MudItem xs="12" md="2">
+        <MudSelect T="string" @bind-Value="Input.Kind" Label="Tipo">
+            <MudSelectItem T="string" Value="@("DIRECT")">Cliente directo</MudSelectItem>
+            <MudSelectItem T="string" Value="@("RESELLER")">Distribuidor</MudSelectItem>
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="8" md="3">
+        <MudTextField T="string" @bind-Value="Input.Nit" Label="NIT (opcional, sin DV)" MaxLength="15" />
+    </MudItem>
+    <MudItem xs="4" md="1">
+        <MudTextField T="string" @bind-Value="Input.NitCheckDigit" Label="DV" MaxLength="1" />
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudTextField T="string" @bind-Value="Input.ContactName" Label="Contacto" MaxLength="120" />
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudTextField T="string" @bind-Value="Input.ContactEmail" Label="Correo" MaxLength="120" />
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudTextField T="string" @bind-Value="Input.ContactPhone" Label="Teléfono" MaxLength="30" />
+    </MudItem>
+    <MudItem xs="12">
+        <MudTextField T="string" @bind-Value="Input.Notes" Label="Notas" MaxLength="500" Lines="2" />
+    </MudItem>
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired]
+    public Model Input { get; set; } = new();
+
+    /// <summary>Datos editables de un cliente.</summary>
+    public sealed class Model
+    {
+        public string? Name { get; set; }
+
+        public string Kind { get; set; } = "DIRECT";
+
+        public string? Nit { get; set; }
+
+        public string? NitCheckDigit { get; set; }
+
+        public string? ContactName { get; set; }
+
+        public string? ContactEmail { get; set; }
+
+        public string? ContactPhone { get; set; }
+
+        public string? Notes { get; set; }
+
+        public Guid? ParentAccountId { get; set; }
+
+        public static Model From(AccountDto account)
+        {
+            ArgumentNullException.ThrowIfNull(account);
+            return new Model
+            {
+                Name = account.Name,
+                Kind = account.Kind,
+                Nit = account.Nit,
+                NitCheckDigit = account.NitCheckDigit,
+                ContactName = account.ContactName,
+                ContactEmail = account.ContactEmail,
+                ContactPhone = account.ContactPhone,
+                Notes = account.Notes,
+                ParentAccountId = account.ParentAccountId,
+            };
+        }
+
+        public AccountInput ToInput() => new(Name ?? string.Empty, Kind, Nit, NitCheckDigit, ContactName, ContactEmail, ContactPhone, ParentAccountId, Notes);
+    }
+}

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Contrato de licencias compartido por el servidor en la nube (Fase 12-A) y el POS (Fase 12-B): token Ed25519 (JWS EdDSA
+       con kid), formato de la clave, huella del equipo y mensajes de la API. No depende de ningún proyecto de la nube ni del POS. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Licensing.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NSec.Cryptography" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Licensing.Contracts.UnitTests" />
+  </ItemGroup>
+</Project>

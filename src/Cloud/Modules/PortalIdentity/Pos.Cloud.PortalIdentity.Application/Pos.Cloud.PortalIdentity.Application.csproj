@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Usuarios del portal · Casos de uso: acceso con contraseña + TOTP obligatorio, enrolamiento, sesiones revocables,
+       gestión de usuarios (solo superadministrador), primer superadministrador por consola y verificación de permisos. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.PortalIdentity.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.Application.Abstractions\Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\Pos.Cloud.Abstractions\Pos.Cloud.Abstractions.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.PortalIdentity.Domain\Pos.Cloud.PortalIdentity.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Cloud.PortalIdentity.UnitTests" />
+  </ItemGroup>
+</Project>

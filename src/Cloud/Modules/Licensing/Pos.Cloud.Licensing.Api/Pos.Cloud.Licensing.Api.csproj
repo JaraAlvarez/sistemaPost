@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Licencias · Endpoints: API del POS (/v1, anónima por diseño: la autentican la clave o el token) y API interna
+       /admin con los mismos permisos que el portal. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Licensing.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.Api.Abstractions\Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.Licensing.Infrastructure\Pos.Cloud.Licensing.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

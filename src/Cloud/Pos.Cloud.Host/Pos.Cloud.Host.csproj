@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Nube (Fase 12-A): un solo proceso con la API de licencias del POS (/v1), la API interna (/admin) y el portal web
+       (Blazor Web App con interactividad de servidor y MudBlazor). Se despliega como contenedor (Dockerfile) detrás de Caddy.
+       El mismo ejecutable trae la consola de operación: setup-database, migrate, create-superadmin, generate-signing-key… -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Host</RootNamespace>
+    <AssemblyName>Pos.Cloud.Host</AssemblyName>
+    <UserSecretsId>pos-cloud-host</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="MudBlazor" />
+    <PackageReference Include="QRCoder" />
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Modules\Licensing\Pos.Cloud.Licensing.Api\Pos.Cloud.Licensing.Api.csproj" />
+    <ProjectReference Include="..\Modules\PortalIdentity\Pos.Cloud.PortalIdentity.Api\Pos.Cloud.PortalIdentity.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Cloud.IntegrationTests" />
+  </ItemGroup>
+</Project>

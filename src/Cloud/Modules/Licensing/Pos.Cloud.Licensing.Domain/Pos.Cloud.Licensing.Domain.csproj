@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Licencias · Dominio puro: cuentas, empresas, suscripciones (estados, vigencia y gracia), licencias, instalaciones,
+       equipos, activaciones, check-ins y claves de firma. Solo depende del SharedKernel y del contrato de licencias compartido. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Licensing.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.SharedKernel\Pos.SharedKernel.csproj" />
+    <ProjectReference Include="..\..\..\..\Shared\Pos.Licensing.Contracts\Pos.Licensing.Contracts.csproj" />
+  </ItemGroup>
+</Project>

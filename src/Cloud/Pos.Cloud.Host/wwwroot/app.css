@@ -1,0 +1,90 @@
+/* Portal de licencias: estilos propios mínimos (el resto lo da MudBlazor). Sin recursos externos (CSP 'self'). */
+html, body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.account-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f3f5f8;
+    padding: 16px;
+}
+
+.account-card {
+    width: 100%;
+    max-width: 420px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+    padding: 28px;
+}
+
+.account-title {
+    font-size: 1.4rem;
+    margin: 0 0 16px;
+}
+
+.account-card label {
+    display: block;
+    font-size: 0.9rem;
+    margin: 12px 0 4px;
+}
+
+.account-card input[type=email],
+.account-card input[type=password],
+.account-card input[type=text] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    border: 1px solid #c4c9d0;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.account-card button {
+    margin-top: 20px;
+    width: 100%;
+    padding: 10px;
+    border: 0;
+    border-radius: 4px;
+    background: #594ae2;
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+.account-error {
+    background: #fdecea;
+    color: #611a15;
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+
+.account-hint {
+    color: #555;
+    font-size: 0.9rem;
+}
+
+.account-qr {
+    display: block;
+    margin: 12px auto;
+    width: 220px;
+    height: 220px;
+}
+
+.account-secret {
+    font-family: ui-monospace, Consolas, monospace;
+    word-break: break-all;
+    background: #f3f5f8;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.key-once {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 1.3rem;
+    letter-spacing: 1px;
+}

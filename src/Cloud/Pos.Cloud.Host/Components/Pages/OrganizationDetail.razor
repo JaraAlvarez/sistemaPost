@@ -1,0 +1,310 @@
+@page "/empresas/{OrganizationId:guid}"
+@attribute [Authorize(Policy = CloudPermissions.LicensingView)]
+@inherits PortalPageBase
+
+<PageTitle>Empresa · Licencias</PageTitle>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+else if (_detail is not null)
+{
+    var org = _detail.Organization;
+    var sub = org.Subscription;
+    var license = _detail.Licenses.FirstOrDefault(l => l.Status == "ACTIVE");
+
+    <MudText Typo="Typo.h4">@org.LegalName</MudText>
+    <MudText Typo="Typo.body1" Class="mb-4">
+        NIT @org.Nit · @(org.City ?? "sin ciudad") · cliente <MudLink Href="@($"/clientes/{org.AccountId}")">@org.AccountName</MudLink>
+    </MudText>
+
+    @if (_generatedKey is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _generatedKey = null)">
+            <MudText Typo="Typo.subtitle1">Clave de licencia — se muestra UNA sola vez. Cópiela y entréguela al cliente:</MudText>
+            <div class="key-once">@_generatedKey</div>
+        </MudAlert>
+    }
+
+    <MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4">
+        <MudTabPanel Text="Suscripción">
+            @if (sub is null)
+            {
+                <MudText Class="mb-2">La empresa no tiene suscripción vigente.</MudText>
+                <AuthorizeView Policy="@CloudPermissions.SubscriptionManage">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="3">
+                            <MudSelect T="string" @bind-Value="_edition" Label="Edición">
+                                <MudSelectItem T="string" Value="@("SINGLE")">Caja Única</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("MULTI")">Multicaja</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" md="3">
+                            <MudSelect T="string" @bind-Value="_billing" Label="Periodicidad">
+                                <MudSelectItem T="string" Value="@("MONTHLY")">Mensual</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("ANNUAL")">Anual</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" md="2"><MudCheckBox T="bool" @bind-Value="_trial" Label="De prueba" /></MudItem>
+                        <MudItem xs="12" md="2"><MudNumericField T="int?" @bind-Value="_trialDays" Label="Días de prueba" Disabled="!_trial" Min="1" Max="90" /></MudItem>
+                        <MudItem xs="12" md="2"><MudTextField T="string" @bind-Value="_payment" Label="Referencia del pago" Disabled="_trial" /></MudItem>
+                    </MudGrid>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="CreateSubscriptionAsync">Crear suscripción</MudButton>
+                </AuthorizeView>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
+                    <tbody>
+                        <tr><th>Edición</th><td>@EditionName(sub.Edition) (@(sub.BillingPeriod == "ANNUAL" ? "anual" : "mensual"))</td></tr>
+                        <tr><th>Estado</th><td><MudChip T="string" Size="Size.Small" Color="@StatusColor(sub.EffectiveStatus)">@StatusName(sub.EffectiveStatus)</MudChip> @(sub.SuspendedReason)</td></tr>
+                        <tr><th>Prueba hasta</th><td>@Date(sub.TrialEndsAt)</td></tr>
+                        <tr><th>Periodo pagado</th><td>@Day(sub.CurrentPeriodStart) → @Day(sub.CurrentPeriodEnd)</td></tr>
+                        <tr><th>Vigente hasta (token)</th><td>@Date(sub.ValidUntil)</td></tr>
+                        <tr><th>Gracia</th><td>@sub.GraceDays días (hasta @Date(sub.GraceUntil))</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6">
+                        <MudTextField T="string" @bind-Value="_reason" Label="Motivo (suspender, reactivar, cancelar, gracia, edición)" MaxLength="300" />
+                    </MudItem>
+                    <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_payment" Label="Referencia del pago (renovar)" MaxLength="100" /></MudItem>
+                    <MudItem xs="6" md="1"><MudNumericField T="int" @bind-Value="_periods" Label="Periodos" Min="1" Max="24" /></MudItem>
+                    <MudItem xs="6" md="2"><MudNumericField T="int" @bind-Value="_graceDays" Label="Días de gracia extra" Min="1" Max="30" /></MudItem>
+                </MudGrid>
+                <MudStack Row="true" Wrap="Wrap.Wrap" Class="mt-3">
+                    <AuthorizeView Policy="@CloudPermissions.SubscriptionManage">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new RenewSubscriptionCommand(sub.Id, _payment ?? string.Empty, _periods), "Renovación registrada."))">Renovar</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new SuspendSubscriptionCommand(sub.Id, _reason ?? string.Empty), "Suscripción suspendida."))">Suspender</MudButton>
+                        <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new ChangeEditionCommand(sub.Id, sub.Edition == "SINGLE" ? "MULTI" : "SINGLE", _reason ?? string.Empty), "Edición cambiada."))">
+                            Cambiar a @(sub.Edition == "SINGLE" ? "Multicaja" : "Caja Única")
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new CancelSubscriptionCommand(sub.Id, _reason ?? string.Empty), "Suscripción cancelada y clave revocada."))">Cancelar</MudButton>
+                    </AuthorizeView>
+                    <AuthorizeView Policy="@CloudPermissions.SubscriptionSupport">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new ReactivateSubscriptionCommand(sub.Id, _reason ?? string.Empty), "Suscripción reactivada."))">Reactivar</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="@(() => SubscriptionAsync(new ExtendGraceCommand(sub.Id, _graceDays, _reason ?? string.Empty), "Gracia extendida."))">Extender gracia</MudButton>
+                    </AuthorizeView>
+                </MudStack>
+                <MudText Typo="Typo.caption" Class="mt-2">Los cambios llegan a las tiendas en su siguiente check-in (máximo 24 h, o al pulsar "verificar licencia" en el POS).</MudText>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Licencia">
+            @if (license is null)
+            {
+                <MudText Class="mb-2">La empresa no tiene clave vigente.</MudText>
+                <AuthorizeView Policy="@CloudPermissions.LicenseManage">
+                    <MudStack Row="true" AlignItems="AlignItems.Center">
+                        <MudNumericField T="int?" @bind-Value="_maxInstallations" Label="Máximo de instalaciones (vacío = sin límite)" Min="1" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="GenerateAsync">Generar clave</MudButton>
+                    </MudStack>
+                </AuthorizeView>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
+                    <tbody>
+                        <tr><th>Clave</th><td>@license.KeyPrefix… (solo se guarda su hash)</td></tr>
+                        <tr><th>Emitida</th><td>@Date(license.IssuedAt)</td></tr>
+                        <tr><th>Instalaciones activas</th><td>@license.ActiveInstallations de @(license.MaxInstallations?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "sin límite")</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+                <AuthorizeView Policy="@CloudPermissions.LicenseManage">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="4"><MudNumericField T="int?" @bind-Value="_maxInstallations" Label="Máximo de instalaciones (vacío = sin límite)" Min="1" /></MudItem>
+                        <MudItem xs="12" md="8"><MudTextField T="string" @bind-Value="_licenseReason" Label="Motivo (regenerar o revocar)" MaxLength="250" /></MudItem>
+                    </MudGrid>
+                    <MudStack Row="true" Class="mt-3">
+                        <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => SetMaxAsync(license.Id))">Guardar máximo</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="@(() => RegenerateAsync(license.Id))">Regenerar clave</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => RevokeAsync(license.Id))">Revocar clave</MudButton>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Class="mt-2">
+                        Regenerar revoca la clave anterior y emite otra; las sucursales ya activadas siguen funcionando. Revocar sin reemplazo deja
+                        a las tiendas en modo restringido en su siguiente check-in.
+                    </MudText>
+                </AuthorizeView>
+            }
+
+            @if (_detail.Licenses.Count > 0)
+            {
+                <MudText Typo="Typo.h6" Class="mt-4 mb-2">Historial de claves</MudText>
+                <MudSimpleTable Dense="true" Outlined="true">
+                    <thead><tr><th>Prefijo</th><th>Estado</th><th>Emitida</th><th>Revocada</th><th>Motivo</th></tr></thead>
+                    <tbody>
+                        @foreach (var l in _detail.Licenses)
+                        {
+                            <tr><td>@l.KeyPrefix…</td><td>@StatusName(l.Status)</td><td>@Date(l.IssuedAt)</td><td>@Date(l.RevokedAt)</td><td>@(l.RevokedReason ?? "—")</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="@($"Instalaciones ({_detail.Installations.Count})")">
+            <InstallationTable Rows="_detail.Installations" OnChanged="LoadAsync" />
+        </MudTabPanel>
+
+        <MudTabPanel Text="Historial">
+            <MudSimpleTable Dense="true" Outlined="true">
+                <thead><tr><th>Fecha</th><th>Evento</th><th>Quién</th><th>Detalle</th></tr></thead>
+                <tbody>
+                    @foreach (var e in _detail.Events)
+                    {
+                        <tr>
+                            <td>@Date(e.OccurredAt)</td>
+                            <td>@e.Type</td>
+                            <td>@e.ActorName</td>
+                            <td>
+                                @(e.OldValue is null && e.NewValue is null ? null : $"{e.OldValue ?? "—"} → {e.NewValue ?? "—"}")
+                                @(e.PaymentReference is null ? null : $" · pago {e.PaymentReference}")
+                                @(e.PeriodEnd is null ? null : $" · hasta {Day(e.PeriodEnd)}")
+                                @(e.Reason is null ? null : $" · {e.Reason}")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Check-ins">
+            <MudSimpleTable Dense="true" Outlined="true">
+                <thead><tr><th>Fecha</th><th>Resultado</th><th>Versión</th><th>Cajas</th><th>Reloj del equipo</th><th>IP</th><th>Token hasta</th></tr></thead>
+                <tbody>
+                    @foreach (var c in _detail.RecentCheckins)
+                    {
+                        <tr>
+                            <td>@Date(c.OccurredAt)</td>
+                            <td>@(c.Result == "TOKEN_ISSUED" ? $"Token ({StatusName(c.SubscriptionStatus)})" : $"Rechazado: {c.RejectionCode}")</td>
+                            <td>@c.AppVersion</td>
+                            <td>@c.ActiveTerminals</td>
+                            <td>@Date(c.ReportedClock)</td>
+                            <td>@(c.IpAddress ?? "—")</td>
+                            <td>@Date(c.TokenValidUntil)</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Datos">
+            <AuthorizeView Policy="@CloudPermissions.AccountManage">
+                <Authorized>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="6"><MudTextField T="string" @bind-Value="_legalName" Label="Razón social" MaxLength="200" /></MudItem>
+                        <MudItem xs="12" md="4"><MudTextField T="string" @bind-Value="_city" Label="Ciudad" MaxLength="120" /></MudItem>
+                        <MudItem xs="12" md="2"><MudCheckBox T="bool" @bind-Value="_orgActive" Label="Activa" /></MudItem>
+                    </MudGrid>
+                    <MudText Typo="Typo.caption">El NIT no se modifica: el token de las tiendas está ligado a él.</MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="SaveOrganizationAsync">Guardar</MudButton>
+                </Authorized>
+                <NotAuthorized><MudText>Solo el superadministrador modifica los datos de la empresa.</MudText></NotAuthorized>
+            </AuthorizeView>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    [Parameter]
+    public Guid OrganizationId { get; set; }
+
+    private OrganizationDetailDto? _detail;
+    private string? _generatedKey;
+    private string _edition = "SINGLE";
+    private string _billing = "MONTHLY";
+    private bool _trial = true;
+    private int? _trialDays;
+    private string? _payment;
+    private string? _reason;
+    private int _periods = 1;
+    private int _graceDays = 7;
+    private int? _maxInstallations;
+    private string? _licenseReason;
+    private string? _legalName;
+    private string? _city;
+    private bool _orgActive = true;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _detail = await LoadAsync(new GetOrganizationQuery(OrganizationId));
+        if (_detail is not null)
+        {
+            _legalName = _detail.Organization.LegalName;
+            _city = _detail.Organization.City;
+            _orgActive = _detail.Organization.Status == "ACTIVE";
+            _maxInstallations = _detail.Licenses.FirstOrDefault(l => l.Status == "ACTIVE")?.MaxInstallations;
+        }
+    }
+
+    private async Task CreateSubscriptionAsync()
+    {
+        var created = await RunAsync(
+            new CreateSubscriptionCommand(OrganizationId, _edition, _billing, _trial, _trialDays, _trial ? null : _payment), "Suscripción creada.");
+        if (created.IsSuccess)
+        {
+            _payment = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task SubscriptionAsync(Pos.Application.Abstractions.Messaging.IRequest<Pos.SharedKernel.Results.Result> command, string message)
+    {
+        if (await RunAsync(command, message))
+        {
+            _reason = null;
+            _payment = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task GenerateAsync()
+    {
+        var generated = await RunAsync(new GenerateLicenseCommand(OrganizationId, _maxInstallations), "Clave generada.");
+        if (generated.IsSuccess)
+        {
+            _generatedKey = generated.Value.Key;
+            await LoadAsync();
+        }
+    }
+
+    private async Task RegenerateAsync(Guid licenseId)
+    {
+        var generated = await RunAsync(new RegenerateLicenseCommand(licenseId, _licenseReason ?? string.Empty), "Clave regenerada; la anterior quedó revocada.");
+        if (generated.IsSuccess)
+        {
+            _generatedKey = generated.Value.Key;
+            _licenseReason = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task RevokeAsync(Guid licenseId)
+    {
+        if (await RunAsync(new RevokeLicenseCommand(licenseId, _licenseReason ?? string.Empty), "Clave revocada."))
+        {
+            _licenseReason = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task SetMaxAsync(Guid licenseId)
+    {
+        if (await RunAsync(new SetMaxInstallationsCommand(licenseId, _maxInstallations), "Máximo de instalaciones actualizado."))
+        {
+            await LoadAsync();
+        }
+    }
+
+    private async Task SaveOrganizationAsync()
+    {
+        if (await RunAsync(new UpdateOrganizationCommand(OrganizationId, _legalName ?? string.Empty, _city, _orgActive), "Empresa actualizada."))
+        {
+            await LoadAsync();
+        }
+    }
+}

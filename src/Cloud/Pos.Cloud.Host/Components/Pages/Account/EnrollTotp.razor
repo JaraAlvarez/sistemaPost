@@ -1,0 +1,90 @@
+@page "/cuenta/activar-doble-factor"
+@layout AccountLayout
+@using Pos.Application.Abstractions.Messaging
+@inject IDispatcher Dispatcher
+@inject NavigationManager Navigation
+
+<PageTitle>Activar doble factor · Licencias</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="account-error" role="alert">@_error</div>
+}
+
+@if (_enrollment is not null)
+{
+    <p class="account-hint">
+        El doble factor es obligatorio. Escanee este código con Google Authenticator, Microsoft Authenticator o Aegis y escriba el
+        primer código que muestre.
+    </p>
+    <img class="account-qr" src="@QrCodes.ToDataUri(_enrollment.EnrollmentLink)" alt="Código QR del doble factor" />
+    <p class="account-hint">Si no puede escanearlo, escriba esta clave en la aplicación:</p>
+    <p class="account-secret">@_enrollment.Secret</p>
+}
+
+@if (_enrollment is not null || !HttpMethods.IsGet(HttpContext.Request.Method))
+{
+    <EditForm Model="Input" method="post" OnValidSubmit="ConfirmAsync" FormName="enroll">
+        <label for="code">Primer código</label>
+        <InputText id="code" type="text" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" />
+        <button type="submit">Activar y entrar</button>
+    </EditForm>
+}
+
+<p class="account-hint"><a href="/cuenta/ingresar">Volver a ingresar</a></p>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private CodeInput Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private TotpEnrollmentDto? _enrollment;
+    private string? _error;
+
+    private string Token => HttpContext.Request.Cookies[PortalCookie.Name] ?? string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        // El secreto se genera solo al MOSTRAR la página (GET); al enviar el código no se reemplaza.
+        if (!HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            return;
+        }
+
+        var result = await Dispatcher.Send(new BeginTotpEnrollmentCommand(Token));
+        var error = result.IsFailure ? result.Error : result.Value.Error;
+        if (error is not null)
+        {
+            _error = error.Message;
+            return;
+        }
+
+        _enrollment = result.Value.Value;
+    }
+
+    private async Task ConfirmAsync()
+    {
+        var result = await Dispatcher.Send(new CompleteSecondFactorCommand(Token, Input.Code ?? string.Empty));
+        var error = result.IsFailure ? result.Error : result.Value.Error;
+        if (error is not null)
+        {
+            _error = $"{error.Message} Si el código QR ya no es válido, vuelva a ingresar para generar otro.";
+            return;
+        }
+
+        var session = result.Value.Value!;
+        PortalCookie.Write(HttpContext.Response, session.Token, session.ExpiresAt);
+        Navigation.NavigateTo(session.User.MustChangePassword ? "/mi-cuenta" : PortalCookie.SafeReturnUrl(ReturnUrl), forceLoad: true);
+    }
+
+    private sealed class CodeInput
+    {
+        public string? Code { get; set; }
+    }
+}

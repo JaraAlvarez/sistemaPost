@@ -1,0 +1,28 @@
+@page "/empresas"
+@attribute [Authorize(Policy = CloudPermissions.LicensingView)]
+@inherits PortalPageBase
+
+<PageTitle>Empresas · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Empresas licenciadas</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Las empresas se registran desde la ficha de su cliente. Una licencia por NIT; cada sucursal es una instalación.</MudText>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+    <MudTextField T="string" @bind-Value="_search" Label="Buscar por razón social, NIT o ciudad" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Buscar</MudButton>
+</MudStack>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+
+<OrganizationTable Rows="_rows" />
+
+@code {
+    private IReadOnlyList<OrganizationRowDto> _rows = [];
+    private string? _search;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _rows = await LoadAsync(new ListOrganizationsQuery(null, _search)) ?? [];
+}

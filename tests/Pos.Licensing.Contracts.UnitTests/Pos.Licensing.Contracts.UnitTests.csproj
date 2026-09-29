@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Token Ed25519 (firma, verificación y rotación por kid), formato de la clave y huella del equipo. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\Pos.Licensing.Contracts\Pos.Licensing.Contracts.csproj" />
+  </ItemGroup>
+</Project>

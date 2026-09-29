@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Infraestructura transversal de la nube: contexto EF propio (BD independiente de la del POS), transacción por comando,
+       permisos del portal en el pipeline, auditoría encadenada (reutiliza el formato, el sellador y el verificador del POS)
+       y arranque de la BD con el migrador SQL-first del producto. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\Pos.Infrastructure\Pos.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Server\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.Abstractions\Pos.Cloud.Abstractions.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.Migrations\Pos.Cloud.Migrations.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Cloud.Database.Tests" />
+    <InternalsVisibleTo Include="Pos.Cloud.IntegrationTests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Usuarios del portal · Endpoints de la API interna: acceso con TOTP (Bearer), usuarios, sesiones y auditoría. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.PortalIdentity.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.Api.Abstractions\Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.PortalIdentity.Infrastructure\Pos.Cloud.PortalIdentity.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

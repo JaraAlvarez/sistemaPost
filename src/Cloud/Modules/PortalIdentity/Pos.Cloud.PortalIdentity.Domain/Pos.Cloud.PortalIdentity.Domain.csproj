@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Usuarios del portal · Dominio puro: usuarios, roles, bloqueo por intentos, sesiones revocables y TOTP (RFC 6238). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.PortalIdentity.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.SharedKernel\Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

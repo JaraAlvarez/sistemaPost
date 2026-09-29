@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Licencias · Persistencia (mapeo EF Core y lecturas), firma con la clave privada del archivo configurado, claves
+       de confianza en caché y límite de solicitudes por licencia. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Licensing.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Pos.Cloud.Infrastructure\Pos.Cloud.Infrastructure.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.Licensing.Application\Pos.Cloud.Licensing.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Cloud.Database.Tests" />
+    <InternalsVisibleTo Include="Pos.Cloud.IntegrationTests" />
+  </ItemGroup>
+</Project>

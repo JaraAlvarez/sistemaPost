@@ -1,0 +1,34 @@
+<MudSimpleTable Dense="true" Hover="true" Outlined="true">
+    <thead>
+        <tr><th>Razón social</th><th>NIT</th><th>Cliente</th><th>Edición</th><th>Suscripción</th><th>Vigente hasta</th><th>Clave</th><th>Instalaciones</th></tr>
+    </thead>
+    <tbody>
+        @foreach (var o in Rows)
+        {
+            <tr>
+                <td><MudLink Href="@($"/empresas/{o.Id}")">@o.LegalName</MudLink></td>
+                <td>@o.Nit</td>
+                <td>@o.AccountName</td>
+                <td>@PortalPageBase.EditionName(o.Subscription?.Edition)</td>
+                <td>
+                    @if (o.Subscription is { } s)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="@PortalPageBase.StatusColor(s.EffectiveStatus)">@PortalPageBase.StatusName(s.EffectiveStatus)</MudChip>
+                    }
+                    else
+                    {
+                        <span>Sin suscripción</span>
+                    }
+                </td>
+                <td>@PortalPageBase.Day(o.Subscription?.ValidUntil)</td>
+                <td>@(o.LicensePrefix is null ? "—" : $"{o.LicensePrefix}…")</td>
+                <td>@o.ActiveInstallations</td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<OrganizationRowDto> Rows { get; set; } = [];
+}

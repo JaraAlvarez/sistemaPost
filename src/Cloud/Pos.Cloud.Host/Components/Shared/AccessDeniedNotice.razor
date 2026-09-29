@@ -1,0 +1,20 @@
+<AuthorizeView>
+    <Authorized>
+        @if (context.User.MustChangePassword())
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4">
+                Antes de continuar debe cambiar su contraseña temporal. <MudLink Href="/mi-cuenta">Cambiar contraseña</MudLink>
+            </MudAlert>
+        }
+        else if (context.User.FindFirst(Pos.Cloud.Infrastructure.Persistence.PortalClaims.Role)?.Value == PortalRoles.Reseller)
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-4">
+                El rol de distribuidor todavía no tiene pantallas en el portal. Pida a soporte lo que necesite.
+            </MudAlert>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">Su rol no tiene permiso para ver esta página.</MudAlert>
+        }
+    </Authorized>
+</AuthorizeView>

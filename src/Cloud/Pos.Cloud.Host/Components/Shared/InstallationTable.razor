@@ -1,0 +1,71 @@
+@inherits PortalPageBase
+
+@if (Rows.Count == 0)
+{
+    <MudText>Sin instalaciones: se crean cuando una sucursal activa el POS con la clave.</MudText>
+}
+else
+{
+    <AuthorizeView Policy="@CloudPermissions.DeviceRelease">
+        <MudTextField T="string" @bind-Value="_reason" Label="Motivo para liberar un equipo (cambio de PC, equipo dañado…)" MaxLength="300" Class="mb-2" />
+    </AuthorizeView>
+    @foreach (var i in Rows)
+    {
+        <MudPaper Class="pa-3 mb-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1">
+                @(ShowOrganization ? $"{i.OrganizationName} · " : null)@(i.BranchName ?? "Sucursal sin nombre")
+                <MudChip T="string" Size="Size.Small" Color="@(i.Status == "ACTIVE" ? Color.Success : Color.Default)">@(i.Status == "ACTIVE" ? "Activa" : "Sin equipo")</MudChip>
+            </MudText>
+            <MudText Typo="Typo.body2">
+                installation_id @i.InstallationId · versión @i.AppVersion · primera activación @Date(i.FirstActivatedAt) · último check-in @Date(i.LastCheckinAt)
+                @(i.LastIp is null ? null : $" desde {i.LastIp}") @(i.ActiveTerminals is null ? null : $" · {i.ActiveTerminals} cajas")
+            </MudText>
+            <MudSimpleTable Dense="true" Class="mt-2">
+                <thead><tr><th>Equipo</th><th>Rol</th><th>Activación</th><th>Desde</th><th>Liberada</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var a in i.Activations)
+                    {
+                        var device = i.Devices.FirstOrDefault(d => d.Id == a.DeviceId);
+                        <tr>
+                            <td>@(device?.DeviceName ?? "—") <MudText Typo="Typo.caption">@device?.OperatingSystem</MudText></td>
+                            <td>@(device?.Role == "STORE_SERVER" ? "Servidor de tienda" : "Equipo único")</td>
+                            <td>@StatusName(a.Status)</td>
+                            <td>@Date(a.ActivatedAt)</td>
+                            <td>@(a.ReleasedAt is null ? "—" : $"{Date(a.ReleasedAt)} por {a.ReleasedByName}: {a.ReleaseReason}")</td>
+                            <td>
+                                @if (a.Status == "ACTIVE")
+                                {
+                                    <AuthorizeView Policy="@CloudPermissions.DeviceRelease">
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="@(() => ReleaseAsync(a.Id))">Liberar equipo</MudButton>
+                                    </AuthorizeView>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<InstallationDto> Rows { get; set; } = [];
+
+    [Parameter]
+    public bool ShowOrganization { get; set; }
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private string? _reason;
+
+    private async Task ReleaseAsync(Guid activationId)
+    {
+        if (await RunAsync(new ReleaseActivationCommand(activationId, _reason ?? string.Empty), "Equipo liberado: la sucursal puede activar el nuevo equipo con su clave."))
+        {
+            _reason = null;
+            await OnChanged.InvokeAsync();
+        }
+    }
+}

@@ -1,0 +1,61 @@
+@page "/"
+@attribute [Authorize(Policy = CloudPermissions.DashboardView)]
+@inherits PortalPageBase
+
+<PageTitle>Tablero · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Tablero</MudText>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+else if (_data is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="6" md="2"><Stat Title="Clientes" Value="@_data.Accounts" /></MudItem>
+        <MudItem xs="6" md="2"><Stat Title="Empresas" Value="@_data.Organizations" /></MudItem>
+        <MudItem xs="6" md="2"><Stat Title="Instalaciones activas" Value="@_data.ActiveInstallations" /></MudItem>
+        <MudItem xs="6" md="2"><Stat Title="Vencen en 7 días" Value="@_data.ExpiringIn7Days" Color="Color.Warning" /></MudItem>
+        <MudItem xs="6" md="2"><Stat Title="Vencen en 15 días" Value="@_data.ExpiringIn15Days" /></MudItem>
+        <MudItem xs="6" md="2"><Stat Title="Vencen en 30 días" Value="@_data.ExpiringIn30Days" /></MudItem>
+    </MudGrid>
+
+    <SubscriptionList Title="Vencen en los próximos 30 días" Rows="_data.Expiring" Empty="Nada vence en los próximos 30 días." />
+    <SubscriptionList Title="En periodo de gracia" Rows="_data.InGrace" Empty="Ninguna suscripción está en gracia." />
+    <SubscriptionList Title="Suspendidas" Rows="_data.Suspended" Empty="No hay suscripciones suspendidas." />
+    <SubscriptionList Title="Vencidas (sin gracia)" Rows="_data.Expired" Empty="No hay suscripciones vencidas." />
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Instalaciones sin check-in hace más de @_data.NoCheckinDays días</MudText>
+    @if (_data.WithoutCheckin.Count == 0)
+    {
+        <MudText Typo="Typo.body2">Todas las instalaciones activas reportaron recientemente.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+            <thead><tr><th>Empresa</th><th>Sucursal</th><th>Versión</th><th>Último check-in</th><th>IP</th></tr></thead>
+            <tbody>
+                @foreach (var i in _data.WithoutCheckin)
+                {
+                    <tr>
+                        <td><MudLink Href="@($"/empresas/{i.OrganizationId}")">@i.OrganizationName</MudLink></td>
+                        <td>@(i.BranchName ?? "—")</td>
+                        <td>@i.AppVersion</td>
+                        <td>@Date(i.LastCheckinAt)</td>
+                        <td>@(i.LastIp ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+}
+
+@code {
+    private DashboardDto? _data;
+
+    protected override async Task OnInitializedAsync() => _data = await LoadAsync(new GetDashboardQuery());
+}

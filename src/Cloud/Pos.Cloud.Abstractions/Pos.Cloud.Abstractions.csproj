@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Contratos transversales de la nube (Fase 12-A): usuario del portal en curso, roles, permisos y resultados de los casos
+       de uso que deben confirmarse aunque "fallen" (intentos de acceso, check-ins rechazados). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Abstractions</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\Pos.Application.Abstractions\Pos.Application.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

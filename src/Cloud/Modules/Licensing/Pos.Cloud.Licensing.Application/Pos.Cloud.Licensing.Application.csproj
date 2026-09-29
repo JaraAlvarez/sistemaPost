@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Licencias · Casos de uso: API del POS (activar, check-in, liberar, claves públicas) y operación del portal
+       (cuentas, empresas, suscripciones, claves, instalaciones, tablero). Puertos de persistencia y de firma. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Licensing.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.Application.Abstractions\Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\Pos.Cloud.Abstractions\Pos.Cloud.Abstractions.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.Licensing.Domain\Pos.Cloud.Licensing.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Cloud.Licensing.UnitTests" />
+  </ItemGroup>
+</Project>
