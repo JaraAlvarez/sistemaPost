@@ -39,6 +39,9 @@ $coverageThresholds = @{
     'Pos.Modules.Promotions.Domain'   = 90
     'Pos.Modules.Billing.Domain'      = 90
     'Pos.Printing'                    = 90
+    'Pos.Licensing.Contracts'         = 90
+    'Pos.Cloud.Licensing.Domain'      = 90
+    'Pos.Cloud.PortalIdentity.Domain' = 90
     'Pos.Infrastructure'              = 85
     'Pos.Server.Migrations'           = 85
 }

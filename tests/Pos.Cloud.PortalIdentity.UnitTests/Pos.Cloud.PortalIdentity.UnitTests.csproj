@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Dominio de usuarios del portal: roles, bloqueo por intentos, sesiones por etapas y TOTP (RFC 6238). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Cloud\Modules\PortalIdentity\Pos.Cloud.PortalIdentity.Domain\Pos.Cloud.PortalIdentity.Domain.csproj" />
+  </ItemGroup>
+</Project>

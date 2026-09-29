@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Dominio de licencias de la nube: cuentas, empresas, suscripciones, licencias, instalaciones, check-ins y claves de firma. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Cloud\Modules\Licensing\Pos.Cloud.Licensing.Domain\Pos.Cloud.Licensing.Domain.csproj" />
+  </ItemGroup>
+</Project>

@@ -100,6 +100,8 @@
   <Folder Name="/tests/">
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
+    <Project Path="tests/Pos.Cloud.Licensing.UnitTests/Pos.Cloud.Licensing.UnitTests.csproj" />
+    <Project Path="tests/Pos.Cloud.PortalIdentity.UnitTests/Pos.Cloud.PortalIdentity.UnitTests.csproj" />
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Pos.Licensing.Contracts.UnitTests/Pos.Licensing.Contracts.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Catalog.UnitTests/Pos.Modules.Catalog.UnitTests.csproj" />
