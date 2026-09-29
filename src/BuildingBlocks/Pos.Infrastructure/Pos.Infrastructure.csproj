@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Implementaciones técnicas transversales (despachador, reloj, IDs; desde la Fase 2: EF Core, outbox, auditoría). -->
+  <!-- Implementaciones técnicas transversales: despachador, reloj, IDs y, desde la Fase 2, persistencia (EF Core),
+       auditoría con sellado, outbox/inbox, numeración interna y configuración jerárquica. -->
   <PropertyGroup>
     <RootNamespace>Pos.Infrastructure</RootNamespace>
   </PropertyGroup>
@@ -13,10 +14,15 @@
     <PackageReference Include="FluentValidation" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Pos.Infrastructure.UnitTests" />
+    <InternalsVisibleTo Include="Pos.Database.Tests" />
   </ItemGroup>
 </Project>

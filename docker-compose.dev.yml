@@ -1,0 +1,22 @@
+# PostgreSQL 18 de DESARROLLO (nunca se usa en producción: el instalador empaqueta los binarios de PostgreSQL).
+# Uso: powershell -File tools/scripts/dev-db.ps1   (levanta el contenedor, crea la BD y migra)
+name: pos-dev
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: pos-dev-postgres
+    environment:
+      POSTGRES_PASSWORD: pos-dev-superuser
+    ports:
+      - "127.0.0.1:5488:5432"
+    volumes:
+      - pos-dev-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pos-dev-data:
