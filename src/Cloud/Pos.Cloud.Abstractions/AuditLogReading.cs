@@ -28,7 +28,9 @@ public sealed record CloudAuditEntryDto(
     string? OldValues,
     string? NewValues);
 
-public sealed record CloudAuditFilter(DateTimeOffset? From, DateTimeOffset? To, string? Module, string? Action, Guid? EntityId, string? Text, int Limit = 200);
+/// <summary>Filtro de la bitácora; <c>Offset</c> salta filas (paginación del portal, de la más reciente a la más antigua).</summary>
+public sealed record CloudAuditFilter(
+    DateTimeOffset? From, DateTimeOffset? To, string? Module, string? Action, Guid? EntityId, string? Text, int Limit = 200, int Offset = 0);
 
 /// <summary>Estado de integridad de la cadena de auditoría (filas, sellos y último código).</summary>
 public sealed record CloudAuditIntegrityDto(bool IsValid, int SealsChecked, long RowsChecked, long UnsealedRows, string? LastSealCode, IReadOnlyList<string> Findings);

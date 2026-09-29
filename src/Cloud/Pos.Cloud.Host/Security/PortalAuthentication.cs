@@ -172,3 +172,31 @@ internal sealed class PortalUserContextMiddleware(RequestDelegate next)
         return next(context);
     }
 }
+
+/// <summary>
+/// Mientras la contraseña sea temporal, toda página del portal pedida por el navegador redirige a <c>/mi-cuenta</c> (cambio
+/// obligatorio). La API (/admin, /v1), el acceso (/cuenta), la salud y los recursos estáticos no se tocan. La navegación
+/// interactiva la cubre <c>Routes.razor</c> (sin permisos, toda página protegida cae en la misma redirección).
+/// </summary>
+internal sealed class MustChangePasswordMiddleware(RequestDelegate next)
+{
+    public const string MyAccountPath = "/mi-cuenta";
+
+    private static readonly string[] ExcludedPrefixes =
+        [MyAccountPath, "/cuenta", "/sin-acceso", "/admin", "/v1", "/health", "/_framework", "/_content", "/_blazor", "/openapi"];
+
+    public Task InvokeAsync(HttpContext context)
+    {
+        if (HttpMethods.IsGet(context.Request.Method) && context.User.MustChangePassword()
+            && context.User.HasClaim(PortalClaims.Stage, PortalClaims.ActiveStage) && IsPortalPage(context.Request.Path))
+        {
+            context.Response.Redirect(MyAccountPath);
+            return Task.CompletedTask;
+        }
+
+        return next(context);
+    }
+
+    private static bool IsPortalPage(PathString path) =>
+        !ExcludedPrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase)) && !Path.HasExtension(path.Value);
+}

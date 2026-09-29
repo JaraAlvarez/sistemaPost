@@ -2,7 +2,11 @@
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
             <NotAuthorized>
-                @if (context.User.Identity?.IsAuthenticated == true && context.User.HasClaim(PortalClaims_Stage, "ACTIVE"))
+                @if (context.User.Identity?.IsAuthenticated == true && context.User.HasClaim(PortalClaims_Stage, "ACTIVE") && context.User.MustChangePassword())
+                {
+                    <RedirectToMyAccount />
+                }
+                else if (context.User.Identity?.IsAuthenticated == true && context.User.HasClaim(PortalClaims_Stage, "ACTIVE"))
                 {
                     <AccessDeniedNotice />
                 }

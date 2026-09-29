@@ -36,6 +36,9 @@ public static class CloudPermissions
 
     public const string DeviceRelease = "licensing.device.release";
     public const string SigningKeyView = "licensing.signing_key.view";
+
+    /// <summary>Publicar una clave de reserva y revocar una clave comprometida desde el portal (solo superadministrador).</summary>
+    public const string SigningKeyManage = "licensing.signing_key.manage";
     public const string PortalUserManage = "portal.user.manage";
     public const string AuditView = "portal.audit.view";
 
@@ -45,7 +48,7 @@ public static class CloudPermissions
     private static readonly HashSet<string> SuperadminPermissions =
     [
         DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease,
-        SigningKeyView, PortalUserManage, AuditView,
+        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView,
     ];
 
     public static IReadOnlyCollection<string> All => SuperadminPermissions;

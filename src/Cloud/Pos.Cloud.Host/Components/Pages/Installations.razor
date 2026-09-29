@@ -1,0 +1,52 @@
+@page "/instalaciones"
+@attribute [Authorize(Policy = CloudPermissions.LicensingView)]
+@inherits PortalPageBase
+
+<PageTitle>Instalaciones · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Instalaciones y equipos</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Cada sucursal que activa el POS es una instalación; su equipo (servidor de tienda o equipo único) queda ligado por la huella.
+    Liberar el equipo permite activar uno nuevo con la misma clave (cambio de PC o equipo dañado).
+</MudText>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+    <MudTextField T="string" @bind-Value="_search" Label="Buscar por empresa, NIT o sucursal" Variant="Variant.Outlined" Margin="Margin.Dense" />
+    <MudSelect T="string" @bind-Value="_status" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 180px">
+        <MudSelectItem T="string" Value="@string.Empty">Todas</MudSelectItem>
+        <MudSelectItem T="string" Value="@("ACTIVE")">Con equipo activo</MudSelectItem>
+        <MudSelectItem T="string" Value="@("INACTIVE")">Sin equipo</MudSelectItem>
+    </MudSelect>
+    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Buscar</MudButton>
+</MudStack>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+else if (_rows is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    var rows = Filtered.ToList();
+    <MudText Typo="Typo.caption" Class="mb-2">@rows.Count de @_rows.Count instalaciones</MudText>
+    <InstallationTable Rows="rows" ShowOrganization="true" OnChanged="LoadAsync" />
+}
+
+@code {
+    private IReadOnlyList<InstallationDto>? _rows;
+    private string? _search;
+    private string _status = string.Empty;
+
+    private IEnumerable<InstallationDto> Filtered => (_rows ?? []).Where(i => _status switch
+    {
+        "" => true,
+        "ACTIVE" => i.Status == "ACTIVE",
+        _ => i.Status != "ACTIVE",
+    });
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _rows = await LoadAsync(new ListInstallationsQuery(null, string.IsNullOrWhiteSpace(_search) ? null : _search.Trim())) ?? [];
+}

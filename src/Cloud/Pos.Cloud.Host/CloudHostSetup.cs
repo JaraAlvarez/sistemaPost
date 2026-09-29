@@ -154,6 +154,7 @@ internal static class CloudHostSetup
         app.UseAuthentication();
         app.UseMiddleware<RequestContextMiddleware>();
         app.UseMiddleware<PortalUserContextMiddleware>();
+        app.UseMiddleware<MustChangePasswordMiddleware>();
         app.UseAuthorization();
         app.UseAntiforgery();
 

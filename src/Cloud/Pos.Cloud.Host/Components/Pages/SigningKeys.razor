@@ -1,0 +1,111 @@
+@page "/claves-de-firma"
+@attribute [Authorize(Policy = CloudPermissions.SigningKeyView)]
+@inherits PortalPageBase
+@inject IDialogService Dialogs
+
+<PageTitle>Claves de firma · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Claves de firma de los tokens</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    El servidor firma los tokens de licencia con la clave ACTIVA (Ed25519, identificada por su <code>kid</code>); el POS trae
+    embebidas las claves públicas. Rotación: una clave de RESERVA publicada se vuelve activa cuando el servidor arranca con su
+    archivo privado, y la anterior pasa a RETIRADA (sigue verificando los tokens ya emitidos). Una clave comprometida se REVOCA.
+</MudText>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+
+@if (_keys.Count > 0 && !_keys.Any(k => k.Status == "ACTIVE" && k.LoadedInServer))
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">
+        El servidor no tiene una clave activa cargada: NO se están emitiendo tokens. Configure el archivo de la clave privada y reinicie.
+    </MudAlert>
+}
+
+<MudSimpleTable Dense="true" Hover="true" Outlined="true">
+    <thead><tr><th>kid</th><th>Estado</th><th>Creada</th><th>Activada</th><th>Retirada</th><th>Revocada</th><th>En este servidor</th><th>Clave pública</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var k in _keys)
+        {
+            <tr>
+                <td><code>@k.Kid</code></td>
+                <td><MudChip T="string" Size="Size.Small" Color="@KeyColor(k.Status)">@KeyStatusName(k.Status)</MudChip></td>
+                <td>@Date(k.CreatedAt)</td>
+                <td>@Date(k.ActivatedAt)</td>
+                <td>@Date(k.RetiredAt)</td>
+                <td>@Date(k.RevokedAt)</td>
+                <td>@(k.LoadedInServer ? "Sí (firma con esta)" : "—")</td>
+                <td class="cell-ellipsis" title="@k.PublicKey"><code>@k.PublicKey</code></td>
+                <td>
+                    @if (k.Status is "STANDBY" or "RETIRED")
+                    {
+                        <AuthorizeView Policy="@CloudPermissions.SigningKeyManage">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => RevokeAsync(k.Kid))">Revocar</MudButton>
+                        </AuthorizeView>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+<AuthorizeView Policy="@CloudPermissions.SigningKeyManage">
+    <MudPaper Class="pa-4 mt-4" Elevation="1">
+        <MudText Typo="Typo.h6">Publicar una clave de reserva</MudText>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            Genere el par en un equipo seguro (<code>generate-signing-key --out &lt;ruta&gt;</code>), guarde la privada fuera del servidor y
+            pegue aquí solo la clave pública. Así el POS la trae embebida y la rotación no exige reinstalar.
+        </MudText>
+        <MudTextField T="string" @bind-Value="_publicKey" Label="Clave pública (la línea «clave pública» que imprime generate-signing-key, 43 caracteres)" MaxLength="100" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="RegisterAsync">Publicar como reserva</MudButton>
+    </MudPaper>
+</AuthorizeView>
+
+@code {
+    private IReadOnlyList<SigningKeyDto> _keys = [];
+    private string? _publicKey;
+
+    private static string KeyStatusName(string status) => status switch
+    {
+        "STANDBY" => "Reserva",
+        "ACTIVE" => "Activa",
+        "RETIRED" => "Retirada",
+        "REVOKED" => "Revocada",
+        _ => status,
+    };
+
+    private static Color KeyColor(string status) => status switch
+    {
+        "ACTIVE" => Color.Success,
+        "STANDBY" => Color.Info,
+        "REVOKED" => Color.Error,
+        _ => Color.Default,
+    };
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _keys = await LoadAsync(new ListSigningKeysQuery()) ?? [];
+
+    private async Task RegisterAsync()
+    {
+        var registered = await RunAsync(new PortalRegisterStandbySigningKeyCommand(_publicKey ?? string.Empty), "Clave de reserva publicada.");
+        if (registered.IsSuccess)
+        {
+            _publicKey = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task RevokeAsync(string kid)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(
+            "Revocar clave de firma",
+            $"¿Revocar la clave {kid}? Los tokens firmados con ella dejarán de aceptarse en el check-in. No se puede deshacer.",
+            yesText: "Revocar", cancelText: "Cancelar");
+        if (confirmed == true && await RunAsync(new PortalRevokeSigningKeyCommand(kid), "Clave revocada."))
+        {
+            await LoadAsync();
+        }
+    }
+}

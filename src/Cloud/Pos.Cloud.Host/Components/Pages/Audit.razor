@@ -1,0 +1,144 @@
+@page "/auditoria"
+@attribute [Authorize(Policy = CloudPermissions.AuditView)]
+@inherits PortalPageBase
+
+<PageTitle>Auditoría · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Auditoría</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Bitácora encadenada de todo lo que se hace en el portal, en la API del POS y en la consola del servidor. Nada se borra; la
+    verificación recalcula la cadena de hashes y los sellos.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.VerifiedUser" Disabled="Busy" OnClick="VerifyAsync">Verificar la cadena</MudButton>
+        @if (_integrity is { } integrity)
+        {
+            <MudAlert Severity="@(integrity.IsValid ? Severity.Success : Severity.Error)" Dense="true">
+                @(integrity.IsValid ? "Cadena íntegra" : "Se encontraron problemas"): @integrity.RowsChecked filas y @integrity.SealsChecked sellos verificados,
+                @integrity.UnsealedRows filas aún sin sellar@(integrity.LastSealCode is null ? null : $"; último sello {integrity.LastSealCode}").
+            </MudAlert>
+        }
+    </MudStack>
+    @if (_integrity is { Findings.Count: > 0 } withFindings)
+    {
+        <ul class="mt-2">
+            @foreach (var finding in withFindings.Findings)
+            {
+                <li><MudText Typo="Typo.body2" Color="Color.Error">@finding</MudText></li>
+            }
+        </ul>
+    }
+</MudPaper>
+
+<MudGrid Spacing="2" Class="mb-2">
+    <MudItem xs="6" md="2"><MudDatePicker Label="Desde" @bind-Date="_from" DateFormat="yyyy-MM-dd" Clearable="true" /></MudItem>
+    <MudItem xs="6" md="2"><MudDatePicker Label="Hasta (incluido)" @bind-Date="_to" DateFormat="yyyy-MM-dd" Clearable="true" /></MudItem>
+    <MudItem xs="6" md="2">
+        <MudSelect T="string" @bind-Value="_module" Label="Módulo">
+            <MudSelectItem T="string" Value="@string.Empty">Todos</MudSelectItem>
+            <MudSelectItem T="string" Value="@("licensing")">Licencias</MudSelectItem>
+            <MudSelectItem T="string" Value="@("portal")">Portal</MudSelectItem>
+            <MudSelectItem T="string" Value="@("system")">Sistema</MudSelectItem>
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="6" md="2"><MudTextField T="string" @bind-Value="_action" Label="Acción (p. ej. SUBSCRIPTION_SUSPENDED)" MaxLength="80" /></MudItem>
+    <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_text" Label="Texto (resumen, entidad o usuario)" MaxLength="120" /></MudItem>
+    <MudItem xs="12" md="1" Class="d-flex align-center"><MudButton Variant="Variant.Outlined" OnClick="SearchAsync">Buscar</MudButton></MudItem>
+</MudGrid>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+else if (_page is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+        <thead><tr><th>#</th><th>Fecha</th><th>Módulo</th><th>Acción</th><th>Severidad</th><th>Usuario</th><th>Entidad</th><th>Resumen</th><th>IP</th></tr></thead>
+        <tbody>
+            @foreach (var e in _page.Rows)
+            {
+                <tr @onclick="@(() => _expanded = _expanded == e.Id ? null : e.Id)" class="clickable">
+                    <td>@e.Seq</td>
+                    <td>@Date(e.OccurredAt)</td>
+                    <td>@e.Module</td>
+                    <td>@e.Action</td>
+                    <td><MudChip T="string" Size="Size.Small" Color="@SeverityColor(e.Severity)">@e.Severity</MudChip></td>
+                    <td>@(e.UserDisplayName ?? "—")</td>
+                    <td>@(e.EntityLabel ?? e.EntityType ?? "—")</td>
+                    <td>@e.Summary</td>
+                    <td>@(e.IpAddress ?? "—")</td>
+                </tr>
+                @if (_expanded == e.Id && (e.OldValues is not null || e.NewValues is not null))
+                {
+                    <tr>
+                        <td colspan="9">
+                            <MudText Typo="Typo.caption">Antes</MudText>
+                            <pre class="audit-values">@(e.OldValues ?? "—")</pre>
+                            <MudText Typo="Typo.caption">Después</MudText>
+                            <pre class="audit-values">@(e.NewValues ?? "—")</pre>
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </MudSimpleTable>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2">
+        <MudButton Variant="Variant.Outlined" Disabled="@(_page.Page <= 1)" OnClick="@(() => GoToAsync(_page.Page - 1))">Anterior</MudButton>
+        <MudText>Página @_page.Page</MudText>
+        <MudButton Variant="Variant.Outlined" Disabled="@(!_page.HasMore)" OnClick="@(() => GoToAsync(_page.Page + 1))">Siguiente</MudButton>
+        <MudText Typo="Typo.caption">@_page.PageSize filas por página · clic en una fila para ver los valores antes/después.</MudText>
+    </MudStack>
+}
+
+@code {
+    private const int PageSize = 50;
+
+    private CloudAuditPageDto? _page;
+    private CloudAuditIntegrityDto? _integrity;
+    private DateTime? _from;
+    private DateTime? _to;
+    private string _module = string.Empty;
+    private string? _action;
+    private string? _text;
+    private Guid? _expanded;
+
+    private static Color SeverityColor(string severity) => severity.ToUpperInvariant() switch
+    {
+        "CRITICAL" => Color.Error,
+        "WARNING" => Color.Warning,
+        _ => Color.Default,
+    };
+
+    protected override Task OnInitializedAsync() => GoToAsync(1);
+
+    private Task SearchAsync() => GoToAsync(1);
+
+    private async Task GoToAsync(int page)
+    {
+        _expanded = null;
+        _page = await LoadAsync(new SearchCloudAuditQuery(
+            ColombiaStart(_from), ColombiaStart(_to?.AddDays(1)), _module, _action, _text, page, PageSize));
+    }
+
+    private async Task VerifyAsync()
+    {
+        _integrity = await LoadAsync(new VerifyCloudAuditQuery());
+    }
+
+    /// <summary>Inicio del día elegido en la zona del negocio (Colombia).</summary>
+    private static DateTimeOffset? ColombiaStart(DateTime? day)
+    {
+        if (day is not { } d)
+        {
+            return null;
+        }
+
+        var midnight = new DateTime(d.Year, d.Month, d.Day, 0, 0, 0, DateTimeKind.Unspecified);
+        return new DateTimeOffset(midnight, Pos.SharedKernel.Time.BusinessTimeZones.Colombia.GetUtcOffset(midnight));
+    }
+}

@@ -1,0 +1,122 @@
+@page "/suscripciones"
+@attribute [Authorize(Policy = CloudPermissions.LicensingView)]
+@inherits PortalPageBase
+
+<PageTitle>Suscripciones · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Suscripciones</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">Una suscripción vigente por empresa. Las nuevas se crean desde la ficha de la empresa.</MudText>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+    <MudSelect T="string" Value="_status" ValueChanged="StatusChangedAsync" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 180px">
+        <MudSelectItem T="string" Value="@string.Empty">Todos</MudSelectItem>
+        @foreach (var status in Statuses)
+        {
+            <MudSelectItem T="string" Value="@status">@StatusName(status)</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSelect T="int" @bind-Value="_expiry" Label="Vencimiento" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 200px">
+        <MudSelectItem T="int" Value="0">Cualquiera</MudSelectItem>
+        <MudSelectItem T="int" Value="7">Vence en 7 días o menos</MudSelectItem>
+        <MudSelectItem T="int" Value="15">Vence en 15 días o menos</MudSelectItem>
+        <MudSelectItem T="int" Value="30">Vence en 30 días o menos</MudSelectItem>
+        <MudSelectItem T="int" Value="-1">Ya vencida (vigencia pasada)</MudSelectItem>
+    </MudSelect>
+    <MudTextField T="string" @bind-Value="_search" Label="Empresa o NIT" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
+    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Actualizar</MudButton>
+</MudStack>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+
+<MudText Typo="Typo.caption">@Filtered.Count() de @_rows.Count suscripciones</MudText>
+<MudSimpleTable Dense="true" Hover="true" Outlined="true">
+    <thead>
+        <tr><th>Empresa</th><th>NIT</th><th>Edición</th><th>Periodicidad</th><th>Estado</th><th>Vigente hasta</th><th>Gracia hasta</th><th>Días</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var s in Filtered)
+        {
+            <tr class="@(s.Id == _selected?.Id ? "row-selected" : null)">
+                <td><MudLink Href="@($"/empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink></td>
+                <td>@s.Nit</td>
+                <td>@EditionName(s.Edition)</td>
+                <td>@(s.BillingPeriod == "ANNUAL" ? "Anual" : "Mensual")</td>
+                <td>
+                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(s.Status)">@StatusName(s.Status)</MudChip>
+                    @if (s.SuspendedReason is not null)
+                    {
+                        <MudText Typo="Typo.caption">@s.SuspendedReason</MudText>
+                    }
+                </td>
+                <td>@Day(s.ValidUntil)</td>
+                <td>@Day(s.GraceUntil)</td>
+                <td>@s.DaysLeft</td>
+                <td>
+                    @if (CanAct)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => _selected = s)">Acciones</MudButton>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@if (_selected is { } selected)
+{
+    <MudPaper Class="pa-4 mt-4" Elevation="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center">
+            <MudText Typo="Typo.h6">@selected.OrganizationName · @EditionName(selected.Edition) · @StatusName(selected.Status)</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _selected = null)" />
+        </MudStack>
+        <SubscriptionActions @key="selected.Id" SubscriptionId="selected.Id" Edition="@selected.Edition" OnChanged="LoadAsync" />
+    </MudPaper>
+}
+
+@code {
+    private static readonly string[] Statuses = ["TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "EXPIRED", "CANCELLED"];
+
+    [CascadingParameter]
+    private Task<AuthenticationState> Authentication { get; set; } = default!;
+
+    private IReadOnlyList<SubscriptionRowDto> _rows = [];
+    private SubscriptionRowDto? _selected;
+    private string _status = string.Empty;
+    private int _expiry;
+    private string? _search;
+    private bool CanAct { get; set; }
+
+    private IEnumerable<SubscriptionRowDto> Filtered => _rows
+        .Where(s => _expiry switch
+        {
+            0 => true,
+            < 0 => s.DaysLeft < 0,
+            _ => s.DaysLeft >= 0 && s.DaysLeft <= _expiry,
+        })
+        .Where(s => string.IsNullOrWhiteSpace(_search)
+            || s.OrganizationName.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)
+            || s.Nit.Contains(_search.Trim(), StringComparison.Ordinal))
+        .OrderBy(s => s.ValidUntil);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await Authentication).User;
+        CanAct = user.HasPortalPermission(CloudPermissions.SubscriptionManage) || user.HasPortalPermission(CloudPermissions.SubscriptionSupport);
+        await LoadAsync();
+    }
+
+    private async Task StatusChangedAsync(string status)
+    {
+        _status = status;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _rows = await LoadAsync(new ListSubscriptionsQuery(string.IsNullOrEmpty(_status) ? null : _status)) ?? [];
+        _selected = _selected is null ? null : _rows.FirstOrDefault(r => r.Id == _selected.Id);
+    }
+}

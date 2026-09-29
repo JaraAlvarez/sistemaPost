@@ -1,0 +1,94 @@
+@page "/mi-cuenta"
+@attribute [Authorize]
+@inherits PortalPageBase
+@inject NavigationManager Navigation
+
+<PageTitle>Mi cuenta · Licencias</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Mi cuenta</MudText>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+else if (_me is { } me)
+{
+    @if (me.MustChangePassword)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            Está usando una contraseña temporal: cámbiela para poder usar el portal.
+        </MudAlert>
+    }
+
+    <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
+        <tbody>
+            <tr><th>Nombre</th><td>@me.DisplayName</td></tr>
+            <tr><th>Correo</th><td>@me.Email</td></tr>
+            <tr><th>Rol</th><td>@PortalUsers.RoleName(me.Role)</td></tr>
+        </tbody>
+    </MudSimpleTable>
+
+    <MudPaper Class="pa-4 mb-4" Elevation="1" Style="max-width: 560px">
+        <MudText Typo="Typo.h6" Class="mb-2">Cambiar contraseña</MudText>
+        <MudTextField T="string" @bind-Value="_current" Label="Contraseña actual" InputType="InputType.Password" autocomplete="current-password" />
+        <MudTextField T="string" @bind-Value="_new" Label="Contraseña nueva" InputType="InputType.Password" autocomplete="new-password"
+                      HelperText="Mínimo 12 caracteres, con letras y números; distinta del correo y de la anterior." />
+        <MudTextField T="string" @bind-Value="_confirm" Label="Repita la contraseña nueva" InputType="InputType.Password" autocomplete="new-password" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="ChangeAsync">Cambiar contraseña</MudButton>
+        <MudText Typo="Typo.caption" Class="d-block mt-2">Al cambiarla se cierran sus otras sesiones abiertas.</MudText>
+    </MudPaper>
+
+    <MudText Typo="Typo.h6" Class="mb-2">Mis sesiones recientes</MudText>
+    <MudSimpleTable Dense="true" Outlined="true">
+        <thead><tr><th>Canal</th><th>Inicio</th><th>Última actividad</th><th>IP</th><th>Estado</th></tr></thead>
+        <tbody>
+            @foreach (var s in _sessions)
+            {
+                <tr>
+                    <td>@(s.Channel == "API" ? "API" : "Portal")</td>
+                    <td>@Date(s.CreatedAt)</td>
+                    <td>@Date(s.LastSeenAt)</td>
+                    <td>@(s.IpAddress ?? "—")</td>
+                    <td>@(s.RevokedAt is null ? "Abierta" : $"Cerrada: {s.RevokedReason}")</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@code {
+    private PortalMeDto? _me;
+    private IReadOnlyList<PortalSessionInfoDto> _sessions = [];
+    private string? _current;
+    private string? _new;
+    private string? _confirm;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var account = await Operations.SendAsync(new GetMyAccountQuery());
+        if (account.IsSuccess)
+        {
+            (_me, _sessions) = account.Value;
+        }
+        else
+        {
+            Snackbar.Add(account.Error.Message, Severity.Error);
+        }
+    }
+
+    private async Task ChangeAsync()
+    {
+        if (!string.Equals(_new, _confirm, StringComparison.Ordinal))
+        {
+            Snackbar.Add("La confirmación no coincide con la contraseña nueva.", Severity.Warning);
+            return;
+        }
+
+        if (await RunAsync(new ChangeOwnPasswordCommand(_current ?? string.Empty, _new ?? string.Empty), "Contraseña cambiada."))
+        {
+            // Recarga completa: la cookie sigue siendo válida y la sesión se vuelve a leer ya sin la contraseña temporal.
+            Navigation.NavigateTo(_me?.MustChangePassword == true ? "/" : "/mi-cuenta", forceLoad: true);
+        }
+    }
+}
