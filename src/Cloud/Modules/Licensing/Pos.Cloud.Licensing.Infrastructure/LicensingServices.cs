@@ -133,7 +133,7 @@ internal sealed class LicenseThrottle(LicensingOptions options, IClock clock) : 
 
 public static class LicensingInfrastructureRegistration
 {
-    public static void Register(IServiceCollection services, LicensingOptions options)
+    public static void Register(IServiceCollection services, Func<IServiceProvider, LicensingOptions> options)
     {
         services.AddSingleton(options);
         services.AddRequestHandlersFrom(typeof(ILicensingStore).Assembly);

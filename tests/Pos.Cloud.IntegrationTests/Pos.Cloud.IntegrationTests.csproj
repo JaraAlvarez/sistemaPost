@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Servidor de licencias de punta a punta (Fase 12-A): Pos.Cloud.Host en memoria (WebApplicationFactory) contra PostgreSQL 18
+       real (Testcontainers), el simulador de POS y las reglas de arquitectura de la nube. Requiere Docker. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Cloud\Pos.Cloud.Host\Pos.Cloud.Host.csproj" />
+    <ProjectReference Include="..\..\tools\Pos.License.Simulator\Pos.License.Simulator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+</Project>

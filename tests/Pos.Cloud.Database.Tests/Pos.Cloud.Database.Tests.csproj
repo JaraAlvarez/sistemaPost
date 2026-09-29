@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- BD de la NUBE (Fase 12-A) contra PostgreSQL 18 real (Testcontainers): migraciones, restricciones, índices parciales,
+       tablas de solo inserción, privilegios, usuario técnico y conformidad del modelo EF de la nube. Requiere Docker. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Cloud\Modules\Licensing\Pos.Cloud.Licensing.Api\Pos.Cloud.Licensing.Api.csproj" />
+    <ProjectReference Include="..\..\src\Cloud\Modules\PortalIdentity\Pos.Cloud.PortalIdentity.Api\Pos.Cloud.PortalIdentity.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+</Project>

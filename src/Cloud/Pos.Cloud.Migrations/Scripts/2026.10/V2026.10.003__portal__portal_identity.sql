@@ -44,6 +44,10 @@ CREATE TABLE portal.portal_users (
     CONSTRAINT ck_portal_users__human_password CHECK (kind = 'SYSTEM' OR password_hash IS NOT NULL)
 );
 
+-- Toda clave foránea tiene índice (convención del producto, verificada por las pruebas de BD).
+CREATE INDEX ix_portal_users__created_by ON portal.portal_users (created_by);
+CREATE INDEX ix_portal_users__updated_by ON portal.portal_users (updated_by) WHERE updated_by IS NOT NULL;
+
 -- Usuario técnico "system": autor de la línea base y de los cambios automáticos (vencimientos, check-ins).
 INSERT INTO portal.portal_users (id, email, display_name, kind, role, status, created_at, created_by)
 VALUES ('01926a00-0000-7000-8000-000000000001', 'system@localhost', 'Sistema', 'SYSTEM', 'SUPERADMIN', 'DISABLED', now(),

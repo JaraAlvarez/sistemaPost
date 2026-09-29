@@ -121,7 +121,7 @@ internal sealed class DataProtectionTotpProtector(IDataProtectionProvider provid
 
 public static class PortalIdentityInfrastructureRegistration
 {
-    public static void Register(IServiceCollection services, PortalIdentityOptions options)
+    public static void Register(IServiceCollection services, Func<IServiceProvider, PortalIdentityOptions> options)
     {
         services.AddSingleton(options);
         services.AddRequestHandlersFrom(typeof(IPortalIdentityStore).Assembly);
