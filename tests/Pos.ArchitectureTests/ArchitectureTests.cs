@@ -9,6 +9,8 @@ public class ArchitectureTests
         string[] modules =
         [
             "Pos.Modules.Audit.Api", "Pos.Modules.Audit.Application", "Pos.Modules.Audit.Contracts", "Pos.Modules.Audit.Infrastructure",
+            "Pos.Modules.Cash.Api", "Pos.Modules.Cash.Application", "Pos.Modules.Cash.Contracts", "Pos.Modules.Cash.Domain",
+            "Pos.Modules.Cash.Infrastructure",
             "Pos.Modules.Catalog.Api", "Pos.Modules.Catalog.Application", "Pos.Modules.Catalog.Contracts", "Pos.Modules.Catalog.Domain",
             "Pos.Modules.Catalog.Infrastructure",
             "Pos.Modules.Identity.Api", "Pos.Modules.Identity.Application", "Pos.Modules.Identity.Contracts",
@@ -17,6 +19,10 @@ public class ArchitectureTests
             "Pos.Modules.Inventory.Infrastructure",
             "Pos.Modules.Organization.Api", "Pos.Modules.Organization.Application", "Pos.Modules.Organization.Contracts",
             "Pos.Modules.Organization.Domain", "Pos.Modules.Organization.Infrastructure",
+            "Pos.Modules.Parties.Api", "Pos.Modules.Parties.Application", "Pos.Modules.Parties.Contracts", "Pos.Modules.Parties.Domain",
+            "Pos.Modules.Parties.Infrastructure",
+            "Pos.Modules.Purchasing.Api", "Pos.Modules.Purchasing.Application", "Pos.Modules.Purchasing.Contracts", "Pos.Modules.Purchasing.Domain",
+            "Pos.Modules.Purchasing.Infrastructure",
             "Pos.Modules.Reference.Api", "Pos.Modules.Reference.Application", "Pos.Modules.Reference.Contracts",
             "Pos.Modules.Reference.Infrastructure",
         ];

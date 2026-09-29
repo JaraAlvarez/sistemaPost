@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Parties · Casos de uso (comandos y consultas) y puertos de persistencia. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Parties.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Parties.Domain/Pos.Modules.Parties.Domain.csproj" />
+    <ProjectReference Include="../Pos.Modules.Parties.Contracts/Pos.Modules.Parties.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Modules.Parties.UnitTests" />
+  </ItemGroup>
+</Project>

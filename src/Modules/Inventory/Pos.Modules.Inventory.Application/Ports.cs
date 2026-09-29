@@ -8,11 +8,12 @@ using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Inventory.Application;
 
-/// <summary>Dirección y valorización de cada tipo de movimiento (doc 07).</summary>
+/// <summary>Dirección y valorización de cada tipo de movimiento (doc 07). La reversión toma la contraria de su original.</summary>
 public static class MovementRules
 {
     public static int Direction(MovementType type) => type switch
     {
+        MovementType.Reversal => throw new ArgumentOutOfRangeException(nameof(type), "La dirección de una reversión es la contraria de su movimiento original."),
         MovementType.InitialBalance or MovementType.PurchaseReceipt or MovementType.SaleVoid or MovementType.CustomerReturn
             or MovementType.CustomerReturnDamaged or MovementType.AdjustmentIn or MovementType.TransferIn or MovementType.CountAdjustmentIn => 1,
         _ => -1,
@@ -21,6 +22,9 @@ public static class MovementRules
     /// <summary>Entradas que cambian el costo promedio (llegan con su costo). Las demás entradas entran al promedio vigente.</summary>
     public static bool IsValuedInflow(MovementType type) => type is MovementType.InitialBalance or MovementType.PurchaseReceipt
         or MovementType.SaleVoid or MovementType.CustomerReturn or MovementType.CustomerReturnDamaged or MovementType.TransferIn;
+
+    /// <summary>Salidas que pueden llevar su propio costo (devolución a proveedor al costo de la compra, D5-07).</summary>
+    public static bool IsValuedOutflow(MovementType type) => type is MovementType.SupplierReturn;
 
     public static string Db(MovementType type) => type switch
     {
@@ -41,6 +45,7 @@ public static class MovementRules
         MovementType.TransferIn => "TRANSFER_IN",
         MovementType.CountAdjustmentIn => "COUNT_ADJUSTMENT_IN",
         MovementType.CountAdjustmentOut => "COUNT_ADJUSTMENT_OUT",
+        MovementType.Reversal => "REVERSAL",
         _ => throw new ArgumentOutOfRangeException(nameof(type)),
     };
 
@@ -110,7 +115,13 @@ public interface IInventoryReadModel
 
     Task<IReadOnlyList<(Guid Id, string Number, string Kind, string Status, Guid WarehouseId, DateTimeOffset CreatedAt)>> ListDocumentsAsync(
         string kind, string? status, CancellationToken cancellationToken);
+
+    /// <summary>Existencias por lote de la sucursal (solo lotes con saldo, salvo que se pida un producto).</summary>
+    Task<IReadOnlyList<LotStockDto>> GetLotsAsync(LotFilter filter, DateOnly today, CancellationToken cancellationToken);
 }
+
+/// <summary><c>ExpiringWithinDays</c>: solo lotes con saldo que vencen en esos días o ya vencieron.</summary>
+public sealed record LotFilter(Guid BranchId, Guid? ProductId, Guid? WarehouseId, int? ExpiringWithinDays);
 
 public sealed record StockFilter(Guid? WarehouseId, Guid? ProductId, string? Search, bool BelowMinimumOnly, Guid BranchId);
 
@@ -158,7 +169,15 @@ public static class InventorySettings
         "Hora (0–23) de la verificación diaria de saldos contra el kardex.",
         v => v is >= 0 and <= 23 ? null : "Entre 0 y 23.");
 
-    public static IEnumerable<SettingDefinition> All => [AllowNegativeStock, AdjustmentApprovalThreshold, UncountedAsZero, VerificationHour];
+    /// <summary>RN-INV-09: días de anticipación de la alerta de vencimiento de lotes.</summary>
+    public static readonly SettingDefinition<int> ExpiryAlertDays = new(
+        "inventory.expiry_alert_days",
+        30,
+        SettingScope.Company | SettingScope.Branch,
+        "Días de anticipación con que se alertan los lotes próximos a vencer.",
+        v => v is >= 0 and <= 365 ? null : "Entre 0 y 365.");
+
+    public static IEnumerable<SettingDefinition> All => [AllowNegativeStock, AdjustmentApprovalThreshold, UncountedAsZero, VerificationHour, ExpiryAlertDays];
 }
 
 public sealed class InventorySettingsProvider : ISettingDefinitionProvider

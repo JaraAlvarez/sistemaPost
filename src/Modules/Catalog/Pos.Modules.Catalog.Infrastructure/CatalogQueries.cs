@@ -253,6 +253,74 @@ internal sealed class CatalogReader(PosDbContext context) : ICatalogReader
         return await products.Select(p => p.Id).ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CatalogPackagingInfo>> GetPackagingsAsync(IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken = default) =>
+        productIds.Count == 0
+            ? []
+            : await context.Set<ProductPackaging>().AsNoTracking().Where(p => productIds.Contains(p.ProductId))
+                .Select(p => new CatalogPackagingInfo(p.Id, p.ProductId, p.Name, p.Factor, p.IsPurchasable))
+                .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<CatalogTaxInfo>>> GetTaxesAsync(
+        IReadOnlyCollection<Guid> productIds, DateOnly date, CancellationToken cancellationToken = default)
+    {
+        if (productIds.Count == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<CatalogTaxInfo>>();
+        }
+
+        var rows = await (from pt in context.Set<ProductTax>().AsNoTracking()
+                          join t in context.Set<Tax>().AsNoTracking() on pt.TaxId equals t.Id
+                          where productIds.Contains(pt.ProductId) && t.Status == MasterStatus.Active
+                          select new
+                          {
+                              pt.ProductId,
+                              t.Id,
+                              t.Code,
+                              t.Kind,
+                              ProductAmount = pt.FixedAmount,
+                              Rate = context.Set<TaxRate>().Where(r => r.TaxId == t.Id && r.ValidFrom <= date && (r.ValidTo == null || r.ValidTo > date))
+                                  .Select(r => new { r.Rate, r.FixedAmount }).FirstOrDefault(),
+                          }).ToListAsync(cancellationToken);
+        return rows.Where(r => r.Rate is not null || r.ProductAmount is not null)
+            .GroupBy(r => r.ProductId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<CatalogTaxInfo>)[.. g.OrderBy(r => r.Code, StringComparer.Ordinal).Select(r => new CatalogTaxInfo(
+                    r.Id, r.Code, r.Kind.Db(), r.Kind == TaxKind.Vat, r.ProductAmount is null ? r.Rate?.Rate : null,
+                    r.ProductAmount ?? (r.Rate?.Rate is null ? r.Rate?.FixedAmount : null)))]);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, decimal>> GetNetSalePricesAsync(
+        IReadOnlyCollection<Guid> productIds, Guid branchId, DateTimeOffset at, CancellationToken cancellationToken = default)
+    {
+        var list = await context.Set<PriceList>().AsNoTracking().Where(l => l.IsDefault).Select(l => new { l.Id, l.PricesIncludeTax })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (list is null || productIds.Count == 0)
+        {
+            return new Dictionary<Guid, decimal>();
+        }
+
+        var prices = (await context.Set<ProductPrice>().AsNoTracking()
+                .Where(p => p.PriceListId == list.Id && productIds.Contains(p.ProductId) && p.PackagingId == null
+                    && (p.BranchId == null || p.BranchId == branchId) && p.ValidFrom <= at && (p.ValidTo == null || p.ValidTo > at))
+                .Select(p => new { p.ProductId, p.BranchId, p.Price })
+                .ToListAsync(cancellationToken))
+            .GroupBy(r => r.ProductId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.BranchId is null ? 1 : 0).First().Price);
+        if (!list.PricesIncludeTax)
+        {
+            return prices;
+        }
+
+        var taxes = await GetTaxesAsync([.. prices.Keys], DateOnly.FromDateTime(at.UtcDateTime), cancellationToken);
+        return prices.ToDictionary(p => p.Key, p =>
+        {
+            var rate = taxes.GetValueOrDefault(p.Key)?.Where(t => t.Rate is not null).Sum(t => t.Rate!.Value) ?? 0m;
+            var fixedAmount = taxes.GetValueOrDefault(p.Key)?.Where(t => t.FixedAmount is not null).Sum(t => t.FixedAmount!.Value) ?? 0m;
+            return decimal.Round((p.Value - fixedAmount) / (1m + (rate / 100m)), 4, MidpointRounding.AwayFromZero);
+        });
+    }
+
     private static CatalogProductInfo ToInfo(Product p) =>
-        new(p.Id, p.Sku, p.Name, p.BaseUnitCode, p.IsStockable, p.AllowsDecimalQuantity, p.TracksLots, p.Status.Db(), p.CategoryId);
+        new(p.Id, p.Sku, p.Name, p.BaseUnitCode, p.IsStockable, p.AllowsDecimalQuantity, p.TracksLots, p.Status.Db(), p.CategoryId, p.TracksExpiry);
 }

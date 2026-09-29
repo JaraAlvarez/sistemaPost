@@ -102,8 +102,55 @@ public class StockValuationTests
     }
 }
 
+public class ValuedOutflowTests
+{
+    [Fact]
+    public void Devolucion_al_costo_de_la_compra_recalcula_el_promedio()
+    {
+        // 100 a $2.000 + 100 a $3.000 → promedio 2.500; devolver 50 de la compra a $3.000 deja 150 con valor 350.000.
+        var state = new StockState(200m, 500_000m, 2_500m);
+        var result = StockValuation.ValuedOutflow(state, 50m, 3_000m);
+        result.TotalCost.ShouldBe(150_000m);
+        result.UnitCost.ShouldBe(3_000m);
+        result.After.ShouldBe(new StockState(150m, 350_000m, 2_333.3333m));
+    }
+
+    [Fact]
+    public void El_valor_nunca_queda_negativo_y_la_ultima_salida_lleva_el_resto()
+    {
+        var state = new StockState(10m, 1_000m, 100m);
+        var capped = StockValuation.ValuedOutflow(state, 5m, 500m);
+        capped.TotalCost.ShouldBe(1_000m);
+        capped.After.Value.ShouldBe(0m);
+        capped.After.AverageCost.ShouldBe(0m);
+
+        var last = StockValuation.ValuedOutflow(state, 10m, 300m);
+        last.TotalCost.ShouldBe(1_000m);
+        last.After.ShouldBe(new StockState(0m, 0m, 100m));
+    }
+
+    [Fact]
+    public void Con_saldo_resultante_negativo_sale_al_promedio()
+    {
+        var result = StockValuation.ValuedOutflow(new StockState(2m, 200m, 100m), 5m, 999m);
+        result.UnitCost.ShouldBe(100m);
+        result.After.Quantity.ShouldBe(-3m);
+        Should.Throw<ArgumentOutOfRangeException>(() => StockValuation.ValuedOutflow(StockState.Empty, 1m, -1m));
+    }
+}
+
 public class MovementRulesTests
 {
+    [Fact]
+    public void La_reversion_no_tiene_direccion_fija_y_la_devolucion_a_proveedor_es_valorizada()
+    {
+        Should.Throw<ArgumentOutOfRangeException>(() => MovementRules.Direction(MovementType.Reversal));
+        MovementRules.Db(MovementType.Reversal).ShouldBe("REVERSAL");
+        MovementRules.IsValuedOutflow(MovementType.SupplierReturn).ShouldBeTrue();
+        MovementRules.IsValuedOutflow(MovementType.Sale).ShouldBeFalse();
+        MovementRules.Direction(MovementType.SupplierReturn).ShouldBe(-1);
+    }
+
     [Theory]
     [InlineData(MovementType.InitialBalance, 1, true)]
     [InlineData(MovementType.PurchaseReceipt, 1, true)]

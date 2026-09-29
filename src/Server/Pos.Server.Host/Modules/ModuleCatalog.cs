@@ -1,9 +1,12 @@
 using Pos.Api.Abstractions;
 using Pos.Modules.Audit.Api;
+using Pos.Modules.Cash.Api;
 using Pos.Modules.Catalog.Api;
 using Pos.Modules.Identity.Api;
 using Pos.Modules.Inventory.Api;
 using Pos.Modules.Organization.Api;
+using Pos.Modules.Parties.Api;
+using Pos.Modules.Purchasing.Api;
 using Pos.Modules.Reference.Api;
 
 namespace Pos.Server.Host.Modules;
@@ -23,5 +26,8 @@ internal static class ModuleCatalog
         new AuditModule(),
         new CatalogModule(),
         new InventoryModule(),
+        new PartiesModule(),
+        new CashModule(),
+        new PurchasingModule(),
     ];
 }

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Parties · Dominio puro: terceros, identificación y datos fiscales. Solo depende del SharedKernel. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Parties.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.SharedKernel/Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

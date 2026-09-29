@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas de terceros: identificación, DV del NIT, tipos de persona, contactos y Consumidor final. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Parties\Pos.Modules.Parties.Domain\Pos.Modules.Parties.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Parties\Pos.Modules.Parties.Application\Pos.Modules.Parties.Application.csproj" />
+  </ItemGroup>
+</Project>

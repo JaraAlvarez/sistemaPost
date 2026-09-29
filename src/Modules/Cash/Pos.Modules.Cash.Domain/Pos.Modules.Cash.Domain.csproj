@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Cash · Dominio puro: medios de pago (y en la Fase 6, jornadas y movimientos de caja). Solo depende del SharedKernel. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Cash.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.SharedKernel/Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

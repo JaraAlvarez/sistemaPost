@@ -10,6 +10,8 @@ INSERT INTO system.document_types (code, module, name, series_scope) VALUES
     ('CASH_SESSION',         'cash',      'Jornada de caja',           'TERMINAL'),
     ('PURCHASE',             'purchasing','Compra',                    'BRANCH'),
     ('SUPPLIER_RETURN',      'purchasing','Devolución a proveedor',    'BRANCH'),
+    ('PURCHASE_ORDER',       'purchasing','Orden de compra',           'BRANCH'),
+    ('PAYABLE_PAYMENT',      'purchasing','Pago a proveedor',          'BRANCH'),
     ('INVENTORY_ADJUSTMENT', 'inventory', 'Ajuste de inventario',      'BRANCH'),
     ('INVENTORY_TRANSFER',   'inventory', 'Traslado entre bodegas',    'BRANCH'),
     ('INVENTORY_COUNT',      'inventory', 'Conteo de inventario',      'BRANCH'),

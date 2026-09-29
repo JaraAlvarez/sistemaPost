@@ -67,7 +67,8 @@ public sealed class InventoryGuards(IWarehouseDirectory warehouses, ICatalogRead
     }
 }
 
-public sealed record AdjustmentLineRequest(Guid ProductId, decimal Quantity, decimal? UnitCost = null, string? Notes = null);
+public sealed record AdjustmentLineRequest(
+    Guid ProductId, decimal Quantity, decimal? UnitCost = null, string? Notes = null, string? LotNumber = null, DateOnly? ExpiryDate = null);
 
 internal static class AdjustmentMapping
 {
@@ -80,13 +81,17 @@ internal static class AdjustmentMapping
             a.ApprovalRequired, a.CreatedBy, a.ApprovedBy, a.PostedAt,
             [.. a.Lines.OrderBy(l => l.LineNumber).Select(l => new AdjustmentLineDto(
                 l.Id, l.LineNumber, l.ProductId, products.GetValueOrDefault(l.ProductId)?.Sku ?? string.Empty,
-                products.GetValueOrDefault(l.ProductId)?.Name ?? string.Empty, l.Quantity, l.UnitCost, l.Notes))]);
+                products.GetValueOrDefault(l.ProductId)?.Name ?? string.Empty, l.Quantity, l.UnitCost, l.Notes, l.LotNumber, l.ExpiryDate))]);
     }
 }
 
-/// <summary>Publica un ajuste en el kardex (tipo de movimiento según motivo y signo; saldo inicial con su costo).</summary>
+/// <summary>
+/// Publica un ajuste en el kardex (tipo de movimiento según motivo y signo; saldo inicial con su costo). Una línea con
+/// lote entra a ese lote (se crea si no existe) o sale de él; sin lote, la entrada queda sin lote y la salida es FEFO.
+/// </summary>
 public sealed class AdjustmentPoster(
-    IInventoryPosting posting, IStockLedger ledger, ISettingsReader settings, IActorContext actor, IAuditWriter audit, IClock clock)
+    IInventoryPosting posting, IInventoryLots lots, ICatalogReader catalog, IStockLedger ledger, ISettingsReader settings, IActorContext actor,
+    IAuditWriter audit, IClock clock)
 {
     public async Task<Result> PostAsync(InventoryAdjustment adjustment, AdjustmentReason reason, CancellationToken cancellationToken)
     {
@@ -100,9 +105,43 @@ public sealed class AdjustmentPoster(
 
         var allowNegative = await settings.GetAsync(
             InventorySettings.AllowNegativeStock, new SettingContext(adjustment.CompanyId, adjustment.BranchId), cancellationToken);
-        var lines = adjustment.Lines.Select(l => new PostingLine(
-            adjustment.WarehouseId, l.ProductId, MovementRules.ForAdjustment(reason.Kind, l.Quantity), Math.Abs(l.Quantity), l.UnitCost, l.Id, reason.Id))
-            .ToList();
+        var products = await catalog.GetProductsAsync([.. adjustment.Lines.Select(l => l.ProductId)], cancellationToken);
+        var lines = new List<PostingLine>();
+        foreach (var l in adjustment.Lines)
+        {
+            Guid? lotId = null;
+            if (l.LotNumber is { } lotNumber)
+            {
+                if (products.GetValueOrDefault(l.ProductId) is not { TracksLots: true })
+                {
+                    return InventoryErrors.LotNotTracked;
+                }
+
+                if (l.Quantity > 0m)
+                {
+                    var ensured = await lots.EnsureLotAsync(l.ProductId, lotNumber, l.ExpiryDate, null, cancellationToken);
+                    if (ensured.IsFailure)
+                    {
+                        return ensured.Error;
+                    }
+
+                    lotId = ensured.Value;
+                }
+                else
+                {
+                    lotId = await lots.FindLotAsync(l.ProductId, lotNumber, cancellationToken);
+                    if (lotId is null)
+                    {
+                        return InventoryErrors.LotNotFound;
+                    }
+                }
+            }
+
+            lines.Add(new PostingLine(
+                adjustment.WarehouseId, l.ProductId, MovementRules.ForAdjustment(reason.Kind, l.Quantity), Math.Abs(l.Quantity), l.UnitCost, l.Id, reason.Id,
+                LotId: lotId));
+        }
+
         var posted = await posting.PostAsync(
             new InventoryPosting("ADJUSTMENT", adjustment.Id, adjustment.Number, adjustment.BranchId, adjustment.BusinessDate, lines, allowNegative),
             cancellationToken);
@@ -180,7 +219,7 @@ internal sealed class CreateAdjustmentHandler(
         var number = await numbers.NextForBranchAsync("INVENTORY_ADJUSTMENT", local.Value.BranchId, cancellationToken);
         var adjustment = InventoryAdjustment.Create(
             ids.NewId(), local.Value.CompanyId, local.Value.BranchId, request.WarehouseId, number.Number, request.BusinessDate ?? clock.Today, reason,
-            request.Notes, [.. request.Lines.Select(l => new AdjustmentLineInput(l.ProductId, l.Quantity, l.UnitCost, l.Notes))], ids.NewId,
+            request.Notes, [.. request.Lines.Select(l => new AdjustmentLineInput(l.ProductId, l.Quantity, l.UnitCost, l.Notes, l.LotNumber, l.ExpiryDate))], ids.NewId,
             actor.ActorId!.Value);
         if (adjustment.IsFailure)
         {
@@ -217,7 +256,9 @@ internal sealed class UpdateAdjustmentHandler(IInventoryStore store, InventoryGu
             return products.Error;
         }
 
-        var edited = adjustment.Edit(reason, request.Notes, [.. (request.Lines ?? []).Select(l => new AdjustmentLineInput(l.ProductId, l.Quantity, l.UnitCost, l.Notes))], ids.NewId);
+        var edited = adjustment.Edit(
+            reason, request.Notes, [.. (request.Lines ?? []).Select(l => new AdjustmentLineInput(l.ProductId, l.Quantity, l.UnitCost, l.Notes, l.LotNumber, l.ExpiryDate))],
+            ids.NewId);
         return edited.IsSuccess ? await adjustment.ToDtoAsync(store, catalog, cancellationToken) : edited.Error;
     }
 }

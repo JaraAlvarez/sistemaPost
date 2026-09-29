@@ -7,15 +7,15 @@
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
-GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory TO pos_app, pos_backup;
+GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
-REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory FROM pos_app;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory FROM pos_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing FROM pos_app;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing FROM pos_app;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing FROM PUBLIC;
 
 -- Negocio
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory TO pos_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory, parties, cash, purchasing TO pos_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     system.document_series, system.settings, system.outbox_messages, system.inbox_messages,
     system.sync_cursors, system.idempotency_keys
@@ -29,6 +29,9 @@ REVOKE INSERT, UPDATE, DELETE ON identity.permissions FROM pos_app;
 
 -- Kardex: solo agregar y leer (RN-INV-02: un error se corrige con un movimiento inverso). Además tiene un disparador.
 REVOKE UPDATE, DELETE, TRUNCATE ON inventory.stock_movements FROM pos_app;
+
+-- Libro de cuentas por pagar: igual que el kardex (D5-09).
+REVOKE UPDATE, DELETE, TRUNCATE ON purchasing.payable_entries FROM pos_app;
 
 -- Auditoría: solo agregar y leer
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;

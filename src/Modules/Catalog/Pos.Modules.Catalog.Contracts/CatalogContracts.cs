@@ -33,7 +33,14 @@ public sealed record CatalogProductInfo(
     bool AllowsDecimalQuantity,
     bool TracksLots,
     string Status,
-    Guid CategoryId);
+    Guid CategoryId,
+    bool TracksExpiry = false);
+
+/// <summary>Presentación de un producto (factor = unidades base por presentación).</summary>
+public sealed record CatalogPackagingInfo(Guid Id, Guid ProductId, string Name, decimal Factor, bool IsPurchasable);
+
+/// <summary>Impuesto de un producto con su tarifa vigente en una fecha (porcentaje o valor fijo por unidad base).</summary>
+public sealed record CatalogTaxInfo(Guid TaxId, string Code, string Kind, bool IsVat, decimal? Rate, decimal? FixedAmount);
 
 /// <summary>Consultas del catálogo para otros módulos.</summary>
 public interface ICatalogReader
@@ -46,6 +53,20 @@ public interface ICatalogReader
 
     /// <summary>Productos inventariables activos o inactivos (no descontinuados) de las categorías indicadas y sus subcategorías; todas si es null.</summary>
     Task<IReadOnlyList<Guid>> ListStockableProductIdsAsync(IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken = default);
+
+    /// <summary>Presentaciones vigentes (no borradas) de los productos.</summary>
+    Task<IReadOnlyList<CatalogPackagingInfo>> GetPackagingsAsync(IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken = default);
+
+    /// <summary>Impuestos activos de cada producto con la tarifa vigente en la fecha (los que no tienen tarifa no aparecen).</summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<CatalogTaxInfo>>> GetTaxesAsync(
+        IReadOnlyCollection<Guid> productIds, DateOnly date, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Precio de venta vigente por unidad base en la lista por defecto (el de la sucursal si existe), SIN los impuestos
+    /// porcentuales cuando la lista los incluye. Para comparar contra el costo (alerta de precio bajo el costo).
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, decimal>> GetNetSalePricesAsync(
+        IReadOnlyCollection<Guid> productIds, Guid branchId, DateTimeOffset at, CancellationToken cancellationToken = default);
 }
 
 public sealed record UnitDto(string Code, string Name, string Dimension, string DianCode, int DecimalsAllowed);

@@ -1,6 +1,6 @@
 # Fase 5 · Terceros, proveedores y compras — Propuesta
 
-> Estado: **APROBADA (2026-09-28)** con todas las recomendaciones de la §15: retenciones digitadas por compra; IVA de compras
+> Estado: **IMPLEMENTADA (2026-09-28)** — ver [informe](fase-05-informe.md). Aprobada el 2026-09-28 con todas las recomendaciones de la §15: retenciones digitadas por compra; IVA de compras
 > descontable por defecto (configurable por empresa); documento soporte marcado ahora y emitido en la Fase 11-B; órdenes de compra
 > incluidas; lotes solo con cantidades y costo promedio por bodega; XML del proveedor en la Fase 11-B.
 > Requisitos previos: Fase 4 implementada ([informe](fase-04-informe.md)).

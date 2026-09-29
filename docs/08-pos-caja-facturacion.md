@@ -151,6 +151,10 @@ El valor a reintegrar se calcula con los precios, descuentos e impuestos **de la
 
 ### A proveedores
 
+> Implementado en la Fase 5 (ADR-0026): la devolución descuenta de la cuenta por pagar la proporción del total de la línea con
+> impuestos (`credit_total`); se liquida con nota crédito (queda la reducción), reintegro (asiento `REFUND`) o reposición (la
+> mercancía vuelve a entrar al costo de la compra y la deuda se restablece).
+
 Buscar compra → seleccionar líneas (≤ comprado − devuelto) → `POSTED`: kardex `SUPPLIER_RETURN` al costo de la compra, reduce la cuenta por pagar o registra saldo a favor (nota crédito del proveedor) → `SETTLED` cuando el proveedor emite la nota o reintegra el dinero.
 
 ---

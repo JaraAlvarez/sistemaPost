@@ -468,6 +468,32 @@ internal sealed class GetStockHandler(IInstallationContext installation, IInvent
     }
 }
 
+/// <summary>Existencias por lote (RN-INV-09). <c>ExpiringOnly</c>: lotes vencidos o que vencen dentro de los días de alerta ⚙️.</summary>
+public sealed record ListLotsQuery(Guid? ProductId, Guid? WarehouseId, bool ExpiringOnly, int? Days) : IQuery<IReadOnlyList<LotStockDto>>;
+
+internal sealed class ListLotsHandler(IInstallationContext installation, IInventoryReadModel readModel, ISettingsReader settings, IClock clock)
+    : IQueryHandler<ListLotsQuery, IReadOnlyList<LotStockDto>>
+{
+    public async Task<Result<IReadOnlyList<LotStockDto>>> Handle(ListLotsQuery request, CancellationToken cancellationToken)
+    {
+        var local = installation.RequireLocal();
+        if (local.IsFailure)
+        {
+            return local.Error;
+        }
+
+        int? days = null;
+        if (request.ExpiringOnly)
+        {
+            days = request.Days
+                ?? await settings.GetAsync(InventorySettings.ExpiryAlertDays, new SettingContext(local.Value.CompanyId, local.Value.BranchId), cancellationToken);
+        }
+
+        return Result.Success(await readModel.GetLotsAsync(
+            new LotFilter(local.Value.BranchId, request.ProductId, request.WarehouseId, days), clock.Today, cancellationToken));
+    }
+}
+
 public sealed record GetKardexQuery(Guid WarehouseId, Guid ProductId, DateOnly? From, DateOnly? To) : IQuery<KardexDto>;
 
 internal sealed class GetKardexHandler(IInventoryReadModel readModel, IPermissionChecker permissions) : IQueryHandler<GetKardexQuery, KardexDto>

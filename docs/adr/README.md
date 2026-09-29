@@ -27,3 +27,7 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0020](0020-precios-e-impuestos-con-vigencia.md) | Precios e impuestos con vigencia (sin sobrescribir) | Aceptada | 2026-09-28 |
 | [0021](0021-codigos-de-barras-y-codigos-internos.md) | Códigos de barras únicos y códigos internos sin consecutivo global | Aceptada | 2026-09-28 |
 | [0022](0022-cambios-por-campo-para-sincronizar.md) | Registro de cambios por campo de los maestros sincronizables | Aceptada | 2026-09-28 |
+| [0023](0023-terceros-unicos-con-roles.md) | Terceros únicos con roles (proveedor, cliente) | Aceptada | 2026-09-28 |
+| [0024](0024-costo-neto-de-compra.md) | Costo neto de entrada de las compras | Aceptada | 2026-09-28 |
+| [0025](0025-lotes-solo-con-cantidades-y-fefo.md) | Lotes solo con cantidades y salidas FEFO | Aceptada | 2026-09-28 |
+| [0026](0026-cartera-por-pagar-como-libro.md) | Cuentas por pagar como libro de asientos | Aceptada | 2026-09-28 |

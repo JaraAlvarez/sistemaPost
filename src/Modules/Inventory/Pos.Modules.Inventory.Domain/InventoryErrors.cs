@@ -68,6 +68,29 @@ public static class InventoryErrors
     public static readonly Error InvalidPolicy = Error.Validation(
         "INVENTORY.INVALID_POLICY", "Política inválida: mínimo ≥ 0, máximo ≥ mínimo, punto de pedido ≥ 0 y cantidad a pedir > 0.");
 
+    public static readonly Error LotRequired = Error.Validation(
+        "INVENTORY.LOT_REQUIRED", "El producto maneja lotes: indique el número de lote de la entrada (RN-INV-08).");
+
+    public static readonly Error ExpiryRequired = Error.Validation(
+        "INVENTORY.EXPIRY_REQUIRED", "El producto controla vencimientos: indique la fecha de vencimiento del lote (RN-INV-09).");
+
+    public static readonly Error LotNotTracked = Error.Validation("INVENTORY.LOT_NOT_TRACKED", "El producto no maneja lotes.");
+
+    public static readonly Error InvalidLot = Error.Validation(
+        "INVENTORY.INVALID_LOT", "Lote inválido: número de 1 a 40 caracteres; el vencimiento no puede ser anterior a la fabricación.");
+
+    public static readonly Error LotNotFound = Error.NotFound("INVENTORY.LOT_NOT_FOUND", "El lote no existe en esta sucursal.");
+
+    public static readonly Error LotExpiryMismatch = Error.Conflict(
+        "INVENTORY.LOT_EXPIRY_MISMATCH", "El lote ya existe con otra fecha de vencimiento.");
+
+    public static readonly Error LotInsufficient = Error.BusinessRule(
+        "INVENTORY.LOT_INSUFFICIENT", "El lote no tiene existencias suficientes (un lote nunca queda negativo).");
+
+    public static readonly Error AlreadyReversed = Error.Conflict("INVENTORY.ALREADY_REVERSED", "El movimiento ya fue revertido.");
+
+    public static readonly Error NothingToReverse = Error.BusinessRule("INVENTORY.NOTHING_TO_REVERSE", "El documento no tiene movimientos por revertir.");
+
     public static readonly Error ImportMissingColumns =
         Error.Validation("INVENTORY.IMPORT_MISSING_COLUMNS", "El archivo de saldo inicial necesita las columnas: producto (SKU o código), cantidad y costo.");
 }

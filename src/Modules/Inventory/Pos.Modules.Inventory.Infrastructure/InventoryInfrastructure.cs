@@ -178,7 +178,7 @@ internal sealed class StockLedger(PosDbContext context) : IStockLedger
             SELECT l.product_id, COALESCE(SUM(m.direction * m.quantity), 0)
             FROM unnest(@productIds::uuid[], @seqs::bigint[]) AS l(product_id, snapshot_seq)
             LEFT JOIN inventory.stock_movements m
-                ON m.warehouse_id = @warehouseId AND m.product_id = l.product_id AND m.lot_id IS NULL AND m.seq > l.snapshot_seq
+                ON m.warehouse_id = @warehouseId AND m.product_id = l.product_id AND m.seq > l.snapshot_seq
             GROUP BY l.product_id
             """,
             new { warehouseId, productIds = lines.Select(l => l.ProductId).ToArray(), seqs = lines.Select(l => l.SnapshotSeq).ToArray() },
@@ -223,7 +223,7 @@ internal sealed class InventoryQueries(NpgsqlDataSource dataSource, IInstallatio
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await connection.ExecuteScalarAsync<decimal>(new CommandDefinition(
-            "SELECT COALESCE(SUM(quantity), 0) FROM inventory.stock_balances WHERE product_id = @productId AND node_id = @nodeId",
+            "SELECT COALESCE(SUM(quantity), 0) FROM inventory.stock_balances WHERE product_id = @productId AND node_id = @nodeId AND lot_id IS NULL",
             new { productId, nodeId = installation.NodeId }, cancellationToken: cancellationToken));
     }
 
@@ -243,7 +243,7 @@ internal sealed class InventoryQueries(NpgsqlDataSource dataSource, IInstallatio
             """
             SELECT product_id, round(SUM(total_value) / SUM(quantity), 4)
             FROM inventory.stock_balances
-            WHERE branch_id = @branchId AND product_id = ANY(@productIds) AND quantity > 0
+            WHERE branch_id = @branchId AND product_id = ANY(@productIds) AND quantity > 0 AND lot_id IS NULL
             GROUP BY product_id
             """,
             new { branchId, productIds = productIds.ToArray() }, cancellationToken: cancellationToken));
@@ -276,6 +276,7 @@ internal sealed class InventoryConstraintErrors : IConstraintErrorProvider
         ["ck_stock_transfer_lines__quantities"] = InventoryErrors.ReceivedExceedsSent,
         ["fk_stock_movements__warehouse"] = InventoryErrors.WarehouseNotLocal,
         ["ux_inventory_adjustment_lines__product"] = InventoryErrors.DuplicatedProduct,
+        ["ux_stock_movements__reverses"] = InventoryErrors.AlreadyReversed,
         ["ux_stock_transfer_lines__product"] = InventoryErrors.DuplicatedProduct,
     };
 }
@@ -289,6 +290,7 @@ public static class InventoryInfrastructureRegistration
         services.AddScoped<IInventoryStore, InventoryStore>();
         services.AddScoped<IStockLedger, StockLedger>();
         services.AddScoped<IInventoryPosting, InventoryPostingService>();
+        services.AddScoped<IInventoryLots, InventoryLots>();
         services.AddScoped<IInventoryQueries, InventoryQueries>();
         services.AddScoped<IInventoryReadModel, InventoryReadModel>();
         services.AddScoped<IStockVerifier, StockVerifier>();

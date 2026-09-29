@@ -70,6 +70,37 @@ public static class StockValuation
         return new Valuation(new StockState(newQuantity, before.Value - total, cost), cost, total);
     }
 
+    /// <summary>
+    /// Salida valorizada a un costo dado (devolución a proveedor al costo de la compra, reversión de una entrada, D5-07):
+    /// el valor baja en cantidad × costo y el promedio se recalcula. Si la salida deja el saldo en cero se lleva el valor
+    /// restante; si el valor quedara negativo, el movimiento se lleva solo el valor disponible (el promedio queda en cero).
+    /// Con saldo resultante negativo se comporta como una salida al promedio.
+    /// </summary>
+    public static Valuation ValuedOutflow(StockState before, decimal quantity, decimal unitCost)
+    {
+        EnsureQuantity(quantity);
+        if (unitCost < 0m)
+        {
+            throw new ArgumentOutOfRangeException(nameof(unitCost), "El costo no puede ser negativo.");
+        }
+
+        var newQuantity = before.Quantity - quantity;
+        if (newQuantity < 0m)
+        {
+            return Outflow(before, quantity);
+        }
+
+        if (newQuantity == 0m)
+        {
+            var remaining = Math.Max(0m, before.Value);
+            return new Valuation(new StockState(0m, before.Value - remaining, before.AverageCost), Round(remaining / quantity), remaining);
+        }
+
+        var total = Math.Min(Round(quantity * unitCost), Math.Max(0m, before.Value));
+        var value = before.Value - total;
+        return new Valuation(new StockState(newQuantity, value, Round(value / newQuantity)), Round(total / quantity), total);
+    }
+
     private static decimal Round(decimal value) => decimal.Round(value, RoundingPolicy.UnitCostDecimals, MidpointRounding.AwayFromZero);
 
     private static void EnsureQuantity(decimal quantity)

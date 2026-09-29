@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Pos.Api.Abstractions;
+using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -32,6 +33,7 @@ public sealed class OrganizationModule : IModule
         services.AddScoped<IOrganizationQueries, OrganizationQueries>();
         services.AddSingleton<ISettingDefinitionProvider, GeneralSettingsProvider>();
         services.AddSingleton<IPermissionCatalogProvider, OrganizationPermissionCatalog>();
+        services.AddScoped<ICompanyInitializer, DocumentSeriesInitializer>();
     }
 
     public void MapEndpoints(IEndpointRouteBuilder api)

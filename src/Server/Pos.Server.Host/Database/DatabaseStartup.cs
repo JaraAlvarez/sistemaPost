@@ -90,6 +90,12 @@ internal sealed partial class DatabaseStartup(
             readiness.Set(DatabaseStatus.Unavailable, $"No se pudo usar la base de datos: {ex.Message}", null, expected);
             LogUnavailable(logger, ex);
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Un inicializador que falla no debe dejar el arranque esperando para siempre: se registra y se reintenta.
+            readiness.Set(DatabaseStatus.Unavailable, $"Falló la inicialización de la base de datos: {ex.Message}", null, expected);
+            LogInitializationFailed(logger, ex);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Base de datos lista: esquema {Version}, nodo {NodeId}, configurada: {SetupCompleted}")]
@@ -97,6 +103,9 @@ internal sealed partial class DatabaseStartup(
 
     [LoggerMessage(Level = LogLevel.Critical, Message = "Esquema desactualizado: BD {Version}, esperado {Expected}. El servidor no atenderá operaciones de negocio.")]
     private static partial void LogSchemaOutdated(ILogger logger, string? version, string? expected);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Falló la inicialización de la base de datos (inicializadores de los módulos); se reintentará")]
+    private static partial void LogInitializationFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Base de datos no disponible; se reintentará")]
     private static partial void LogUnavailable(ILogger logger, Exception exception);

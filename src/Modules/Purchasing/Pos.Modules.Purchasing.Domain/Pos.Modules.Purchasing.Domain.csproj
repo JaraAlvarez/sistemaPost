@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Purchasing · Dominio puro: proveedores, órdenes, compras con costo neto, cartera y devoluciones. Solo depende del SharedKernel. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Purchasing.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.SharedKernel/Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

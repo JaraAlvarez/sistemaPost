@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Parties · Persistencia del módulo: mapeo EF Core, consultas y traducción de restricciones. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Parties.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Parties.Application/Pos.Modules.Parties.Application.csproj" />
+  </ItemGroup>
+</Project>

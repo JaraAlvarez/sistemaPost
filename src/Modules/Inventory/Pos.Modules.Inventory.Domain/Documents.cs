@@ -115,11 +115,23 @@ public sealed class AdjustmentLine : Entity<Guid>
 
     public string? Notes { get; private set; }
 
+    /// <summary>Lote de la línea (productos con lotes): entrada a ese lote o salida de ese lote. Sin lote, la salida es FEFO.</summary>
+    public string? LotNumber { get; private set; }
+
+    public DateOnly? ExpiryDate { get; private set; }
+
     internal static AdjustmentLine Create(Guid id, int lineNumber, AdjustmentLineInput input, decimal quantity) =>
-        new(id, lineNumber, input.ProductId, quantity) { UnitCost = input.UnitCost, Notes = string.IsNullOrWhiteSpace(input.Notes) ? null : input.Notes.Trim() };
+        new(id, lineNumber, input.ProductId, quantity)
+        {
+            UnitCost = input.UnitCost,
+            Notes = string.IsNullOrWhiteSpace(input.Notes) ? null : input.Notes.Trim(),
+            LotNumber = string.IsNullOrWhiteSpace(input.LotNumber) ? null : input.LotNumber.Trim().ToUpperInvariant(),
+            ExpiryDate = string.IsNullOrWhiteSpace(input.LotNumber) ? null : input.ExpiryDate,
+        };
 }
 
-public sealed record AdjustmentLineInput(Guid ProductId, decimal Quantity, decimal? UnitCost = null, string? Notes = null);
+public sealed record AdjustmentLineInput(
+    Guid ProductId, decimal Quantity, decimal? UnitCost = null, string? Notes = null, string? LotNumber = null, DateOnly? ExpiryDate = null);
 
 public enum PostingDecision
 {
@@ -239,6 +251,11 @@ public sealed class InventoryAdjustment : AggregateRoot<Guid>, ICompanyOwned, IH
             if (reason.Kind == ReasonKind.InitialBalance && input.UnitCost is not >= 0m)
             {
                 return InventoryErrors.UnitCostRequired;
+            }
+
+            if (input.LotNumber is { } lot && (string.IsNullOrWhiteSpace(lot) || lot.Trim().Length > 40))
+            {
+                return InventoryErrors.InvalidLot;
             }
 
             built.Add(AdjustmentLine.Create(newId(), built.Count + 1, reason.Kind == ReasonKind.InitialBalance ? input : input with { UnitCost = null }, quantity));

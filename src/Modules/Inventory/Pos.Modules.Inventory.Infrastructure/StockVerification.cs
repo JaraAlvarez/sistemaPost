@@ -19,8 +19,9 @@ namespace Pos.Modules.Inventory.Infrastructure;
 
 /// <summary>
 /// SQL de verificación y reconstrucción del kardex (RN-INV-11). Lo usan el módulo y el migrador (<c>verify-stock</c>,
-/// <c>rebuild-stock</c>), que no carga los módulos. Detecta: saldo ≠ Σ kardex, valor ≠ valor del último movimiento y
-/// cadenas de saldos rotas (el saldo guardado en un movimiento ≠ suma acumulada hasta él).
+/// <c>rebuild-stock</c>), que no carga los módulos. Detecta: saldo ≠ Σ kardex, valor ≠ valor del último movimiento,
+/// cadenas de saldos rotas (el saldo guardado en un movimiento ≠ suma acumulada hasta él) y cantidades por lote ≠ Σ de los
+/// movimientos del lote. El saldo del producto incluye los movimientos con y sin lote.
 /// </summary>
 public static class StockLedgerMaintenance
 {
@@ -28,7 +29,7 @@ public static class StockLedgerMaintenance
         """
         WITH k AS (
             SELECT warehouse_id, product_id, SUM(direction * quantity) AS qty, MAX(seq) AS last_seq
-            FROM inventory.stock_movements WHERE lot_id IS NULL GROUP BY warehouse_id, product_id),
+            FROM inventory.stock_movements GROUP BY warehouse_id, product_id),
         last AS (
             SELECT k.warehouse_id, k.product_id, k.qty, m.balance_quantity, m.balance_value
             FROM k JOIN inventory.stock_movements m ON m.seq = k.last_seq),
@@ -36,11 +37,14 @@ public static class StockLedgerMaintenance
             SELECT warehouse_id, product_id, bool_and(ok) AS ok FROM (
                 SELECT warehouse_id, product_id,
                        balance_quantity = SUM(direction * quantity) OVER (PARTITION BY warehouse_id, product_id ORDER BY seq) AS ok
-                FROM inventory.stock_movements WHERE lot_id IS NULL) x
-            GROUP BY warehouse_id, product_id)
+                FROM inventory.stock_movements) x
+            GROUP BY warehouse_id, product_id),
+        lots AS (
+            SELECT warehouse_id, product_id, lot_id, SUM(direction * quantity) AS qty
+            FROM inventory.stock_movements WHERE lot_id IS NOT NULL GROUP BY warehouse_id, product_id, lot_id)
         SELECT COALESCE(b.warehouse_id, l.warehouse_id) AS WarehouseId, COALESCE(b.product_id, l.product_id) AS ProductId,
                COALESCE(b.quantity, 0) AS BalanceQuantity, COALESCE(l.qty, 0) AS KardexQuantity,
-               COALESCE(b.total_value, 0) AS BalanceValue, COALESCE(l.balance_value, 0) AS KardexValue
+               COALESCE(b.total_value, 0) AS BalanceValue, COALESCE(l.balance_value, 0) AS KardexValue, NULL::uuid AS LotId
         FROM (SELECT * FROM inventory.stock_balances WHERE lot_id IS NULL) b
         FULL JOIN last l ON l.warehouse_id = b.warehouse_id AND l.product_id = b.product_id
         LEFT JOIN chain c ON c.warehouse_id = COALESCE(b.warehouse_id, l.warehouse_id) AND c.product_id = COALESCE(b.product_id, l.product_id)
@@ -48,7 +52,13 @@ public static class StockLedgerMaintenance
            OR COALESCE(b.total_value, 0) <> COALESCE(l.balance_value, 0)
            OR COALESCE(l.balance_quantity, 0) <> COALESCE(l.qty, 0)
            OR c.ok = false
-        ORDER BY 1, 2
+        UNION ALL
+        SELECT COALESCE(b.warehouse_id, l.warehouse_id), COALESCE(b.product_id, l.product_id), COALESCE(b.quantity, 0), COALESCE(l.qty, 0),
+               0, 0, COALESCE(b.lot_id, l.lot_id)
+        FROM (SELECT * FROM inventory.stock_balances WHERE lot_id IS NOT NULL) b
+        FULL JOIN lots l ON l.warehouse_id = b.warehouse_id AND l.product_id = b.product_id AND l.lot_id = b.lot_id
+        WHERE COALESCE(b.quantity, 0) <> COALESCE(l.qty, 0) OR COALESCE(b.total_value, 0) <> 0
+        ORDER BY 1, 2, 7 NULLS FIRST
         """;
 
     public static async Task<IReadOnlyList<StockDiscrepancyDto>> FindDiscrepanciesAsync(DbConnection connection, DbTransaction? transaction, CancellationToken cancellationToken) =>
@@ -70,10 +80,10 @@ public static class StockLedgerMaintenance
         var after = await connection.QuerySingleOrDefaultAsync<StateRow>(new CommandDefinition(
             """
             SELECT (SELECT SUM(direction * quantity) FROM inventory.stock_movements
-                    WHERE warehouse_id = @warehouseId AND product_id = @productId AND lot_id IS NULL) AS Quantity,
+                    WHERE warehouse_id = @warehouseId AND product_id = @productId) AS Quantity,
                    balance_value AS Value, balance_avg_cost AS AverageCost, seq AS Seq, occurred_at AS OccurredAt
             FROM inventory.stock_movements
-            WHERE warehouse_id = @warehouseId AND product_id = @productId AND lot_id IS NULL
+            WHERE warehouse_id = @warehouseId AND product_id = @productId
             ORDER BY seq DESC LIMIT 1
             """,
             new { warehouseId, productId }, transaction, cancellationToken: cancellationToken)) ?? new StateRow();
@@ -85,6 +95,17 @@ public static class StockLedgerMaintenance
             """,
             new { after.Quantity, after.Value, after.AverageCost, after.Seq, after.OccurredAt, warehouseId, productId }, transaction,
             cancellationToken: cancellationToken));
+
+        // Cantidades por lote: Σ de los movimientos de cada lote (D5-05).
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE inventory.stock_balances b
+            SET quantity = COALESCE((SELECT SUM(m.direction * m.quantity) FROM inventory.stock_movements m
+                                     WHERE m.warehouse_id = b.warehouse_id AND m.product_id = b.product_id AND m.lot_id = b.lot_id), 0),
+                total_value = 0, average_cost = 0
+            WHERE b.warehouse_id = @warehouseId AND b.product_id = @productId AND b.lot_id IS NOT NULL
+            """,
+            new { warehouseId, productId }, transaction, cancellationToken: cancellationToken));
         return (new StockState(before.Quantity, before.Value, before.AverageCost), new StockState(after.Quantity, after.Value, after.AverageCost));
     }
 

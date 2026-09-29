@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Pos.Modules.Organization.Domain;
+namespace Pos.SharedKernel.Fiscal;
 
 /// <summary>
 /// Dígito de verificación (DV) del NIT colombiano: módulo 11 con los pesos oficiales de la DIAN

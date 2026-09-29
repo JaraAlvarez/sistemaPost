@@ -46,6 +46,11 @@ public sealed class InventoryModule : IModule
             .RequirePermission(InventoryPermissions.StockView)
             .WithSummary("Kardex de un producto en una bodega: cada fila explica por qué cambió el inventario");
 
+        group.MapGet("/lots", async (Guid? productId, Guid? warehouseId, bool? expiring, int? days, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListLotsQuery(productId, warehouseId, expiring ?? false, days), ct)).ToHttpResult())
+            .RequirePermission(InventoryPermissions.StockView)
+            .WithSummary("Existencias por lote; con expiring=true, lotes vencidos o por vencer (inventory.expiry_alert_days)");
+
         MapReasons(group);
         MapAdjustments(group.MapGroup("/adjustments"));
         MapCounts(group.MapGroup("/counts"));

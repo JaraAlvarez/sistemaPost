@@ -4,6 +4,11 @@
 > el saldo lleva también su **valor total** (el promedio es valor ÷ cantidad; la última salida lleva el valor restante); los
 > conteos guardan el `seq` del kardex congelado; los traslados de esta versión son entre bodegas de la misma sucursal y pasan
 > por su bodega de tránsito; el faltante al recibir se registra como pérdida (`LOSS`, motivo `TRANSFER_SHORTAGE`).
+>
+> **Fase 5** ([informe](fases/fase-05-informe.md), ADR-0024 a 0026): compras al costo neto (`PURCHASE_RECEIPT`); devolución a
+> proveedor como **salida valorizada** al costo de la compra (`SUPPLIER_RETURN`); anulación por **reversión** (`REVERSAL`, al costo del
+> movimiento original, una sola vez); **lotes solo con cantidades** y salidas FEFO sin lote indicado (el saldo valorizado del producto
+> incluye todos sus movimientos).
 
 ## Principio central
 

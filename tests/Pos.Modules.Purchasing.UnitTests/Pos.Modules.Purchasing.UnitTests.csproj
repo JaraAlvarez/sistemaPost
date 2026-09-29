@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas de compras: costo neto, prorrateo, órdenes, compras, cartera como libro, pagos y devoluciones. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Purchasing\Pos.Modules.Purchasing.Domain\Pos.Modules.Purchasing.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Purchasing\Pos.Modules.Purchasing.Application\Pos.Modules.Purchasing.Application.csproj" />
+  </ItemGroup>
+</Project>

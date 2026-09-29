@@ -1,5 +1,6 @@
 using Pos.SharedKernel;
 using Pos.SharedKernel.Domain;
+using Pos.SharedKernel.Fiscal;
 using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Organization.Domain;

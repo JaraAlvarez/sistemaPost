@@ -50,12 +50,17 @@ public enum MovementType
     TransferIn,
     CountAdjustmentIn,
     CountAdjustmentOut,
+
+    /// <summary>Movimiento inverso de otro (anulación de un documento): dirección y costo contrarios al original.</summary>
+    Reversal,
 }
 
 /// <summary>
 /// Línea a publicar en el kardex. <c>Quantity</c> siempre positiva y en la unidad BASE. <c>UnitCost</c>: obligatorio en
-/// las entradas valorizadas (saldo inicial, compra, traslado de entrada, devoluciones); en las demás se usa el costo
-/// promedio vigente.
+/// las entradas valorizadas (saldo inicial, compra, traslado de entrada, devoluciones); en la devolución a proveedor es
+/// el costo de la compra (salida valorizada, D5-07); en las demás se usa el costo promedio vigente.
+/// <c>LotId</c>: lote de la entrada o de la salida; una salida sin lote de un producto con lotes se reparte FEFO.
+/// <c>ReversesMovementId</c>: solo con <see cref="MovementType.Reversal"/> (cantidad, lote y costo salen del original).
 /// </summary>
 public sealed record PostingLine(
     Guid WarehouseId,
@@ -66,7 +71,9 @@ public sealed record PostingLine(
     Guid? SourceLineId = null,
     Guid? ReasonId = null,
     Guid? PackagingId = null,
-    decimal? PackagingQuantity = null);
+    decimal? PackagingQuantity = null,
+    Guid? LotId = null,
+    Guid? ReversesMovementId = null);
 
 /// <summary>Documento que origina los movimientos (ajuste, conteo, traslado, compra, venta…).</summary>
 public sealed record InventoryPosting(
@@ -91,7 +98,18 @@ public sealed record PostedMovement(
     decimal BalanceQuantity,
     decimal BalanceValue,
     decimal BalanceAverageCost,
-    Guid? SourceLineId);
+    Guid? SourceLineId,
+    Guid? LotId = null);
+
+/// <summary>Anulación de un documento: revierte todos sus movimientos aún no revertidos (nunca deja saldos negativos).</summary>
+public sealed record InventoryReversal(
+    string OriginalSourceType,
+    Guid OriginalSourceId,
+    string SourceType,
+    Guid SourceId,
+    string? SourceNumber,
+    Guid BranchId,
+    DateOnly BusinessDate);
 
 /// <summary>
 /// Único punto de entrada al kardex (doc 07): valida, bloquea los saldos en orden (producto, bodega), calcula el costo
@@ -101,6 +119,25 @@ public sealed record PostedMovement(
 public interface IInventoryPosting
 {
     Task<Result<IReadOnlyList<PostedMovement>>> PostAsync(InventoryPosting posting, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Movimientos inversos (<see cref="MovementType.Reversal"/>) de todo lo que el documento original registró, al mismo
+    /// costo y en el mismo lote. Si revertir deja un saldo o un lote negativo no registra nada (RN-PUR-05).
+    /// </summary>
+    Task<Result<IReadOnlyList<PostedMovement>>> ReverseAsync(InventoryReversal reversal, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Lotes de la sucursal local (D5-05): el número es único por sucursal y producto.</summary>
+public interface IInventoryLots
+{
+    /// <summary>
+    /// Lote existente o nuevo. Exige fecha de vencimiento si el producto la controla; un lote existente conserva su
+    /// vencimiento (si se indica otro, INVENTORY.LOT_EXPIRY_MISMATCH).
+    /// </summary>
+    Task<Result<Guid>> EnsureLotAsync(Guid productId, string lotNumber, DateOnly? expiryDate, DateOnly? manufacturedDate, CancellationToken cancellationToken = default);
+
+    /// <summary>Lote existente de la sucursal local por número.</summary>
+    Task<Guid?> FindLotAsync(Guid productId, string lotNumber, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Consultas de inventario para otros módulos (catálogo).</summary>
@@ -154,11 +191,14 @@ public sealed record KardexEntryDto(
     decimal? BalanceValue,
     decimal? BalanceAverageCost,
     string? Reason,
-    string? UserName);
+    string? UserName,
+    string? LotNumber = null);
 
 public sealed record KardexDto(Guid WarehouseId, Guid ProductId, string Sku, string ProductName, decimal OpeningQuantity, IReadOnlyList<KardexEntryDto> Entries);
 
-public sealed record AdjustmentLineDto(Guid Id, int LineNumber, Guid ProductId, string Sku, string ProductName, decimal Quantity, decimal? UnitCost, string? Notes);
+public sealed record AdjustmentLineDto(
+    Guid Id, int LineNumber, Guid ProductId, string Sku, string ProductName, decimal Quantity, decimal? UnitCost, string? Notes,
+    string? LotNumber = null, DateOnly? ExpiryDate = null);
 
 public sealed record AdjustmentDto(
     Guid Id,
@@ -214,7 +254,23 @@ public sealed record TransferDto(
     DateTimeOffset? ReceivedAt,
     IReadOnlyList<TransferLineDto> Lines);
 
-public sealed record StockDiscrepancyDto(Guid WarehouseId, Guid ProductId, decimal BalanceQuantity, decimal KardexQuantity, decimal BalanceValue, decimal KardexValue);
+/// <summary>Diferencia saldo ↔ kardex. Con <c>LotId</c>: la cantidad del lote no coincide con sus movimientos (el valor es 0).</summary>
+public sealed record StockDiscrepancyDto(
+    Guid WarehouseId, Guid ProductId, decimal BalanceQuantity, decimal KardexQuantity, decimal BalanceValue, decimal KardexValue, Guid? LotId = null);
+
+/// <summary>Existencia de un lote en una bodega. <c>DaysToExpiry</c> negativo = vencido.</summary>
+public sealed record LotStockDto(
+    Guid LotId,
+    Guid ProductId,
+    string Sku,
+    string ProductName,
+    string LotNumber,
+    DateOnly? ExpiryDate,
+    DateOnly? ManufacturedDate,
+    Guid WarehouseId,
+    string WarehouseCode,
+    decimal Quantity,
+    int? DaysToExpiry);
 
 public sealed record VerificationDto(Guid Id, string Kind, DateTimeOffset StartedAt, int CheckedBalances, int Discrepancies, IReadOnlyList<StockDiscrepancyDto> Details);
 

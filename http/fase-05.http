@@ -1,0 +1,183 @@
+# Fase 5 · Terceros, proveedores y compras (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica las migraciones 010–013) y `dotnet run --project src/Server/Pos.Server.Host`.
+# Requiere un producto con lotes (paso 5) y la bodega de piso de venta (paso 6).
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. Entrar como Propietario
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@token = {{login.response.body.token}}
+
+### 2. Medios de pago sembrados (Efectivo, Débito, Crédito, Transferencia, Nequi, Daviplata, Bono)
+# @name methods
+GET {{api}}/cash/payment-methods
+Authorization: Bearer {{token}}
+
+### 3. Consumidor final (tercero del sistema)
+GET {{api}}/parties/by-identification?type=CC&number=222222222222
+Authorization: Bearer {{token}}
+
+### 4. Tercero con NIT y DV (un DV incorrecto responde 400 PARTIES.INVALID_NIT_CHECK_DIGIT)
+# @name party
+POST {{api}}/parties
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "personType": "Legal", "identificationType": "NIT", "identificationNumber": "800197268", "checkDigit": "4",
+  "legalName": "Distribuidora Láctea SAS", "tradeName": "DisLácteos", "taxRegime": "48", "fiscalResponsibilities": ["O-13"],
+  "email": "facturas@dislacteos.co",
+  "contacts": [ { "name": "Pedro Vendedor", "position": "Vendedor", "phone": "3001234567", "isPrimary": true } ]
+}
+
+### 4b. El tercero se vuelve proveedor (plazo 30 días; si no factura, issuesInvoices=false → documento soporte)
+# @name supplier
+POST {{api}}/purchasing/suppliers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "partyId": "{{party.response.body.id}}", "supplier": { "code": "DISLAC", "paymentTermDays": 30, "issuesInvoices": true } }
+
+### 5. Producto con lotes y vencimiento, y su caja x24
+# @name categories
+GET {{api}}/catalog/categories
+Authorization: Bearer {{token}}
+
+###
+# @name yogurt
+POST {{api}}/catalog/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "product": { "sku": "YOG-FRESA-1L", "name": "Yogurt fresa 1 L", "categoryId": "{{categories.response.body.$[0].id}}", "baseUnitCode": "UND",
+               "saleMode": "Unit", "productType": "Stockable", "tracksLots": true, "tracksExpiry": true },
+  "generateBarcode": true,
+  "price": 3500
+}
+
+###
+# @name box
+POST {{api}}/catalog/products/{{yogurt.response.body.id}}/packagings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Caja x24", "factor": 24 }
+
+### 6. Bodega de piso de venta (copie el id de la bodega SALES_FLOOR)
+# @name branches
+GET {{api}}/organization/branches
+Authorization: Bearer {{token}}
+
+###
+# @name branch
+GET {{api}}/organization/branches/{{branches.response.body.$[0].id}}
+Authorization: Bearer {{token}}
+
+@floor = {{branch.response.body.warehouses[0].id}}
+
+### 7. Orden de compra → aprobar → enviar
+# @name order
+POST {{api}}/purchasing/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "supplierId": "{{supplier.response.body.id}}", "warehouseId": "{{floor}}",
+  "lines": [ { "productId": "{{yogurt.response.body.id}}", "packagingId": "{{box.response.body.packagings[0].id}}", "quantity": 10, "unitCost": 60000 } ]
+}
+
+###
+POST {{api}}/purchasing/orders/{{order.response.body.id}}/approve
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/purchasing/orders/{{order.response.body.id}}/send
+Authorization: Bearer {{token}}
+
+### 8. Compra contra la orden: descuento, flete prorrateado, lote, retención → costo neto $2.425 por unidad
+# @name purchase
+POST {{api}}/purchasing/purchases
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "supplierId": "{{supplier.response.body.id}}", "warehouseId": "{{floor}}", "purchaseOrderId": "{{order.response.body.id}}",
+  "supplierInvoiceNumber": "FE-1001", "invoiceDate": "2026-09-28", "paymentMode": "Credit", "invoiceTotal": 690300,
+  "proration": "Value", "chargesTotal": 12000, "chargesNotes": "Flete",
+  "lines": [ { "productId": "{{yogurt.response.body.id}}", "packagingId": "{{box.response.body.packagings[0].id}}", "quantity": 10, "unitCost": 60000,
+               "discount": 30000, "lotNumber": "L-A1", "expiryDate": "2026-11-27", "orderLineId": "{{order.response.body.lines[0].id}}" } ],
+  "withholdings": [ { "kind": "Retefuente", "base": 570000, "rate": 2.5 } ]
+}
+
+### 9. Contabilizar: kardex, lote, cuenta por pagar; devuelve alertas de precio bajo el costo y variación de costo
+POST {{api}}/purchasing/purchases/{{purchase.response.body.id}}/post
+Authorization: Bearer {{token}}
+
+### 10. Existencias por lote y lotes por vencer (30 días ⚙️ inventory.expiry_alert_days)
+GET {{api}}/inventory/lots?productId={{yogurt.response.body.id}}
+Authorization: Bearer {{token}}
+
+###
+GET {{api}}/inventory/lots?expiring=true
+Authorization: Bearer {{token}}
+
+### 11. Cartera: cuentas abiertas y por edades
+# @name payables
+GET {{api}}/purchasing/payables?supplierId={{supplier.response.body.id}}
+Authorization: Bearer {{token}}
+
+###
+GET {{api}}/purchasing/payables/aging
+Authorization: Bearer {{token}}
+
+### 12. Pago parcial por transferencia (el medio exige referencia)
+POST {{api}}/purchasing/payments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "supplierId": "{{supplier.response.body.id}}", "paymentMethodId": "{{methods.response.body.$[3].id}}", "reference": "TRF-778",
+  "allocations": [ { "accountId": "{{payables.response.body.$[0].id}}", "amount": 300000 } ]
+}
+
+### 13. Devolución de 10 unidades al costo de la compra → contabilizar → liquidar con nota crédito
+# @name ret
+POST {{api}}/purchasing/returns
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "purchaseId": "{{purchase.response.body.id}}", "reason": "Empaque inflado",
+  "lines": [ { "purchaseLineId": "{{purchase.response.body.lines[0].id}}", "baseQuantity": 10 } ]
+}
+
+###
+POST {{api}}/purchasing/returns/{{ret.response.body.id}}/post
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/purchasing/returns/{{ret.response.body.id}}/settle
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "settlement": "CreditNote", "reference": "NC-55" }
+
+### 14. Estado de cuenta del proveedor (libro de cada cuenta y pagos)
+GET {{api}}/purchasing/suppliers/{{supplier.response.body.id}}/statement
+Authorization: Bearer {{token}}
+
+### 15. Compras pendientes de documento soporte (proveedores que no facturan, Fase 11-B)
+GET {{api}}/purchasing/purchases?requiresSupportDocument=true
+Authorization: Bearer {{token}}
+
+### 16. Verificación del kardex (incluye las cantidades por lote)
+POST {{api}}/inventory/verification
+Authorization: Bearer {{token}}

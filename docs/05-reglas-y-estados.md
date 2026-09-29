@@ -38,7 +38,8 @@
 
 ### RN-INV — Inventario
 
-> Implementadas en la Fase 4, salvo RN-INV-08/09 (lotes y vencimientos: estructura lista, gestión en la Fase 5). RN-INV-04: umbral `inventory.adjustment_approval_threshold` ($500.000 por defecto); el saldo inicial no pasa por el umbral pero solo lo publica quien tiene `inventory.adjustment.approve`. RN-INV-11: verificación diaria y manual; ninguna diferencia se corrige en silencio.
+> Implementadas en la Fase 4; RN-INV-08/09 (lotes y vencimientos) en la Fase 5: lote obligatorio al recibir, salidas FEFO, alertas con
+> `inventory.expiry_alert_days` (30); el bloqueo de la venta de lotes vencidos llega con la caja (Fase 7). RN-INV-04: umbral `inventory.adjustment_approval_threshold` ($500.000 por defecto); el saldo inicial no pasa por el umbral pero solo lo publica quien tiene `inventory.adjustment.approve`. RN-INV-11: verificación diaria y manual; ninguna diferencia se corrige en silencio.
 
 | Código | Regla |
 |---|---|
@@ -55,6 +56,10 @@
 | RN-INV-11 | El saldo (`stock_balances`) debe ser siempre igual a la suma del kardex; existe un proceso de verificación/reconstrucción. |
 
 ### RN-PUR — Compras
+
+> Implementadas en la Fase 5 ([informe](fases/fase-05-informe.md)). RN-PUR-03: las compras de contado se pagan en esta fase con un
+> medio fuera de la caja; desde la caja en la Fase 6. RN-PUR-04: `purchasing.receipt_tolerance_percent` (0 %). RN-PUR-05: además,
+> no se anula una compra con pagos o devoluciones. Totales de la compra = total de la factura (`purchasing.invoice_total_tolerance`).
 
 | Código | Regla |
 |---|---|

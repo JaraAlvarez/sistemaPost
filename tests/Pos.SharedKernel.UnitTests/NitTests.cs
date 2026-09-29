@@ -1,6 +1,6 @@
-using Pos.Modules.Organization.Domain;
+using Pos.SharedKernel.Fiscal;
 
-namespace Pos.Modules.Organization.UnitTests;
+namespace Pos.SharedKernel.UnitTests;
 
 /// <summary>DV del NIT con NITs públicos conocidos (algoritmo módulo 11 de la DIAN).</summary>
 public class NitTests

@@ -8,6 +8,7 @@ using Pos.Application.Abstractions.Security;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Organization.Domain;
+using Pos.SharedKernel.Fiscal;
 using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;

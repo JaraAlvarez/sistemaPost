@@ -343,6 +343,11 @@ consumed_at        timestamptz           — una autorización se usa una sola v
 
 ### H.4 `parties` — Terceros (clientes y proveedores)
 
+> Implementado en la Fase 5 (`V2026.10.010`, ADR-0023) con cambios: los tipos de identificación siguen en `ref.identification_types`
+> (Fase 2); las responsabilidades fiscales se guardan en el tercero como texto `O-13;O-15` validado contra `ref.fiscal_responsibilities`;
+> `merged_into_id` y estado `MERGED` para la fusión en la nube; `search_text` con índice de trigramas. Los grupos, el crédito y los
+> puntos de clientes llegan en la Fase 8. Los medios de pago nacen en `cash.payment_methods` (`V2026.10.011`).
+
 Un **tercero** es una persona o empresa identificada una sola vez; puede ser cliente, proveedor o ambos. Evita duplicar datos fiscales (vital para facturación electrónica).
 
 **parties.identification_types** — `code PK ('CC','NIT','CE','PA','TI','NIT_EXT'…), name, fiscal_code` (código oficial)
@@ -516,6 +521,12 @@ Permisos de BD: el rol de aplicación **no tiene UPDATE ni DELETE** sobre esta t
 **inventory.stock_transfer_lines** — `transfer_id, product_id, lot_id, quantity_sent, quantity_received, unit_cost`
 
 ### H.7 `purchasing` — Compras y proveedores
+
+> Implementado en la Fase 5 (`V2026.10.012`, ADR-0024 y ADR-0026) con cambios: líneas con presentación, factor y cantidad base,
+> cargos prorrateados y `net_unit_cost`; impuestos por línea (`purchase_line_taxes`, descontable sí/no); retenciones
+> (`purchase_withholdings`); cuenta por pagar como libro (`payable_entries`, solo inserción) y pagos con aplicaciones; devoluciones
+> con `total` (costo) y `credit_total` (lo que descuentan de la cartera). Lotes en `inventory` (`V2026.10.013`, ADR-0025): número único
+> por sucursal y producto, filas de saldo por lote solo con cantidad, una sola reversión por movimiento.
 
 **purchasing.suppliers** [CTL][DEL] — `party_id UQ FK, company_id, code, payment_terms_days, default_payment_method, credit_limit, notes, status CK IN ('ACTIVE','INACTIVE','BLOCKED')`
 

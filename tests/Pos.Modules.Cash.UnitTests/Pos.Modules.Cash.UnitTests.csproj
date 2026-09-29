@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas de la caja: medios de pago (Fase 5); jornadas, movimientos y cierres (Fase 6). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Cash\Pos.Modules.Cash.Domain\Pos.Modules.Cash.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Cash\Pos.Modules.Cash.Application\Pos.Modules.Cash.Application.csproj" />
+  </ItemGroup>
+</Project>
