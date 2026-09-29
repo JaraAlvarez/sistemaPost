@@ -28,6 +28,7 @@
 | 5 · Terceros, proveedores y compras | [propuesta](fases/fase-05-propuesta.md) · [informe](fases/fase-05-informe.md) | Implementada — pendiente de validación |
 | 6 · Caja: jornadas, arqueos y cierres | [propuesta](fases/fase-06-propuesta.md) · [informe](fases/fase-06-informe.md) | Implementada — pendiente de validación |
 | 7 · POS y ventas | [propuesta](fases/fase-07-propuesta.md) · [informe](fases/fase-07-informe.md) | Implementada — pendiente de validación |
+| 8 · Clientes y proveedores | [propuesta](fases/fase-08-propuesta.md) | Propuesta — pendiente de tu aprobación |
 | 12-A · Servidor y portal web de licencias | [propuesta](fases/fase-12a-propuesta.md) · [informe](fases/fase-12a-informe.md) · [despliegue](despliegue-nube.md) | Implementada — pendiente de validación |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
