@@ -1,6 +1,6 @@
 # Fase 8 · Clientes y proveedores — Propuesta
 
-> Estado: **PROPUESTA — pendiente de aprobación** · 2026-09-29
+> Estado: **APROBADA** (con las recomendaciones de la §16) · 2026-09-29
 > Requisitos previos: Fase 7 implementada ([informe](fase-07-informe.md)): la venta ya admite un tercero como cliente (Consumidor final
 > por defecto, RN-SAL-13) y la cajera crea terceros. Fase 5 implementada ([informe](fase-05-informe.md)): terceros únicos con roles.
 > Base: plan [12 §S, fase 8](../12-plan-riesgos-decisiones.md), docs [02 §9–10](../02-modulos.md), [04 §H.4, §H.5, §H.8 y §H.14](../04-base-de-datos.md),
@@ -399,3 +399,8 @@ Orden sugerido: 8.1 → 8.2 → 8.3 (dependen entre sí); 8.4 y 8.5 en paralelo.
    siempre un formato firmado para guardar historial y marketing?
 6. **Permisos de la cajera:** ¿le **quitamos la edición de terceros existentes** (solo crea clientes y completa datos vacíos; el
    supervisor corrige) (**recomendado**), o la dejamos editar clientes (nunca proveedores)?
+
+**Resolución (aprobación del propietario):** se adoptan las seis recomendaciones: (1) crédito preparado, activo en 8-B tras validarlo
+con el contador; (2) puntos preparados, activos en 8-B; (3) cada lista decide si admite promociones (por defecto sí); (4) listas
+"% sobre la general" con redondeo a $50; (5) autorización verbal con prueba en la caja, formato firmado opcional (validar con un
+abogado); (6) la cajera solo crea clientes y completa datos vacíos.
