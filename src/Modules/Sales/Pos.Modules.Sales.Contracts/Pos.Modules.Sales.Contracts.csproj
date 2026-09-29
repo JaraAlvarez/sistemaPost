@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Sales · Contrato público del módulo para otros módulos: DTOs, permisos e interfaces. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Sales.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Printing/Pos.Printing.csproj" />
+    <ProjectReference Include="../../Promotions/Pos.Modules.Promotions.Contracts/Pos.Modules.Promotions.Contracts.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas de la venta (Fase 7): motor de cálculo y promociones, asignación de pagos, estados de la venta y cambios de mercancía. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Sales\Pos.Modules.Sales.Domain\Pos.Modules.Sales.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Sales\Pos.Modules.Sales.Application\Pos.Modules.Sales.Application.csproj" />
+  </ItemGroup>
+</Project>

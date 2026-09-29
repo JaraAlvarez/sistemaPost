@@ -4,6 +4,7 @@
     <Project Path="src/BuildingBlocks/Pos.Api.Abstractions/Pos.Api.Abstractions.csproj" />
     <Project Path="src/BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
     <Project Path="src/BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <Project Path="src/BuildingBlocks/Pos.Printing/Pos.Printing.csproj" />
     <Project Path="src/BuildingBlocks/Pos.SharedKernel/Pos.SharedKernel.csproj" />
   </Folder>
   <Folder Name="/src/Modules/">
@@ -55,6 +56,21 @@
     <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Application/Pos.Modules.Expenses.Application.csproj" />
     <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Infrastructure/Pos.Modules.Expenses.Infrastructure.csproj" />
     <Project Path="src/Modules/Expenses/Pos.Modules.Expenses.Api/Pos.Modules.Expenses.Api.csproj" />
+    <Project Path="src/Modules/Promotions/Pos.Modules.Promotions.Domain/Pos.Modules.Promotions.Domain.csproj" />
+    <Project Path="src/Modules/Promotions/Pos.Modules.Promotions.Contracts/Pos.Modules.Promotions.Contracts.csproj" />
+    <Project Path="src/Modules/Promotions/Pos.Modules.Promotions.Application/Pos.Modules.Promotions.Application.csproj" />
+    <Project Path="src/Modules/Promotions/Pos.Modules.Promotions.Infrastructure/Pos.Modules.Promotions.Infrastructure.csproj" />
+    <Project Path="src/Modules/Promotions/Pos.Modules.Promotions.Api/Pos.Modules.Promotions.Api.csproj" />
+    <Project Path="src/Modules/Billing/Pos.Modules.Billing.Domain/Pos.Modules.Billing.Domain.csproj" />
+    <Project Path="src/Modules/Billing/Pos.Modules.Billing.Contracts/Pos.Modules.Billing.Contracts.csproj" />
+    <Project Path="src/Modules/Billing/Pos.Modules.Billing.Application/Pos.Modules.Billing.Application.csproj" />
+    <Project Path="src/Modules/Billing/Pos.Modules.Billing.Infrastructure/Pos.Modules.Billing.Infrastructure.csproj" />
+    <Project Path="src/Modules/Billing/Pos.Modules.Billing.Api/Pos.Modules.Billing.Api.csproj" />
+    <Project Path="src/Modules/Sales/Pos.Modules.Sales.Domain/Pos.Modules.Sales.Domain.csproj" />
+    <Project Path="src/Modules/Sales/Pos.Modules.Sales.Contracts/Pos.Modules.Sales.Contracts.csproj" />
+    <Project Path="src/Modules/Sales/Pos.Modules.Sales.Application/Pos.Modules.Sales.Application.csproj" />
+    <Project Path="src/Modules/Sales/Pos.Modules.Sales.Infrastructure/Pos.Modules.Sales.Infrastructure.csproj" />
+    <Project Path="src/Modules/Sales/Pos.Modules.Sales.Api/Pos.Modules.Sales.Api.csproj" />
   </Folder>
   <Folder Name="/src/Server/">
     <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />
@@ -78,6 +94,9 @@
   <Folder Name="/src/Shared/">
     <Project Path="src/Shared/Pos.Licensing.Contracts/Pos.Licensing.Contracts.csproj" />
   </Folder>
+  <Folder Name="/src/Terminal/">
+    <Project Path="src/Terminal/Pos.Terminal.Agent/Pos.Terminal.Agent.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
@@ -88,10 +107,15 @@
     <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Inventory.UnitTests/Pos.Modules.Inventory.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Organization.UnitTests/Pos.Modules.Organization.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Billing.UnitTests/Pos.Modules.Billing.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Cash.UnitTests/Pos.Modules.Cash.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Parties.UnitTests/Pos.Modules.Parties.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Promotions.UnitTests/Pos.Modules.Promotions.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Purchasing.UnitTests/Pos.Modules.Purchasing.UnitTests.csproj" />
+    <Project Path="tests/Pos.Printing.UnitTests/Pos.Printing.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Sales.UnitTests/Pos.Modules.Sales.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />
+    <Project Path="tests/Pos.Terminal.Agent.Tests/Pos.Terminal.Agent.Tests.csproj" />
   </Folder>
 </Solution>

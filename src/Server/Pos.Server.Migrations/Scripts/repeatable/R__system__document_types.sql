@@ -6,7 +6,7 @@
 
 INSERT INTO system.document_types (code, module, name, series_scope) VALUES
     ('SALE',                 'sales',     'Venta',                     'TERMINAL'),
-    ('CUSTOMER_RETURN',      'sales',     'Devolución de cliente',     'TERMINAL'),
+    ('CUSTOMER_RETURN',      'sales',     'Cambio o devolución de cliente', 'TERMINAL'),
     ('CASH_SESSION',         'cash',      'Jornada de caja',           'TERMINAL'),
     ('PURCHASE',             'purchasing','Compra',                    'BRANCH'),
     ('SUPPLIER_RETURN',      'purchasing','Devolución a proveedor',    'BRANCH'),
@@ -15,6 +15,7 @@ INSERT INTO system.document_types (code, module, name, series_scope) VALUES
     ('INVENTORY_ADJUSTMENT', 'inventory', 'Ajuste de inventario',      'BRANCH'),
     ('INVENTORY_TRANSFER',   'inventory', 'Traslado entre bodegas',    'BRANCH'),
     ('INVENTORY_COUNT',      'inventory', 'Conteo de inventario',      'BRANCH'),
-    ('EXPENSE',              'expenses',  'Gasto',                     'BRANCH')
+    ('EXPENSE',              'expenses',  'Gasto',                     'BRANCH'),
+    ('PROMOTION',            'promotions','Promoción',                 'BRANCH')
 ON CONFLICT (code) DO UPDATE SET module = EXCLUDED.module, name = EXCLUDED.name,
     series_scope = EXCLUDED.series_scope;

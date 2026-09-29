@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas de promociones: validación por tipo, vigencia, días, horario (incluido el nocturno), sucursales y estados. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Promotions\Pos.Modules.Promotions.Domain\Pos.Modules.Promotions.Domain.csproj" />
+  </ItemGroup>
+</Project>

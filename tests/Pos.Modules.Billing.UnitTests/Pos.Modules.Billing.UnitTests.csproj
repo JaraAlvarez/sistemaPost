@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Comprobantes y documentos fiscales (Fase 7): emisión, eventos, anulación y reintentos. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Billing\Pos.Modules.Billing.Domain\Pos.Modules.Billing.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Billing\Pos.Modules.Billing.Application\Pos.Modules.Billing.Application.csproj" />
+  </ItemGroup>
+</Project>

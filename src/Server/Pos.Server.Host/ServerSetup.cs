@@ -151,6 +151,14 @@ internal static class ServerSetup
     public static WebApplication UsePosServer(this WebApplication app)
     {
         app.UseMiddleware<CorrelationIdMiddleware>();
+
+        // Consola de PRUEBA (wwwroot/prueba): solo en desarrollo, hasta la interfaz definitiva de la Fase 15.
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseDefaultFiles();
+            app.UseStaticFiles();
+        }
+
         app.UseSerilogRequestLogging();
         app.UseExceptionHandler();
         app.UseStatusCodePages();

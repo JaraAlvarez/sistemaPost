@@ -12,6 +12,9 @@ public enum PaymentMethodKind
     Wallet,
     Voucher,
     Other,
+
+    /// <summary>Crédito de un cambio de mercancía (Fase 7, D7-11): paga parte de la venta nueva; no es dinero ni entra al cajón.</summary>
+    ExchangeCredit,
 }
 
 public enum MasterStatus
@@ -29,6 +32,9 @@ public enum MasterStatus
 public sealed class PaymentMethod : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, ISyncVersioned, IHasAuditLabel
 {
     public const string CashCode = "EFECTIVO";
+
+    /// <summary>Medio del sistema con el que el crédito de un cambio paga la venta nueva.</summary>
+    public const string ExchangeCreditCode = "CAMBIO";
 
     private PaymentMethod(Guid id, Guid companyId, string code, string name)
         : base(id)
@@ -83,14 +89,14 @@ public sealed class PaymentMethod : AggregateRoot<Guid>, ICompanyOwned, ISoftDel
             return CashErrors.InvalidPaymentMethod;
         }
 
-        if (!isActive && Code == CashCode && IsSystem)
+        if (!isActive && IsSystem && Code is CashCode or ExchangeCreditCode)
         {
             return CashErrors.CashMethodRequired;
         }
 
         Name = trimmed;
         DianCode = dian;
-        RequiresReference = requiresReference && Kind != PaymentMethodKind.Cash;
+        RequiresReference = requiresReference && Kind is not (PaymentMethodKind.Cash or PaymentMethodKind.ExchangeCredit);
         AffectsCashDrawer = Kind == PaymentMethodKind.Cash;
         SortOrder = sortOrder;
         Status = isActive ? MasterStatus.Active : MasterStatus.Inactive;
@@ -106,7 +112,14 @@ public static class CashErrors
     public static readonly Error InvalidPaymentMethod = Error.Validation(
         "CASH.INVALID_PAYMENT_METHOD", "Código de 2 a 20 mayúsculas, dígitos o _, nombre de hasta 60 caracteres, código DIAN de hasta 5 y orden 0–999.");
 
-    public static readonly Error CashMethodRequired = Error.BusinessRule("CASH.CASH_METHOD_REQUIRED", "El efectivo no se puede inactivar.");
+    public static readonly Error CashMethodRequired = Error.BusinessRule(
+        "CASH.CASH_METHOD_REQUIRED", "El efectivo y el crédito por cambio del sistema no se pueden inactivar.");
+
+    public static readonly Error ExchangeCreditReserved = Error.Validation(
+        "CASH.EXCHANGE_CREDIT_RESERVED", "El crédito por cambio es un medio del sistema: no se crean otros de ese tipo.");
+
+    public static readonly Error OpenSales = Error.Conflict(
+        "CASH.OPEN_SALES", "La caja tiene ventas en curso o suspendidas: cóbrelas o cancélelas antes de cerrar (RN-CSH-03).");
 
     public static readonly Error PaymentMethodCodeDuplicated = Error.Conflict("CASH.PAYMENT_METHOD_CODE_DUPLICATED", "Ya existe un medio de pago con ese código.");
 

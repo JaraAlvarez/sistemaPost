@@ -199,3 +199,49 @@ public sealed record ImportBatchDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset? AppliedAt,
     IReadOnlyList<ImportRowDto> Rows);
+
+/// <summary>
+/// Producto listo para vender (Fase 7). <c>Source</c>: BARCODE, SKU, SCALE_WEIGHT, SCALE_PRICE o PRODUCT (elegido por búsqueda).
+/// <c>Quantity</c> en la unidad de venta (presentación o kilos); <c>UnitPrice</c> por unidad de venta (null = sin precio);
+/// <c>Taxes</c> con la tarifa vigente hoy.
+/// </summary>
+public sealed record CatalogSaleItem(
+    Guid ProductId,
+    string Sku,
+    string Name,
+    string ShortName,
+    Guid? PackagingId,
+    string? PackagingName,
+    decimal Factor,
+    string BaseUnitCode,
+    string SaleMode,
+    string Source,
+    decimal Quantity,
+    decimal? UnitPrice,
+    decimal? Amount,
+    bool PriceIncludesTax,
+    IReadOnlyList<CatalogTaxInfo> Taxes,
+    Guid CategoryId,
+    Guid? BrandId,
+    bool IsStockable,
+    bool AllowsDecimalQuantity,
+    bool AllowsOpenPrice,
+    bool IsSellable,
+    IReadOnlyList<string> NotSellableReasons);
+
+/// <summary>El catálogo visto por la caja y por las promociones.</summary>
+public interface ICatalogSaleItems
+{
+    /// <summary>Código leído en la caja (barras, báscula o SKU); null si no existe.</summary>
+    Task<CatalogSaleItem?> FindByCodeAsync(string code, Guid? branchId, CancellationToken cancellationToken = default);
+
+    /// <summary>Producto elegido por búsqueda (con presentación opcional); null si no existe.</summary>
+    Task<CatalogSaleItem?> GetAsync(Guid productId, Guid? packagingId, Guid? branchId, CancellationToken cancellationToken = default);
+
+    /// <summary>Cada categoría con todas sus subcategorías (incluida ella misma).</summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlySet<Guid>>> GetCategorySubtreesAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken = default);
+
+    /// <summary>Nombres de categorías y marcas por Id.</summary>
+    Task<IReadOnlyDictionary<Guid, string>> GetMasterNamesAsync(
+        IReadOnlyCollection<Guid> categoryIds, IReadOnlyCollection<Guid> brandIds, CancellationToken cancellationToken = default);
+}

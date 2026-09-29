@@ -26,7 +26,7 @@ public class OrganizationApiTests
         branch.Warehouses.Select(w => w.Kind).ShouldBe(["Damaged", "SalesFloor", "InTransit"], ignoreOrder: true);
         branch.Terminals.Single().Code.ShouldBe("C01");
 
-        (await GetAsync<List<JsonElement>>(client, "/api/v1/identity/roles")).Count.ShouldBe(7);
+        (await GetAsync<List<JsonElement>>(client, "/api/v1/identity/roles")).Count.ShouldBe(8); // Fase 7: PROMOTIONS_MANAGER
         (await ScalarAsync<long>(factory, "SELECT count(*) FROM system.document_series")).ShouldBeGreaterThan(0);
         (await ScalarAsync<string>(factory, "SELECT prefix FROM system.document_series WHERE document_type = 'SALE'")).ShouldBe("S01C01");
         (await ScalarAsync<long>(factory, "SELECT count(*) FROM identity.users WHERE kind = 'SYSTEM'")).ShouldBe(1);

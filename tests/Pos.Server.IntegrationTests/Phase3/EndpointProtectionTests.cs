@@ -53,6 +53,34 @@ public class EndpointProtectionTests
         unexpected.ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData("/api/v1/sales")]
+    [InlineData("/api/v1/exchanges")]
+    [InlineData("/api/v1/promotions")]
+    [InlineData("/api/v1/billing/documents")]
+    [InlineData("/api/v1/inventory/quick-adjustments")]
+    [InlineData("/api/v1/organization/terminals/{terminalId:guid}/receipt-printer")]
+    public async Task Los_endpoints_de_la_fase_7_estan_en_el_recorrido_y_todos_exigen_permiso(string prefix)
+    {
+        // Las dos pruebas anteriores recorren los endpoints automáticamente; esta asegura que los de la Fase 7 están registrados y
+        // que ninguno quedó solo con sesión (sin permiso), salvo la lectura de la impresora de la caja: la interfaz de caja de
+        // cualquier cajero la lee para entregársela al agente (decisión de la Fase 7), y exige sesión.
+        await using var factory = new PosServerFactory();
+        var endpoints = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText?.StartsWith(prefix, StringComparison.Ordinal) == true)
+            .SelectMany(e => (e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? ["GET"]).Select(m => (Method: m, Endpoint: e)))
+            .ToList();
+
+        endpoints.ShouldNotBeEmpty();
+        endpoints.Where(e => e.Endpoint.Metadata.GetMetadata<PermissionRequirement>() is null)
+            .Where(e => !(e.Method == "GET" && e.Endpoint.RoutePattern.RawText == SessionOnlyReceiptPrinter
+                && e.Endpoint.Metadata.GetMetadata<AuthenticatedOnly>() is not null))
+            .Select(e => $"{e.Method} {e.Endpoint.RoutePattern.RawText}")
+            .ShouldBeEmpty();
+    }
+
+    private const string SessionOnlyReceiptPrinter = "/api/v1/organization/terminals/{terminalId:guid}/receipt-printer";
+
     private static IEnumerable<(string Method, string Url, string? Permission)> ProtectedEndpoints(PosServerFactory factory) =>
         factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText?.StartsWith("/api/v1", StringComparison.Ordinal) == true)

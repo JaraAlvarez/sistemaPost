@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Sales · Casos de uso (comandos y consultas) y puertos de persistencia. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Sales.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Sales.Domain/Pos.Modules.Sales.Domain.csproj" />
+    <ProjectReference Include="../Pos.Modules.Sales.Contracts/Pos.Modules.Sales.Contracts.csproj" />
+    <ProjectReference Include="../../Catalog/Pos.Modules.Catalog.Contracts/Pos.Modules.Catalog.Contracts.csproj" />
+    <ProjectReference Include="../../Inventory/Pos.Modules.Inventory.Contracts/Pos.Modules.Inventory.Contracts.csproj" />
+    <ProjectReference Include="../../Cash/Pos.Modules.Cash.Contracts/Pos.Modules.Cash.Contracts.csproj" />
+    <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
+    <ProjectReference Include="../../Parties/Pos.Modules.Parties.Contracts/Pos.Modules.Parties.Contracts.csproj" />
+    <ProjectReference Include="../../Promotions/Pos.Modules.Promotions.Contracts/Pos.Modules.Promotions.Contracts.csproj" />
+    <ProjectReference Include="../../Billing/Pos.Modules.Billing.Contracts/Pos.Modules.Billing.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Modules.Sales.UnitTests" />
+  </ItemGroup>
+</Project>

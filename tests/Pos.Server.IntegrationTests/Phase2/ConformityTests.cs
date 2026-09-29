@@ -71,14 +71,15 @@ public class ConformityTests(PosServerFactory factory) : IClassFixture<PosServer
         var model = scope.ServiceProvider.GetRequiredService<PosDbContext>().Model;
 
         var missing = model.GetEntityTypes()
-            .Where(e => !e.IsOwned() && e.GetSchema() is "org" or "identity" or "catalog" or "inventory" or "parties" or "cash" or "purchasing" or "expenses")
+            .Where(e => !e.IsOwned() && e.GetSchema() is "org" or "identity" or "catalog" or "inventory" or "parties" or "cash" or "purchasing" or "expenses" or "promotions" or "sales" or "billing")
             // Excepciones justificadas: la empresa misma, el catálogo global de permisos, el historial de contraseñas
             // (hijo del usuario), los intentos de acceso (pueden no tener empresa: usuario inexistente) y las líneas de
             // documentos y filas de importación (hijas de un documento que sí tiene empresa).
             .Where(e => e.GetTableName() is not ("companies" or "permissions" or "password_history" or "login_attempts" or "import_rows"
                 or "inventory_adjustment_lines" or "inventory_count_lines" or "inventory_count_entries" or "stock_transfer_lines"
                 or "party_contacts" or "purchase_order_lines" or "purchase_lines" or "purchase_line_taxes" or "purchase_withholdings" or "payable_entries"
-                or "payable_payment_allocations" or "supplier_return_lines" or "cash_counts" or "cash_count_lines" or "cash_session_totals"))
+                or "payable_payment_allocations" or "supplier_return_lines" or "cash_counts" or "cash_count_lines" or "cash_session_totals" or "promotion_items" or "promotion_branches"
+                or "sale_lines" or "sale_line_taxes" or "sale_payments" or "sale_discounts" or "customer_return_lines" or "fiscal_document_events"))
             .Where(e => !typeof(ICompanyOwned).IsAssignableFrom(e.ClrType))
             .Select(e => e.ClrType.FullName)
             .ToList();
@@ -165,7 +166,7 @@ public class ConformityTests(PosServerFactory factory) : IClassFixture<PosServer
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname IN ('system', 'ref', 'org', 'identity', 'audit', 'catalog', 'inventory', 'parties', 'cash', 'purchasing', 'expenses') AND a.attnum > 0 AND NOT a.attisdropped
+            WHERE n.nspname IN ('system', 'ref', 'org', 'identity', 'audit', 'catalog', 'inventory', 'parties', 'cash', 'purchasing', 'expenses', 'promotions', 'sales', 'billing') AND a.attnum > 0 AND NOT a.attisdropped
               AND c.relkind IN ('r', 'p')
             """,
             connection);

@@ -28,6 +28,7 @@ public sealed class CatalogModule : IModule
         services.AddRequestHandlersFrom(typeof(ICatalogStore).Assembly);
         CatalogInfrastructureRegistration.Register(services);
         services.AddScoped<ProductWriter>();
+        services.AddScoped<ICatalogSaleItems, CatalogSaleItems>();
         services.AddScoped<PriceService>();
         services.AddScoped<CatalogImportService>();
         services.AddScoped<ICompanyInitializer, CatalogInitializer>();

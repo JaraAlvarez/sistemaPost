@@ -19,6 +19,7 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** 
 | EFCore.NamingConventions | 10.0.1 | Apache-2.0 | Nombres `snake_case` en el mapeo |
 | Dapper | 2.1.89 | Apache-2.0 | Lecturas y SQL directo (numeración, sellado, reportes) |
 | System.Security.Cryptography.ProtectedData | 10.0.12 | MIT | Secretos de la instalación con DPAPI |
+| System.IO.Ports *(desde la Fase 7)* | 10.0.12 | MIT | Agente de caja: impresora por puerto serie / USB virtual (`COMx`) |
 | NSec.Cryptography *(desde la Fase 3)* | 26.4.0 | MIT | Argon2id para contraseñas y PIN |
 | libsodium (binario nativo incluido en NSec) | 1.0.22 | ISC | Implementación criptográfica de Argon2id |
 | MiniExcel *(desde la Fase 4)* | 1.46.0 | Apache-2.0 | Leer archivos Excel (.xlsx) en las importaciones |

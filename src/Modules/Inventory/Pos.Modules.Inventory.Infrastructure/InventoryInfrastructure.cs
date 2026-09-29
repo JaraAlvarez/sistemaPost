@@ -212,6 +212,30 @@ internal sealed class StockLedger(PosDbContext context) : IStockLedger
 /// <summary>Contrato <see cref="IInventoryQueries"/> para el catálogo (conexión propia: lee lo confirmado).</summary>
 internal sealed class InventoryQueries(NpgsqlDataSource dataSource, IInstallationContext installation) : IInventoryQueries
 {
+    public async Task<IReadOnlyDictionary<Guid, SaleAvailability>> GetSaleAvailabilityAsync(
+        Guid warehouseId, IReadOnlyCollection<Guid> productIds, DateOnly today, CancellationToken cancellationToken = default)
+    {
+        if (productIds.Count == 0)
+        {
+            return new Dictionary<Guid, SaleAvailability>();
+        }
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<(Guid ProductId, decimal OnHand, decimal Expired)>(new CommandDefinition(
+            """
+            SELECT b.product_id,
+                   COALESCE(SUM(b.quantity) FILTER (WHERE b.lot_id IS NULL), 0),
+                   COALESCE(SUM(b.quantity) FILTER (WHERE b.lot_id IS NOT NULL AND b.quantity > 0 AND l.expiry_date < @today::date), 0)
+            FROM inventory.stock_balances b
+            LEFT JOIN inventory.inventory_lots l ON l.id = b.lot_id
+            WHERE b.warehouse_id = @warehouseId AND b.product_id = ANY(@productIds)
+            GROUP BY b.product_id
+            """,
+            new { warehouseId, productIds = productIds.ToArray(), today = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) },
+            cancellationToken: cancellationToken));
+        return rows.ToDictionary(r => r.ProductId, r => new SaleAvailability(r.OnHand, r.Expired));
+    }
+
     public async Task<bool> HasMovementsAsync(Guid productId, CancellationToken cancellationToken = default)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);

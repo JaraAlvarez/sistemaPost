@@ -1,0 +1,402 @@
+# Fase 7 · POS y ventas: venta, cobro, anulación, cambios, promociones, comprobantes e impresora (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica las migraciones 016–019) y `dotnet run --project src/Server/Pos.Server.Host`.
+# Se vende desde una SESIÓN DE CAJA (código + PIN) en la caja emparejada o en el equipo Caja Única (ver http/fase-03.http y
+# http/fase-06.http). Se supone: productos con existencias (http/fase-04.http y fase-05.http), una cajera (código 200) y un
+# supervisor de caja (código 300) creados con su PIN (http/fase-03.http). Consola de prueba (solo desarrollo): http://localhost:5480/prueba/
+#
+# Autorizaciones: cuando la cajera no tiene el permiso, la API responde 403 AUTH.AUTHORIZATION_REQUIRED con "permission", "action" y
+# "targetId". El supervisor autoriza con su código y PIN en POST /auth/authorizations (un solo uso) y la petición se repite con la
+# cabecera X-Authorization-Grant: <grantId>.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+@agent = http://localhost:5490
+
+### 1. Propietario (backoffice): datos de apoyo
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{login.response.body.token}}
+
+###
+# @name terminals
+GET {{api}}/organization/terminals
+Authorization: Bearer {{ownerToken}}
+
+@terminalId = {{terminals.response.body.$[0].id}}
+@warehouseId = {{terminals.response.body.$[0].warehouseId}}
+
+### 2. Impresora de tiquetes de la caja (sin configurar: archivo, 80 mm, PC850, corte, cajón en el pin 2)
+# @name printer
+GET {{api}}/organization/terminals/{{terminalId}}/receipt-printer
+Authorization: Bearer {{ownerToken}}
+
+### 2.1 Configurarla. Connection: File (carpeta), Network ("192.168.1.50:9100"), WindowsSpooler (nombre de la impresora) o
+###     Serial ("COM3" o "COM3:19200"). PaperWidthMm: 58 u 80. CodePage: Pc850 o Ascii. DrawerPin: Pin2 o Pin5.
+PUT {{api}}/organization/terminals/{{terminalId}}/receipt-printer
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "connection": "Network", "address": "192.168.1.50:9100", "paperWidthMm": 80, "codePage": "Pc850", "autoCut": true, "drawerConnected": true, "drawerPin": "Pin2" }
+
+### 3. Entrar a la caja como cajera (código + PIN) y abrir la jornada
+# @name pos
+POST {{api}}/auth/pos-login
+Content-Type: application/json
+
+{ "posCode": "200", "pin": "5937" }
+
+@token = {{pos.response.body.token}}
+
+###
+# @name methods
+GET {{api}}/cash/payment-methods
+Authorization: Bearer {{token}}
+
+###
+# @name denominations
+GET {{api}}/cash/denominations
+Authorization: Bearer {{token}}
+
+###
+# @name session
+POST {{api}}/cash/sessions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "openingFloat": 100000,
+  "openingCount": [ { "paymentMethodId": "{{methods.response.body.$[0].id}}", "denominationId": "{{denominations.response.body.$[1].id}}", "quantity": 2 } ]
+}
+
+### 4. Iniciar la venta (una venta en curso por caja; sin jornada abierta → 422 SALES.NO_OPEN_CASH_SESSION)
+# @name sale
+POST {{api}}/sales
+Authorization: Bearer {{token}}
+
+@saleId = {{sale.response.body.id}}
+
+### 4.1 Venta en curso de la caja (para retomarla después de un corte de luz)
+GET {{api}}/sales/current
+Authorization: Bearer {{token}}
+
+### 5. Escanear: código de barras, SKU o etiqueta de báscula (el mismo producto suma en la misma línea).
+###    Sin existencias suficientes → 422 SALES.INSUFFICIENT_STOCK (la línea no se agrega). Las promociones vigentes se aplican solas.
+# @name scan
+POST {{api}}/sales/{{saleId}}/lines
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "code": "7702177000014", "quantity": 2 }
+
+@lineId = {{scan.response.body.lines[0].id}}
+
+### 5.1 Por Id de producto (búsqueda por nombre en la UI), con presentación opcional
+POST {{api}}/sales/{{saleId}}/lines
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "productId": "ID-DEL-PRODUCTO", "packagingId": null, "quantity": 1 }
+
+### 5.2 Cambiar la cantidad de una línea
+PATCH {{api}}/sales/{{saleId}}/lines/{{lineId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "quantity": 3 }
+
+### 5.3 Consultar el precio antes de venderlo (escaneo del catálogo, Fase 4)
+GET {{api}}/catalog/scan/7702177000014
+Authorization: Bearer {{token}}
+
+### 5.4 Lote vencido (422 SALES.EXPIRED_LOT_REQUIRES_AUTHORIZATION en /lines): se agrega por esta ruta con autorización (RN-SAL-18)
+POST {{api}}/sales/{{saleId}}/lines/expired
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "productId": "ID-DEL-PRODUCTO", "quantity": 1 }
+
+### 6. Ajuste rápido: el sistema dice que no hay, pero el producto está en la mano del cliente (permiso inventory.adjustment.quick,
+###    admite supervisor). Es una entrada real al kardex al costo promedio, auditada; luego se vuelve a escanear.
+# @name quickDenied
+POST {{api}}/inventory/quick-adjustments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "warehouseId": "{{warehouseId}}", "productId": "ID-DEL-PRODUCTO", "quantity": 1, "reason": "Compra sin registrar, producto en góndola" }
+
+### 7. Descuento manual: SIEMPRE con autorización (RN-SAL-04). Primero la cajera recibe 403 AUTH.AUTHORIZATION_REQUIRED…
+# @name discountDenied
+POST {{api}}/sales/{{saleId}}/discounts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "lineId": "{{lineId}}", "percent": 10, "reason": "Empaque averiado" }
+
+### 7.1 …el supervisor autoriza con su código y PIN (desde la misma caja)…
+# @name grant
+POST {{api}}/auth/authorizations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "supervisorCode": "300", "supervisorPin": "7152",
+  "permissionCode": "{{discountDenied.response.body.permission}}", "action": "{{discountDenied.response.body.action}}",
+  "targetId": "{{discountDenied.response.body.targetId}}", "targetType": "Sale", "reason": "Autorizado en la caja"
+}
+
+### 7.2 …y la cajera repite la petición con la autorización (de un solo uso). Descuento global: "lineId": null (se prorratea).
+POST {{api}}/sales/{{saleId}}/discounts
+Authorization: Bearer {{token}}
+X-Authorization-Grant: {{grant.response.body.grantId}}
+Content-Type: application/json
+
+{ "lineId": "{{lineId}}", "percent": 10, "reason": "Empaque averiado" }
+
+### 7.3 Quitar un descuento (también autorizado)
+POST {{api}}/sales/{{saleId}}/discounts/ID-DEL-DESCUENTO/remove
+Authorization: Bearer {{token}}
+
+### 7.4 Precio abierto (solo productos con precio abierto; sales.price.override, admite supervisor)
+POST {{api}}/sales/{{saleId}}/lines/{{lineId}}/price
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "price": 4500 }
+
+### 8. Cliente de la venta (partyId null = Consumidor final). Creación rápida de clientes: POST /parties (http/fase-05.http)
+PUT {{api}}/sales/{{saleId}}/customer
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "partyId": null }
+
+### 9. Suspender con una etiqueta, listar las suspendidas y recuperarla (misma caja; máximo sales.max_held_per_terminal)
+POST {{api}}/sales/{{saleId}}/hold
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "label": "Señora del bolso rojo" }
+
+###
+GET {{api}}/sales/held
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/sales/{{saleId}}/resume
+Authorization: Bearer {{token}}
+
+### 10. Eliminar una línea (queda registrada como anulada, RN-SAL-06)
+POST {{api}}/sales/{{saleId}}/lines/ID-DE-LA-LINEA/void
+Authorization: Bearer {{token}}
+
+### 11. Cobrar con pagos combinados e Idempotency-Key: primero los medios sin cambio (no exceden el saldo, referencia obligatoria);
+###     el efectivo, en UN solo pago, cubre el resto redondeado a $50 y da el cambio. Repetir con la misma clave devuelve la misma
+###     venta; con otra clave → 409 SALES.ALREADY_COMPLETED. La respuesta trae la venta, el tiquete (modelo neutro y texto) y openDrawer.
+# @name receipt
+POST {{api}}/sales/{{saleId}}/complete
+Authorization: Bearer {{token}}
+Idempotency-Key: caja1-{{saleId}}
+Content-Type: application/json
+
+{
+  "payments": [
+    { "paymentMethodId": "ID-DE-TRANSFERENCIA", "amount": 5000, "reference": "TRF-9" },
+    { "paymentMethodId": "{{methods.response.body.$[0].id}}", "amount": 20000 }
+  ]
+}
+
+### 11.1 Imprimir el tiquete con el agente de la caja (la interfaz de caja le entrega el tiquete y la impresora de la caja, §2)
+POST {{agent}}/print
+Content-Type: application/json
+
+{ "ticket": {{receipt.response.body.ticket}}, "printer": {{printer.response.body}} }
+
+### 11.2 Abrir el cajón (solo si openDrawer = true)
+POST {{agent}}/drawer/open
+Content-Type: application/json
+
+{ "printer": {{printer.response.body}} }
+
+### 11.3 Reimprimir (marcado COPIA y auditado)
+POST {{api}}/sales/{{saleId}}/reprint
+Authorization: Bearer {{token}}
+
+### 12. Cancelar una venta en curso o suspendida (motivo; sales.sale.cancel admite supervisor; no consume número)
+POST {{api}}/sales/ID-DE-OTRA-VENTA/cancel
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "El cliente desistió" }
+
+### 13. Consultar ventas (fecha de negocio, estado, número, caja o jornada) y una venta
+GET {{api}}/sales?number={{receipt.response.body.sale.number}}
+Authorization: Bearer {{token}}
+
+###
+GET {{api}}/sales/{{saleId}}
+Authorization: Bearer {{token}}
+
+### 14. Anular una venta hecha por error: solo con su jornada abierta, con autorización y motivo (D7-10). Devuelve el tiquete de
+###     anulación; el kardex vuelve al costo original, la caja registra SALE_VOID y el comprobante queda anulado.
+POST {{api}}/sales/{{saleId}}/void
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Se cobró dos veces" }
+
+### 15. Cambio de mercancía (sales.exchange.create, admite supervisor): crédito al precio pagado y venta nueva de igual o mayor valor.
+###     Destination: ReturnToStock, SendToDamaged o Discard. Nunca sale dinero del cajón (el crédito se paga con el medio CAMBIO).
+# @name exchange
+POST {{api}}/exchanges
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "originalSaleId": "ID-DE-LA-VENTA-ORIGINAL", "reason": "Gaseosa sin gas",
+  "lines": [ { "saleLineId": "ID-DE-LA-LINEA-ORIGINAL", "quantity": 1, "destination": "SendToDamaged" } ]
+}
+
+### 15.1 Escanear lo que se lleva en la venta nueva y cobrar solo la diferencia (amountDue). Menos que el crédito → 422 SALES.EXCHANGE_BELOW_CREDIT
+POST {{api}}/sales/{{exchange.response.body.sale.id}}/lines
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "code": "7702004003508", "quantity": 3 }
+
+###
+POST {{api}}/sales/{{exchange.response.body.sale.id}}/complete
+Authorization: Bearer {{token}}
+Idempotency-Key: caja1-cambio-{{exchange.response.body.sale.id}}
+Content-Type: application/json
+
+{ "payments": [ { "paymentMethodId": "{{methods.response.body.$[0].id}}", "amount": 2000 } ] }
+
+###
+GET {{api}}/exchanges/{{exchange.response.body.exchange.id}}
+Authorization: Bearer {{token}}
+
+### 15.2 Reintegro por garantía (Ley 1480): SOLO el propietario (ni el supervisor lo autoriza), en efectivo de su jornada abierta,
+###      auditado como crítico. Se hace desde una sesión de caja del propietario.
+POST {{api}}/exchanges/warranty-refund
+Authorization: Bearer TOKEN-DE-CAJA-DEL-PROPIETARIO
+Content-Type: application/json
+
+{
+  "originalSaleId": "ID-DE-LA-VENTA-ORIGINAL", "reason": "Producto defectuoso, garantía",
+  "lines": [ { "saleLineId": "ID-DE-LA-LINEA-ORIGINAL", "quantity": 1, "destination": "Discard" } ]
+}
+
+### 16. Promociones (rol PROMOTIONS_MANAGER, propietario o administrador; la cajera recibe 403). Type: MultiBuy (lleve N pague M),
+###     SpecialPrice, PercentOff, QuantityPrice (desde minQuantity unidades a price c/u) o Combo (dos o más productos DISTINTOS a price).
+###     Items: productId (y packagingId), categoryId (incluye subcategorías) o brandId; en el combo, quantity por componente.
+# @name promo
+POST {{api}}/promotions
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "name": "Gaseosa 3x2", "type": "MultiBuy", "validFrom": "2026-10-01T00:00:00-05:00", "validTo": "2026-10-31T23:59:59-05:00",
+  "days": ["Friday", "Saturday", "Sunday"], "startTime": null, "endTime": null, "branchIds": [], "maxApplications": null,
+  "ticketText": "Promo lleve 3 pague 2", "buyQuantity": 3, "payQuantity": 2,
+  "items": [ { "productId": "ID-DE-LA-GASEOSA" } ]
+}
+
+### 16.1 Otros tipos (ejemplos de cuerpo)
+POST {{api}}/promotions
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "name": "Desayuno", "type": "Combo", "validFrom": "2026-10-01T00:00:00-05:00", "price": 15000,
+  "items": [ { "productId": "ID-DEL-PAN", "quantity": 1 }, { "productId": "ID-DE-LA-LECHE", "quantity": 1 }, { "productId": "ID-DE-LOS-HUEVOS", "quantity": 1 } ]
+}
+
+###
+POST {{api}}/promotions
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "name": "Lácteos 20 % sábados", "type": "PercentOff", "validFrom": "2026-10-01T00:00:00-05:00", "days": ["Saturday"], "percent": 20,
+  "items": [ { "categoryId": "ID-DE-LACTEOS" } ] }
+
+### 16.2 Modificar el borrador (una promoción activa no se edita: 422 PROMOTIONS.NOT_EDITABLE)
+PUT {{api}}/promotions/{{promo.response.body.id}}
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "name": "Gaseosa 3x2", "type": "MultiBuy", "validFrom": "2026-10-01T00:00:00-05:00", "validTo": "2026-11-15T23:59:59-05:00",
+  "buyQuantity": 3, "payQuantity": 2, "items": [ { "productId": "ID-DE-LA-GASEOSA" } ]
+}
+
+### 16.3 Simular una venta de ejemplo con el borrador (mismo motor de la caja)
+POST {{api}}/promotions/{{promo.response.body.id}}/simulate
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+[ { "productId": "ID-DE-LA-GASEOSA", "packagingId": null, "quantity": 3 } ]
+
+### 16.4 Activar, pausar y terminar
+POST {{api}}/promotions/{{promo.response.body.id}}/activate
+Authorization: Bearer {{ownerToken}}
+
+###
+POST {{api}}/promotions/{{promo.response.body.id}}/pause
+Authorization: Bearer {{ownerToken}}
+
+###
+POST {{api}}/promotions/{{promo.response.body.id}}/end
+Authorization: Bearer {{ownerToken}}
+
+### 16.5 Listar (inEffectNow: rige ahora en esta sucursal), detalle y reporte de descuentos por promoción
+GET {{api}}/promotions?status=Active
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/promotions/{{promo.response.body.id}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/promotions/report?from=2026-10-01&to=2026-10-31
+Authorization: Bearer {{ownerToken}}
+
+### 16.6 Tablero de lotes vencidos o por vencer (para liquidarlos con una promoción)
+GET {{api}}/inventory/lots?expiring=true&days=15
+Authorization: Bearer {{ownerToken}}
+
+### 17. Comprobantes (INTERNAL_RECEIPT / NOT_REQUIRED hasta la Fase 11-B) con sus eventos
+# @name documents
+GET {{api}}/billing/documents?from=2026-10-01&to=2026-10-31
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/billing/documents/{{documents.response.body.$[0].id}}
+Authorization: Bearer {{ownerToken}}
+
+### 17.1 Reintentar un documento electrónico pendiente o con error (sin efecto mientras billing.electronic_enabled = false)
+POST {{api}}/billing/documents/{{documents.response.body.$[0].id}}/retry
+Authorization: Bearer {{ownerToken}}
+
+### 18. Cierre: con ventas en curso o suspendidas → 409 CASH.OPEN_SALES (resolverlas antes)
+POST {{api}}/cash/sessions/{{session.response.body.id}}/start-closing
+Authorization: Bearer {{token}}
+
+### 19. Agente de caja (solo localhost:5490; sin autenticación; el navegador solo desde Agent:AllowedOrigins)
+GET {{agent}}/status
+
+### 19.1 Página de prueba del día de la instalación (tildes, estilos, código de barras, QR, corte y pulso del cajón)
+POST {{agent}}/test-page
+Content-Type: application/json
+
+{ "printer": {{printer.response.body}}, "terminalName": "Caja 1" }
+
+### 19.2 Página de prueba al transporte de archivo (Address vacío = Agent:FileOutputDirectory; otra carpeta debe estar en Agent:AllowedFileDirectories)
+POST {{agent}}/test-page
+Content-Type: application/json
+
+{ "printer": { "connection": "FILE", "address": null, "paperWidthMm": 80, "codePage": "PC850", "autoCut": true, "drawerConnected": true, "drawerPin": "PIN2" } }

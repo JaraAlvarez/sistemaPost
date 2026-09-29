@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Impresión de tiquetes: modelo neutro del documento, diseño en columnas y generador ESC/POS. Sin dependencias: lo usan el
+       servidor (arma el tiquete) y el agente de caja (lo imprime). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Printing</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Printing.UnitTests" />
+  </ItemGroup>
+</Project>

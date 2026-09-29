@@ -70,8 +70,12 @@ public sealed class SecurityScenario
         return client;
     }
 
-    /// <summary>Empareja un equipo tipo caja para la caja indicada y devuelve un cliente "remoto" por HTTPS con su credencial.</summary>
-    public async Task<(HttpClient Client, PairedDeviceDto Device)> PairTerminalAsync(Guid posTerminalId, string ip = "192.168.1.21")
+    /// <summary>
+    /// Empareja un equipo tipo caja para la caja indicada y devuelve un cliente "remoto" por HTTPS con su credencial. Para emparejar
+    /// varios equipos, cada uno necesita su propia huella (la huella de un equipo activo es única por empresa).
+    /// </summary>
+    public async Task<(HttpClient Client, PairedDeviceDto Device)> PairTerminalAsync(
+        Guid posTerminalId, string ip = "192.168.1.21", string hostname = "CAJA-01", char fingerprint = 'a')
     {
         var code = await Owner.PostAsJsonAsync("/api/v1/devices/pairing-codes", new { kind = "Terminal", posTerminalId }, Json, Ct);
         code.StatusCode.ShouldBe(HttpStatusCode.Created, await code.Content.ReadAsStringAsync(Ct));
@@ -80,7 +84,7 @@ public sealed class SecurityScenario
         var remote = RemoteClient(ip);
         var paired = await remote.PostAsJsonAsync(
             "/api/v1/devices/pair",
-            new { code = pairing.Code, hostname = "CAJA-01", machineFingerprintHash = new string('a', 64), osVersion = "Windows 11", appVersion = "0.3.0" },
+            new { code = pairing.Code, hostname, machineFingerprintHash = new string(fingerprint, 64), osVersion = "Windows 11", appVersion = "0.3.0" },
             Json,
             Ct);
         paired.StatusCode.ShouldBe(HttpStatusCode.Created, await paired.Content.ReadAsStringAsync(Ct));

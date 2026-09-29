@@ -79,6 +79,28 @@ public sealed class SessionLoader(ICashStore store, SessionAccess access)
     }
 }
 
+/// <summary>RN-CSH-03 (D7-13): no se cierra una caja con ventas en curso o suspendidas; las informa el módulo de ventas.</summary>
+public sealed class OpenSalesGuard(IEnumerable<IOpenSalesProbe> probes)
+{
+    public async Task<Result> EnsureNoneAsync(Guid posTerminalId, CancellationToken cancellationToken)
+    {
+        var open = new List<OpenSaleInfo>();
+        foreach (var probe in probes)
+        {
+            open.AddRange(await probe.GetOpenSalesAsync(posTerminalId, cancellationToken));
+        }
+
+        if (open.Count == 0)
+        {
+            return Result.Success();
+        }
+
+        var detail = string.Join(
+            ", ", open.Select(o => o.Status == "ON_HOLD" ? $"suspendida '{o.HoldLabel ?? "sin etiqueta"}' ({o.Total:N0})" : $"en curso ({o.Total:N0})"));
+        return Error.Conflict(CashErrors.OpenSales.Code, $"{CashErrors.OpenSales.Message} Pendientes: {detail}.");
+    }
+}
+
 // ─────────────────────────────── Apertura ───────────────────────────────
 
 /// <summary>
@@ -357,7 +379,8 @@ internal sealed class RegisterMovementHandler(
 /// <summary>Inicia el cierre: desde ahora no se admiten ventas (RN-CSH-03). Se puede cancelar antes de confirmar.</summary>
 public sealed record StartClosingCommand(Guid SessionId) : ICommand<CashSessionDto>;
 
-internal sealed class StartClosingHandler(SessionLoader loader, SessionViews views, IClock clock) : ICommandHandler<StartClosingCommand, CashSessionDto>
+internal sealed class StartClosingHandler(SessionLoader loader, SessionViews views, OpenSalesGuard openSales, IClock clock)
+    : ICommandHandler<StartClosingCommand, CashSessionDto>
 {
     public async Task<Result<CashSessionDto>> Handle(StartClosingCommand request, CancellationToken cancellationToken)
     {
@@ -365,6 +388,12 @@ internal sealed class StartClosingHandler(SessionLoader loader, SessionViews vie
         if (session.IsFailure)
         {
             return session.Error;
+        }
+
+        var noOpenSales = await openSales.EnsureNoneAsync(session.Value.PosTerminalId, cancellationToken);
+        if (noOpenSales.IsFailure)
+        {
+            return noOpenSales.Error;
         }
 
         var started = session.Value.StartClosing(clock.UtcNow);
@@ -400,6 +429,7 @@ public sealed record CloseSessionCommand(Guid SessionId, IReadOnlyList<CountLine
 internal sealed class CloseSessionHandler(
     ICashStore store,
     SessionAccess access,
+    OpenSalesGuard openSales,
     IPermissionChecker permissions,
     ICashLedger ledger,
     SessionViews views,
@@ -425,6 +455,15 @@ internal sealed class CloseSessionHandler(
             return request.BySupervisor
                 ? Error.Forbidden("AUTH.PERMISSION_DENIED", "El cierre por supervisor requiere el permiso cash.session.close_any.")
                 : CashErrors.NotYourSession;
+        }
+
+        if (session.Status == CashSessionStatus.Open)
+        {
+            var noOpenSales = await openSales.EnsureNoneAsync(session.PosTerminalId, cancellationToken);
+            if (noOpenSales.IsFailure)
+            {
+                return noOpenSales.Error;
+            }
         }
 
         var count = await CountInputs.BuildAsync(store, request.Count ?? [], cancellationToken);
