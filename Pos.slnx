@@ -77,6 +77,9 @@
     <Project Path="src/Server/Pos.Server.Migrations/Pos.Server.Migrations.csproj" />
     <Project Path="src/Server/Pos.Server.Migrator/Pos.Server.Migrator.csproj" />
   </Folder>
+  <Folder Name="/src/Terminal/">
+    <Project Path="src/Terminal/Pos.Terminal.Agent/Pos.Terminal.Agent.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
@@ -95,5 +98,6 @@
     <Project Path="tests/Pos.Modules.Sales.UnitTests/Pos.Modules.Sales.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />
+    <Project Path="tests/Pos.Terminal.Agent.Tests/Pos.Terminal.Agent.Tests.csproj" />
   </Folder>
 </Solution>
