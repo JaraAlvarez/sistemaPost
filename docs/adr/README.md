@@ -34,3 +34,12 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0027](0027-movimientos-de-caja-de-solo-insercion.md) | Movimientos de caja de solo inserción y esperado calculado | Aceptada | 2026-09-29 |
 | [0028](0028-fecha-de-negocio-y-cierre-definitivo.md) | Fecha de negocio de la jornada y cierre definitivo | Aceptada | 2026-09-29 |
 | [0029](0029-sello-de-auditoria-en-el-reporte-z.md) | Sello de la auditoría en el reporte Z | Aceptada | 2026-09-29 |
+| [0030](0030-venta-persistida-y-motor-de-calculo-puro.md) | Venta persistida en el servidor y motor de cálculo puro | Aceptada | 2026-09-29 |
+| [0031](0031-existencias-sin-saldo-negativo-y-ajuste-rapido.md) | Existencias sin saldo negativo y ajuste rápido autorizado | Aceptada | 2026-09-29 |
+| [0032](0032-pagos-redondeo-del-efectivo-y-cambio.md) | Pagos combinados, redondeo del efectivo a $50 y cambio | Aceptada | 2026-09-29 |
+| [0033](0033-anulacion-y-cambios-sin-devolucion-de-dinero.md) | Anulación con la jornada abierta y cambios de mercancía sin devolución de dinero | Aceptada | 2026-09-29 |
+| [0034](0034-promociones-una-por-linea-la-mas-favorable.md) | Promociones automáticas: una por línea, la más favorable, sin acumular | Aceptada | 2026-09-29 |
+| [0035](0035-billing-comprobante-interno-y-proveedor-fiscal-nulo.md) | Billing con comprobante interno y proveedor fiscal nulo hasta la Fase 11-B | Aceptada | 2026-09-29 |
+| [0036](0036-agente-de-caja.md) | Agente de caja: impresión ESC/POS y cajón en localhost | Aceptada | 2026-09-29 |
+
+Los números 0037 a 0039 están reservados para la Fase 12-A (servidor y portal de licencias).

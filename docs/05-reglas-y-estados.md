@@ -74,6 +74,19 @@
 
 ### RN-SAL — Ventas / POS
 
+> Implementadas en la Fase 7 ([informe](fases/fase-07-informe.md), ADR-0030 a 0033) con cambios: **RN-SAL-04** todo descuento manual
+> exige `sales.discount.apply` (el cajero no lo tiene; autoriza un supervisor con código y PIN) y se aplica después de la promoción;
+> **RN-SAL-12** anular solo con la jornada de la venta abierta; después del cierre, cambio de mercancía (no hay devolución de dinero).
+> Nuevas: **RN-SAL-17** no se vende más de lo disponible (aviso al escanear, verificación con bloqueo al cobrar); ajuste rápido con
+> `inventory.adjustment.quick`. **RN-SAL-18** vender un lote vencido exige autorización registrada en la línea.
+> Parámetros: `sales.cash_rounding_increment` ($50), `sales.merge_same_product` (sí), `sales.max_held_per_terminal` (10),
+> `sales.exchange_days` (30), `sales.anonymous_sale_limit`.
+>
+> **RN-PRM — Promociones (nuevas, ADR-0034):** RN-PRM-01 solo el encargado (`promotions.promotion.manage`) las administra;
+> RN-PRM-02 una promoción por línea, la más favorable para el cliente, sin acumular; RN-PRM-03 vigencia, días, horario y sucursales;
+> RN-PRM-04 una activa no se edita (se pausa o termina); RN-PRM-05 se recalculan en cada cambio de la venta y al recuperarla o cobrarla.
+> Estados: `DRAFT → ACTIVE ⇄ PAUSED → ENDED`.
+
 | Código | Regla |
 |---|---|
 | RN-SAL-01 | No se puede iniciar una venta sin una jornada de caja `OPEN` en esa caja, perteneciente al usuario (o autorizado). |
@@ -94,6 +107,11 @@
 | RN-SAL-16 | La lectura de código de peso variable toma el PLU y el peso/precio del código; si el precio embebido difiere del precio actual se usa el embebido ⚙️. |
 
 ### RN-RET — Devoluciones de clientes
+
+> Cambian en la Fase 7 (ADR-0033): **no se devuelve dinero**. La devolución es un **cambio de mercancía**: el crédito (lo pagado por
+> esas unidades) solo paga, en el mismo momento, una venta nueva de igual o mayor valor (medio `CAMBIO`, no entra al cajón).
+> RN-RET-05 queda como **excepción de garantía** (Ley 1480): solo el propietario, en efectivo desde su jornada abierta, auditada como
+> crítica. RN-RET-06 se aplica en la Fase 11-B. RN-RET-07: `return_status` = `NONE`, `PARTIAL` o `FULL`.
 
 | Código | Regla |
 |---|---|
@@ -139,6 +157,9 @@
 | RN-SEC-07 | Desactivar un usuario revoca sus sesiones. Un usuario con caja abierta no puede desactivarse sin cerrar/transferir la jornada. |
 
 ### RN-FIS — Facturación
+
+> Fase 7 (ADR-0035): cada venta, anulación y cambio genera un **comprobante interno** (`INTERNAL_RECEIPT`, `NOT_REQUIRED`) en la
+> transacción de la venta; RN-FIS-02/03 se aplican con el documento electrónico de la Fase 11-B (`billing.electronic_enabled`).
 
 | Código | Regla |
 |---|---|

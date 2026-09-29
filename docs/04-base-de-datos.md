@@ -561,6 +561,18 @@ posted_at, posted_by, voided_at, voided_by, void_reason
 
 ### H.8 `sales` — Ventas y devoluciones
 
+> Implementado en la Fase 7 (`V2026.10.017`, ADR-0030 a 0033) con cambios: los medios de pago siguen en `cash.payment_methods`
+> (Fase 6) con el tipo nuevo `EXCHANGE_CREDIT` (medio del sistema `CAMBIO`); `sales` con jornada, fecha de negocio de la jornada,
+> totales de promoción y descuento, `rounding_adjustment`, `completion_key` (idempotencia), `exchange_id` y `exchange_credit`; CHECK
+> completada ⇒ número y pagado − cambio = total; índices únicos parciales (número por caja; una venta `OPEN` por caja). `sale_lines`
+> con origen del código, presentación y factor, promoción aplicada, descuentos, costo del kardex, lote vencido autorizado y cantidad
+> cambiada; `sale_line_taxes`, `sale_payments` (cambio solo en medios del cajón; tarjeta con últimos 4 dígitos) y `sale_discounts`
+> (línea o global, siempre autorizados). Devoluciones → **cambios de mercancía**: `customer_returns` (`EXCHANGE` o
+> `WARRANTY_REFUND`, `DRAFT`/`COMPLETED`/`CANCELLED`, un borrador por venta, `received_by`/`received_at`) y `customer_return_lines`
+> (destino y crédito); FK cruzadas venta nueva ↔ cambio `DEFERRABLE INITIALLY DEFERRED`. Promociones en su esquema propio
+> `promotions` (`V2026.10.016`: `promotions`, `promotion_items`, `promotion_branches`; tipos `MULTI_BUY`, `SPECIAL_PRICE`,
+> `PERCENT_OFF`, `QUANTITY_PRICE`, `COMBO`; ADR-0034). Impresora por caja en `org.terminal_devices` (`V2026.10.019`, ADR-0036).
+
 **sales.payment_methods** [CTL]
 ```
 company_id, code UQ, name
@@ -711,6 +723,11 @@ expected_amount, counted_amount, difference, transactions_count
 **expenses.expenses** [CTL] — `company_id, branch_id, number, category_id, supplier_id nullable, business_date, description, amount, tax_amount, payment_method_id, cash_session_id nullable, support_reference, status CK IN ('POSTED','VOIDED'), void_reason`
 
 ### H.11 `billing` — Documentos fiscales
+
+> Implementado en la Fase 7 (`V2026.10.018`, ADR-0035) con cambios: `fiscal_documents` con origen (`SALE`, `SALE_VOID`,
+> `CUSTOMER_RETURN`), tipo `INTERNAL_RECEIPT` (hoy, solo `NOT_REQUIRED` o `VOIDED`) o electrónico (11-B), snapshots del comprador y
+> de los totales, intentos y documento relacionado; `fiscal_document_events` de solo inserción; `fiscal_numbering_ranges` se llena en
+> la Fase 11-B.
 
 **billing.fiscal_numbering_ranges** (resoluciones de numeración)
 ```

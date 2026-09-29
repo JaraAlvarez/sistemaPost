@@ -4,6 +4,15 @@
 
 ## M. Arquitectura del POS
 
+> Implementado en la Fase 7 ([informe](fases/fase-07-informe.md), ADR-0030 a 0036): venta persistida con `SaleCalculator` puro
+> (bruto → promoción → descuento de línea → descuento global prorrateado → impuestos; con precio que incluye impuestos el total de la
+> línea es el neto y el impuesto fijo nunca supera lo cobrado), existencias sin saldo negativo con ajuste rápido autorizado,
+> descuentos siempre autorizados, promociones automáticas (una por línea, la más favorable), `PaymentAllocator` con redondeo del
+> efectivo a $50, cobro atómico e idempotente (`Idempotency-Key`), anulación con la jornada abierta, cambios de mercancía sin
+> devolución de dinero, comprobante interno (Billing) y tiquete neutro que imprime el **agente de caja** (`localhost:5490`, ESC/POS;
+> la interfaz de caja le entrega el tiquete y la impresora de la caja). API: `/sales`, `/exchanges`, `/promotions`,
+> `/billing/documents`, `/inventory/quick-adjustments`, `/organization/terminals/{id}/receipt-printer` (ver `http/fase-07.http`).
+
 ### Decisión: venta en curso persistida en el servidor
 
 El carrito **no** vive solo en la memoria de la interfaz. Cada acción (agregar, cambiar cantidad, descuento, eliminar línea) es un comando a la API que actualiza la venta `OPEN` en la BD.
@@ -144,6 +153,11 @@ Reporte **X** (parcial) disponible en cualquier momento sin cerrar.
 
 ### De clientes
 
+> Cambia en la Fase 7 (ADR-0033): no se reintegra dinero. El cliente **cambia** el producto: el crédito (lo que pagó por esas
+> unidades) abre una venta nueva que debe sumar igual o más; la diferencia se cobra con cualquier medio y el crédito se paga con el
+> medio del sistema `CAMBIO`, que no entra al cajón. El único reintegro es la excepción de garantía, solo del propietario
+> (`CUSTOMER_REFUND` en efectivo, auditado como crítico). El diagrama siguiente queda como referencia del diseño original.
+
 ```mermaid
 flowchart LR
   A[Buscar venta<br/>nº tiquete / código QR / fecha / cliente] --> B[Seleccionar líneas y cantidades<br/>≤ vendido − devuelto]
@@ -165,6 +179,10 @@ Buscar compra → seleccionar líneas (≤ comprado − devuelto) → `POSTED`: 
 ---
 
 ## Facturación (punto 12)
+
+> Fase 7 (ADR-0035): módulo `Billing` con `IFiscalProvider` y proveedor nulo; cada venta, anulación y cambio emite un
+> **comprobante interno** (`INTERNAL_RECEIPT`, `NOT_REQUIRED`) en la transacción de la venta y el tiquete dice "No es factura". El
+> documento electrónico con Factus se enciende en la Fase 11-B (`billing.electronic_enabled`) sin cambiar ventas.
 
 ### Separación de conceptos
 
