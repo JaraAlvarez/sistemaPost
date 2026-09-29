@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas del dominio de Organization: DV del NIT, empresa, sucursales, bodegas, cajas y nodos. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Organization\Pos.Modules.Organization.Domain\Pos.Modules.Organization.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Identity\Pos.Modules.Identity.Domain\Pos.Modules.Identity.Domain.csproj" />
+  </ItemGroup>
+</Project>

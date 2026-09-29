@@ -1,5 +1,10 @@
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
+using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Security;
 using Pos.Infrastructure;
+using Pos.Infrastructure.Persistence;
+using Pos.Server.Host.Database;
 using Pos.Server.Host.Configuration;
 using Pos.Server.Host.Diagnostics;
 using Pos.Server.Host.ErrorHandling;
@@ -57,6 +62,28 @@ internal static class ServerSetup
         builder.Services.AddPosInfrastructure(BusinessTimeZones.Find(posOptions.BusinessTimeZone));
         builder.Services.AddSingleton<ServerRuntime>();
 
+        // Base de datos (Fase 2). DatabaseStartup se registra ANTES que los procesos de fondo de la persistencia:
+        // los servicios alojados arrancan en orden y los demás esperan a que la BD esté lista.
+        builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection(DatabaseOptions.SectionName));
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
+        builder.Services.AddHostedService<DatabaseStartup>();
+        builder.Services.Configure<Infrastructure.Auditing.AuditSealingOptions>(
+            builder.Configuration.GetSection(Infrastructure.Auditing.AuditSealingOptions.SectionName));
+        builder.Services.AddPosPersistence(sp =>
+        {
+            var database = sp.GetRequiredService<IOptions<DatabaseOptions>>().Value;
+            return new PersistenceOptions
+            {
+                ConnectionString = ProtectedSecret.Reveal(database.ConnectionString) is { Length: > 0 } connectionString
+                    ? connectionString
+                    : throw new InvalidOperationException($"Falta la cadena de conexión '{DatabaseOptions.SectionName}:ConnectionString'."),
+                DefaultNodeRole = string.Equals(database.Edition, "MULTI", StringComparison.OrdinalIgnoreCase)
+                    ? NodeRole.StoreServer
+                    : NodeRole.AllInOne,
+            };
+        });
+
         if (builder.Environment.IsDevelopment())
         {
             builder.Services.AddRequestHandlersFrom(typeof(DevDiagnosticsEndpoints).Assembly);
@@ -76,6 +103,7 @@ internal static class ServerSetup
         app.UseSerilogRequestLogging();
         app.UseExceptionHandler();
         app.UseStatusCodePages();
+        app.UseMiddleware<DatabaseGateMiddleware>();
 
         app.MapPosHealthChecks();
 

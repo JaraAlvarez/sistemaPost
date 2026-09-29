@@ -14,7 +14,8 @@ internal static class DevDiagnosticsEndpoints
 {
     public static RouteGroupBuilder MapDevDiagnostics(this RouteGroupBuilder api)
     {
-        var group = api.MapGroup("/dev").WithTags("Diagnóstico (solo desarrollo)");
+        var group = api.MapGroup("/dev").WithTags("Diagnóstico (solo desarrollo)")
+            .AllowAnonymousByDesign("Solo existe en desarrollo.");
 
         group.MapGet("/errors/unexpected", () =>
         {

@@ -22,6 +22,14 @@ public static class ResultHttpExtensions
         return result.IsSuccess ? TypedResults.Ok(result.Value) : result.Error.ToProblem();
     }
 
+    /// <summary>201 Created con la ubicación del recurso creado.</summary>
+    public static IResult ToCreatedResult<TValue>(this Result<TValue> result, Func<TValue, string> location)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(location);
+        return result.IsSuccess ? TypedResults.Created(location(result.Value), result.Value) : result.Error.ToProblem();
+    }
+
     public static IResult ToProblem(this Error error)
     {
         ArgumentNullException.ThrowIfNull(error);

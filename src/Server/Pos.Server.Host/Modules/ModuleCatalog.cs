@@ -1,4 +1,8 @@
 using Pos.Api.Abstractions;
+using Pos.Modules.Audit.Api;
+using Pos.Modules.Identity.Api;
+using Pos.Modules.Organization.Api;
+using Pos.Modules.Reference.Api;
 
 namespace Pos.Server.Host.Modules;
 
@@ -11,6 +15,9 @@ internal static class ModuleCatalog
 {
     public static IReadOnlyList<IModule> All { get; } =
     [
-        // Fase 2: new OrganizationModule(), new SettingsModule(), …
+        new ReferenceModule(),
+        new OrganizationModule(),
+        new IdentityModule(),
+        new AuditModule(),
     ];
 }

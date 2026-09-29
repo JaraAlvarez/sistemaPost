@@ -17,7 +17,8 @@ internal static class HealthEndpoints
     public static IServiceCollection AddPosHealthChecks(this IServiceCollection services)
     {
         services.AddHealthChecks()
-            .AddCheck("self", () => HealthCheckResult.Healthy("El servidor está en ejecución."), tags: [LiveTag]);
+            .AddCheck("self", () => HealthCheckResult.Healthy("El servidor está en ejecución."), tags: [LiveTag])
+            .AddCheck<Database.DatabaseHealthCheck>("database");
         return services;
     }
 
@@ -51,6 +52,7 @@ internal static class HealthEndpoints
                 status = e.Value.Status.ToString(),
                 description = e.Value.Description,
                 durationMs = Math.Round(e.Value.Duration.TotalMilliseconds, 1),
+                data = e.Value.Data.Count == 0 ? null : e.Value.Data,
             }),
         };
 

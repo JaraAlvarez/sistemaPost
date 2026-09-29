@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Pos.Application.Abstractions.Installation;
 
 namespace Pos.Infrastructure.Persistence;
@@ -19,6 +20,9 @@ public sealed class PosDbContext(
     /// <c>null</c> (antes del asistente inicial) = sin filtro.
     /// </summary>
     public Guid? TenantCompanyId => installation.CompanyId;
+
+    /// <summary>Identifica el modelo por los contribuidores que lo arman (EF lo guarda en caché con esta clave).</summary>
+    internal string ModelKey { get; } = string.Join('|', contributors.Select(c => c.GetType().FullName).Order(StringComparer.Ordinal));
 
     /// <summary>
     /// Toda escritura va en una transacción explícita: la auditoría reserva su consecutivo (seq) dentro de ella y
@@ -49,4 +53,14 @@ public sealed class PosDbContext(
 
         ModelConventions.ApplyDomainConventions(modelBuilder, this);
     }
+}
+
+/// <summary>
+/// Clave de caché del modelo de EF: tipo de contexto + contribuidores. Sin ella, dos composiciones distintas en el
+/// mismo proceso (p. ej. pruebas) compartirían el primer modelo construido.
+/// </summary>
+internal sealed class ContributorModelCacheKeyFactory : IModelCacheKeyFactory
+{
+    public object Create(DbContext context, bool designTime) =>
+        context is PosDbContext pos ? (context.GetType(), pos.ModelKey, designTime) : (object)(context.GetType(), designTime);
 }

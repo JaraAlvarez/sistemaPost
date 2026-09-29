@@ -24,9 +24,13 @@ $artifacts = Join-Path $root 'artifacts'
 $env:DOTNET_NOLOGO = '1'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 
-# Cobertura mínima de líneas por ensamblado de producción (ver docs/fases/fase-01-propuesta.md).
+# Cobertura mínima de líneas por ensamblado de producción (docs/fases/fase-01-propuesta.md y fase-02-propuesta.md §22).
 $coverageThresholds = @{
-    'Pos.SharedKernel' = 95
+    'Pos.SharedKernel'                = 95
+    'Pos.Modules.Organization.Domain' = 90
+    'Pos.Modules.Identity.Domain'     = 90
+    'Pos.Infrastructure'              = 85
+    'Pos.Server.Migrations'           = 85
 }
 
 function Invoke-Step([string] $Title, [scriptblock] $Action) {
@@ -64,16 +68,36 @@ foreach ($project in $testProjects) {
 
 if ($SkipCoverage) { exit 0 }
 
-# Resumen de cobertura: se toma el mejor valor por ensamblado entre todos los reportes.
-$coverage = @{}
+# Resumen de cobertura: se COMBINAN los reportes de todos los proyectos de pruebas. Una línea está cubierta si
+# cualquier proyecto la ejecuta (p. ej. la persistencia la cubren juntas las pruebas de BD y las de integración).
+$lines = @{}
 Get-ChildItem $artifacts -Recurse -Filter 'coverage.cobertura*.xml' | ForEach-Object {
     [xml] $report = Get-Content $_.FullName
     foreach ($package in $report.coverage.packages.package) {
-        $rate = [math]::Round([double]::Parse($package.'line-rate', [Globalization.CultureInfo]::InvariantCulture) * 100, 1)
-        if (-not $coverage.ContainsKey($package.name) -or $coverage[$package.name] -lt $rate) {
-            $coverage[$package.name] = $rate
+        if (-not $lines.ContainsKey($package.name)) { $lines[$package.name] = @{} }
+        $packageLines = $lines[$package.name]
+        foreach ($class in $package.classes.class) {
+            if ($class.filename -like '*\obj\*' -or $class.filename -like '*/obj/*') { continue }
+            # Cada reporte expresa la ruta relativa a una raíz distinta: se normaliza desde la carpeta del ensamblado.
+            $file = $class.filename -replace '/', '\'
+            $marker = "$($package.name)\"
+            $index = $file.LastIndexOf($marker, [StringComparison]::OrdinalIgnoreCase)
+            if ($index -ge 0) { $file = $file.Substring($index + $marker.Length) }
+            foreach ($line in $class.lines.line) {
+                $key = "$($file):$($line.number)"
+                $hit = [int] $line.hits -gt 0
+                $packageLines[$key] = ($packageLines.ContainsKey($key) -and $packageLines[$key]) -or $hit
+            }
         }
     }
+}
+
+$coverage = @{}
+foreach ($name in $lines.Keys) {
+    $total = $lines[$name].Count
+    if ($total -eq 0) { continue }
+    $covered = @($lines[$name].Values | Where-Object { $_ }).Count
+    $coverage[$name] = [math]::Round($covered * 100.0 / $total, 1)
 }
 
 Write-Host ''

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using Pos.Infrastructure.Persistence;
 
 namespace Pos.Infrastructure.Outbox;
 
@@ -15,6 +16,7 @@ namespace Pos.Infrastructure.Outbox;
 internal sealed partial class OutboxProcessor(
     NpgsqlDataSource dataSource,
     IServiceScopeFactory scopeFactory,
+    DatabaseReadiness readiness,
     ILogger<OutboxProcessor> logger) : BackgroundService
 {
     public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
@@ -28,7 +30,7 @@ internal sealed partial class OutboxProcessor(
         {
             try
             {
-                while (await ProcessBatchAsync(stoppingToken) == BatchSize)
+                while (readiness.IsReady && await ProcessBatchAsync(stoppingToken) == BatchSize)
                 {
                     // Hay más trabajo: seguir sin esperar.
                 }

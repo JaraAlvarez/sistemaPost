@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Pos.Application.Abstractions.Auditing;
@@ -8,7 +8,7 @@ using Pos.Infrastructure.Persistence;
 
 namespace Pos.Database.Tests;
 
-/// <summary>AuditorÃ­a con sellado por nodo y horizonte seguro (revisiÃ³n arquitectÃ³nica Â§4).</summary>
+/// <summary>Auditoría con sellado por nodo y horizonte seguro (revisión arquitectónica §4).</summary>
 public class AuditTests(PostgresFixture postgres)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -43,10 +43,10 @@ public class AuditTests(PostgresFixture postgres)
                     "PRODUCT_PRICE_CHANGED",
                     "Product",
                     Guid.CreateVersion7(),
-                    "Arroz Diana 500 g Â· Ã‘ame \"especial\"",
-                    "Juan cambiÃ³ el precio de $4.500 a $4.800,50",
+                    "Arroz Diana 500 g · Ñame \"especial\"",
+                    "Juan cambió el precio de $4.500 a $4.800,50",
                     new Dictionary<string, object?> { ["price"] = 4500m, ["active"] = true, ["note"] = null },
-                    new Dictionary<string, object?> { ["price"] = 4800.50m, ["active"] = true, ["note"] = "lÃ­nea\nnueva\ttab" },
+                    new Dictionary<string, object?> { ["price"] = 4800.50m, ["active"] = true, ["note"] = "línea\nnueva\ttab" },
                     Severity: AuditSeverity.Warning),
                 Ct);
             await context.SaveChangesAsync(Ct);
@@ -113,7 +113,7 @@ public class AuditTests(PostgresFixture postgres)
         await using var harness = await CreateAsync();
         await WriteEntriesAsync(harness, 3);
 
-        // Hueco legÃ­timo: una transacciÃ³n que reservÃ³ seq y se revirtiÃ³.
+        // Hueco legítimo: una transacción que reservó seq y se revirtió.
         await using (var scope = harness.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<PosDbContext>();
@@ -127,7 +127,7 @@ public class AuditTests(PostgresFixture postgres)
         await SealAllAsync(harness);
         (await harness.Services.GetRequiredService<AuditVerifier>().VerifyAsync(Ct)).IsValid.ShouldBeTrue();
 
-        // Alguien con pos_app inserta una fila con hash vÃ¡lido en el hueco (seq 4) despuÃ©s del sellado.
+        // Alguien con pos_app inserta una fila con hash válido en el hueco (seq 4) después del sellado.
         var forged = await ReadRowAsync(harness, 3);
         forged.Id = Guid.CreateVersion7();
         forged.Seq = 4;
@@ -188,7 +188,7 @@ public class AuditTests(PostgresFixture postgres)
         await WriteEntriesAsync(harness, 2);
         var sealer = harness.Services.GetRequiredService<AuditSealer>();
 
-        await sealer.TickAsync(Ct); // foto Sâ‚€ = 2
+        await sealer.TickAsync(Ct); // foto S₀ = 2
         (await harness.Database.ScalarAsync<long>("SELECT count(*) FROM audit.audit_seals")).ShouldBe(0);
 
         time.Advance(TimeSpan.FromSeconds(30));

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Pos.Application.Abstractions.Installation;
+using Pos.Infrastructure.Persistence;
 
 namespace Pos.Infrastructure.Auditing;
 
@@ -34,6 +35,7 @@ public sealed partial class AuditSealer(
     IInstallationContext installation,
     IOptions<AuditSealingOptions> options,
     TimeProvider time,
+    DatabaseReadiness readiness,
     ILogger<AuditSealer> logger) : BackgroundService
 {
     private const long SealerLockKey = 7_310_402_002;
@@ -50,7 +52,10 @@ public sealed partial class AuditSealer(
         {
             try
             {
-                await TickAsync(stoppingToken);
+                if (readiness.IsReady)
+                {
+                    await TickAsync(stoppingToken);
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

@@ -9,6 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Pos.Application.Abstractions\Pos.Application.Abstractions.csproj" />
     <ProjectReference Include="..\Pos.SharedKernel\Pos.SharedKernel.csproj" />
   </ItemGroup>
 </Project>

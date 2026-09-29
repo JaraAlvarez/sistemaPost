@@ -40,11 +40,26 @@ public static class PersistenceRegistration
     public static IServiceCollection AddPosPersistence(this IServiceCollection services, PersistenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        return services.AddPosPersistence(_ => options, options.RunBackgroundServices);
+    }
+
+    /// <summary>
+    /// Variante con opciones diferidas: se leen al resolver los servicios (con la configuración final del host,
+    /// incluidos archivos de la instalación y valores de las pruebas).
+    /// </summary>
+    public static IServiceCollection AddPosPersistence(
+        this IServiceCollection services, Func<IServiceProvider, PersistenceOptions> optionsFactory, bool runBackgroundServices = true)
+    {
+        ArgumentNullException.ThrowIfNull(optionsFactory);
         DefaultTypeMap.MatchNamesWithUnderscores = true;
 
-        var builder = new NpgsqlDataSourceBuilder(options.ConnectionString);
-        builder.ConnectionStringBuilder.ApplicationName ??= "pos-server";
-        services.AddSingleton(builder.Build());
+        services.AddSingleton<PersistenceOptions>(sp => optionsFactory(sp));
+        services.AddSingleton(sp =>
+        {
+            var builder = new NpgsqlDataSourceBuilder(sp.GetRequiredService<PersistenceOptions>().ConnectionString);
+            builder.ConnectionStringBuilder.ApplicationName ??= "pos-server";
+            return builder.Build();
+        });
 
         services.AddSingleton<IModelContributor, SystemModelContributor>();
         services.AddScoped<PosSaveChangesInterceptor>();
@@ -52,16 +67,20 @@ public static class PersistenceRegistration
             (sp, db) => db
                 .UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>())
                 .UseSnakeCaseNamingConvention()
+                .ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, ContributorModelCacheKeyFactory>()
                 .AddInterceptors(sp.GetRequiredService<PosSaveChangesInterceptor>()),
             contextLifetime: ServiceLifetime.Scoped,
             optionsLifetime: ServiceLifetime.Scoped);
 
         services.AddSingleton<IInstallationContext>(sp =>
-            new InstallationContext(sp.GetRequiredService<NpgsqlDataSource>(), options.DefaultNodeRole));
+            new InstallationContext(sp.GetRequiredService<NpgsqlDataSource>(), sp.GetRequiredService<PersistenceOptions>().DefaultNodeRole));
         services.TryAddScoped<ICurrentUser, AnonymousCurrentUser>();
         services.TryAddScoped<IRequestContext, NoRequestContext>();
         services.AddScoped<IActorContext, ActorContext>();
+        services.TryAddScoped<IPermissionChecker, PermissiveFase2PermissionChecker>();
+        services.AddScoped<IInstallationSetup, InstallationSetup>();
 
+        services.AddSingleton<DatabaseReadiness>();
         services.AddSingleton<ConstraintErrorTranslator>();
         services.AddScoped<CommitCallbacks>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -84,7 +103,7 @@ public static class PersistenceRegistration
         // Pipeline: Logging → Validación → Transacción (esta última envuelve al handler).
         services.AddScoped(typeof(IPipelineBehavior<,>), typeof(TransactionBehavior<,>));
 
-        if (options.RunBackgroundServices)
+        if (runBackgroundServices)
         {
             services.AddHostedService(sp => sp.GetRequiredService<AuditSealer>());
             services.AddHostedService<OutboxProcessor>();

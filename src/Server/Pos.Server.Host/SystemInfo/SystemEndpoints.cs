@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Hosting.WindowsServices;
+using Pos.Api.Abstractions;
 using Pos.SharedKernel.Time;
 
 namespace Pos.Server.Host.SystemInfo;
@@ -30,6 +31,7 @@ internal static class SystemEndpoints
 
         group.MapGet("/info", GetInfo)
             .WithName("GetSystemInfo")
+            .AllowAnonymousByDesign("Diagnóstico técnico: versión y hora, sin datos del negocio.")
             .WithSummary("Versión del servidor, entorno y hora del negocio.");
 
         return api;

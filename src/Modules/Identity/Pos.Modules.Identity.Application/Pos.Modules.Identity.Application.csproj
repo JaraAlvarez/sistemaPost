@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Identity · Casos de uso (comandos y consultas) y puertos de persistencia. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Identity.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Identity.Domain/Pos.Modules.Identity.Domain.csproj" />
+    <ProjectReference Include="../Pos.Modules.Identity.Contracts/Pos.Modules.Identity.Contracts.csproj" />
+    <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
+    <ProjectReference Include="../../Audit/Pos.Modules.Audit.Contracts/Pos.Modules.Audit.Contracts.csproj" />
+  </ItemGroup>
+</Project>

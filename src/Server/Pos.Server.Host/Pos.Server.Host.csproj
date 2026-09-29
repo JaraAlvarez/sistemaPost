@@ -11,11 +11,17 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\Pos.Api.Abstractions\Pos.Api.Abstractions.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\Pos.Infrastructure\Pos.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Audit\Pos.Modules.Audit.Api\Pos.Modules.Audit.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Identity\Pos.Modules.Identity.Api\Pos.Modules.Identity.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Organization\Pos.Modules.Organization.Api\Pos.Modules.Organization.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Api\Pos.Modules.Reference.Api.csproj" />
+    <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
   </ItemGroup>
 
   <ItemGroup>

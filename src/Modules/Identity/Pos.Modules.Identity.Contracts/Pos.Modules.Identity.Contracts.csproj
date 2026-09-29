@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Identity · Contrato público del módulo para otros módulos: DTOs, permisos e interfaces. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Identity.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+  </ItemGroup>
+</Project>
