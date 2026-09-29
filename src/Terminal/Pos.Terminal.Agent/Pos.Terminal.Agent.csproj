@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!--
+    Agente de caja (D7-14): servicio de Windows que escucha solo en localhost:5490 e imprime el tiquete neutro (Pos.Printing) en
+    ESC/POS por archivo, red (IP:9100), spooler de Windows (RAW) o puerto serie (COMx), y abre el cajón. No guarda ventas ni se
+    autentica con el servidor: la interfaz de caja le entrega en cada petición la configuración de la impresora.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Terminal.Agent</RootNamespace>
+    <AssemblyName>Pos.Terminal.Agent</AssemblyName>
+    <!-- P/Invoke al spooler de Windows con LibraryImport (código generado). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="System.IO.Ports" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\Pos.Printing\Pos.Printing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Terminal.Agent.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Agente de caja: endpoints (TestServer), validaciones, protección local y transportes de archivo y de red (bloque 7.3). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Terminal\Pos.Terminal.Agent\Pos.Terminal.Agent.csproj" />
+    <!-- Solo para serializar el DTO real del servidor y detectar si el contrato del agente se desalinea. -->
+    <ProjectReference Include="..\..\src\Modules\Organization\Pos.Modules.Organization.Contracts\Pos.Modules.Organization.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+</Project>
