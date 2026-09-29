@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Módulo Promotions · Contrato público del módulo para otros módulos (ventas): permisos, entrada y resultado de la evaluación. -->
+  <!-- Módulo Promotions · Contrato público del módulo para otros módulos: DTOs, permisos e interfaces. -->
   <PropertyGroup>
     <RootNamespace>Pos.Modules.Promotions.Contracts</RootNamespace>
   </PropertyGroup>

@@ -26,3 +26,6 @@ packages/
 # SO
 Thumbs.db
 .DS_Store
+
+# Copias de trabajo temporales de Claude Code
+.claude/worktrees/

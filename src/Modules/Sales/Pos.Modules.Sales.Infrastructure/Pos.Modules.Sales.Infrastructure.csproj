@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Sales · Persistencia del módulo: mapeo EF Core, consultas y traducción de restricciones. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Sales.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Sales.Application/Pos.Modules.Sales.Application.csproj" />
+  </ItemGroup>
+</Project>

@@ -125,6 +125,11 @@ internal sealed class PaymentMethodDirectory(PosDbContext context) : IPaymentMet
             ? new PaymentMethodInfo(m.Id, m.Code, m.Name, PaymentMethodMapping.Db(m.Kind), m.DianCode, m.RequiresReference, m.AffectsCashDrawer,
                 m.Status == MasterStatus.Active)
             : null;
+
+    public async Task<PaymentMethodInfo?> GetByCodeAsync(string code, CancellationToken cancellationToken = default) =>
+        await context.Set<PaymentMethod>().AsNoTracking().Where(m => m.Code == code).Select(m => (Guid?)m.Id).FirstOrDefaultAsync(cancellationToken) is { } id
+            ? await GetAsync(id, cancellationToken)
+            : null;
 }
 
 internal sealed class CashConstraintErrors : IConstraintErrorProvider

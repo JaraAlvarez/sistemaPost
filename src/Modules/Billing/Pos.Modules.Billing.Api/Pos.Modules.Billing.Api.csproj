@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Billing · Endpoints HTTP y registro del módulo (IModule). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Billing.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Api.Abstractions/Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Billing.Infrastructure/Pos.Modules.Billing.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

@@ -61,6 +61,19 @@ internal sealed class OrganizationModelContributor : IModelContributor
             b.HasXminConcurrency();
         });
 
+        modelBuilder.Entity<TerminalDevice>(b =>
+        {
+            b.ToTable("terminal_devices", "org");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Property(x => x.Connection).HasUpperSnakeConversion();
+            b.Property(x => x.CodePage).HasUpperSnakeConversion();
+            b.Property(x => x.DrawerPin).HasUpperSnakeConversion();
+            b.HasOne<PosTerminal>().WithMany().HasForeignKey(x => x.PosTerminalId).OnDelete(DeleteBehavior.Restrict);
+            b.HasControlColumns();
+            b.HasXminConcurrency();
+        });
+
         modelBuilder.Entity<PosTerminal>(b =>
         {
             b.ToTable("pos_terminals", "org");
@@ -136,6 +149,11 @@ internal sealed class OrganizationStore(PosDbContext context) : IOrganizationSto
 
     public Task<Warehouse?> GetWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken) =>
         context.Set<Warehouse>().SingleOrDefaultAsync(w => w.Id == warehouseId, cancellationToken);
+
+    public void Add(TerminalDevice device) => context.Add(device);
+
+    public Task<TerminalDevice?> GetTerminalDeviceAsync(Guid posTerminalId, string kind, CancellationToken cancellationToken) =>
+        context.Set<TerminalDevice>().SingleOrDefaultAsync(d => d.PosTerminalId == posTerminalId && d.Kind == kind, cancellationToken);
 
     public Task<PosTerminal?> GetTerminalAsync(Guid terminalId, CancellationToken cancellationToken) =>
         context.Set<PosTerminal>().SingleOrDefaultAsync(t => t.Id == terminalId, cancellationToken);

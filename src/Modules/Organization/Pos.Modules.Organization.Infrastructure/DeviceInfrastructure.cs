@@ -158,7 +158,8 @@ internal sealed class DeviceAuthenticator(NpgsqlDataSource dataSource, IClock cl
 
 internal sealed class TerminalDirectory(NpgsqlDataSource dataSource) : ITerminalDirectory
 {
-    private const string Columns = "id AS Id, company_id AS CompanyId, branch_id AS BranchId, code AS Code, status = 'ACTIVE' AS IsActive";
+    private const string Columns =
+        "id AS Id, company_id AS CompanyId, branch_id AS BranchId, code AS Code, status = 'ACTIVE' AS IsActive, warehouse_id AS WarehouseId";
 
     public async Task<TerminalInfo?> GetAsync(Guid posTerminalId, CancellationToken cancellationToken = default)
     {

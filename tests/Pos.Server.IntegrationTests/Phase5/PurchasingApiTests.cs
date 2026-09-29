@@ -316,7 +316,7 @@ public class PurchasingApiTests
 
         (await cashier.GetAsync("/api/v1/parties?search=lactea", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await cashier.GetAsync("/api/v1/purchasing/purchases", Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
-        (await cashier.PostAsJsonAsync("/api/v1/parties", new { }, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await cashier.PostAsJsonAsync("/api/v1/parties", new { }, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest); // Fase 7: la cajera crea clientes (llega a la validación)
 
         // Compras registra borradores pero no contabiliza (lo hace el administrador).
         var draft = await scenario.DraftAsync("FE-40", [new { productId = scenario.Rice, quantity = 1, unitCost = 1_000 }], client: buyer);
@@ -329,7 +329,7 @@ public class PurchasingApiTests
             .StatusCode.ShouldBe(HttpStatusCode.Forbidden);
 
         // Medios de pago: los ve cualquiera; el efectivo del sistema no se inactiva.
-        (await GetAsync<List<PaymentMethodDto>>(cashier, "/api/v1/cash/payment-methods")).Count.ShouldBe(7);
+        (await GetAsync<List<PaymentMethodDto>>(cashier, "/api/v1/cash/payment-methods")).Count.ShouldBe(8); // Fase 7: medio del sistema CAMBIO
         (await scenario.Owner.PutAsJsonAsync($"/api/v1/cash/payment-methods/{scenario.Cash}",
                 new { name = "Efectivo", dianCode = "10", requiresReference = false, sortOrder = 10, isActive = false }, Json, Ct))
             .StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);

@@ -16,6 +16,10 @@ public interface IOrganizationStore
 
     void Add(Node node);
 
+    void Add(TerminalDevice device);
+
+    Task<TerminalDevice?> GetTerminalDeviceAsync(Guid posTerminalId, string kind, CancellationToken cancellationToken);
+
     Task<Company?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
 
     Task<bool> CompanyExistsAsync(string identificationType, string identificationNumber, CancellationToken cancellationToken);

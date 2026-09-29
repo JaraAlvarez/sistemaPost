@@ -146,6 +146,16 @@ public sealed class OrganizationModule : IModule
         group.MapPost("/terminals/{terminalId:guid}/status", async (Guid terminalId, ChangeTerminalStatusRequest r, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new ChangeTerminalStatusCommand(terminalId, r.Status), ct)).ToHttpResult())
             .RequirePermission(OrganizationPermissions.TerminalManage);
+
+        group.MapGet("/terminals/{terminalId:guid}/receipt-printer", async (Guid terminalId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetReceiptPrinterQuery(terminalId), ct)).ToHttpResult())
+            .RequireAuthenticatedUser()
+            .WithSummary("Impresora de tiquetes de la caja (la interfaz de caja se la entrega al agente)");
+        group.MapPut("/terminals/{terminalId:guid}/receipt-printer", async (Guid terminalId, ReceiptPrinterRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new SetReceiptPrinterCommand(terminalId, r.Connection, r.Address, r.PaperWidthMm, r.CodePage, r.AutoCut, r.DrawerConnected, r.DrawerPin), ct))
+                .ToHttpResult())
+            .RequirePermission(OrganizationPermissions.TerminalManage)
+            .WithSummary("Configura la impresora de tiquetes: archivo, red (IP:9100), spooler de Windows o puerto serie; papel y cajón");
     }
 
     private static void MapSettings(RouteGroupBuilder group)
@@ -180,3 +190,6 @@ public sealed record UpdateTerminalRequest(string Name, Guid WarehouseId);
 public sealed record ChangeTerminalStatusRequest(TerminalStatus Status);
 
 public sealed record SetSettingRequest(SettingScope Scope, Guid? ScopeId, JsonElement Value);
+
+public sealed record ReceiptPrinterRequest(
+    PrinterConnection Connection, string? Address, int PaperWidthMm, PrinterCodePageSetting CodePage, bool AutoCut, bool DrawerConnected, DrawerPinSetting DrawerPin);

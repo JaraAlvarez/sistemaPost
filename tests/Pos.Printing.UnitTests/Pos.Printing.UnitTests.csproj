@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Impresión: bytes ESC/POS exactos, diseño a 42 y 32 columnas y JSON polimórfico del tiquete (bloque 7.3). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuildingBlocks\Pos.Printing\Pos.Printing.csproj" />
+  </ItemGroup>
+</Project>
