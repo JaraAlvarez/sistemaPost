@@ -1,0 +1,111 @@
+# Fase 3 · Autenticación, usuarios, permisos, equipos y supervisor (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 y `dotnet run --project src/Server/Pos.Server.Host` (desarrollo = edición MULTI).
+# Si la instalación viene de la Fase 2 (sin Propietario), ejecute primero la petición 1.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 0. ¿Falta el Propietario? (ownerPending)
+GET {{api}}/setup/status
+
+### 1. Crear el Propietario (solo desde el propio servidor y solo si no existe)
+POST {{api}}/setup/owner
+Content-Type: application/json
+
+{ "username": "dueno", "displayName": "Dueño de la tienda", "password": "Sup3rmercado-Seguro", "posCode": "100", "pin": "4826" }
+
+### 2. Sin sesión → 401 AUTH.REQUIRED
+GET {{api}}/organization/company
+
+### 3. Entrar al backoffice
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@token = {{login.response.body.token}}
+
+### 4. Perfil y permisos efectivos
+GET {{api}}/auth/me
+Authorization: Bearer {{token}}
+
+### 5. Roles (los de sistema no se editan: se clonan)
+# @name roles
+GET {{api}}/identity/roles
+Authorization: Bearer {{token}}
+
+### 6. Crear una cajera (código 200 + PIN) con el rol CASHIER — ponga el id del rol CASHIER del paso 5
+POST {{api}}/identity/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "username": "cajera", "displayName": "Ana Cajera", "password": "Clave-Inicial-2026", "posCode": "200", "pin": "5937",
+  "roles": [ { "roleId": "PEGUE-AQUI-EL-ID-DE-CASHIER", "branchId": null } ] }
+
+### 7. Cinco contraseñas erróneas → al quinto intento 401 AUTH.USER_LOCKED
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "cajera", "password": "Mala-Clave-00" }
+
+### 8. Usuarios (estado, roles, código de cajero)
+GET {{api}}/identity/users
+Authorization: Bearer {{token}}
+
+### 9. Sesiones activas
+GET {{api}}/identity/sessions
+Authorization: Bearer {{token}}
+
+### 10. Un PIN no vale desde el servidor Multicaja → 403 AUTH.PIN_REQUIRES_TERMINAL
+POST {{api}}/auth/pos-login
+Content-Type: application/json
+
+{ "posCode": "100", "pin": "4826" }
+
+### 11. Código para emparejar una caja (vence en 10 min) — ponga el id de la caja C01
+POST {{api}}/devices/pairing-codes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "kind": "Terminal", "posTerminalId": "PEGUE-AQUI-EL-ID-DE-LA-CAJA" }
+
+### 12. El equipo se empareja (desde la caja, por HTTPS en la LAN: https://IP-DEL-SERVIDOR:5443)
+POST https://localhost:5443/api/v1/devices/pair
+Content-Type: application/json
+
+{ "code": "CODIGO-DEL-PASO-11", "hostname": "CAJA-01", "machineFingerprintHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+
+### 13. Entrar en la caja con código + PIN (use la credencial del paso 12)
+POST https://localhost:5443/api/v1/auth/pos-login
+X-Device-Id: ID-DEL-EQUIPO
+X-Device-Secret: SECRETO-DEL-EQUIPO
+Content-Type: application/json
+
+{ "posCode": "200", "pin": "5937" }
+
+### 13b. Autorización de supervisor (desde la caja): el supervisor digita su código + PIN y la caja recibe un grantId
+# de un solo uso (120 s) que reenvía en la acción protegida con el encabezado X-Authorization-Grant.
+# En esta fase la única acción que lo admite es revocar una sesión (identity.session.revoke); el supervisor no puede
+# ser la misma persona que la cajera (AUTH.SELF_AUTHORIZATION). Copie "action" y "targetId" de la respuesta 403
+# AUTH.AUTHORIZATION_REQUIRED; luego repita POST /identity/sessions/{id}/revoke con X-Authorization-Grant.
+POST https://localhost:5443/api/v1/auth/authorizations
+Authorization: Bearer TOKEN-DE-LA-CAJERA
+X-Device-Id: ID-DEL-EQUIPO
+X-Device-Secret: SECRETO-DEL-EQUIPO
+Content-Type: application/json
+
+{ "supervisorCode": "100", "supervisorPin": "4826", "permissionCode": "identity.session.revoke", "action": "POST /api/v1/identity/sessions/{sessionId:guid}/revoke", "targetId": "ID-DE-LA-SESION", "targetType": null, "reason": "Prueba" }
+
+### 14. Equipos emparejados y revocación
+GET {{api}}/devices
+Authorization: Bearer {{token}}
+
+### 15. Verificación de la auditoría (ingresos, bloqueos y cambios quedaron registrados)
+POST {{api}}/audit/verify
+Authorization: Bearer {{token}}
+
+### 16. Salir
+POST {{api}}/auth/logout
+Authorization: Bearer {{token}}

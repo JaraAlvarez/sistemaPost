@@ -1,6 +1,6 @@
 # Fase 3 · Autenticación, usuarios, permisos y equipos — Propuesta
 
-> Estado: **APROBADA (2026-09-28)** con todas las recomendaciones de la §16: backoffice solo desde el servidor y equipos
+> Estado: **IMPLEMENTADA (2026-09-28)** — ver [informe](fase-03-informe.md). Aprobada el 2026-09-28 con todas las recomendaciones de la §16: backoffice solo desde el servidor y equipos
 > emparejados; caja con código de cajero + PIN; empleados desde esta fase; licencia ISC aceptada (NSec/libsodium);
 > recuperación del Propietario solo desde el servidor.
 > Requisitos previos: Fase 2 implementada ([informe](fase-02-informe.md)); validación del Servicio de Windows de la Fase 1.

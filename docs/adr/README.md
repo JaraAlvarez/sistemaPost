@@ -20,3 +20,6 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0013](0013-numeracion-interna-vs-fiscal.md) | Numeración interna separada de la fiscal | Aceptada | 2026-09-28 |
 | [0014](0014-nodos-y-propiedad-de-datos.md) | Nodos, propiedad de datos y convenciones de sincronización | Aceptada | 2026-09-28 |
 | [0015](0015-ediciones-caja-unica-multicaja.md) | Ediciones Caja Única y Multicaja como única diferencia comercial | Aceptada | 2026-09-28 |
+| [0016](0016-sesiones-con-tokens-opacos.md) | Sesiones con tokens opacos revocables (no JWT) | Aceptada | 2026-09-28 |
+| [0017](0017-argon2id-con-nsec.md) | Argon2id con NSec (libsodium) y formato PHC | Aceptada | 2026-09-28 |
+| [0018](0018-emparejamiento-y-https-en-la-lan.md) | Emparejamiento de equipos y HTTPS en la LAN con certificado fijado | Aceptada | 2026-09-28 |

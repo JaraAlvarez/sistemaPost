@@ -19,6 +19,8 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** 
 | EFCore.NamingConventions | 10.0.1 | Apache-2.0 | Nombres `snake_case` en el mapeo |
 | Dapper | 2.1.89 | Apache-2.0 | Lecturas y SQL directo (numeración, sellado, reportes) |
 | System.Security.Cryptography.ProtectedData | 10.0.12 | MIT | Secretos de la instalación con DPAPI |
+| NSec.Cryptography *(desde la Fase 3)* | 26.4.0 | MIT | Argon2id para contraseñas y PIN |
+| libsodium (binario nativo incluido en NSec) | 1.0.22 | ISC | Implementación criptográfica de Argon2id |
 | Datos DIVIPOLA (DANE, datos.gov.co) | 2026-09-28 | Datos abiertos del Gobierno de Colombia | Catálogo de departamentos y municipios |
 
 ## Solo desarrollo y pruebas (no se distribuyen)

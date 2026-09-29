@@ -113,11 +113,13 @@
 
 ### RN-SEC — Usuarios y seguridad
 
+> Implementadas en la Fase 3 (ver [informe](fases/fase-03-informe.md)); la condición de jornada abierta de RN-SEC-07 llega en la Fase 6.
+
 | Código | Regla |
 |---|---|
-| RN-SEC-01 | Contraseñas: mínimo 8 caracteres ⚙️; nunca en texto plano; hash Argon2id; no reutilizar las últimas 5 ⚙️. |
-| RN-SEC-02 | Bloqueo tras 5 intentos fallidos ⚙️ durante 15 min ⚙️. |
-| RN-SEC-03 | Un usuario no puede autorizarse a sí mismo acciones que requieren supervisor. |
+| RN-SEC-01 | Contraseñas: mínimo 8 caracteres ⚙️ (máx. 128); nunca en texto plano; hash Argon2id; no reutilizar las últimas 5 ⚙️; distinta del usuario y fuera de la lista de contraseñas comunes. PIN de 4–6 dígitos ⚙️, no trivial (0000, 1234…), solo válido en cajas emparejadas. |
+| RN-SEC-02 | Bloqueo tras 5 intentos fallidos ⚙️ durante 15 min ⚙️; el PIN se bloquea tras 3 intentos ⚙️ sin impedir la entrada con contraseña. Además, límite por IP en `/auth/*` y `/devices/pair`. Los mensajes no revelan si el usuario existe. |
+| RN-SEC-03 | Un usuario no puede autorizarse a sí mismo acciones que requieren supervisor (CHECK en la BD). La autorización es de un solo uso, vence en 120 s ⚙️ y queda ligada al permiso, la acción y el objetivo. |
 | RN-SEC-04 | Debe existir siempre al menos un usuario activo con rol de administrador (no se puede desactivar el último). |
 | RN-SEC-05 | Un usuario no puede concederse permisos a sí mismo ni asignar roles con más privilegios que los propios. |
 | RN-SEC-06 | Sesiones expiran por inactividad ⚙️ (caja: 15 min bloqueo de pantalla; backoffice: 30 min). |

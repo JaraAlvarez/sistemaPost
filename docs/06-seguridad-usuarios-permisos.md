@@ -56,8 +56,12 @@ Permiso efectivo(usuario, permiso, sucursal) =
 ### Autenticación y sesiones
 
 - **Backoffice**: usuario + contraseña → token de sesión opaco (256 bits aleatorios); en BD solo se guarda su **hash SHA-256**. Expiración deslizante.
-- **Caja**: la caja (terminal) está registrada y autenticada por su propio certificado/secreto de dispositivo. Sobre esa caja, el cajero entra con **usuario + PIN** (rápido) — el PIN solo es válido desde terminales registrados.
-- Tokens opacos (no JWT) para usuarios: revocables al instante (desactivar usuario, cierre remoto). JWT firmado solo para la licencia.
+- **Caja**: la caja está emparejada y se autentica con su secreto de equipo (`X-Device-Id` / `X-Device-Secret`). Sobre esa caja, el cajero entra con **código de cajero + PIN** (rápido) — el PIN solo es válido desde cajas emparejadas (`AUTH.PIN_REQUIRES_TERMINAL`).
+- **Backoffice**: solo desde el propio servidor o desde un equipo administrativo emparejado ([ADR-0018](adr/0018-emparejamiento-y-https-en-la-lan.md)).
+- **Propietario**: se crea en el asistente inicial (`/setup/owner`, solo desde el servidor). Si pierde su contraseña, se recupera **solo en el servidor** con `Pos.Server.Migrator reset-owner --username …` (contraseña temporal, cierra sesiones, auditoría CRÍTICA).
+- Tokens opacos (no JWT) para usuarios: revocables al instante (desactivar usuario, cierre remoto, revocar equipo). JWT firmado solo para la licencia ([ADR-0016](adr/0016-sesiones-con-tokens-opacos.md)).
+- Autorización de supervisor: el supervisor ingresa su código + PIN en la caja (`POST /auth/authorizations`) y la caja reenvía la acción con `X-Authorization-Grant`; la auditoría registra a ambos.
+- Con cambio de contraseña pendiente, una sesión de backoffice solo puede consultar su perfil, cambiar la contraseña y salir (`AUTH.PASSWORD_CHANGE_REQUIRED`).
 - Bloqueo de pantalla por inactividad sin perder la venta en curso.
 - Cambio de cajero en la misma caja = cierre de jornada (o transferencia de jornada con autorización ⚙️).
 
@@ -67,13 +71,13 @@ Permiso efectivo(usuario, permiso, sucursal) =
 
 | Amenaza / requisito | Control |
 |---|---|
-| Contraseñas | **Argon2id** (memoria 64 MB, 3 iteraciones, paralelismo 1 — ajustado al hardware de caja), sal única, formato PHC para poder subir parámetros en el futuro (rehash al iniciar sesión). PIN también con Argon2id. |
+| Contraseñas | **Argon2id** con NSec/libsodium (memoria 64 MiB, 3 iteraciones, paralelismo 1 — ajustado al hardware de caja), sal única, formato PHC para poder subir parámetros en el futuro (rehash al iniciar sesión). PIN también con Argon2id (19 MiB, 2 iteraciones). [ADR-0017](adr/0017-argon2id-con-nsec.md). |
 | SQL Injection | EF Core/Dapper **siempre parametrizados**; prohibido concatenar SQL (regla de análisis estático + revisión). El rol de BD de la app no es superusuario. |
 | Validación | Validación en 3 niveles: DTO (FluentValidation: formato), dominio (invariantes/reglas), BD (CHECK/FK/UNIQUE). |
-| Control de acceso | Autorización por **permiso** en cada endpoint (política declarativa) + verificación de alcance (sucursal) + feature de licencia. Denegado por defecto: un endpoint sin política no compila la prueba de arquitectura. |
+| Control de acceso | Autorización por **permiso** en cada endpoint (política declarativa, verificada antes de leer el cuerpo de la petición) + alcance por sucursal. Permisos efectivos = roles ∪ GRANT − DENY. Denegado por defecto: un endpoint sin política hace fallar la prueba automática. |
 | Acceso a la BD | PostgreSQL escucha **solo en 127.0.0.1**, puerto no estándar, usuario de app con privilegios mínimos (sin DDL en runtime; migraciones con usuario separado). Contraseña de BD generada al instalar, guardada con **DPAPI** (máquina). |
-| Tráfico LAN | HTTPS con certificado autogenerado por instalación; los terminales lo fijan (*pinning*) al emparejarse. |
-| Emparejamiento de cajas | Una caja nueva se une a la tienda con un **código de emparejamiento temporal** generado por un administrador en el servidor. |
+| Tráfico LAN | Solo Multicaja: HTTPS en el puerto 5443 con certificado ECDSA autogenerado por instalación; los equipos lo fijan (*pinning*) al emparejarse. El HTTP (5480) solo escucha en localhost. |
+| Emparejamiento de equipos | Una caja o un equipo administrativo se une a la tienda con un **código de 6 dígitos, un solo uso, 10 min**, generado por un administrador. Un equipo no emparejado solo puede llamar a `/devices/pair`. |
 | Datos sensibles | Nunca se guarda número completo de tarjeta ni CVV (solo marca y últimos 4). Claves técnicas de facturación y credenciales de backup cifradas (AES-256-GCM, clave protegida por DPAPI). |
 | Datos personales | Cumplimiento de ley de protección de datos (Colombia: Ley 1581/2012): finalidad, consentimiento para marketing, derecho de consulta/rectificación, exportación. |
 | Auditoría | Ver abajo. |
