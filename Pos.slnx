@@ -86,11 +86,13 @@
     <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Inventory.UnitTests/Pos.Modules.Inventory.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Organization.UnitTests/Pos.Modules.Organization.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Billing.UnitTests/Pos.Modules.Billing.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Cash.UnitTests/Pos.Modules.Cash.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Parties.UnitTests/Pos.Modules.Parties.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Promotions.UnitTests/Pos.Modules.Promotions.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Purchasing.UnitTests/Pos.Modules.Purchasing.UnitTests.csproj" />
     <Project Path="tests/Pos.Printing.UnitTests/Pos.Printing.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Sales.UnitTests/Pos.Modules.Sales.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />
   </Folder>
