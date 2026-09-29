@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -7,6 +8,7 @@ using Pos.Infrastructure;
 using Pos.Infrastructure.Auditing;
 using Pos.Infrastructure.Persistence;
 using Pos.Infrastructure.Security;
+using Pos.Modules.Inventory.Infrastructure;
 using Pos.Server.Migrations;
 
 // Uso:
@@ -18,9 +20,12 @@ using Pos.Server.Migrations;
 //   Pos.Server.Migrator verify-audit [--connection "<cadena>"]   (filas, sellos y cadena de la auditoría)
 //   Pos.Server.Migrator reset-owner --username <usuario> [--connection "<cadena pos_migrator>"]
 //                       Recuperación de emergencia del Propietario: contraseña temporal, auditoría crítica.
+//   Pos.Server.Migrator verify-stock [--connection "<cadena>"]   (saldos de inventario contra el kardex)
+//   Pos.Server.Migrator rebuild-stock --warehouse <id> --product <id> --reason "<motivo>" [--connection "<cadena pos_migrator>"]
+//                       Reconstruye un saldo desde su kardex; auditado como crítico.
 // Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION.
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
-//                    4 = la auditoría tiene hallazgos (posible manipulación).
+//                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex.
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole(o => o.SingleLine = true));
 var logger = loggerFactory.CreateLogger<DatabaseMigrator>();
@@ -29,7 +34,7 @@ var appVersion = Assembly.GetExecutingAssembly()
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit | reset-owner");
+    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock");
     return 2;
 }
 
@@ -112,6 +117,51 @@ try
             }
 
             return reset.Succeeded ? 0 : 1;
+        }
+
+        case "verify-stock":
+            await using (var dataSource = NpgsqlDataSource.Create(Connection(options)))
+            await using (var connection = await dataSource.OpenConnectionAsync())
+            {
+                var discrepancies = await StockLedgerMaintenance.FindDiscrepanciesAsync(connection, null, CancellationToken.None);
+                var balances = await StockLedgerMaintenance.CountBalancesAsync(connection, null, CancellationToken.None);
+                Console.WriteLine($"Saldos revisados: {balances} · diferencias: {discrepancies.Count}");
+                foreach (var d in discrepancies)
+                {
+                    Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                        $"  bodega {d.WarehouseId} producto {d.ProductId}: saldo {d.BalanceQuantity} (valor {d.BalanceValue}) · kardex {d.KardexQuantity} (valor {d.KardexValue})"));
+                }
+
+                Console.WriteLine(discrepancies.Count == 0 ? "Inventario íntegro: todos los saldos cuadran con el kardex." : "HAY SALDOS QUE NO CUADRAN CON EL KARDEX.");
+                return discrepancies.Count == 0 ? 0 : 5;
+            }
+
+        case "rebuild-stock":
+        {
+            var warehouseId = Guid.Parse(Required(options, "warehouse"), CultureInfo.InvariantCulture);
+            var productId = Guid.Parse(Required(options, "product"), CultureInfo.InvariantCulture);
+            var reason = Required(options, "reason");
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddPosInfrastructure(Pos.SharedKernel.Time.BusinessTimeZones.Colombia);
+            services.AddPosPersistence(new PersistenceOptions { ConnectionString = Connection(options), RunBackgroundServices = false });
+            await using var provider = services.BuildServiceProvider();
+            await provider.GetRequiredService<Pos.Application.Abstractions.Installation.IInstallationContext>().RefreshAsync();
+            await using var scope = provider.CreateAsyncScope();
+            var context = scope.ServiceProvider.GetRequiredService<PosDbContext>();
+            await using var transaction = await context.Database.BeginTransactionAsync();
+            await context.Database.OpenConnectionAsync();
+            var (before, after) = await StockLedgerMaintenance.RebuildAsync(
+                context.Database.GetDbConnection(), Microsoft.EntityFrameworkCore.Storage.DbContextTransactionExtensions.GetDbTransaction(transaction),
+                warehouseId, productId, CancellationToken.None);
+            await scope.ServiceProvider.GetRequiredService<Pos.Application.Abstractions.Auditing.IAuditWriter>().WriteAsync(
+                new Pos.Application.Abstractions.Auditing.AuditEntry("inventory", "STOCK_BALANCE_REBUILT", "StockBalance", productId, $"Saldo en bodega {warehouseId}",
+                    string.Create(CultureInfo.InvariantCulture, $"Saldo reconstruido desde el kardex con el migrador ({reason}): {before.Quantity} → {after.Quantity}."),
+                    Severity: Pos.Application.Abstractions.Auditing.AuditSeverity.Critical));
+            await context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"Saldo reconstruido: {before.Quantity} → {after.Quantity} (valor {before.Value} → {after.Value})."));
+            return 0;
         }
 
         default:

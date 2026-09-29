@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Inventory · Endpoints HTTP y registro del módulo (IModule). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Inventory.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Api.Abstractions/Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Inventory.Infrastructure/Pos.Modules.Inventory.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

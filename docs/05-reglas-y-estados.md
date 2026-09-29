@@ -23,6 +23,8 @@
 
 ### RN-CAT — Catálogo
 
+> Implementadas en la Fase 4 ([informe](fases/fase-04-informe.md)): códigos únicos sobre el código normalizado (UPC-A → EAN-13) con dígito de control; RN-CAT-02 se evalúa al escanear (`isSellable` + motivos); RN-CAT-06 advierte o bloquea (`catalog.price_below_cost`); RN-CAT-07 configurable (`catalog.block_discontinue_with_stock`).
+
 | Código | Regla |
 |---|---|
 | RN-CAT-01 | SKU único por empresa. Código de barras único por empresa (un código identifica exactamente un producto/presentación). |
@@ -35,6 +37,8 @@
 | RN-CAT-08 | Cambiar la unidad base de un producto con movimientos está prohibido (se crea un producto nuevo). |
 
 ### RN-INV — Inventario
+
+> Implementadas en la Fase 4, salvo RN-INV-08/09 (lotes y vencimientos: estructura lista, gestión en la Fase 5). RN-INV-04: umbral `inventory.adjustment_approval_threshold` ($500.000 por defecto); el saldo inicial no pasa por el umbral pero solo lo publica quien tiene `inventory.adjustment.approve`. RN-INV-11: verificación diaria y manual; ninguna diferencia se corrige en silencio.
 
 | Código | Regla |
 |---|---|

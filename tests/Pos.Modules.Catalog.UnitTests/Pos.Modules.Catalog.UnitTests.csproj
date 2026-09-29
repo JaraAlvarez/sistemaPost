@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas del catálogo: códigos GTIN y de báscula, productos, categorías, impuestos, vigencias de precios. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Catalog\Pos.Modules.Catalog.Domain\Pos.Modules.Catalog.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Catalog\Pos.Modules.Catalog.Application\Pos.Modules.Catalog.Application.csproj" />
+  </ItemGroup>
+</Project>

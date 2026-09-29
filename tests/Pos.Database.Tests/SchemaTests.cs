@@ -49,9 +49,9 @@ public class SchemaTests(PostgresFixture postgres)
             """
             SELECT conrelid::regclass || ' ' || conname FROM pg_constraint c
             JOIN pg_namespace n ON n.oid = c.connamespace
-            WHERE n.nspname IN ('system','ref','org','identity','audit')
+            WHERE n.nspname IN ('system','ref','org','identity','audit','catalog','inventory')
               AND c.contype IN ('p','f','u','c')
-              AND c.conname !~ '^(pk|fk|ux|ck)_'
+              AND c.conname !~ '^(pk|fk|ux|ck|ex)_'
               AND c.conrelid::regclass::text NOT LIKE 'audit.audit_log_%'
             """);
 

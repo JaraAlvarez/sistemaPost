@@ -36,8 +36,9 @@ public class EndpointProtectionTests
     {
         await using var factory = new PosServerFactory();
         var scenario = await SecurityScenario.CreateAsync(factory);
-        await scenario.CreateUserAsync("cajero.sin.permisos", "CASHIER");
-        var cashier = await scenario.LocalClientAsync("cajero.sin.permisos");
+        // Un usuario sin ningún rol: cada endpoint con permiso debe negarle el acceso.
+        await scenario.CreateUserAsync("usuario.sin.permisos", roleCode: null);
+        var cashier = await scenario.LocalClientAsync("usuario.sin.permisos");
 
         var unexpected = new List<string>();
         foreach (var (method, url, permission) in ProtectedEndpoints(factory).Where(e => e.Permission is not null))

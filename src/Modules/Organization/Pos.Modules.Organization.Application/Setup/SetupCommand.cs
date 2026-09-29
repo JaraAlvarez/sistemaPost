@@ -101,7 +101,8 @@ internal sealed class SetupCommandHandler(
     IAuditWriter audit,
     IUnitOfWork unitOfWork,
     IIdGenerator ids,
-    IClock clock) : ICommandHandler<SetupCommand, SetupResultDto>
+    IClock clock,
+    IEnumerable<ICompanyInitializer> initializers) : ICommandHandler<SetupCommand, SetupResultDto>
 {
     public const string DefaultCountry = "CO";
     public const string DefaultCurrency = "COP";
@@ -173,6 +174,13 @@ internal sealed class SetupCommandHandler(
         if (owner.IsFailure)
         {
             return owner.Error;
+        }
+
+        // Datos iniciales de los módulos (lista de precios, impuestos, motivos de ajuste…), en esta misma transacción.
+        foreach (var initializer in initializers.OrderBy(i => i.Order))
+        {
+            await initializer.InitializeAsync(companyId, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
         await series.CreateBranchSeriesAsync(companyId, branchId, request.Branch.Code, cancellationToken);

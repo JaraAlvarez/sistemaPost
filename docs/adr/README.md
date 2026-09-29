@@ -23,3 +23,7 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0016](0016-sesiones-con-tokens-opacos.md) | Sesiones con tokens opacos revocables (no JWT) | Aceptada | 2026-09-28 |
 | [0017](0017-argon2id-con-nsec.md) | Argon2id con NSec (libsodium) y formato PHC | Aceptada | 2026-09-28 |
 | [0018](0018-emparejamiento-y-https-en-la-lan.md) | Emparejamiento de equipos y HTTPS en la LAN con certificado fijado | Aceptada | 2026-09-28 |
+| [0019](0019-kardex-inmutable-y-costo-promedio.md) | Kardex inmutable y costo promedio ponderado por bodega con valor | Aceptada | 2026-09-28 |
+| [0020](0020-precios-e-impuestos-con-vigencia.md) | Precios e impuestos con vigencia (sin sobrescribir) | Aceptada | 2026-09-28 |
+| [0021](0021-codigos-de-barras-y-codigos-internos.md) | Códigos de barras únicos y códigos internos sin consecutivo global | Aceptada | 2026-09-28 |
+| [0022](0022-cambios-por-campo-para-sincronizar.md) | Registro de cambios por campo de los maestros sincronizables | Aceptada | 2026-09-28 |

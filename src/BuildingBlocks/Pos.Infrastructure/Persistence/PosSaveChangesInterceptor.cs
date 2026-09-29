@@ -20,8 +20,9 @@ namespace Pos.Infrastructure.Persistence;
 /// Se ejecuta en cada SaveChanges, DENTRO de la transacción, en este orden:
 /// 1. columnas de control (created/updated), borrado lógico y row_version;
 /// 2. captura de auditoría de las entidades [Audited] (solo campos modificados; [Sensitive] como ***);
-/// 3. eventos de dominio → outbox;
-/// 4. reserva del seq de auditoría y cálculo de row_hash de todas las filas de auditoría pendientes.
+/// 3. cambios de maestros sincronizables → outbox SYNC, campo por campo con su versión base (D4-09);
+/// 4. eventos de dominio → outbox;
+/// 5. reserva del seq de auditoría y cálculo de row_hash de todas las filas de auditoría pendientes.
 /// </summary>
 internal sealed class PosSaveChangesInterceptor(
     IClock clock,
@@ -33,6 +34,9 @@ internal sealed class PosSaveChangesInterceptor(
     IAuthorizationScope authorization) : SaveChangesInterceptor
 {
     public const string Masked = "***";
+
+    /// <summary>Tipo del evento SYNC con los campos que cambiaron de un maestro (revisión §10.1, D4-09).</summary>
+    public const string SyncChangeType = "sync.entity_changed.v1";
 
     private static readonly HashSet<string> ControlProperties =
     [
@@ -56,6 +60,7 @@ internal sealed class PosSaveChangesInterceptor(
 
         ApplyControlColumns(entries, now);
         CaptureAudit(context, entries, now);
+        CaptureSyncChanges(context, entries, now);
         PublishDomainEvents(context, entries, now);
         await FinalizeAuditRowsAsync(context, cancellationToken);
 
@@ -153,6 +158,96 @@ internal sealed class PosSaveChangesInterceptor(
                 Severity = verb == "DELETED" ? "WARNING" : "INFO",
             });
         }
+    }
+
+    /// <summary>
+    /// Por cada maestro sincronizable creado, modificado o borrado: un evento SYNC con SOLO los campos que cambiaron, la
+    /// versión de la que partió el cambio y la nueva. Con eso la nube combina ediciones de campos distintos hechas en dos
+    /// lugares y detecta el conflicto real (mismo campo). Los valores van en su forma de la BD (enumeraciones en texto).
+    /// </summary>
+    private void CaptureSyncChanges(DbContext context, List<EntityEntry> entries, DateTimeOffset now)
+    {
+        foreach (var entry in entries.Where(e => e.Entity is ISyncVersioned))
+        {
+            var deletedLogically = entry.Metadata.FindProperty(ModelConventions.DeletedAt) is not null
+                && entry.Property(ModelConventions.DeletedAt).IsModified
+                && entry.Property(ModelConventions.DeletedAt).CurrentValue is not null;
+            var rowVersion = entry.Property(ModelConventions.RowVersion);
+            var version = Math.Max(1L, (long)(rowVersion.CurrentValue ?? 1L));
+            string operation;
+            long baseVersion;
+            JsonObject changes;
+            switch (entry.State)
+            {
+                case EntityState.Added:
+                    operation = "CREATED";
+                    baseVersion = 0;
+                    changes = SyncValues(entry, _ => true);
+                    break;
+                case EntityState.Modified when deletedLogically:
+                    operation = "DELETED";
+                    baseVersion = (long)(rowVersion.OriginalValue ?? 1L);
+                    changes = [];
+                    break;
+                case EntityState.Modified:
+                    changes = SyncValues(entry, p => p.IsModified);
+                    if (changes.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    operation = "UPDATED";
+                    baseVersion = (long)(rowVersion.OriginalValue ?? 1L);
+                    break;
+                default:
+                    continue;
+            }
+
+            var payload = new JsonObject
+            {
+                ["entity"] = $"{entry.Metadata.GetSchema()}.{entry.Metadata.GetTableName()}",
+                ["id"] = entry.Metadata.FindPrimaryKey()?.Properties is [var key] ? JsonValue.Create(entry.Property(key.Name).CurrentValue?.ToString()) : null,
+                ["operation"] = operation,
+                ["baseVersion"] = baseVersion,
+                ["version"] = version,
+                ["nodeId"] = installation.NodeId.ToString("D"),
+                ["changes"] = changes,
+            };
+            context.Add(new OutboxMessageRecord
+            {
+                Id = ids.NewId(),
+                OccurredAt = now,
+                Destination = "SYNC",
+                Type = SyncChangeType,
+                Payload = JsonDocument.Parse(payload.ToJsonString()),
+                CorrelationId = request.CorrelationId,
+                NextAttemptAt = now,
+            });
+        }
+    }
+
+    private static JsonObject SyncValues(EntityEntry entry, Func<PropertyEntry, bool> include)
+    {
+        var values = new JsonObject();
+        var table = StoreObjectIdentifier.Table(entry.Metadata.GetTableName()!, entry.Metadata.GetSchema());
+        foreach (var property in entry.Properties)
+        {
+            if (ControlProperties.Contains(property.Metadata.Name) || IsLocalOnly(property) || property.Metadata.IsPrimaryKey() || !include(property))
+            {
+                continue;
+            }
+
+            var converter = property.Metadata.GetValueConverter() ?? property.Metadata.FindTypeMapping()?.Converter;
+            var value = property.CurrentValue is { } current && converter is not null ? converter.ConvertToProvider(current) : property.CurrentValue;
+            values[property.Metadata.GetColumnName(table) ?? property.Metadata.Name] = value switch
+            {
+                null => null,
+                JsonDocument doc => JsonNode.Parse(doc.RootElement.GetRawText()),
+                _ => JsonSerializer.SerializeToNode(value, value.GetType(), OutboxJson.Options),
+            };
+        }
+
+        return values;
     }
 
     private void PublishDomainEvents(DbContext context, List<EntityEntry> entries, DateTimeOffset now)

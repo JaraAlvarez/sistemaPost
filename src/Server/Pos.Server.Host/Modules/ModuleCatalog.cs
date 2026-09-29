@@ -1,6 +1,8 @@
 using Pos.Api.Abstractions;
 using Pos.Modules.Audit.Api;
+using Pos.Modules.Catalog.Api;
 using Pos.Modules.Identity.Api;
+using Pos.Modules.Inventory.Api;
 using Pos.Modules.Organization.Api;
 using Pos.Modules.Reference.Api;
 
@@ -19,5 +21,7 @@ internal static class ModuleCatalog
         new OrganizationModule(),
         new IdentityModule(),
         new AuditModule(),
+        new CatalogModule(),
+        new InventoryModule(),
     ];
 }

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Inventory · Dominio puro: entidades, reglas e invariantes. Solo depende del SharedKernel. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Inventory.Domain</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.SharedKernel/Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

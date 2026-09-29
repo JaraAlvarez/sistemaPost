@@ -371,6 +371,8 @@ status                 CK IN ('ACTIVE','INACTIVE')
 
 ### H.5 `catalog` — Productos
 
+> Implementado en la Fase 4 (`V2026.10.008`) con los cambios de la [propuesta §4.1](fases/fase-04-propuesta.md): unidades en `ref`, tarifas de impuestos en `catalog.tax_rates`, `normalized_code` en los códigos, `search_text` en productos, restricciones de exclusión para vigencias, consecutivos internos por nodo e importaciones.
+
 **catalog.categories** [CTL][DEL] — `company_id, parent_id FK→categories (nullable), code, name, path ltree/varchar (para consultas de árbol), sort_order, status`; UQ(company_id, parent_id, name)
 
 **catalog.brands** [CTL][DEL] — `company_id, name UQ(company_id, lower(name)), status`
@@ -460,6 +462,8 @@ EXCLUDE USING gist (no solapamiento de vigencias para la misma combinación)
 El historial de precios queda en la propia tabla (no se sobrescriben precios: se cierra la vigencia y se crea uno nuevo) + auditoría.
 
 ### H.6 `inventory` — Existencias y kardex
+
+> Implementado en la Fase 4 (`V2026.10.009`) con los cambios de la [propuesta §4.2](fases/fase-04-propuesta.md): `total_value`/`balance_value`, `seq`, `node_id` y `branch_id`; capturas de conteo separadas; verificaciones registradas.
 
 **inventory.stock_balances** (saldo derivado, reconstruible)
 ```

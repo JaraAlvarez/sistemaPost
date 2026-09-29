@@ -7,15 +7,15 @@
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
-GRANT USAGE ON SCHEMA system, ref, org, identity, audit TO pos_app, pos_backup;
+GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
-REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit FROM pos_app;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit FROM pos_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory FROM pos_app;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory FROM pos_app;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory FROM PUBLIC;
 
 -- Negocio
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity TO pos_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory TO pos_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     system.document_series, system.settings, system.outbox_messages, system.inbox_messages,
     system.sync_cursors, system.idempotency_keys
@@ -27,11 +27,14 @@ GRANT SELECT ON ALL TABLES IN SCHEMA ref TO pos_app;
 GRANT SELECT ON system.schema_migrations, system.document_types TO pos_app;
 REVOKE INSERT, UPDATE, DELETE ON identity.permissions FROM pos_app;
 
+-- Kardex: solo agregar y leer (RN-INV-02: un error se corrige con un movimiento inverso). Además tiene un disparador.
+REVOKE UPDATE, DELETE, TRUNCATE ON inventory.stock_movements FROM pos_app;
+
 -- Auditoría: solo agregar y leer
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;
 GRANT EXECUTE ON FUNCTION audit.ensure_partitions(integer) TO pos_app;
 
 -- Secuencias de identidad (inserción y lectura de last_value por el sellador de auditoría)
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA system, org, identity, audit TO pos_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA system, org, identity, audit, catalog, inventory TO pos_app;
 
 -- Las funciones de trigger se ejecutan con los privilegios del dueño de la tabla; no hace falta EXECUTE.

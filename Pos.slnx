@@ -25,6 +25,16 @@
     <Project Path="src/Modules/Audit/Pos.Modules.Audit.Application/Pos.Modules.Audit.Application.csproj" />
     <Project Path="src/Modules/Audit/Pos.Modules.Audit.Infrastructure/Pos.Modules.Audit.Infrastructure.csproj" />
     <Project Path="src/Modules/Audit/Pos.Modules.Audit.Api/Pos.Modules.Audit.Api.csproj" />
+    <Project Path="src/Modules/Catalog/Pos.Modules.Catalog.Domain/Pos.Modules.Catalog.Domain.csproj" />
+    <Project Path="src/Modules/Catalog/Pos.Modules.Catalog.Contracts/Pos.Modules.Catalog.Contracts.csproj" />
+    <Project Path="src/Modules/Catalog/Pos.Modules.Catalog.Application/Pos.Modules.Catalog.Application.csproj" />
+    <Project Path="src/Modules/Catalog/Pos.Modules.Catalog.Infrastructure/Pos.Modules.Catalog.Infrastructure.csproj" />
+    <Project Path="src/Modules/Catalog/Pos.Modules.Catalog.Api/Pos.Modules.Catalog.Api.csproj" />
+    <Project Path="src/Modules/Inventory/Pos.Modules.Inventory.Domain/Pos.Modules.Inventory.Domain.csproj" />
+    <Project Path="src/Modules/Inventory/Pos.Modules.Inventory.Contracts/Pos.Modules.Inventory.Contracts.csproj" />
+    <Project Path="src/Modules/Inventory/Pos.Modules.Inventory.Application/Pos.Modules.Inventory.Application.csproj" />
+    <Project Path="src/Modules/Inventory/Pos.Modules.Inventory.Infrastructure/Pos.Modules.Inventory.Infrastructure.csproj" />
+    <Project Path="src/Modules/Inventory/Pos.Modules.Inventory.Api/Pos.Modules.Inventory.Api.csproj" />
   </Folder>
   <Folder Name="/src/Server/">
     <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />
@@ -35,7 +45,9 @@
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
     <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Catalog.UnitTests/Pos.Modules.Catalog.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Inventory.UnitTests/Pos.Modules.Inventory.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Organization.UnitTests/Pos.Modules.Organization.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />

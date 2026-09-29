@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Catalog · Casos de uso (comandos y consultas) y puertos de persistencia. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Catalog.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Catalog.Domain/Pos.Modules.Catalog.Domain.csproj" />
+    <ProjectReference Include="../Pos.Modules.Catalog.Contracts/Pos.Modules.Catalog.Contracts.csproj" />
+    <ProjectReference Include="../../Inventory/Pos.Modules.Inventory.Contracts/Pos.Modules.Inventory.Contracts.csproj" />
+    <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Modules.Catalog.UnitTests" />
+  </ItemGroup>
+</Project>

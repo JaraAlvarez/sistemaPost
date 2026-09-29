@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas del inventario: costo promedio con valor, ajustes, conteos y traslados. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Inventory\Pos.Modules.Inventory.Domain\Pos.Modules.Inventory.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Inventory\Pos.Modules.Inventory.Application\Pos.Modules.Inventory.Application.csproj" />
+  </ItemGroup>
+</Project>

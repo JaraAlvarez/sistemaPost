@@ -9,8 +9,12 @@ public class ArchitectureTests
         string[] modules =
         [
             "Pos.Modules.Audit.Api", "Pos.Modules.Audit.Application", "Pos.Modules.Audit.Contracts", "Pos.Modules.Audit.Infrastructure",
+            "Pos.Modules.Catalog.Api", "Pos.Modules.Catalog.Application", "Pos.Modules.Catalog.Contracts", "Pos.Modules.Catalog.Domain",
+            "Pos.Modules.Catalog.Infrastructure",
             "Pos.Modules.Identity.Api", "Pos.Modules.Identity.Application", "Pos.Modules.Identity.Contracts",
             "Pos.Modules.Identity.Domain", "Pos.Modules.Identity.Infrastructure",
+            "Pos.Modules.Inventory.Api", "Pos.Modules.Inventory.Application", "Pos.Modules.Inventory.Contracts", "Pos.Modules.Inventory.Domain",
+            "Pos.Modules.Inventory.Infrastructure",
             "Pos.Modules.Organization.Api", "Pos.Modules.Organization.Application", "Pos.Modules.Organization.Contracts",
             "Pos.Modules.Organization.Domain", "Pos.Modules.Organization.Infrastructure",
             "Pos.Modules.Reference.Api", "Pos.Modules.Reference.Application", "Pos.Modules.Reference.Contracts",
@@ -70,5 +74,32 @@ public class ArchitectureTests
             .SelectMany(a => a.GetTypes());
 
         ArchitectureRules.NoFloatingPointInPublicSurface(types).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// R8 (Fase 4, D4-01): solo el módulo Inventory escribe el kardex y los saldos; los demás módulos usan IInventoryPosting.
+    /// Se revisa el código fuente porque la escritura es SQL directo.
+    /// </summary>
+    [Fact]
+    public void R8_Solo_el_modulo_Inventory_escribe_el_kardex_y_los_saldos()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Pos.slnx")))
+        {
+            root = root.Parent;
+        }
+
+        root.ShouldNotBeNull("No se encontró la raíz del repositorio.");
+        var pattern = new System.Text.RegularExpressions.Regex(
+            @"(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+inventory\.(stock_movements|stock_balances)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var inventory = Path.Combine(root.FullName, "src", "Modules", "Inventory") + Path.DirectorySeparatorChar;
+        var offenders = Directory.EnumerateFiles(Path.Combine(root.FullName, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(f => !f.StartsWith(inventory, StringComparison.OrdinalIgnoreCase))
+            .Where(f => pattern.IsMatch(File.ReadAllText(f)))
+            .Select(f => Path.GetRelativePath(root.FullName, f))
+            .ToList();
+
+        offenders.ShouldBeEmpty();
     }
 }

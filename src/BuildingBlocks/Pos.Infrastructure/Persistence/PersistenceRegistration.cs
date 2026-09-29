@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Data;
+using Pos.Application.Abstractions.Files;
 using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
@@ -92,6 +93,8 @@ public static class PersistenceRegistration
         services.AddScoped<InboxStore>();
         services.AddScoped<IDocumentNumberAllocator, DocumentNumberAllocator>();
         services.AddScoped<IDocumentSeriesProvisioner, DocumentSeriesProvisioner>();
+        services.AddSingleton<ITabularFileReader, Files.TabularFileReader>();
+        services.AddSingleton<IDatabaseReadyHook, CompanyInitializersHook>();
 
         services.AddSingleton<ISettingsCatalog, SettingsCatalog>();
         services.AddSingleton<SettingsCache>();

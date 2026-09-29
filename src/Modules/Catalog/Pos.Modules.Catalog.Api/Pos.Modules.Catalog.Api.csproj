@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Catalog · Endpoints HTTP y registro del módulo (IModule). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Catalog.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Api.Abstractions/Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Catalog.Infrastructure/Pos.Modules.Catalog.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Catalog · Persistencia del módulo: mapeo EF Core, consultas y traducción de restricciones. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Catalog.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Catalog.Application/Pos.Modules.Catalog.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Database.Tests" />
+  </ItemGroup>
+</Project>

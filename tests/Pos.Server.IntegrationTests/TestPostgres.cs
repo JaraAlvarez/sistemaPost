@@ -15,7 +15,8 @@ public static class TestPostgres
     private static readonly SemaphoreSlim Lock = new(1, 1);
     private static readonly Lazy<Task<PostgreSqlContainer>> Container = new(async () =>
     {
-        var container = new PostgreSqlBuilder("postgres:18").Build();
+        // Muchos servidores de prueba corren en paralelo, cada uno con su pool: se amplía el límite de conexiones.
+        var container = new PostgreSqlBuilder("postgres:18").WithCommand("-c", "max_connections=500").Build();
         await container.StartAsync();
         return container;
     });
@@ -44,6 +45,7 @@ public static class TestPostgres
 
         builder.Username = DatabaseCreator.AppRole;
         builder.Password = passwords.App;
+        builder.MaxPoolSize = 40;
         return builder.ConnectionString;
     }
 }

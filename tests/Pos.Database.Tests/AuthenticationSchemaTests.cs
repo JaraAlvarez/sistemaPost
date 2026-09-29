@@ -54,8 +54,8 @@ public class AuthenticationSchemaTests(PostgresFixture postgres)
         await using var harness = await InfrastructureHarness.CreateAsync(postgres);
         await harness.Database.ExecuteAsync(
             $"""
-            INSERT INTO org.nodes (id, company_id, branch_id, kind, name, status, registered_at, created_at, created_by)
-            SELECT installation_id, '{Company}', '{InfrastructureHarness.BranchS01}', 'STORE_SERVER', 'Nodo', 'ACTIVE', now(), now(), '{SystemUser}'
+            INSERT INTO org.nodes (id, company_id, branch_id, kind, name, number, status, registered_at, created_at, created_by)
+            SELECT installation_id, '{Company}', '{InfrastructureHarness.BranchS01}', 'STORE_SERVER', 'Nodo', 1, 'ACTIVE', now(), now(), '{SystemUser}'
             FROM system.installation
             """,
             harness.Database.AppConnectionString);
@@ -81,8 +81,8 @@ public class AuthenticationSchemaTests(PostgresFixture postgres)
         var owner = await InsertOwnerAsync(harness, "dueno", withOwnerRole: true);
         await harness.Database.ExecuteAsync(
             $"""
-            INSERT INTO org.nodes (id, company_id, branch_id, kind, name, status, registered_at, created_at, created_by)
-            SELECT installation_id, '{Company}', '{InfrastructureHarness.BranchS01}', 'STORE_SERVER', 'Nodo', 'ACTIVE', now(), now(), '{SystemUser}'
+            INSERT INTO org.nodes (id, company_id, branch_id, kind, name, number, status, registered_at, created_at, created_by)
+            SELECT installation_id, '{Company}', '{InfrastructureHarness.BranchS01}', 'STORE_SERVER', 'Nodo', 1, 'ACTIVE', now(), now(), '{SystemUser}'
             FROM system.installation;
             INSERT INTO identity.user_sessions (id, company_id, node_id, user_id, token_hash, kind, branch_id, security_version,
                 idle_timeout_seconds, created_at, last_activity_at, expires_at)

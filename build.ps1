@@ -29,6 +29,8 @@ $coverageThresholds = @{
     'Pos.SharedKernel'                = 95
     'Pos.Modules.Organization.Domain' = 90
     'Pos.Modules.Identity.Domain'     = 90
+    'Pos.Modules.Catalog.Domain'      = 90
+    'Pos.Modules.Inventory.Domain'    = 90
     'Pos.Infrastructure'              = 85
     'Pos.Server.Migrations'           = 85
 }

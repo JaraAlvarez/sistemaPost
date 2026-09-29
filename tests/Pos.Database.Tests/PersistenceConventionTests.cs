@@ -156,8 +156,11 @@ public class PersistenceConventionTests(PostgresFixture postgres)
         (await processor.ProcessBatchAsync(Ct)).ShouldBe(1);
 
         handled.ShouldBe([id]);
-        (await harness.Database.ScalarAsync<string>("SELECT status FROM system.outbox_messages")).ShouldBe("PROCESSED");
+        (await harness.Database.ScalarAsync<string>("SELECT status FROM system.outbox_messages WHERE destination = 'LOCAL'")).ShouldBe("PROCESSED");
         (await processor.ProcessBatchAsync(Ct)).ShouldBe(0);
+
+        // El rol es un maestro sincronizable: su creación también dejó un evento SYNC con sus campos (D4-09), que no se procesa localmente.
+        (await harness.Database.ScalarAsync<string>("SELECT status FROM system.outbox_messages WHERE destination = 'SYNC'")).ShouldBe("PENDING");
     }
 
     [Fact]

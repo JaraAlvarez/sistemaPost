@@ -1,6 +1,6 @@
 # Fase 4 · Productos e inventario — Propuesta
 
-> Estado: **APROBADA (2026-09-28)** con todas las recomendaciones de la §15: lotes en la Fase 5 (estructura lista ahora);
+> Estado: **IMPLEMENTADA (2026-09-28)** — ver [informe](fase-04-informe.md). Aprobada el 2026-09-28 con todas las recomendaciones de la §15: lotes en la Fase 5 (estructura lista ahora);
 > importación `.xlsx` con MiniExcel (Apache-2.0); lista de empresa con precio especial opcional por sucursal; impuestos
 > saludables y bolsa modelados e inactivos; umbral de aprobación de ajustes $500.000 ⚙️; códigos internos EAN-13 con prefijo `29` + nodo.
 > Requisitos previos: Fase 3 implementada ([informe](fase-03-informe.md)).

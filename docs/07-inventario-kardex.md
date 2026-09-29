@@ -1,6 +1,9 @@
 # 07 · Sistema de inventario y kardex (L)
 
-> Estado: **PROPUESTA — pendiente de aprobación**
+> Estado: **IMPLEMENTADO en la Fase 4** ([informe](fases/fase-04-informe.md), ADR-0019). Cambios frente a esta propuesta:
+> el saldo lleva también su **valor total** (el promedio es valor ÷ cantidad; la última salida lleva el valor restante); los
+> conteos guardan el `seq` del kardex congelado; los traslados de esta versión son entre bodegas de la misma sucursal y pasan
+> por su bodega de tránsito; el faltante al recibir se registra como pérdida (`LOSS`, motivo `TRANSFER_SHORTAGE`).
 
 ## Principio central
 

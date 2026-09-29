@@ -1,0 +1,208 @@
+# Fase 4 · Productos e inventario (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica las migraciones 007–009) y `dotnet run --project src/Server/Pos.Server.Host`.
+# Los ids se copian de las respuestas (o use las variables @name de REST Client).
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. Entrar como Propietario
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@token = {{login.response.body.token}}
+
+### 2. Datos iniciales: unidades, impuestos (IVA 19/5/exento/excluido; bolsa, IBUA e ICUI inactivos), lista GENERAL, reglas de báscula
+GET {{api}}/catalog/taxes
+Authorization: Bearer {{token}}
+
+### 3. Categorías: Lácteos > Leches
+# @name dairy
+POST {{api}}/catalog/categories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Lácteos", "parentId": null, "sortOrder": 0 }
+
+###
+# @name milk
+POST {{api}}/catalog/categories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Leches", "parentId": "{{dairy.response.body.id}}", "sortOrder": 0 }
+
+### 4. Producto con código de barras y precio (sin impuestos → IVA por defecto de la empresa)
+# @name product
+POST {{api}}/catalog/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "product": { "sku": "LECHE-ENT-1100", "name": "Leche entera Alquería 1100 ml", "categoryId": "{{milk.response.body.id}}",
+               "baseUnitCode": "UND", "saleMode": "Unit", "productType": "Stockable", "netContent": 1100, "netContentUnit": "ML" },
+  "barcode": "7702177000014",
+  "price": 4980
+}
+
+### 5. Producto sin SKU ni código: se generan (SKU 001-000001 y EAN-13 29001…)
+POST {{api}}/catalog/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "product": { "name": "Pan de la casa", "categoryId": "{{dairy.response.body.id}}", "baseUnitCode": "UND", "saleMode": "Unit", "productType": "Stockable" },
+  "generateBarcode": true, "price": 500 }
+
+### 6. Presentación "Paquete x6" con su código y su precio
+POST {{api}}/catalog/products/{{product.response.body.id}}/packagings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Paquete x6", "factor": 6, "barcode": "7702177000021", "price": 28000 }
+
+### 7. Escanear: código, UPC con o sin 0, presentación o SKU
+GET {{api}}/catalog/scan/7702177000021
+Authorization: Bearer {{token}}
+
+### 8. Buscar sin tildes, por palabras
+GET {{api}}/catalog/products?search=alqueria%20entera
+Authorization: Bearer {{token}}
+
+### 9. Programar un precio para el lunes (no sobrescribe: cierra el vigente en esa fecha)
+POST {{api}}/catalog/products/{{product.response.body.id}}/prices
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "price": 5200, "validFrom": "2026-10-12T05:00:00Z" }
+
+### 10. Historial de precios (vigente, programado, vencido)
+GET {{api}}/catalog/products/{{product.response.body.id}}/prices
+Authorization: Bearer {{token}}
+
+### 11. Báscula: activar la regla 20 (peso: PLU en 3–7, gramos en 8–12). Copie el id de la regla de GET /catalog/barcode-rules
+PUT {{api}}/catalog/barcode-rules/ID-DE-LA-REGLA-20
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "prefix": "20", "content": "Weight", "pluStart": 3, "pluLength": 5, "valueStart": 8, "valueLength": 5, "valueDecimals": 3, "isActive": true }
+
+### 12. Tomate por kilo con PLU 123 y excluido de IVA (use el id de IVA_EXCLUIDO del paso 2); luego escanee 2000123012506 (1,250 kg)
+POST {{api}}/catalog/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "product": { "sku": "TOMATE", "name": "Tomate chonto", "categoryId": "{{dairy.response.body.id}}", "baseUnitCode": "KG", "saleMode": "Weight",
+               "productType": "Stockable", "isSoldByScale": true, "pluCode": "123" },
+  "taxes": [ { "taxId": "ID-DE-IVA_EXCLUIDO" } ], "price": 4980 }
+
+###
+GET {{api}}/catalog/scan/2000123012506
+Authorization: Bearer {{token}}
+
+### 13. Plantillas de importación (se abren en Excel)
+GET {{api}}/catalog/imports/templates/products
+Authorization: Bearer {{token}}
+
+### 14. Importar productos: vista previa (nada cambia). Con REST Client:
+POST {{api}}/catalog/imports?kind=products
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----pos
+
+------pos
+Content-Disposition: form-data; name="file"; filename="productos.csv"
+Content-Type: text/csv
+
+sku;nombre;categoria;marca;iva;codigo_barras;precio
+;Jabón Rey;Aseo > Jabones;Rey;IVA19;7702177000038;3.500
+------pos--
+
+### 15. Aplicar la importación (solo si ninguna fila tiene errores; una transacción)
+POST {{api}}/catalog/imports/ID-DE-LA-IMPORTACION/apply
+Authorization: Bearer {{token}}
+
+### 16. Bodegas de la sucursal (piso de venta, averías, tránsito) y crear una bodega trasera
+GET {{api}}/organization/branches/ID-DE-LA-SUCURSAL
+Authorization: Bearer {{token}}
+
+### 17. Saldo inicial desde archivo (producto;cantidad;costo) → ajuste en borrador
+POST {{api}}/inventory/adjustments/initial-balance/import?warehouseId=ID-DE-LA-BODEGA
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----pos
+
+------pos
+Content-Disposition: form-data; name="file"; filename="saldo.csv"
+Content-Type: text/csv
+
+producto;cantidad;costo
+LECHE-ENT-1100;48;3.950
+------pos--
+
+### 18. Publicar el ajuste (sobre el umbral de $500.000 queda PENDING_APPROVAL; otro usuario aprueba con /approve)
+POST {{api}}/inventory/adjustments/ID-DEL-AJUSTE/post
+Authorization: Bearer {{token}}
+
+### 19. Existencias (costos solo con inventory.cost.view) y kardex
+GET {{api}}/inventory/stock?search=leche
+Authorization: Bearer {{token}}
+
+###
+GET {{api}}/inventory/kardex?warehouseId=ID-DE-LA-BODEGA&productId={{product.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 20. Avería (motivo DAMAGE: la cantidad se toma como salida)
+POST {{api}}/inventory/adjustments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "warehouseId": "ID-DE-LA-BODEGA", "reasonId": "ID-DEL-MOTIVO-DAMAGE", "notes": "Caja rota", "lines": [ { "productId": "{{product.response.body.id}}", "quantity": 1 } ] }
+
+### 21. Traslado bodega → piso de venta: crear, despachar (a tránsito) y recibir (faltante = pérdida)
+POST {{api}}/inventory/transfers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "originWarehouseId": "ID-BODEGA", "destinationWarehouseId": "ID-PISO", "lines": [ { "productId": "{{product.response.body.id}}", "quantity": 12 } ] }
+
+###
+POST {{api}}/inventory/transfers/ID-DEL-TRASLADO/dispatch
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/inventory/transfers/ID-DEL-TRASLADO/receive
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "received": [ { "productId": "{{product.response.body.id}}", "quantity": 11 } ] }
+
+### 22. Conteo ciego del piso de venta: crear, iniciar, capturar (varios usuarios), revisar y aprobar
+POST {{api}}/inventory/counts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "warehouseId": "ID-PISO", "type": "Full", "isBlind": true }
+
+###
+POST {{api}}/inventory/counts/ID-DEL-CONTEO/start
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/inventory/counts/ID-DEL-CONTEO/entries
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+[ { "code": "7702177000014", "quantity": 10, "location": "nevera 2" } ]
+
+###
+POST {{api}}/inventory/counts/ID-DEL-CONTEO/review
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/inventory/counts/ID-DEL-CONTEO/approve
+Authorization: Bearer {{token}}
+
+### 23. Verificar saldos contra el kardex (también corre sola cada día; una diferencia es incidente crítico)
+POST {{api}}/inventory/verification
+Authorization: Bearer {{token}}

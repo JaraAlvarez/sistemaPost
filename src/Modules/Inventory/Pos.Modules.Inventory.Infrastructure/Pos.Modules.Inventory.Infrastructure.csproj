@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Inventory · Persistencia del módulo: mapeo EF Core, consultas y traducción de restricciones. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Inventory.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Inventory.Application/Pos.Modules.Inventory.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Database.Tests" />
+  </ItemGroup>
+</Project>

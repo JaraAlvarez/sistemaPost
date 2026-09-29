@@ -18,7 +18,9 @@
     <ProjectReference Include="..\..\BuildingBlocks\Pos.Api.Abstractions\Pos.Api.Abstractions.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\Pos.Infrastructure\Pos.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Audit\Pos.Modules.Audit.Api\Pos.Modules.Audit.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Catalog\Pos.Modules.Catalog.Api\Pos.Modules.Catalog.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Identity\Pos.Modules.Identity.Api\Pos.Modules.Identity.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Inventory\Pos.Modules.Inventory.Api\Pos.Modules.Inventory.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Organization\Pos.Modules.Organization.Api\Pos.Modules.Organization.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Api\Pos.Modules.Reference.Api.csproj" />
     <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />

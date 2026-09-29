@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Inventory · Casos de uso (comandos y consultas) y puertos de persistencia. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Inventory.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Inventory.Domain/Pos.Modules.Inventory.Domain.csproj" />
+    <ProjectReference Include="../Pos.Modules.Inventory.Contracts/Pos.Modules.Inventory.Contracts.csproj" />
+    <ProjectReference Include="../../Catalog/Pos.Modules.Catalog.Contracts/Pos.Modules.Catalog.Contracts.csproj" />
+    <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Modules.Inventory.UnitTests" />
+  </ItemGroup>
+</Project>

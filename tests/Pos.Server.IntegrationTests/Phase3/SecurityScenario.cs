@@ -36,6 +36,9 @@ public sealed class SecurityScenario
         return new SecurityScenario(factory, owner, setup);
     }
 
+    /// <summary>Escenario sobre una instalación ya configurada (el Propietario ya autenticado).</summary>
+    public static SecurityScenario ForExisting(PosServerFactory factory, HttpClient owner, SetupResultDto setup) => new(factory, owner, setup);
+
     public async Task<Guid> RoleIdAsync(string code) =>
         (await GetAsync<List<RoleDto>>(Owner, "/api/v1/identity/roles")).Single(r => r.Code == code).Id;
 

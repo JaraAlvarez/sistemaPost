@@ -5,6 +5,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../Catalog/Pos.Modules.Catalog.Contracts/Pos.Modules.Catalog.Contracts.csproj" />
+    <ProjectReference Include="../../Inventory/Pos.Modules.Inventory.Contracts/Pos.Modules.Inventory.Contracts.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
     <ProjectReference Include="../Pos.Modules.Identity.Domain/Pos.Modules.Identity.Domain.csproj" />
     <ProjectReference Include="../Pos.Modules.Identity.Contracts/Pos.Modules.Identity.Contracts.csproj" />

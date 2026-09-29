@@ -178,3 +178,44 @@ internal sealed class TerminalDirectory(NpgsqlDataSource dataSource) : ITerminal
         return terminals.Count == 1 ? terminals[0] : null;
     }
 }
+
+internal sealed class WarehouseDirectory(NpgsqlDataSource dataSource, IInstallationContext installation) : IWarehouseDirectory
+{
+    private const string Columns =
+        "id AS Id, company_id AS CompanyId, branch_id AS BranchId, code AS Code, name AS Name, kind AS Kind, allows_sales AS AllowsSales, status = 'ACTIVE' AS IsActive";
+
+    public async Task<WarehouseInfo?> GetAsync(Guid warehouseId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<WarehouseInfo>(new CommandDefinition(
+            $"SELECT {Columns} FROM org.warehouses WHERE id = @warehouseId AND deleted_at IS NULL",
+            new { warehouseId },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<IReadOnlyList<WarehouseInfo>> ListByBranchAsync(Guid branchId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return (await connection.QueryAsync<WarehouseInfo>(new CommandDefinition(
+            $"SELECT {Columns} FROM org.warehouses WHERE branch_id = @branchId AND deleted_at IS NULL ORDER BY code",
+            new { branchId },
+            cancellationToken: cancellationToken))).ToList();
+    }
+
+    public async Task<Guid?> FindBranchIdByCodeAsync(string branchCode, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            "SELECT id FROM org.branches WHERE company_id = @companyId AND code = @code AND deleted_at IS NULL",
+            new { companyId = installation.CompanyId, code = (branchCode ?? string.Empty).Trim().ToUpperInvariant() },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<short> GetLocalNodeNumberAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<short?>(new CommandDefinition(
+                "SELECT number FROM org.nodes WHERE id = @nodeId", new { nodeId = installation.NodeId }, cancellationToken: cancellationToken))
+            ?? throw new InvalidOperationException("El nodo local no está registrado: complete el asistente inicial.");
+    }
+}

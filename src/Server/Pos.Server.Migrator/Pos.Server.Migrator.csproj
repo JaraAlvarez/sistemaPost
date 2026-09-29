@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Consola del migrador: create-database | migrate | status | verify | verify-audit. La usan el instalador y el actualizador. -->
+  <!-- Consola del migrador: create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock. La usan el instalador y el actualizador. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Pos.Server.Migrator</RootNamespace>
@@ -13,5 +13,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\Pos.Infrastructure\Pos.Infrastructure.csproj" />
     <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
+    <ProjectReference Include="..\..\Modules\Inventory\Pos.Modules.Inventory.Infrastructure\Pos.Modules.Inventory.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

@@ -21,6 +21,7 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** 
 | System.Security.Cryptography.ProtectedData | 10.0.12 | MIT | Secretos de la instalación con DPAPI |
 | NSec.Cryptography *(desde la Fase 3)* | 26.4.0 | MIT | Argon2id para contraseñas y PIN |
 | libsodium (binario nativo incluido en NSec) | 1.0.22 | ISC | Implementación criptográfica de Argon2id |
+| MiniExcel *(desde la Fase 4)* | 1.46.0 | Apache-2.0 | Leer archivos Excel (.xlsx) en las importaciones |
 | Datos DIVIPOLA (DANE, datos.gov.co) | 2026-09-28 | Datos abiertos del Gobierno de Colombia | Catálogo de departamentos y municipios |
 
 ## Solo desarrollo y pruebas (no se distribuyen)
