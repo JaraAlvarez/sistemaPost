@@ -240,6 +240,11 @@ public class SalesSchemaTests(PostgresFixture postgres)
         (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", rule: "2, 2, NULL, NULL, NULL"))).ShouldBe("ck_promotions__rule");
         (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", "PERCENT_OFF", "NULL, NULL, NULL, 120, NULL"))).ShouldBe("ck_promotions__rule");
         (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", "QUANTITY_PRICE", "NULL, NULL, 5000, NULL, 0"))).ShouldBe("ck_promotions__rule");
+
+        // V020: un parámetro nulo no pasa la regla (un CHECK que da NULL no falla).
+        (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", rule: "3, NULL, NULL, NULL, NULL"))).ShouldBe("ck_promotions__rule");
+        (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", "PERCENT_OFF", "NULL, NULL, NULL, NULL, NULL"))).ShouldBe("ck_promotions__rule");
+        (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", "QUANTITY_PRICE", "NULL, NULL, 5000, NULL, NULL"))).ShouldBe("ck_promotions__rule");
         (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", days: 0))).ShouldBe("ck_promotions__days");
         (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", days: 128))).ShouldBe("ck_promotions__days");
         (await Violation(Promotion(Guid.CreateVersion7().ToString(), "P-1", hours: "'08:00', NULL"))).ShouldBe("ck_promotions__hours");
