@@ -18,8 +18,8 @@
 | Comprobante interno por venta; `IFiscalProvider` listo para 11-B | ✅ | `INTERNAL_RECEIPT` / `NOT_REQUIRED` por venta; `FiscalDocumentTests`; `NullFiscalProvider` registrado |
 | Cierre de caja bloqueado con ventas abiertas o suspendidas | ✅ | `start-closing` → `409 CASH.OPEN_SALES` hasta resolverlas |
 | Agente de caja: tiquete ESC/POS, cajón y página de prueba | ✅ (transporte de archivo) | `Pos.Printing.UnitTests` (bytes ESC/POS exactos, líneas ≤ 42 columnas) y `Pos.Terminal.Agent.Tests` (API, transportes, protección local); impresora real cuando llegue el hardware |
-| "Día de operación" de 500 ventas cuadra al centavo; metas de rendimiento | {{PRUEBAS}} | {{PRUEBAS}} |
-| Permisos en todos los endpoints; auditoría; `build.ps1` en verde; cobertura de los dominios nuevos ≥ 90 % | {{PRUEBAS}} | Ver §3 |
+| "Día de operación" de 500 ventas cuadra al centavo; metas de rendimiento | ✅ | `DayOfOperationTests`: Multicaja, 3 cajas y 3 cajeras, 500 ventas en paralelo con anulaciones y cambios; la última unidad la gana una sola caja; cierres con diferencia 0, Σ ventas por medio = Σ caja por medio y verificación de inventario sin diferencias; p95 de cobrar ≈ 190 ms |
+| Permisos en todos los endpoints; auditoría; `build.ps1` en verde; cobertura de los dominios nuevos ≥ 90 % | ✅ | `EndpointProtectionTests` con los prefijos nuevos; `build.ps1` en verde con 770 pruebas; ver §3 |
 | Docs 04, 05 y 08, ADRs e informe | ✅ | ADR-0030 a 0036; notas de implementación en 04, 05 y 08; `http/fase-07.http` |
 
 ## 2. Qué se construyó
@@ -54,25 +54,25 @@ de caja** además autoriza descuentos, precios abiertos, cancelaciones, anulacio
 
 | Proyecto | Pruebas | Qué cubre |
 |---|---|---|
-| Pos.ArchitectureTests | {{PRUEBAS}} | R1–R8 con los ensamblados de ventas, promociones, facturación y `Pos.Printing` |
-| Pos.Database.Tests | {{PRUEBAS}} | {{PRUEBAS}} |
-| Pos.Modules.Sales.UnitTests *(nuevo)* | {{PRUEBAS}} | `SaleCalculator` (cada tipo de promoción, la más favorable sin acumular, descuentos, prorrateo, impuestos incluidos y fijos, propiedad Σ líneas = total), `PaymentAllocator`, estados de `Sale`, crédito de `CustomerReturn` |
-| Pos.Modules.Promotions.UnitTests *(nuevo)* | {{PRUEBAS}} | Validación por tipo (combo sin productos repetidos), vigencia, días, horario nocturno, sucursales, transiciones |
-| Pos.Modules.Billing.UnitTests *(nuevo)* | {{PRUEBAS}} | Comprobante interno, anulación, eventos, estados del documento electrónico |
-| Pos.Printing.UnitTests *(nuevo)* | {{PRUEBAS}} | Bytes ESC/POS exactos, diseño a 42/32 columnas, JSON polimórfico del tiquete |
-| Pos.Terminal.Agent.Tests *(nuevo)* | {{PRUEBAS}} | API local (loopback, `Host`, orígenes, CORS/PNA, límites), configuración de la impresora, transportes |
-| Pos.Server.IntegrationTests | {{PRUEBAS}} | + escenarios de la Fase 7 (`Phase7/`: venta completa, existencias y vencidos, suspender/cancelar/cierre, anulación, cambio y garantía, promociones) |
-| Demás proyectos | {{PRUEBAS}} | Sin cambios de la Fase 6 |
-| **Total** | **{{PRUEBAS}}** | Fase 6: 481 |
+| Pos.ArchitectureTests | 21 | R1–R8 con los ensamblados de ventas, promociones, facturación y `Pos.Printing` |
+| Pos.Database.Tests | 64 | + `SalesSchemaTests`: número por caja, una venta abierta por caja, pagado − cambio = total, cambio en borrador único, eventos fiscales de solo inserción, reglas de promociones (V020), impresora por caja |
+| Pos.Modules.Sales.UnitTests *(nuevo)* | 63 | `SaleCalculator` (cada tipo de promoción, la más favorable sin acumular, descuentos, prorrateo, impuestos incluidos y fijos, propiedad Σ líneas = total), `PaymentAllocator`, estados de `Sale`, crédito de `CustomerReturn` |
+| Pos.Modules.Promotions.UnitTests *(nuevo)* | 93 | Validación por tipo (combo sin productos repetidos), vigencia, días, horario nocturno, sucursales, transiciones |
+| Pos.Modules.Billing.UnitTests *(nuevo)* | 12 | Comprobante interno, anulación, eventos, estados del documento electrónico |
+| Pos.Printing.UnitTests *(nuevo)* | 52 | Bytes ESC/POS exactos, diseño a 42/32 columnas, JSON polimórfico del tiquete |
+| Pos.Terminal.Agent.Tests *(nuevo)* | 40 | API local (loopback, `Host`, orígenes, CORS/PNA, límites), configuración de la impresora, transportes |
+| Pos.Server.IntegrationTests | 114 | + escenarios de la Fase 7 (`Phase7/`: venta completa, existencias y vencidos, suspender/cancelar/cierre, anulación, cambio y garantía, promociones, día de operación); las pruebas de rendimiento y de carga corren solas al final (colección sin paralelismo) |
+| Demás proyectos | 311 | Sin cambios de la Fase 6, salvo `TerminalDeviceTests` (impresora por caja) en Organization |
+| **Total** | **770** | Fase 6: 481 |
 
 Cobertura de líneas (combinada entre proyectos):
 
 | Ensamblado | Cobertura | Mínimo |
 |---|---|---|
-| Pos.Modules.Sales.Domain | {{PRUEBAS}} | 90 % |
-| Pos.Modules.Promotions.Domain | {{PRUEBAS}} | 90 % |
-| Pos.Modules.Billing.Domain | {{PRUEBAS}} | 90 % |
-| Pos.Printing | {{PRUEBAS}} | 90 % |
+| Pos.Modules.Sales.Domain | 100 % | 90 % |
+| Pos.Modules.Promotions.Domain | 100 % | 90 % |
+| Pos.Modules.Billing.Domain | 100 % | 90 % |
+| Pos.Printing | 100 % | 90 % |
 
 ## 4. Decisiones y desviaciones respecto de la propuesta (y por qué)
 
@@ -92,6 +92,7 @@ Cobertura de líneas (combinada entre proyectos):
 | 12 | Servicio de Windows instalado | Aún **no** hay script de instalación del servicio | Llega con el instalador; hoy se registra a mano |
 | 13 | Reintegro de dinero | Solo la excepción de garantía del propietario (`sales.refund.warranty`) | Resolución §15.2 |
 | 14 | Periféricos por defecto al arrancar | Sin fila en `org.terminal_devices` la caja usa los valores por defecto (archivo, 80 mm, PC850) | No hace falta sembrar filas por caja |
+| 15 | Regla de promociones en la BD (V016) | **V020**: cada tipo exige sus parámetros no nulos | Un CHECK que da NULL no falla: `QUANTITY_PRICE` sin cantidad mínima se insertaba |
 
 ## 5. Limitaciones conocidas y pendiente
 
@@ -99,7 +100,8 @@ Cobertura de líneas (combinada entre proyectos):
 2. **Interfaz de caja** definitiva: Fase 15 (hoy, consola de prueba y API).
 3. **Impresora real**: validar con la página de prueba cuando llegue el hardware; **script de instalación** del agente como servicio.
 4. **Caja autónoma** sin servidor: fase posterior (el motor puro ya es reutilizable).
-5. {{PRUEBAS}}
+5. **Restricciones que hoy garantiza solo la aplicación**: la BD no verifica que la suma de los pagos coincida con `paid_total`/`change_total` de la venta; "cambio solo en efectivo" se liga en la BD a `affects_cash_drawer`. La regla de promociones con valores nulos sí se cerró en la BD (V020).
+6. **`GET /organization/terminals/{id}/receipt-printer`** solo exige sesión (la interfaz de caja lo lee para entregárselo al agente): cualquier usuario con sesión ve la configuración de la impresora de cualquier caja. Revisar si se limita en la Fase 15.
 
 ## 6. Cómo probarlo
 
