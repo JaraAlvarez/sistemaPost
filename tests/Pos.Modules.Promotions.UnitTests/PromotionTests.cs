@@ -189,6 +189,9 @@ public class PromotionTests
         var rule = new PromotionRuleInput(null, null, 9_900m, null, null);
         Promotion.Create(Guid.NewGuid(), Company, "N", Input(PromotionType.Combo, rule, [Product(), Product()]), Guid.NewGuid).IsSuccess.ShouldBeTrue();
         Promotion.Create(Guid.NewGuid(), Company, "N", Input(PromotionType.Combo, rule, [Product()]), Guid.NewGuid).Error.ShouldBe(PromotionErrors.InvalidRule);
+        var repeated = Product();
+        Promotion.Create(Guid.NewGuid(), Company, "N", Input(PromotionType.Combo, rule, [repeated, repeated with { Quantity = 2m }]), Guid.NewGuid)
+            .Error.ShouldBe(PromotionErrors.InvalidRule);
         var withCategory = new PromotionItemInput(null, null, Guid.NewGuid(), null);
         Promotion.Create(Guid.NewGuid(), Company, "N", Input(PromotionType.Combo, rule, [Product(), withCategory]), Guid.NewGuid)
             .Error.ShouldBe(PromotionErrors.InvalidRule);

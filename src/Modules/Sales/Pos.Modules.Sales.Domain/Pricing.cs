@@ -193,8 +193,16 @@ public static class SaleCalculator
     private static (decimal Base, IReadOnlyList<PricedTax> Taxes, decimal Total) Taxes(PricingLine line, decimal net)
     {
         var baseQuantity = line.BaseQuantity;
-        var fixedTaxes = line.Taxes.Where(t => t.Rate is null && t.FixedAmount is not null)
-            .Select(t => (Tax: t, Amount: Rounding.RoundMoney(t.FixedAmount!.Value * baseQuantity))).ToList();
+        // Con impuestos incluidos, el impuesto fijo no puede superar lo cobrado (p. ej. descuento del 100 %): la base nunca es negativa.
+        var remaining = line.PriceIncludesTax ? Math.Max(0m, net) : decimal.MaxValue;
+        var fixedTaxes = new List<(PricingTax Tax, decimal Amount)>();
+        foreach (var tax in line.Taxes.Where(t => t.Rate is null && t.FixedAmount is not null))
+        {
+            var amount = Math.Min(Rounding.RoundMoney(tax.FixedAmount!.Value * baseQuantity), remaining);
+            remaining -= amount;
+            fixedTaxes.Add((tax, amount));
+        }
+
         var percentTaxes = line.Taxes.Where(t => t.Rate is not null).ToList();
         var fixedTotal = fixedTaxes.Sum(t => t.Amount);
         var rateTotal = percentTaxes.Sum(t => t.Rate!.Value);

@@ -111,7 +111,7 @@ public static class PromotionErrors
 
     public static readonly Error InvalidRule = Error.Validation(
         "PROMOTIONS.INVALID_RULE",
-        "Parámetros inválidos para el tipo: lleve N pague M (N > M ≥ 0), precio mayor que cero, porcentaje de 0,01 a 100, cantidad mínima mayor que cero o combo con dos o más componentes.");
+        "Parámetros inválidos para el tipo: lleve N pague M (N > M ≥ 0), precio mayor que cero, porcentaje de 0,01 a 100, cantidad mínima mayor que cero o combo con dos o más productos distintos (la cantidad de cada uno va en el componente).");
 
     public static readonly Error NotEditable = Error.BusinessRule(
         "PROMOTIONS.NOT_EDITABLE", "Una promoción activa no se edita: páusela o termínela y cree otra (RN-PRM-04).");
@@ -328,7 +328,8 @@ public sealed class Promotion : AggregateRoot<Guid>, ICompanyOwned, ISyncVersion
         PromotionType.SpecialPrice => rule.Price is > 0m && decimal.Round(rule.Price.Value, 2) == rule.Price,
         PromotionType.PercentOff => rule.Percent is > 0m and <= 100m && decimal.Round(rule.Percent.Value, 2) == rule.Percent,
         PromotionType.QuantityPrice => rule.Price is > 0m && decimal.Round(rule.Price.Value, 2) == rule.Price && rule.MinQuantity is > 0m,
-        PromotionType.Combo => rule.Price is > 0m && decimal.Round(rule.Price.Value, 2) == rule.Price && items.Count >= 2 && items.All(i => i.ProductId is not null),
+        PromotionType.Combo => rule.Price is > 0m && decimal.Round(rule.Price.Value, 2) == rule.Price && items.Count >= 2 && items.All(i => i.ProductId is not null)
+            && items.Select(i => i.ProductId).Distinct().Count() == items.Count,
         _ => false,
     };
 }

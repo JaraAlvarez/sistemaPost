@@ -67,6 +67,22 @@ public class SaleCalculatorTests
     }
 
     [Fact]
+    public void Con_descuento_total_el_impuesto_fijo_no_supera_lo_cobrado_y_la_base_no_es_negativa()
+    {
+        var line = SaleCalculator.Calculate([Line(3, 1_000m, taxes: [Iva19, Bolsa], discount: new ManualDiscount(100m, null))], []).Lines.Single();
+
+        line.Total.ShouldBe(0m);
+        line.Base.ShouldBe(0m);
+        line.TaxTotal.ShouldBe(0m);
+
+        // Descuento que deja el neto por debajo del impuesto fijo (3 × 66 = 198): el impuesto se limita a lo cobrado.
+        var partial = SaleCalculator.Calculate([Line(3, 1_000m, taxes: [Iva19, Bolsa], discount: new ManualDiscount(null, 2_900m))], []).Lines.Single();
+        partial.Total.ShouldBe(100m);
+        partial.Base.ShouldBe(0m);
+        partial.Taxes.Single(t => t.Code == "INC_BOLSA").Amount.ShouldBe(100m);
+    }
+
+    [Fact]
     public void Impuesto_fijo_con_presentacion_usa_las_unidades_base()
     {
         var line = SaleCalculator.Calculate([Line(2, 6_000m, packaging: Sixpack, factor: 6m, includesTax: false, taxes: [Bolsa])], []).Lines.Single();
