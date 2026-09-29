@@ -1,0 +1,369 @@
+# Fase 12-A · Servidor de licencias en la nube: API interna (/admin) y API del POS (/v1) (sin el portal web)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: levantar el despliegue local (docs/despliegue-nube.md §13): la aplicación queda en http://127.0.0.1:8089 (HTTP, sin Caddy).
+# Primer superadministrador (imprime una contraseña TEMPORAL):
+#   docker compose -p pos-cloud-local -f docker-compose.yml -f docker-compose.local.yml --env-file .env.local \
+#     exec app dotnet /app/Pos.Cloud.Host.dll create-superadmin --email admin@example.com --name "Administrador"
+# El portal web está en https://licencias.localhost:8443/cuenta/ingresar (la cookie __Host- exige HTTPS). La API interna usa el
+# token Bearer de /admin/auth y funciona también por HTTP en local.
+#
+# Errores: ProblemDetails con "code" estable (LICENSE.* en /v1; LICENSING.*, PORTAL.*, AUTH.* en /admin). Límites: /v1 60 peticiones
+# por minuto por IP y 120 por hora por licencia (429 LICENSE.TOO_MANY_REQUESTS); /admin/auth 10 intentos por minuto por IP.
+# Sin clave de firma cargada, /v1 responde 503 LICENSE.SIGNING_UNAVAILABLE.
+
+@host = http://127.0.0.1:8089
+@email = admin@example.com
+
+### 0. Salud (proceso + BD + firma) y claves públicas de confianza (JWK OKP Ed25519: ACTIVE, STANDBY y RETIRED)
+GET {{host}}/health
+
+###
+GET {{host}}/v1/public-keys
+
+### ─────────────────────────── API interna: acceso con contraseña + TOTP ───────────────────────────
+
+### 1. Paso 1: correo y contraseña → token PENDIENTE y "stage": TOTP_REQUIRED o ENROLLMENT_REQUIRED (primer ingreso)
+# @name login
+POST {{host}}/admin/auth/login
+Content-Type: application/json
+
+{ "email": "{{email}}", "password": "<contraseña temporal o actual>" }
+
+@pending = {{login.response.body.token}}
+
+### 1.1 Solo si "stage" = ENROLLMENT_REQUIRED: secreto Base32 y enlace otpauth:// para el autenticador (cada llamada genera otro)
+POST {{host}}/admin/auth/totp/enrollment
+Content-Type: application/json
+
+{ "token": "{{pending}}" }
+
+### 2. Paso 2: código de 6 dígitos del autenticador → token de sesión (Bearer). Un código no sirve dos veces; los fallos bloquean.
+# @name session
+POST {{host}}/admin/auth/totp
+Content-Type: application/json
+
+{ "token": "{{pending}}", "code": "123456" }
+
+@token = {{session.response.body.token}}
+
+### 3. Mi cuenta (permisos, "mustChangePassword") y sesiones
+GET {{host}}/admin/auth/me
+Authorization: Bearer {{token}}
+
+### 3.1 Cambiar la contraseña temporal (obligatorio antes de usar el portal web)
+POST {{host}}/admin/auth/password
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "currentPassword": "<contraseña temporal>", "newPassword": "Licencias-Seguras-2026" }
+
+### ─────────────────────────── Clientes, empresas, suscripciones y claves ───────────────────────────
+
+### 4. Tablero: conteos, vencen en 7/15/30 días, en gracia, suspendidas, vencidas, sin check-in
+GET {{host}}/admin/dashboard
+Authorization: Bearer {{token}}
+
+### 5. Cuenta (cliente directo). Kind: DIRECT o RESELLER. El NIT de la cuenta es opcional.
+# @name account
+POST {{host}}/admin/accounts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Supermercados La Economía", "kind": "DIRECT", "nit": null, "nitCheckDigit": null,
+  "contactName": "Ana Gómez", "contactEmail": "ana@laeconomia.co", "contactPhone": "3001234567", "parentAccountId": null, "notes": null
+}
+
+@accountId = {{account.response.body.$}}
+
+###
+GET {{host}}/admin/accounts?search=Econom
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/admin/accounts/{{accountId}}
+Authorization: Bearer {{token}}
+
+### 5.1 Editar (cuerpo: { account, isActive })
+PUT {{host}}/admin/accounts/{{accountId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "account": { "name": "Supermercados La Economía", "kind": "DIRECT", "nit": null, "nitCheckDigit": null, "contactName": "Ana Gómez",
+               "contactEmail": "ana@laeconomia.co", "contactPhone": "3001234567", "parentAccountId": null, "notes": "Cliente desde 2026" },
+  "isActive": true
+}
+
+### 6. Empresa licenciada: NIT con DV (único; DV incorrecto → 400). 900123456 → DV 8
+# @name organization
+POST {{host}}/admin/organizations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "accountId": "{{accountId}}", "legalName": "La Economía SAS", "nit": "900123456", "nitCheckDigit": "8", "city": "Bogotá" }
+
+@organizationId = {{organization.response.body.$}}
+
+###
+GET {{host}}/admin/organizations?accountId={{accountId}}
+Authorization: Bearer {{token}}
+
+### 6.1 Ficha: suscripción, eventos, licencias, instalaciones, equipos, activaciones y check-ins recientes
+GET {{host}}/admin/organizations/{{organizationId}}
+Authorization: Bearer {{token}}
+
+###
+PUT {{host}}/admin/organizations/{{organizationId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "legalName": "La Economía SAS", "city": "Chía", "isActive": true }
+
+### 7. Suscripción. Edition: SINGLE (Caja Única) o MULTI (Multicaja); billingPeriod: MONTHLY o ANNUAL.
+###    De prueba: "trial": true (trialDays opcional; por defecto 30). Pagada: "trial": false con paymentReference y periods.
+# @name subscription
+POST {{host}}/admin/subscriptions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "organizationId": "{{organizationId}}", "edition": "MULTI", "billingPeriod": "MONTHLY", "trial": true, "trialDays": null }
+
+@subscriptionId = {{subscription.response.body.$}}
+
+### 7.1 Lista (filtro opcional por estado: TRIAL, ACTIVE, PAST_DUE, SUSPENDED, CANCELLED, EXPIRED)
+GET {{host}}/admin/subscriptions?status=TRIAL
+Authorization: Bearer {{token}}
+
+### 8. Generar la clave de la empresa: se muestra UNA sola vez ("key"). Una licencia vigente por empresa.
+###    maxInstallations: null = sin límite de sucursales.
+# @name license
+POST {{host}}/admin/licenses
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "organizationId": "{{organizationId}}", "maxInstallations": null }
+
+@licenseId = {{license.response.body.licenseId}}
+@licenseKey = {{license.response.body.key}}
+
+### ─────────────────────────── API del POS (lo que hará el POS en 12-B; hoy, también el simulador) ───────────────────────────
+# Huella: fp1.<placa>.<disco>.<máquina>, hashes de 32 hexadecimales (solo hashes, nunca los seriales). Tolerancia 2 de 3.
+# Simulador equivalente: dotnet run --project tools/Pos.License.Simulator -- activate --server {{host}} --key <clave> --nit 900123456-8
+
+@installationId = 0192f000-0000-7000-8000-00000000a001
+@fingerprint = fp1.0a1b2c3d4e5f60718293a4b5c6d7e8f9.1b2c3d4e5f60718293a4b5c6d7e8f90a.2c3d4e5f60718293a4b5c6d7e8f90a1b
+
+### 9. Activación (servidor de tienda de una Multicaja). Repetirla en el mismo equipo es idempotente.
+###    Errores: LICENSE.KEY_INVALID, KEY_FORMAT_INVALID, NIT_MISMATCH, EDITION_MISMATCH (Caja Única con STORE_SERVER),
+###    INSTALLATIONS_EXCEEDED, SUBSCRIPTION_INACTIVE, INSTALLATION_ACTIVE_ON_OTHER_DEVICE, FINGERPRINT_INVALID.
+# @name activation
+POST {{host}}/v1/activations
+Content-Type: application/json
+
+{
+  "licenseKey": "{{licenseKey}}",
+  "installationId": "{{installationId}}",
+  "fingerprint": "{{fingerprint}}",
+  "deviceRole": "STORE_SERVER",
+  "appVersion": "1.0.0",
+  "organizationNit": "900123456-8",
+  "branchName": "Sede principal",
+  "deviceName": "SERVIDOR-TIENDA",
+  "operatingSystem": "Windows 11 Pro"
+}
+
+@licenseToken = {{activation.response.body.token}}
+
+### 10. Check-in diario: token (aunque haya vencido) + huella actual → token renovado con el estado de la suscripción y mensajes
+# @name checkin
+POST {{host}}/v1/checkins
+Content-Type: application/json
+
+{ "token": "{{licenseToken}}", "fingerprint": "{{fingerprint}}", "appVersion": "1.0.0", "activeTerminals": 3, "reportedClock": "{{$datetime iso8601}}" }
+
+### 10.1 Cambió el disco (2 de 3 coinciden) → sigue aceptado
+POST {{host}}/v1/checkins
+Content-Type: application/json
+
+{ "token": "{{licenseToken}}", "fingerprint": "fp1.0a1b2c3d4e5f60718293a4b5c6d7e8f9.ffffffffffffffffffffffffffffffff.2c3d4e5f60718293a4b5c6d7e8f90a1b", "appVersion": "1.0.0", "activeTerminals": 3, "reportedClock": "{{$datetime iso8601}}" }
+
+### 10.2 Otro PC (solo 1 de 3) → 409 LICENSE.REACTIVATION_REQUIRED (el rechazo queda registrado en los check-ins)
+POST {{host}}/v1/checkins
+Content-Type: application/json
+
+{ "token": "{{licenseToken}}", "fingerprint": "fp1.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.ffffffffffffffffffffffffffffffff.2c3d4e5f60718293a4b5c6d7e8f90a1b", "appVersion": "1.0.0", "activeTerminals": 1, "reportedClock": "{{$datetime iso8601}}" }
+
+### ─────────────────────────── Ciclo de la suscripción (se refleja en el siguiente check-in) ───────────────────────────
+
+### 11. Suspender (motivo obligatorio) → el siguiente check-in trae "subscriptionStatus": "SUSPENDED" y el mensaje SUBSCRIPTION_SUSPENDED
+POST {{host}}/admin/subscriptions/{{subscriptionId}}/suspend
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Pago pendiente de septiembre" }
+
+###
+POST {{host}}/v1/checkins
+Content-Type: application/json
+
+{ "token": "{{licenseToken}}", "fingerprint": "{{fingerprint}}", "appVersion": "1.0.0", "activeTerminals": 3, "reportedClock": "{{$datetime iso8601}}" }
+
+### 11.1 Reactivar (Soporte también puede)
+POST {{host}}/admin/subscriptions/{{subscriptionId}}/reactivate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Pago recibido" }
+
+### 11.2 Renovar: registra el pago y extiende "periods" periodos → ACTIVE con el nuevo valid_until
+POST {{host}}/admin/subscriptions/{{subscriptionId}}/renew
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "paymentReference": "TRANSFERENCIA-2026-0931", "periods": 1 }
+
+### 11.3 Extender la gracia (días adicionales; Soporte también puede)
+POST {{host}}/admin/subscriptions/{{subscriptionId}}/extend-grace
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "days": 5, "reason": "Acuerdo de pago" }
+
+### 11.4 Cambiar la edición (SINGLE o MULTI)
+POST {{host}}/admin/subscriptions/{{subscriptionId}}/change-edition
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "edition": "MULTI", "reason": "Abre una segunda caja" }
+
+### 11.5 Cancelar: también REVOCA la licencia vigente (el siguiente check-in recibe LICENSE.REVOKED). Ejecutar al final.
+# POST {{host}}/admin/subscriptions/{{subscriptionId}}/cancel
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+#
+# { "reason": "El cliente cerró el negocio" }
+
+### ─────────────────────────── Licencias, instalaciones y equipos ───────────────────────────
+
+### 12. Máximo de instalaciones (sucursales); null = sin límite
+PUT {{host}}/admin/licenses/{{licenseId}}/max-installations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "maxInstallations": 5 }
+
+### 13. Instalaciones con sus equipos y activaciones (filtros opcionales organizationId y search)
+# @name installations
+GET {{host}}/admin/installations?organizationId={{organizationId}}
+Authorization: Bearer {{token}}
+
+@activationId = {{installations.response.body.$[0].activations[0].id}}
+
+### 13.1 Liberar el equipo (cambio de PC): la sucursal activa el nuevo equipo con la misma clave
+POST {{host}}/admin/activations/{{activationId}}/release
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Cambio de computador del servidor" }
+
+### 13.2 Activar de nuevo (mismo installationId, equipo nuevo)
+# @name reactivation
+POST {{host}}/v1/activations
+Content-Type: application/json
+
+{
+  "licenseKey": "{{licenseKey}}", "installationId": "{{installationId}}",
+  "fingerprint": "fp1.3d4e5f60718293a4b5c6d7e8f90a1b2c.4e5f60718293a4b5c6d7e8f90a1b2c3d.5f60718293a4b5c6d7e8f90a1b2c3d4e",
+  "deviceRole": "STORE_SERVER", "appVersion": "1.0.0", "organizationNit": "900123456-8", "branchName": "Sede principal", "deviceName": "SERVIDOR-NUEVO"
+}
+
+@newToken = {{reactivation.response.body.token}}
+
+### 13.3 Liberación desde el propio POS (token + huella del equipo) → 204
+POST {{host}}/v1/deactivations
+Content-Type: application/json
+
+{ "token": "{{newToken}}", "fingerprint": "fp1.3d4e5f60718293a4b5c6d7e8f90a1b2c.4e5f60718293a4b5c6d7e8f90a1b2c3d.5f60718293a4b5c6d7e8f90a1b2c3d4e", "reason": "Formateo del equipo" }
+
+### 14. Regenerar la clave (revoca la anterior; las instalaciones pasan a la nueva al activarse con ella). Nueva "key" una sola vez.
+POST {{host}}/admin/licenses/{{licenseId}}/regenerate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "El cliente perdió la clave" }
+
+### 14.1 Revocar sin reemplazo (check-in → LICENSE.REVOKED). Ejecutar al final.
+# POST {{host}}/admin/licenses/{{licenseId}}/revoke
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+#
+# { "reason": "Uso indebido" }
+
+### 15. Claves de firma (estado, kid y si es la cargada en el servidor). Publicar una reserva y revocar: portal o consola.
+GET {{host}}/admin/signing-keys
+Authorization: Bearer {{token}}
+
+### ─────────────────────────── Usuarios del portal y sesiones (solo superadministrador) ───────────────────────────
+
+### 16. Crear usuario (role: SUPERADMIN o SUPPORT; RESELLER existe pero sin permisos en 12-A). Devuelve la contraseña temporal.
+# @name user
+POST {{host}}/admin/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "email": "soporte@example.com", "displayName": "Soporte 1", "role": "SUPPORT", "resellerAccountId": null }
+
+@userId = {{user.response.body.userId}}
+
+###
+GET {{host}}/admin/users
+Authorization: Bearer {{token}}
+
+###
+PUT {{host}}/admin/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "displayName": "Soporte nivel 1", "role": "SUPPORT", "resellerAccountId": null, "isActive": true }
+
+### 16.1 Restablecer la contraseña (nueva temporal), reiniciar el TOTP (obliga a enrolar de nuevo) y desbloquear
+POST {{host}}/admin/users/{{userId}}/reset-password
+Authorization: Bearer {{token}}
+
+###
+POST {{host}}/admin/users/{{userId}}/reset-totp
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Cambió de celular" }
+
+###
+POST {{host}}/admin/users/{{userId}}/unlock
+Authorization: Bearer {{token}}
+
+### 17. Sesiones (filtro opcional userId) y revocar una
+# @name sessions
+GET {{host}}/admin/sessions?userId={{userId}}
+Authorization: Bearer {{token}}
+
+###
+POST {{host}}/admin/sessions/{{sessions.response.body.$[0].id}}/revoke
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "reason": "Equipo perdido" }
+
+### ─────────────────────────── Auditoría ───────────────────────────
+
+### 18. Buscar (from, to, module, action, entityId, text, limit ≤ 200 por defecto)
+GET {{host}}/admin/audit?module=licensing&limit=50
+Authorization: Bearer {{token}}
+
+### 18.1 Verificar filas, sellos y cadena
+GET {{host}}/admin/audit/verify
+Authorization: Bearer {{token}}
+
+### 19. Salir (revoca la sesión del token)
+POST {{host}}/admin/auth/logout
+Authorization: Bearer {{token}}

@@ -1,6 +1,13 @@
 # 09 · Arquitectura de licenciamiento (N)
 
 > Estado: **PROPUESTA — pendiente de aprobación** · El cobro de suscripciones **no** se implementa ahora; solo la arquitectura.
+>
+> **Fase 12-A (servidor y portal en la nube) implementada** ([informe](fases/fase-12a-informe.md), ADR
+> [0037](adr/0037-nube-separada-en-el-mismo-repositorio.md) · [0038](adr/0038-token-ed25519-con-rotacion-por-kid.md) ·
+> [0039](adr/0039-modelo-por-edicion-y-licencia-por-nit.md)). Los **planes por módulos, las *features* y los límites de cajas** de
+> este documento quedaron reemplazados por la **edición** Caja Única / Multicaja (ADR-0015) y una licencia por NIT. Ver las
+> [notas de implementación](#notas-de-implementación-fase-12-a) al final. La parte dentro del POS (estados locales, heartbeat,
+> restricciones) es la Fase 12-B.
 
 ## Objetivos y restricciones
 
@@ -175,3 +182,54 @@ app.MapPost("/api/v1/purchase-orders", ...)
 | Panel interno | CRUD de cuentas, organizaciones, planes, features, suscripciones, renovaciones, suspensiones, cambio de plan |
 
 Cambio de plan / renovación / suspensión → se reflejan en el siguiente heartbeat (máx. 24 h) o de inmediato si el usuario pulsa "verificar licencia".
+
+## Notas de implementación (Fase 12-A)
+
+Implementado en `src/Cloud` (servidor y portal) y `src/Shared/Pos.Licensing.Contracts` (contrato que usará el POS en 12-B). Guía de
+producción: [despliegue-nube.md](despliegue-nube.md). Peticiones de ejemplo: `http/fase-12a.http`.
+
+**Cambios frente a este documento**
+
+| Tema | Aquí (borrador) | Implementado |
+|---|---|---|
+| Qué se vende | Planes con módulos, *features* y límites | **Edición** `SINGLE` (Caja Única) / `MULTI` (Multicaja), sin límite de cajas (ADR-0015, ADR-0039) |
+| Unidad licenciada | Organización/instalación | **Empresa (NIT con DV, único)**: una licencia vigente por empresa; cada sucursal es una **instalación** de esa licencia |
+| Jerarquía | `accounts → organizations → subscriptions → licenses` | `accounts` (DIRECT/RESELLER) → `organizations` → `subscriptions` (+ `subscription_events` de solo inserción) → `licenses` → `installations` → `devices` → `activations` → `checkins` (solo inserción); `signing_keys` |
+| Estados de la suscripción | — | `TRIAL`, `ACTIVE`, `PAST_DUE` (vencida, en gracia), `SUSPENDED`, `CANCELLED`, `EXPIRED` (vencida sin gracia); prueba 30 días ⚙️ y gracia 7 días ⚙️ (`Licensing:TrialDays`, `Licensing:GraceDays`); transiciones por fecha cada hora y en cada activación/check-in |
+| Clave | Clave de licencia | `POS-XXXXX-XXXXX-XXXXX-XXXXX`, alfabeto sin 0/O/1/I, dígito de control Luhn mod 32; en la BD solo el hash SHA-256 y el prefijo; se muestra una vez; regenerar revoca la anterior; cancelar la suscripción revoca la licencia |
+| Huella | Hash de hardware | `fp1.<placa>.<disco>.<máquina>` (hashes de 32 hexadecimales, `-` si falta uno), tolerancia **2 de 3** |
+| Token | JWS/JWT Ed25519 | JWS compacto EdDSA propio, `typ` `pos-license+jws`, `kid` y versión de contenido `ver` = 1; claims `lic`, `org`, `org_name`, `inst`, `dev`, `role`, `edition`, `sub_status`, `iat`, `valid_until`, `grace_days`, `refresh_after` (24 h ⚙️), `msgs` (ADR-0038) |
+| Claves de firma | Una clave | `STANDBY` → `ACTIVE` → `RETIRED`, y `REVOKED`; privada en un PEM montado como secreto; verificación con varias claves por `kid` |
+| API | `GET /v1/licenses/{id}/status` | No existe: el estado viaja en el token de cada check-in. Se agregó `GET /v1/public-keys` (JWK OKP) |
+| Panel interno | CRUD de planes y *features* | Portal Blazor + MudBlazor y API interna `/admin` con los mismos permisos |
+
+**API del POS** (`/v1`, anónima, límite por IP `Cloud:Security:PosApiPermitsPerMinute` = 60/min y por licencia
+`Licensing:RequestsPerLicensePerHour` = 120/h):
+
+| Endpoint | Entrada | Respuesta |
+|---|---|---|
+| `POST /v1/activations` | `ActivationRequest`: clave, `installationId`, huella, rol del equipo, versión, NIT de la empresa, sucursal, equipo, sistema operativo | `200 LicenseTokenResponse` (token, `kid`, estado, `validUntil`, `graceDays`, `refreshAfter`, mensajes) |
+| `POST /v1/checkins` | `CheckinRequest`: último token (aunque haya vencido), huella actual, versión, cajas activas, reloj del equipo | `200 LicenseTokenResponse` con el estado actual; el rechazo también queda en `checkins` |
+| `POST /v1/deactivations` | `DeactivationRequest`: token, huella, motivo | `204` |
+| `GET /v1/public-keys` | — | Claves `ACTIVE`, `STANDBY` y `RETIRED` (las `REVOKED` no se publican) |
+
+Códigos estables (`LicenseErrorCodes`): `LICENSE.KEY_INVALID` (inexistente o revocada, misma respuesta), `KEY_FORMAT_INVALID`,
+`EDITION_MISMATCH`, `INSTALLATIONS_EXCEEDED`, `SUBSCRIPTION_INACTIVE`, `NIT_MISMATCH`, `REACTIVATION_REQUIRED`,
+`INSTALLATION_ACTIVE_ON_OTHER_DEVICE`, `INSTALLATION_OF_OTHER_LICENSE`, `TOKEN_INVALID`, `FINGERPRINT_INVALID`, `REVOKED`,
+`TOO_MANY_REQUESTS` (429) y `SIGNING_UNAVAILABLE` (503). El cuerpo es `ProblemDetails` con `code`.
+
+Mensajes en el token (`msgs`): `TRIAL`, `SUBSCRIPTION_EXPIRING` (7 días antes ⚙️ `Licensing:ExpiryWarningDays`),
+`SUBSCRIPTION_PAST_DUE`, `SUBSCRIPTION_SUSPENDED`, `SUBSCRIPTION_CANCELLED`, `SUBSCRIPTION_EXPIRED` y `UPDATE_AVAILABLE`
+(si `Licensing:LatestPosVersion` es mayor que la versión reportada).
+
+**Portal y API interna** (`/admin`, Bearer o cookie `__Host-` del portal): acceso con contraseña Argon2id + **TOTP obligatorio**
+(`/admin/auth/login` → `/admin/auth/totp/enrollment` en el primer ingreso → `/admin/auth/totp`), bloqueo por intentos, sesiones
+revocables, contraseña temporal que obliga a cambiarla. Roles: `SUPERADMIN` (todo, incluidos usuarios del portal y claves de firma) y
+`SUPPORT` (consulta, reactivar, extender la gracia, liberar equipos, auditoría); `RESELLER` existe en el modelo sin permisos.
+Permisos: `licensing.dashboard.view`, `licensing.data.view`, `licensing.account.manage`, `licensing.subscription.manage`,
+`licensing.subscription.support`, `licensing.license.manage`, `licensing.device.release`, `licensing.signing_key.view`,
+`licensing.signing_key.manage`, `portal.user.manage`, `portal.audit.view`. Toda acción queda en la auditoría encadenada (ADR-0012).
+
+**Qué sigue en 12-B (dentro del POS):** embeber las claves públicas (activa y reserva), activar en el asistente inicial con
+`POST /v1/activations`, check-in diario, estados locales `VALID`/`GRACE`/`RESTRICTED`/`DEMO` con las reglas RN-LIC-01..05 de este
+documento (nunca detener una jornada abierta ni bloquear consultas, reportes, exportación o backup) y detección del reloj atrasado.

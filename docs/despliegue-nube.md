@@ -263,7 +263,9 @@ con ella siguen siendo válidos) · `REVOKED` (comprometida: el POS deja de conf
 **Clave comprometida** (se filtró el archivo o el VPS):
 
 1. Active la reserva como en la rotación planificada (paso 2).
-2. Revoque la clave filtrada: `docker compose exec app dotnet /app/Pos.Cloud.Host.dll revoke-signing-key --kid <kid-filtrado>`.
+2. Revoque la clave filtrada: `docker compose exec app dotnet /app/Pos.Cloud.Host.dll revoke-signing-key --kid <kid-filtrado>`
+   (o desde el portal, en *Claves de firma*). Por consola, el servidor en marcha tarda **hasta 1 minuto** en dejar de aceptar los
+   tokens de esa clave (caché de las claves de confianza); desde el portal se aplica al instante.
 3. Genere y publique una nueva reserva; cambie además las contraseñas de `.env` y revise la auditoría (`verify-audit` y el portal).
 
 ## 12. Recuperación de emergencia
