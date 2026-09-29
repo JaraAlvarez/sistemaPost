@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pruebas contra PostgreSQL 18 real (Testcontainers): migraciones, restricciones, privilegios y concurrencia. Requiere Docker. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Server\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+</Project>

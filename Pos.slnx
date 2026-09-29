@@ -8,9 +8,11 @@
   </Folder>
   <Folder Name="/src/Server/">
     <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />
+    <Project Path="src/Server/Pos.Server.Migrations/Pos.Server.Migrations.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Pos.ArchitectureTests/Pos.ArchitectureTests.csproj" />
+    <Project Path="tests/Pos.Database.Tests/Pos.Database.Tests.csproj" />
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />
