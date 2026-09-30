@@ -1,6 +1,6 @@
 # Fase 11-B · Facturación electrónica con Factus — Propuesta
 
-> Estado: **PROPUESTA** — pendiente de tu revisión y aprobación · 2026-09-29
+> Estado: **APROBADA** · 2026-09-30 — con todas las recomendaciones de la §14 (construir y dejar apagada; Factus; espera de 3 s; factura en cada venta al encender; documento soporte incluido; prueba en el sandbox con tus credenciales). La migración es la V2026.10.032 (la 030 y la 031 ya existían).
 > Requisitos previos: Fases 7 (Billing con comprobante interno y proveedor nulo, ADR-0035), 8 (datos fiscales del cliente en la venta),
 > 10 (auditoría) y 11 (backups) implementadas.
 > Base: plan [12 §S, fase 11-B](../12-plan-riesgos-decisiones.md), doc [08 facturación](../08-pos-caja-facturacion.md), ADR-0013 (número
