@@ -173,6 +173,7 @@ internal sealed class BillingSettingsStore(PosDbContext context) : IBillingSetti
 /// </summary>
 internal sealed class DpapiFiscalCredentialProtector : IFiscalCredentialProtector
 {
+    // Identificador interno estable (anterior al nombre BusinessPost): cambiarlo haría ilegibles las credenciales ya cifradas.
     public const string Purpose = "PosSupermercado.Billing.ProviderCredentials.v1";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
