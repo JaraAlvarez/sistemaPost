@@ -1,11 +1,11 @@
 # Inventario de licencias de terceros
 
-Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** (ISC agregada el 2026-09-28 por decisión del propietario, Fase 3: es equivalente a MIT/BSD-2). **Solo para fuentes tipográficas** se acepta además la **SIL Open Font License 1.1** (2026-09-30, rediseño de la interfaz): permite incluir la fuente en un producto comercial siempre que se distribuya con su `OFL.txt` y no se venda la fuente por separado. Toda dependencia nueva se registra aquí **antes** de agregarse a `Directory.Packages.props`.
+Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** (ISC agregada el 2026-09-28 por decisión del propietario, Fase 3: es equivalente a MIT/BSD-2). Toda dependencia nueva se registra aquí **antes** de agregarse a `Directory.Packages.props`.
 
 **Fuentes tipográficas:** se admite además la **SIL Open Font License 1.1 (OFL-1.1)**, la licencia estándar de las fuentes abiertas: permite
 usar, empaquetar y distribuir la fuente dentro de software comercial sin costo; solo prohíbe vender la fuente sola y exige distribuir el aviso
 de copyright y la licencia junto con ella (`src/Client/Pos.Client/wwwroot/fonts/OFL.txt`). Ver [guía de diseño](guia-diseno.md) §3.
-*Pendiente de tu confirmación: agregar OFL-1.1 (solo fuentes) a la lista de ADR-0006.*
+*Aprobada el 2026-09-30 (rediseño de la interfaz: programa y portal de la nube).*
 
 ## Se distribuyen con el producto
 
