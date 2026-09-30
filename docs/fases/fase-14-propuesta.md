@@ -1,6 +1,6 @@
 # Fase 14 · Endurecimiento y pruebas — Propuesta
 
-> Estado: **PROPUESTA — pendiente de tu aprobación** · 2026-09-29
+> Estado: **APROBADA** (con las recomendaciones de la §9) · 2026-09-29 · [informe](fase-14-informe.md)
 > Requisitos previos: Fases 1 a 13. Las pruebas unitarias, de integración y de arquitectura ya se escriben en cada fase; esta fase
 > **no las repite**.
 > Base:

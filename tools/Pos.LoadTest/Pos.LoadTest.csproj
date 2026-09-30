@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Fase 14 (D14-01, D14-02): prepara una tienda de prueba de tamaño real por la API (productos, existencias, cajas, cajeros, equipos
+       emparejados) y mide a varias cajas vendiendo a la vez con el flujo real (escaneo, cobro, búsqueda, cierre, reportes). Solo HTTP:
+       no depende de los proyectos del servidor, así mide lo mismo que verá una caja. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Pos.LoadTest</RootNamespace>
+    <AssemblyName>Pos.LoadTest</AssemblyName>
+  </PropertyGroup>
+</Project>

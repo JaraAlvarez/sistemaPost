@@ -59,6 +59,16 @@ function Invoke-Step([string] $Title, [scriptblock] $Action) {
 
 Invoke-Step 'Restaurar paquetes' { dotnet restore (Join-Path $root 'Pos.slnx') }
 Invoke-Step "Compilar ($Configuration)" { dotnet build (Join-Path $root 'Pos.slnx') -c $Configuration --no-restore }
+# Fase 14 (D14-06): ninguna dependencia con vulnerabilidades conocidas altas o críticas (consulta los avisos de NuGet).
+Invoke-Step 'Dependencias vulnerables' {
+    $report = dotnet list (Join-Path $root 'Pos.slnx') package --vulnerable --include-transitive 2>&1 | Out-String
+    if ($report -match '(?m)(High|Critical|Alta|Crítica)') {
+        Write-Host $report
+        $global:LASTEXITCODE = 1
+    } else {
+        $global:LASTEXITCODE = 0
+    }
+}
 
 if ($SkipTests) {
     Write-Host 'Pruebas omitidas (-SkipTests).' -ForegroundColor Yellow

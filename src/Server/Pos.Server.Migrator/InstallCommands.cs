@@ -80,7 +80,7 @@ internal static class InstallCommands
             }
 
             await File.AppendAllTextAsync(Path.Combine(pgData, "postgresql.conf"), string.Create(CultureInfo.InvariantCulture,
-                $"\n# {product} (instalador, Fase 13)\nlisten_addresses = 'localhost'\nport = {port}\nmax_connections = 100\n"), cancellationToken);
+                $"\n# {product} (instalador, Fase 13)\nlisten_addresses = 'localhost'\nport = {port}\nmax_connections = 100\n{TuningProfile()}"), cancellationToken);
             await RunAsync("icacls.exe", [pgData, "/grant", "*S-1-5-20:(OI)(CI)F", "/T", "/Q"], cancellationToken); // NETWORK SERVICE
             await RunAsync(Path.Combine(pgBin, "pg_ctl.exe"),
                 ["register", "-N", $"{product}-DB", "-U", @"NT AUTHORITY\NetworkService", "-D", pgData, "-S", "auto", "-w"], cancellationToken);
@@ -94,6 +94,7 @@ internal static class InstallCommands
         }
 
         await EnsureServiceRunningAsync($"{product}-DB", cancellationToken);
+        await RestrictDataRootAsync(dataRoot, pgData, cancellationToken);
         var superuser = Connection(port, "postgres", "postgres", superPassword);
         await WaitReadyAsync(superuser, cancellationToken);
 
@@ -182,6 +183,46 @@ internal static class InstallCommands
 
         Console.WriteLine($"Paquete de soporte: {file} (sin contraseñas ni datos de clientes).");
         return 0;
+    }
+
+    /// <summary>
+    /// Ajustes de PostgreSQL según la memoria del equipo (Fase 14, D14-05): 4, 8 o 16 GB o más. Discos SSD (<c>random_page_cost</c>) y
+    /// autovacuum más frecuente en las tablas grandes (ventas, kardex, auditoría).
+    /// </summary>
+    internal static string TuningProfile(long? totalMemoryBytes = null)
+    {
+        var gb = (totalMemoryBytes ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes) / 1024d / 1024 / 1024;
+        var (shared, cache, work, maintenance) = gb switch
+        {
+            < 6 => ("512MB", "1536MB", "8MB", "128MB"),
+            < 12 => ("1GB", "4GB", "16MB", "256MB"),
+            _ => ("2GB", "8GB", "32MB", "512MB"),
+        };
+        return string.Create(CultureInfo.InvariantCulture, $"""
+            # Perfil por memoria ({gb:0.#} GB), Fase 14
+            shared_buffers = {shared}
+            effective_cache_size = {cache}
+            work_mem = {work}
+            maintenance_work_mem = {maintenance}
+            random_page_cost = 1.1
+            checkpoint_completion_target = 0.9
+            max_wal_size = 2GB
+            wal_compression = on
+            autovacuum_vacuum_scale_factor = 0.05
+            autovacuum_analyze_scale_factor = 0.02
+
+            """);
+    }
+
+    /// <summary>
+    /// La carpeta de datos queda solo para SYSTEM y Administradores (Fase 14, revisión de seguridad): DPAPI de máquina lo puede descifrar
+    /// cualquier programa del equipo, así que <c>server.json</c> se protege también con permisos. PostgreSQL (NETWORK SERVICE) conserva su
+    /// carpeta.
+    /// </summary>
+    private static async Task RestrictDataRootAsync(string dataRoot, string pgData, CancellationToken cancellationToken)
+    {
+        await RunAsync("icacls.exe", [dataRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/Q"], cancellationToken);
+        await RunAsync("icacls.exe", [pgData, "/grant", "*S-1-5-20:(OI)(CI)F", "/T", "/Q"], cancellationToken);
     }
 
     private static void ApplySettings(JsonObject config, IReadOnlyDictionary<string, string> options, string pgBin, string edition)

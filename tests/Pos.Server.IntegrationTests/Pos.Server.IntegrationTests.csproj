@@ -2,6 +2,7 @@
   <!-- Pruebas de la API de punta a punta contra PostgreSQL 18 real (Testcontainers). Requiere Docker. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Server\Pos.Server.Host\Pos.Server.Host.csproj" />
+    <ProjectReference Include="..\..\tools\Pos.LoadTest\Pos.LoadTest.csproj" />
   </ItemGroup>
 
   <ItemGroup>

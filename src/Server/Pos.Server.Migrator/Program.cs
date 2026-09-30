@@ -35,13 +35,16 @@ using Pos.Server.Migrator;
 //                       [--license-server URL] [--update-manifest URL] [--channel stable]
 //                       Instalación (Fase 13): PostgreSQL propio (initdb + servicio), BD, roles con contraseñas aleatorias, migraciones y
 //                       server.json con los secretos en DPAPI. Si ya está instalado, solo migra (reinstalar / reparar).
+//   Pos.Server.Migrator verify-consistency [--connection "<cadena>"]
+//                       Después de una prueba de fallos (Fase 14): ventas completas en inventario y caja, pagos que cuadran, ninguna venta
+//                       abierta en una jornada cerrada, kardex y auditoría. Código 7 si hay inconsistencias.
 //   Pos.Server.Migrator support-bundle [--data-root D] [--output carpeta]
 //                       Paquete de soporte (ZIP): registros, versiones, estado de las migraciones y configuración SIN secretos.
 // Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION y, si no, server.json de la instalación.
 // La carpeta de datos (--data-root) por defecto es POS_DATA_ROOT o %ProgramData%\PosSupermercado.
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
 //                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex,
-//                    6 = falló el backup previo obligatorio.
+//                    6 = falló el backup previo obligatorio, 7 = inconsistencias en verify-consistency.
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole(o => o.SingleLine = true));
 var logger = loggerFactory.CreateLogger<DatabaseMigrator>();
@@ -50,7 +53,7 @@ var appVersion = Assembly.GetExecutingAssembly()
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: install | create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");
+    Console.Error.WriteLine("Comandos: install | create-database | migrate | status | verify | verify-audit | verify-consistency | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");
     return 2;
 }
 
@@ -190,6 +193,8 @@ try
         case "restore":
             return await BackupCommands.RestoreAsync(options, appVersion, migrator, CancellationToken.None);
 
+        case "verify-consistency":
+            return await ConsistencyCommands.VerifyAsync(Connection(options), CancellationToken.None);
         case "install":
             return await InstallCommands.InstallAsync(options, migrator, appVersion, CancellationToken.None);
         case "support-bundle":
