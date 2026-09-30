@@ -167,6 +167,46 @@ internal sealed class PurchasingModelContributor : IModelContributor
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).ValueGeneratedNever();
         });
+
+        // Fase 8 (8.4): agenda, cuentas bancarias y retenciones sugeridas del proveedor.
+        modelBuilder.Entity<SupplierSchedule>(b =>
+        {
+            b.ToTable("supplier_schedules", "purchasing");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Property(x => x.Kind).HasUpperSnakeConversion();
+            b.HasOne<Supplier>().WithMany().HasForeignKey(x => new { x.SupplierId, x.CompanyId })
+                .HasPrincipalKey(x => new { x.Id, x.CompanyId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasControlColumns();
+            b.HasXminConcurrency();
+        });
+
+        modelBuilder.Entity<SupplierBankAccount>(b =>
+        {
+            b.ToTable("supplier_bank_accounts", "purchasing");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Property(x => x.AccountType).HasUpperSnakeConversion();
+            b.Property(x => x.Status).HasUpperSnakeConversion();
+            b.Ignore(x => x.IsActive);
+            b.Ignore(x => x.MaskedNumber);
+            b.HasOne<Supplier>().WithMany().HasForeignKey(x => new { x.SupplierId, x.CompanyId })
+                .HasPrincipalKey(x => new { x.Id, x.CompanyId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasControlColumns();
+            b.HasXminConcurrency();
+        });
+
+        modelBuilder.Entity<SupplierWithholdingDefault>(b =>
+        {
+            b.ToTable("supplier_withholding_defaults", "purchasing");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Property(x => x.Kind).HasUpperSnakeConversion();
+            b.HasOne<Supplier>().WithMany().HasForeignKey(x => new { x.SupplierId, x.CompanyId })
+                .HasPrincipalKey(x => new { x.Id, x.CompanyId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasControlColumns();
+            b.HasXminConcurrency();
+        });
     }
 }
 
@@ -211,6 +251,19 @@ internal sealed class PurchasingStore(PosDbContext context) : IPurchasingStore
 
     public Task<SupplierReturn?> GetReturnAsync(Guid id, CancellationToken cancellationToken) =>
         context.Set<SupplierReturn>().Include(r => r.Lines).SingleOrDefaultAsync(r => r.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<SupplierSchedule>> GetSchedulesAsync(Guid supplierId, CancellationToken cancellationToken) =>
+        await context.Set<SupplierSchedule>().Where(s => s.SupplierId == supplierId).ToListAsync(cancellationToken);
+
+    public void Remove(SupplierSchedule entry) => context.Remove(entry);
+
+    public async Task<IReadOnlyList<SupplierWithholdingDefault>> GetWithholdingDefaultsAsync(Guid supplierId, CancellationToken cancellationToken) =>
+        await context.Set<SupplierWithholdingDefault>().Where(w => w.SupplierId == supplierId).ToListAsync(cancellationToken);
+
+    public void Remove(SupplierWithholdingDefault item) => context.Remove(item);
+
+    public async Task<IReadOnlyList<SupplierBankAccount>> GetBankAccountsAsync(Guid supplierId, CancellationToken cancellationToken) =>
+        await context.Set<SupplierBankAccount>().Where(a => a.SupplierId == supplierId).ToListAsync(cancellationToken);
 }
 
 /// <summary>Restricciones de la BD → errores de negocio legibles.</summary>
@@ -231,6 +284,14 @@ internal sealed class PurchasingConstraintErrors : IConstraintErrorProvider
         ["ck_purchase_lines__quantities"] = PurchasingErrors.ReturnExceedsPurchase,
         ["fk_suppliers__party"] = Error.NotFound("PARTIES.NOT_FOUND", "El tercero no existe."),
         ["ux_accounts_payable__purchase"] = Error.Conflict("PURCHASING.ALREADY_POSTED", "La compra ya fue contabilizada por otro usuario."),
+        ["ux_supplier_schedules__entry"] = PurchasingErrors.InvalidSchedule,
+        ["fk_supplier_schedules__branch"] = Error.NotFound("ORGANIZATION.BRANCH_NOT_FOUND", "La sucursal de la agenda no existe."),
+        ["ux_supplier_withholding_defaults__kind"] = PurchasingErrors.InvalidWithholdingDefault,
+        ["ux_supplier_bank_accounts__number"] = PurchasingErrors.BankAccountDuplicated,
+        ["ex_supplier_bank_accounts__primary"] = Error.Conflict("PURCHASING.BANK_ACCOUNT_PRIMARY", "Otro usuario cambió la cuenta principal del proveedor: intente de nuevo."),
+        ["fk_supplier_bank_accounts__bank"] = PurchasingErrors.BankNotFound,
+        ["fk_supplier_bank_accounts__identification_type"] = Error.Validation(
+            "PURCHASING.INVALID_HOLDER_IDENTIFICATION", "El tipo de identificación del titular no existe (CC, NIT, CE…)."),
     };
 }
 

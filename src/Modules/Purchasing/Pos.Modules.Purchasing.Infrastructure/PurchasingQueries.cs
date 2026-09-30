@@ -120,6 +120,95 @@ internal sealed class PurchasingQueries(PosDbContext context, IInstallationConte
         })];
     }
 
+    public async Task<SupplierActivity> GetSupplierActivityAsync(Guid supplierId, DateOnly from, DateOnly to, CancellationToken cancellationToken)
+    {
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        var row = await connection.QuerySingleAsync<ActivityRow>(new CommandDefinition(
+            """
+            SELECT
+                COALESCE((SELECT SUM(p.total) FROM purchasing.purchases p
+                          WHERE p.supplier_id = @supplierId AND p.status = 'POSTED' AND p.invoice_date BETWEEN @from AND @to), 0) AS PurchasedTotal,
+                (SELECT count(*) FROM purchasing.purchases p
+                 WHERE p.supplier_id = @supplierId AND p.status = 'POSTED' AND p.invoice_date BETWEEN @from AND @to)::int AS PurchaseCount,
+                last.invoice_date AS LastPurchaseDate,
+                last.total AS LastPurchaseTotal,
+                COALESCE((SELECT SUM(r.credit_total) FROM purchasing.supplier_returns r
+                          WHERE r.supplier_id = @supplierId AND r.status IN ('POSTED', 'SETTLED') AND r.business_date BETWEEN @from AND @to), 0) AS ReturnsTotal,
+                (SELECT count(*) FROM purchasing.supplier_returns r
+                 WHERE r.supplier_id = @supplierId AND r.status IN ('POSTED', 'SETTLED') AND r.business_date BETWEEN @from AND @to)::int AS ReturnCount,
+                (SELECT count(*) FROM purchasing.supplier_products sp
+                 JOIN catalog.products c ON c.id = sp.product_id
+                 WHERE sp.supplier_id = @supplierId AND sp.deleted_at IS NULL AND c.deleted_at IS NULL AND c.status = 'ACTIVE')::int AS ActiveProducts
+            FROM (SELECT 1) one
+            LEFT JOIN LATERAL (
+                SELECT p.invoice_date, p.total FROM purchasing.purchases p
+                WHERE p.supplier_id = @supplierId AND p.status = 'POSTED'
+                ORDER BY p.invoice_date DESC, p.posted_at DESC LIMIT 1) last ON true
+            """,
+            new { supplierId, from = from.ToDateTime(TimeOnly.MinValue), to = to.ToDateTime(TimeOnly.MinValue) }, transaction, cancellationToken: cancellationToken));
+        return new SupplierActivity(
+            row.PurchasedTotal, row.PurchaseCount, row.LastPurchaseDate is { } last ? DateOnly.FromDateTime(last) : null, row.LastPurchaseTotal, row.ReturnsTotal,
+            row.ReturnCount, row.ActiveProducts);
+    }
+
+    public async Task<IReadOnlyList<ProductSupplierDto>> ListProductSuppliersAsync(Guid productId, CancellationToken cancellationToken)
+    {
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ProductSupplierRow>(new CommandDefinition(
+            $"""
+            SELECT s.id AS SupplierId, s.code AS SupplierCode, {SupplierName} AS SupplierName, s.status AS SupplierStatus, sp.supplier_code AS SupplierProductCode,
+                   sp.packaging_id AS PackagingId, sp.last_cost AS LastCost, sp.last_purchase_at AS LastPurchaseAt, sp.lead_time_days AS LeadTimeDays,
+                   sp.is_preferred AS IsPreferred
+            FROM purchasing.supplier_products sp
+            JOIN purchasing.suppliers s ON s.id = sp.supplier_id
+            JOIN parties.parties p ON p.id = s.party_id
+            WHERE sp.company_id = @companyId AND sp.product_id = @productId AND sp.deleted_at IS NULL AND s.deleted_at IS NULL
+            """,
+            new { companyId = installation.CompanyId, productId }, transaction, cancellationToken: cancellationToken));
+        return [.. rows.Select(r => new ProductSupplierDto(
+            r.SupplierId, r.SupplierCode, r.SupplierName, r.SupplierStatus, r.SupplierProductCode, r.PackagingId, r.LastCost,
+            r.LastPurchaseAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null, r.LeadTimeDays, r.IsPreferred))];
+    }
+
+    public async Task<IReadOnlyList<CostHistoryEntryDto>> ListCostHistoryAsync(
+        Guid productId, Guid? supplierId, DateOnly? from, DateOnly? to, int limit, CancellationToken cancellationToken)
+    {
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        var rows = await connection.QueryAsync<CostRow>(new CommandDefinition(
+            $"""
+            SELECT d.id AS PurchaseId, d.number AS PurchaseNumber, d.supplier_invoice_number AS SupplierInvoiceNumber, d.invoice_date AS InvoiceDate,
+                   d.supplier_id AS SupplierId, {SupplierName} AS SupplierName, l.packaging_id AS PackagingId, l.factor AS Factor, l.quantity AS Quantity,
+                   l.base_quantity AS BaseQuantity, l.unit_cost AS UnitCost, l.discount_amount AS DiscountAmount, l.net_unit_cost AS NetUnitCost
+            FROM purchasing.purchase_lines l
+            JOIN purchasing.purchases d ON d.id = l.purchase_id
+            JOIN purchasing.suppliers s ON s.id = d.supplier_id
+            JOIN parties.parties p ON p.id = s.party_id
+            WHERE l.product_id = @productId AND d.company_id = @companyId AND d.status = 'POSTED'
+              AND (@supplierId::uuid IS NULL OR d.supplier_id = @supplierId)
+              AND (@from::date IS NULL OR d.invoice_date >= @from)
+              AND (@to::date IS NULL OR d.invoice_date <= @to)
+            ORDER BY d.invoice_date DESC, d.posted_at DESC, l.line_number
+            LIMIT {Math.Clamp(limit, 1, 500)}
+            """,
+            new
+            {
+                productId, companyId = installation.CompanyId, supplierId, from = from?.ToDateTime(TimeOnly.MinValue), to = to?.ToDateTime(TimeOnly.MinValue),
+            },
+            transaction, cancellationToken: cancellationToken));
+        return [.. rows.Select(r => new CostHistoryEntryDto(
+            r.PurchaseId, r.PurchaseNumber, r.SupplierInvoiceNumber, DateOnly.FromDateTime(r.InvoiceDate), r.SupplierId, r.SupplierName, r.PackagingId, r.Factor,
+            r.Quantity, r.BaseQuantity, r.UnitCost, r.DiscountAmount, r.NetUnitCost))];
+    }
+
+    public async Task<IReadOnlyList<BankDto>> ListBanksAsync(bool includeInactive, CancellationToken cancellationToken)
+    {
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        var rows = await connection.QueryAsync<(string Code, string Name)>(new CommandDefinition(
+            "SELECT code, name FROM ref.banks WHERE (@includeInactive OR is_active) ORDER BY sort_order, name",
+            new { includeInactive }, transaction, cancellationToken: cancellationToken));
+        return [.. rows.Select(r => new BankDto(r.Code, r.Name))];
+    }
+
     private async Task<IReadOnlyList<SupplierDto>> QuerySuppliersAsync(Guid? supplierId, string? search, bool includeInactive, CancellationToken cancellationToken)
     {
         var tokens = TextNormalization.ForSearch(search).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -154,6 +243,75 @@ internal sealed class PurchasingQueries(PosDbContext context, IInstallationConte
 
     private static string Escape(string token) =>
         token.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
+
+    private sealed class ActivityRow
+    {
+        public decimal PurchasedTotal { get; set; }
+
+        public int PurchaseCount { get; set; }
+
+        public DateTime? LastPurchaseDate { get; set; }
+
+        public decimal? LastPurchaseTotal { get; set; }
+
+        public decimal ReturnsTotal { get; set; }
+
+        public int ReturnCount { get; set; }
+
+        public int ActiveProducts { get; set; }
+    }
+
+    private sealed class ProductSupplierRow
+    {
+        public Guid SupplierId { get; set; }
+
+        public string SupplierCode { get; set; } = string.Empty;
+
+        public string SupplierName { get; set; } = string.Empty;
+
+        public string SupplierStatus { get; set; } = string.Empty;
+
+        public string? SupplierProductCode { get; set; }
+
+        public Guid? PackagingId { get; set; }
+
+        public decimal? LastCost { get; set; }
+
+        public DateTime? LastPurchaseAt { get; set; }
+
+        public int? LeadTimeDays { get; set; }
+
+        public bool IsPreferred { get; set; }
+    }
+
+    private sealed class CostRow
+    {
+        public Guid PurchaseId { get; set; }
+
+        public string PurchaseNumber { get; set; } = string.Empty;
+
+        public string SupplierInvoiceNumber { get; set; } = string.Empty;
+
+        public DateTime InvoiceDate { get; set; }
+
+        public Guid SupplierId { get; set; }
+
+        public string SupplierName { get; set; } = string.Empty;
+
+        public Guid? PackagingId { get; set; }
+
+        public decimal Factor { get; set; }
+
+        public decimal Quantity { get; set; }
+
+        public decimal BaseQuantity { get; set; }
+
+        public decimal UnitCost { get; set; }
+
+        public decimal DiscountAmount { get; set; }
+
+        public decimal NetUnitCost { get; set; }
+    }
 
     private sealed class DocumentRow
     {

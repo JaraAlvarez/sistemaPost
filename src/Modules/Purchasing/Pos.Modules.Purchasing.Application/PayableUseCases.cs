@@ -179,20 +179,24 @@ internal sealed class RegisterPaymentHandler(
             new AuditEntry("purchasing", "PAYABLE_PAYMENT_POSTED", nameof(PayablePayment), payment.Value.Id, payment.Value.AuditLabel,
                 $"Pago {payment.Value.Number} a proveedor {supplier.Code} por {payment.Value.Amount:N2} ({method.Value.Name}) aplicado a {allocations.Count} factura(s)."),
             cancellationToken);
-        return await PaymentMapping.ToDtoAsync(payment.Value, accounts, queries, cancellationToken);
+        // Fase 8 (RN-PUR-09): si la cuenta principal del proveedor está por verificar, el pago se registra con una advertencia.
+        var warnings = await BankAccountMapping.PaymentWarningsAsync(store, supplier.Id, method.Value.Kind, cancellationToken);
+        return await PaymentMapping.ToDtoAsync(payment.Value, accounts, queries, cancellationToken, warnings);
     }
 }
 
 internal static class PaymentMapping
 {
     public static async Task<PaymentDto> ToDtoAsync(
-        PayablePayment p, IReadOnlyDictionary<Guid, AccountPayable> accounts, IPurchasingQueries queries, CancellationToken cancellationToken)
+        PayablePayment p, IReadOnlyDictionary<Guid, AccountPayable> accounts, IPurchasingQueries queries, CancellationToken cancellationToken,
+        IReadOnlyList<OperationWarningDto>? warnings = null)
     {
         var names = await queries.SupplierNamesAsync([p.SupplierId], cancellationToken);
         return new PaymentDto(
             p.Id, p.Number, p.SupplierId, names.GetValueOrDefault(p.SupplierId) ?? string.Empty, p.PaymentDate, p.PaymentMethodId, p.Reference, p.Amount, p.Status.Db(),
             p.Notes, p.VoidReason, p.CashSessionId,
-            [.. p.Allocations.Select(a => new AllocationDto(a.AccountId, accounts.GetValueOrDefault(a.AccountId)?.DocumentNumber ?? string.Empty, a.Amount))]);
+            [.. p.Allocations.Select(a => new AllocationDto(a.AccountId, accounts.GetValueOrDefault(a.AccountId)?.DocumentNumber ?? string.Empty, a.Amount))],
+            warnings ?? []);
     }
 }
 
