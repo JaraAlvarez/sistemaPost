@@ -1,0 +1,146 @@
+# Fase 8 · Clientes: búsqueda en caja, alta rápida, listas de precio, historial y privacidad (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica las migraciones 021–026) y `dotnet run --project src/Server/Pos.Server.Host`.
+# Se supone la tienda de http/fase-07.http: cajera (código 200, PIN 5937), productos con existencias y la jornada abierta.
+# Las mejoras de proveedores (bloque 8.4) están en http/fase-08-proveedores.http.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. Propietario (backoffice): lista de Empleados −5 % con redondeo a $50 y promociones; lista Mayorista fija sin promociones
+# @name owner
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{owner.response.body.token}}
+
+###
+# @name employees
+POST {{api}}/catalog/price-lists
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "code": "EMPLEADOS", "name": "Empleados", "pricesIncludeTax": true, "adjustmentPercent": -5, "roundingIncrement": 50, "allowsPromotions": true }
+
+###
+POST {{api}}/catalog/price-lists
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "code": "MAYORISTA", "name": "Mayorista", "pricesIncludeTax": true, "allowsPromotions": false }
+
+### 2. Grupo de clientes con su lista
+# @name group
+POST {{api}}/customers/groups
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "code": "EMPLEADOS", "name": "Empleados de la tienda", "priceListId": "{{employees.response.body.id}}" }
+
+### 3. Política de datos: la plantilla sembrada queda pendiente hasta que el propietario la revise y la active
+# @name policies
+GET {{api}}/customers/privacy-policies
+Authorization: Bearer {{ownerToken}}
+
+###
+POST {{api}}/customers/privacy-policies/{{policies.response.body.$[0].id}}/activate
+Authorization: Bearer {{ownerToken}}
+
+### 4. Cajera: buscar por cédula, celular o nombre
+# @name pos
+POST {{api}}/auth/pos-login
+Content-Type: application/json
+
+{ "posCode": "200", "pin": "5937" }
+
+@token = {{pos.response.body.token}}
+
+###
+GET {{api}}/customers/lookup?q=1020304050
+Authorization: Bearer {{token}}
+
+### 5. Alta rápida con la autorización verbal (se lee el aviso corto de la política)
+# @name customer
+POST {{api}}/customers/quick
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "personType": "NATURAL", "identificationType": "CC", "identificationNumber": "1020304050", "firstNames": "Juan", "lastNames": "Pérez Gómez",
+  "phone": "300 123 4567",
+  "consents": [ { "purpose": "Service", "granted": true } ]
+}
+
+@partyId = {{customer.response.body.customer.partyId}}
+
+### 6. Propietario: el cliente al grupo Empleados (la cajera no puede: 403)
+PUT {{api}}/customers/{{partyId}}/pricing
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "groupId": "{{group.response.body.id}}" }
+
+### 7. Venta: al asignar el cliente se re-precian las líneas con su lista; "pide factura" exige correo
+# @name sale
+POST {{api}}/sales
+Authorization: Bearer {{token}}
+
+###
+POST {{api}}/sales/{{sale.response.body.id}}/lines
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "code": "ARROZ-500", "quantity": 1 }
+
+###
+PUT {{api}}/sales/{{sale.response.body.id}}/customer
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "partyId": "{{partyId}}", "invoiceRequested": true }
+
+### 8. Completar el correo que falta (solo campos vacíos) y cobrar
+POST {{api}}/customers/{{partyId}}/complete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "email": "juan@example.com" }
+
+###
+POST {{api}}/sales/{{sale.response.body.id}}/complete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "payments": [ { "paymentMethodId": "<id del efectivo>", "amount": 5000 } ] }
+
+### 9. Historial y resumen (supervisor, contador o administración; requiere la autorización SERVICE del cliente)
+GET {{api}}/customers/{{partyId}}/summary
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/customers/{{partyId}}/history
+Authorization: Bearer {{ownerToken}}
+
+### 10. Privacidad: tablero, solicitud del titular (vence en días hábiles), exportación y supresión
+GET {{api}}/customers/privacy-status
+Authorization: Bearer {{ownerToken}}
+
+###
+POST {{api}}/customers/data-requests
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "partyId": "{{partyId}}", "type": "Query", "channel": "Email", "detail": "Solicita copia de sus datos personales" }
+
+###
+POST {{api}}/customers/{{partyId}}/export
+Authorization: Bearer {{ownerToken}}
+
+###
+POST {{api}}/customers/{{partyId}}/anonymize
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "reason": "Solicitud de supresión del titular" }

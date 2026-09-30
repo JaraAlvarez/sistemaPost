@@ -115,6 +115,7 @@
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Pos.Licensing.Contracts.UnitTests/Pos.Licensing.Contracts.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Catalog.UnitTests/Pos.Modules.Catalog.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Customers.UnitTests/Pos.Modules.Customers.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Expenses.UnitTests/Pos.Modules.Expenses.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Inventory.UnitTests/Pos.Modules.Inventory.UnitTests.csproj" />
