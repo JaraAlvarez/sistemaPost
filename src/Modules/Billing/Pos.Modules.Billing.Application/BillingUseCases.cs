@@ -224,6 +224,7 @@ public static class BillingMapping
         "SALE_VOID" => FiscalSource.SaleVoid,
         "CUSTOMER_RETURN" => FiscalSource.CustomerReturn,
         "PURCHASE" => FiscalSource.Purchase,
+        "PURCHASE_VOID" => FiscalSource.PurchaseVoid,
         _ => throw new ArgumentOutOfRangeException(nameof(source), source, "Origen de documento desconocido."),
     };
 }
@@ -271,9 +272,10 @@ public sealed class BillingService(
         ArgumentNullException.ThrowIfNull(request);
         var companyId = installation.CompanyId!.Value;
         var source = BillingMapping.Source(request.Source);
-        if (source == FiscalSource.Purchase)
+        if (source is FiscalSource.Purchase or FiscalSource.PurchaseVoid)
         {
-            return Error.Validation("BILLING.INVALID_SOURCE", "El documento soporte de una compra se emite con IssueSupportDocumentAsync.");
+            return Error.Validation(
+                "BILLING.INVALID_SOURCE", "El documento soporte de una compra y su nota de ajuste se emiten con IssueSupportDocumentAsync y VoidSupportDocumentAsync.");
         }
 
         FiscalDocument? related = request.RelatedSourceId is { } relatedSource ? await store.GetBySourceAsync(relatedSource, "SALE", cancellationToken) : null;
@@ -356,6 +358,37 @@ public sealed class BillingService(
         store.Add(credit);
         Enqueue(credit);
         return credit.ToInfo();
+    }
+
+    public async Task<Result<FiscalDocumentInfo?>> VoidSupportDocumentAsync(Guid purchaseId, string reason, CancellationToken cancellationToken = default)
+    {
+        var support = await store.GetBySourceAsync(purchaseId, "PURCHASE", cancellationToken);
+        if (support is null)
+        {
+            return Result.Success<FiscalDocumentInfo?>(null);
+        }
+
+        // Aún no aceptado (pendiente, con error, en contingencia o rechazado): se cancela antes de enviarlo; no hay nada que ajustar.
+        if (support.Void(reason, clock.UtcNow, actor.ActorId, ids.NewId))
+        {
+            return support.ToInfo();
+        }
+
+        if (await store.GetBySourceAsync(purchaseId, "PURCHASE_VOID", cancellationToken) is { } existing)
+        {
+            return existing.ToInfo();
+        }
+
+        // Aceptado (o en envío): nota de ajuste de anulación; sale cuando el documento soporte esté aceptado.
+        var note = FiscalDocument.Issue(
+            ids.NewId(), support.CompanyId,
+            new FiscalIssue(
+                FiscalSource.PurchaseVoid, purchaseId, support.SourceNumber, support.BranchId, null, clock.Today, support.BuyerName,
+                support.BuyerIdentificationType, support.BuyerIdentification, support.BuyerEmail, support.Subtotal, support.TaxTotal, support.Total, support.Id),
+            electronic: true, clock.UtcNow, actor.ActorId, ids.NewId);
+        store.Add(note);
+        Enqueue(note);
+        return note.ToInfo();
     }
 
     public async Task<FiscalDocumentInfo?> GetForSourceAsync(Guid sourceId, CancellationToken cancellationToken = default) =>

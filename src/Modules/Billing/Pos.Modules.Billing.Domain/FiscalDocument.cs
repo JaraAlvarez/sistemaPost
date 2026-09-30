@@ -12,6 +12,9 @@ public enum FiscalSource
 
     /// <summary>Compra a un proveedor no obligado a facturar (documento soporte, Fase 11-B).</summary>
     Purchase,
+
+    /// <summary>Anulación de una compra cuyo documento soporte ya fue aceptado (nota de ajuste al documento soporte).</summary>
+    PurchaseVoid,
 }
 
 public enum FiscalDocumentType
@@ -29,6 +32,9 @@ public enum FiscalDocumentType
 
     /// <summary>Documento soporte de adquisiciones a no obligados a facturar.</summary>
     SupportDocument,
+
+    /// <summary>Nota de ajuste al documento soporte (anulación de la compra; rango de Factus "25").</summary>
+    AdjustmentNote,
 }
 
 public enum FiscalStatus
@@ -95,6 +101,7 @@ public static class FiscalReference
         FiscalSource.SaleVoid => "NCA" + sourceId.ToString("N"),
         FiscalSource.CustomerReturn => "NCD" + sourceId.ToString("N"),
         FiscalSource.Purchase => "DS" + sourceId.ToString("N"),
+        FiscalSource.PurchaseVoid => "NAS" + sourceId.ToString("N"),
         _ => throw new ArgumentOutOfRangeException(nameof(source), source, "Origen de documento desconocido."),
     };
 }
@@ -246,6 +253,7 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
     {
         FiscalSource.Sale => FiscalDocumentType.InvoiceElectronic,
         FiscalSource.Purchase => FiscalDocumentType.SupportDocument,
+        FiscalSource.PurchaseVoid => FiscalDocumentType.AdjustmentNote,
         _ => FiscalDocumentType.CreditNote,
     };
 
@@ -253,9 +261,9 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
     {
         ArgumentNullException.ThrowIfNull(issue);
         ArgumentNullException.ThrowIfNull(newId);
-        if (!electronic && issue.Source == FiscalSource.Purchase)
+        if (!electronic && issue.Source is FiscalSource.Purchase or FiscalSource.PurchaseVoid)
         {
-            throw new DomainException("Una compra solo genera documento soporte electrónico.");
+            throw new DomainException("Una compra solo genera documento soporte (o nota de ajuste) electrónico.");
         }
 
         var document = new FiscalDocument(id, companyId)

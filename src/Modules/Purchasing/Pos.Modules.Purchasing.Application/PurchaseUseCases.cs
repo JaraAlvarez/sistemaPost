@@ -522,8 +522,8 @@ internal sealed class PostPurchaseHandler(
 public sealed record VoidPurchaseCommand(Guid PurchaseId, string Reason) : ICommand<PurchaseDto>;
 
 internal sealed class VoidPurchaseHandler(
-    IPurchasingStore store, IPurchasingQueries queries, ICatalogReader catalog, IInventoryPosting posting, IActorContext actor, IAuditWriter audit,
-    IIdGenerator ids, IClock clock) : ICommandHandler<VoidPurchaseCommand, PurchaseDto>
+    IPurchasingStore store, IPurchasingQueries queries, ICatalogReader catalog, IInventoryPosting posting, IBillingService billing, IActorContext actor,
+    IAuditWriter audit, IIdGenerator ids, IClock clock) : ICommandHandler<VoidPurchaseCommand, PurchaseDto>
 {
     public async Task<Result<PurchaseDto>> Handle(VoidPurchaseCommand request, CancellationToken cancellationToken)
     {
@@ -559,6 +559,16 @@ internal sealed class VoidPurchaseHandler(
             foreach (var group in purchase.Lines.Where(l => l.OrderLineId is not null).GroupBy(l => l.OrderLineId!.Value))
             {
                 order.RevertReceipt(group.Key, group.Sum(l => l.BaseQuantity));
+            }
+        }
+
+        // Documento soporte (Fase 11-B): el pendiente se cancela; el ya aceptado se anula con una nota de ajuste que envía la cola.
+        if (purchase.RequiresSupportDocument)
+        {
+            var support = await billing.VoidSupportDocumentAsync(purchase.Id, purchase.VoidReason!, cancellationToken);
+            if (support.IsFailure)
+            {
+                return support.Error;
             }
         }
 

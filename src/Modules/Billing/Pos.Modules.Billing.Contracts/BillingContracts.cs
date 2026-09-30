@@ -68,6 +68,13 @@ public interface IBillingService
     /// </summary>
     Task<Result<FiscalDocumentInfo?>> VoidForSourceAsync(Guid sourceId, string reason, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Anulación de una compra con documento soporte: si el documento soporte aún no fue aceptado se cancela antes de enviarlo; si ya
+    /// fue aceptado (o está en envío) emite una NOTA DE AJUSTE al documento soporte (anulación) pendiente y la devuelve. <c>null</c>
+    /// si la compra no tiene documento soporte.
+    /// </summary>
+    Task<Result<FiscalDocumentInfo?>> VoidSupportDocumentAsync(Guid purchaseId, string reason, CancellationToken cancellationToken = default);
+
     Task<FiscalDocumentInfo?> GetForSourceAsync(Guid sourceId, CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -182,7 +182,24 @@ public sealed record FiscalCreditNoteDraft(
 public sealed record FiscalSupportDocumentDraft(
     FiscalHeader Header, FiscalParty Supplier, string SupplierInvoiceNumber, IReadOnlyList<FiscalLine> Lines, IReadOnlyList<FiscalPayment> Payments, FiscalTotals Totals);
 
-/// <summary>Respuesta del proveedor a un envío o a una consulta de estado.</summary>
+/// <summary>
+/// Nota de ajuste al documento soporte (anulación de una compra cuyo documento soporte ya fue aceptado): referencia el documento
+/// soporte y repite sus renglones.
+/// </summary>
+public sealed record FiscalAdjustmentNoteDraft(
+    FiscalHeader Header,
+    FiscalParty Supplier,
+    FiscalDocumentReference SupportDocument,
+    FiscalCorrectionConcept Concept,
+    string Reason,
+    IReadOnlyList<FiscalLine> Lines,
+    IReadOnlyList<FiscalPayment> Payments,
+    FiscalTotals Totals);
+
+/// <summary>
+/// Respuesta del proveedor a un envío o a una consulta de estado. <c>RetryAfter</c>: espera que pidió el proveedor (HTTP 429 con
+/// <c>Retry-After</c>): la cola no envía nada más a ese proveedor antes de ese tiempo.
+/// </summary>
 public sealed record FiscalProviderResult(
     FiscalOutcome Outcome,
     string? ProviderDocumentId = null,
@@ -194,7 +211,8 @@ public sealed record FiscalProviderResult(
     string? PdfUrl = null,
     string? Code = null,
     string? Message = null,
-    DateTimeOffset? ValidatedAt = null)
+    DateTimeOffset? ValidatedAt = null,
+    TimeSpan? RetryAfter = null)
 {
     public static FiscalProviderResult NotConfigured(string message) => new(FiscalOutcome.NotConfigured, Code: "NOT_CONFIGURED", Message: message);
 }

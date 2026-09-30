@@ -3,6 +3,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Server\Pos.Server.Host\Pos.Server.Host.csproj" />
     <ProjectReference Include="..\..\tools\Pos.LoadTest\Pos.LoadTest.csproj" />
+    <!-- Fase 11-B: Factus simulado en Kestrel para las pruebas de punta a punta con el proveedor FACTUS. -->
+    <ProjectReference Include="..\Pos.Modules.Billing.FactusFake\Pos.Modules.Billing.FactusFake.csproj" />
   </ItemGroup>
 
   <ItemGroup>

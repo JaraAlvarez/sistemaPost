@@ -369,7 +369,7 @@ public class FactusApiClientTests
         var all = await h.Api.GetNumberingRangesAsync(onlyActive: false, null, Ct);
         var activeInvoices = await h.Api.GetNumberingRangesAsync(onlyActive: true, FactusCodes.RangeInvoice, Ct);
 
-        all.Value!.Select(r => r.Id).ShouldBe([8, 9, 10, 11]);
+        all.Value!.Select(r => r.Id).ShouldBe([8, 9, 10, 13, 11]);
         var range = activeInvoices.Value.ShouldHaveSingleItem();
         (range.Id, range.Prefix, range.From, range.To, range.Current, range.IsActive, range.IsExpired)
             .ShouldBe((8, "SETP", 990000000L, 995000000L, 990000001L, true, false));

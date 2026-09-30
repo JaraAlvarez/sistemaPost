@@ -6,6 +6,9 @@ public enum FakeDocumentKind
     Bill,
     CreditNote,
     SupportDocument,
+
+    /// <summary>Nota de ajuste al documento soporte (rango "25").</summary>
+    AdjustmentNote,
 }
 
 public enum FakeDocumentState
@@ -55,7 +58,7 @@ public sealed class FakeNumberingRange
 {
     public required int Id { get; init; }
 
-    /// <summary>"21" factura, "22" nota crédito, "24" documento soporte.</summary>
+    /// <summary>"21" factura, "22" nota crédito, "24" documento soporte, "25" nota de ajuste al documento soporte.</summary>
     public required string Document { get; init; }
 
     public required string Prefix { get; init; }

@@ -27,6 +27,9 @@ public interface IFiscalProvider
 
     Task<FiscalProviderResult> SubmitSupportDocumentAsync(FiscalConnection connection, FiscalSupportDocumentDraft draft, CancellationToken cancellationToken);
 
+    /// <summary>Nota de ajuste al documento soporte (anulación de una compra cuyo documento soporte ya fue aceptado).</summary>
+    Task<FiscalProviderResult> SubmitAdjustmentNoteAsync(FiscalConnection connection, FiscalAdjustmentNoteDraft draft, CancellationToken cancellationToken);
+
     /// <summary>
     /// Estado de un documento ya enviado por su código de referencia (y el id del proveedor si se conoce). <see cref="FiscalOutcome.NotFound"/>
     /// si el proveedor no lo tiene (se puede enviar).
@@ -52,6 +55,9 @@ public sealed class NullFiscalProvider : IFiscalProvider
         NotConfigured();
 
     public Task<FiscalProviderResult> SubmitSupportDocumentAsync(FiscalConnection connection, FiscalSupportDocumentDraft draft, CancellationToken cancellationToken) =>
+        NotConfigured();
+
+    public Task<FiscalProviderResult> SubmitAdjustmentNoteAsync(FiscalConnection connection, FiscalAdjustmentNoteDraft draft, CancellationToken cancellationToken) =>
         NotConfigured();
 
     public Task<FiscalProviderResult> GetStatusAsync(
@@ -90,6 +96,7 @@ public sealed class FakeFiscalProvider : IFiscalProvider
         new("FAKE-FV-1", FiscalDocumentType.InvoiceElectronic, "SETP", 990_000_001, 995_000_000, 990_000_000, "18760000001", null, null, true),
         new("FAKE-NC-1", FiscalDocumentType.CreditNote, "NC", 1, 100_000, 0, null, null, null, true),
         new("FAKE-DS-1", FiscalDocumentType.SupportDocument, "DS", 1, 100_000, 0, "18760000002", null, null, true),
+        new("FAKE-NA-1", FiscalDocumentType.AdjustmentNote, "NA", 1, 100_000, 0, null, null, null, true),
     ];
 
     /// <summary>Última conexión recibida (para verificar ambiente y credenciales descifradas en las pruebas).</summary>
@@ -103,6 +110,8 @@ public sealed class FakeFiscalProvider : IFiscalProvider
     public IReadOnlyList<FiscalCreditNoteDraft> CreditNotes => [.. _submissions.OfType<FiscalCreditNoteDraft>()];
 
     public IReadOnlyList<FiscalSupportDocumentDraft> SupportDocuments => [.. _submissions.OfType<FiscalSupportDocumentDraft>()];
+
+    public IReadOnlyList<FiscalAdjustmentNoteDraft> AdjustmentNotes => [.. _submissions.OfType<FiscalAdjustmentNoteDraft>()];
 
     /// <summary>Documentos distintos creados en el "proveedor" (la idempotencia evita duplicados).</summary>
     public int DistinctDocuments => _accepted.Count;
@@ -120,6 +129,12 @@ public sealed class FakeFiscalProvider : IFiscalProvider
     }
 
     public Task<FiscalProviderResult> SubmitSupportDocumentAsync(FiscalConnection connection, FiscalSupportDocumentDraft draft, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        return Submit(connection, draft, draft.Header, draft.Supplier.IdentificationNumber);
+    }
+
+    public Task<FiscalProviderResult> SubmitAdjustmentNoteAsync(FiscalConnection connection, FiscalAdjustmentNoteDraft draft, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
         return Submit(connection, draft, draft.Header, draft.Supplier.IdentificationNumber);

@@ -58,6 +58,7 @@ public sealed class FactusFakeServer : IAsyncDisposable
             new FakeNumberingRange { Id = 8, Document = "21", Prefix = "SETP", From = 990000000, To = 995000000, Current = 990000001 },
             new FakeNumberingRange { Id = 9, Document = "22", Prefix = "NC", TechnicalKey = null, ResolutionNumber = "" },
             new FakeNumberingRange { Id = 10, Document = "24", Prefix = "DS", From = 1, To = 5000, TechnicalKey = null },
+            new FakeNumberingRange { Id = 13, Document = "25", Prefix = "NA", TechnicalKey = null, ResolutionNumber = "" },
         ];
     }
 
@@ -485,7 +486,16 @@ public sealed class FactusFakeServer : IAsyncDisposable
                         Add("bill_number", "La factura referenciada no existe o no está validada.");
                 }
                 break;
-            case FakeDocumentKind.SupportDocument:
+            case FakeDocumentKind.SupportDocument or FakeDocumentKind.AdjustmentNote:
+                if (kind == FakeDocumentKind.AdjustmentNote)
+                {
+                    Required(root, null, "correction_concept_code", Add);
+                    var supportNumber = root.TryGetProperty("support_document_number", out var n) ? n.GetString() : null;
+                    var support = _documents.Values.FirstOrDefault(d => d.Kind == FakeDocumentKind.SupportDocument && d.Number == supportNumber);
+                    if (support is null || support.State != FakeDocumentState.Validated)
+                        Add("support_document_number", "El documento soporte referenciado no existe o no está validado.");
+                }
+
                 if (!root.TryGetProperty("provider", out var provider) || provider.ValueKind != JsonValueKind.Object)
                 {
                     Add("provider", "El campo provider es obligatorio.");
@@ -731,6 +741,7 @@ public sealed class FactusFakeServer : IAsyncDisposable
         {
             FakeDocumentKind.Bill => (("01", "Factura electrónica de Venta"), "cufe"),
             FakeDocumentKind.CreditNote => (("91", "Nota Crédito"), "cude"),
+            FakeDocumentKind.AdjustmentNote => (("95", "Nota de ajuste al documento soporte"), "cuds"),
             _ => (("05", "Documento soporte"), "cuds"),
         };
         var validated = document.State == FakeDocumentState.Validated;
@@ -791,6 +802,7 @@ public sealed class FactusFakeServer : IAsyncDisposable
     {
         FakeDocumentKind.Bill => "Se encontró una factura pendiente por enviar a la DIAN, puede eliminarla o enviarla.",
         FakeDocumentKind.CreditNote => "Se encontró una nota crédito pendiente por enviar a la DIAN, puede eliminarla o enviarla.",
+        FakeDocumentKind.AdjustmentNote => "Se encontró una nota de ajuste pendiente por enviar a la DIAN, puede eliminarla o enviarla.",
         _ => "Se encontró un documento soporte pendiente por enviar a la DIAN, puede eliminarlo o enviarlo.",
     };
 
@@ -799,6 +811,7 @@ public sealed class FactusFakeServer : IAsyncDisposable
         "bills" => FakeDocumentKind.Bill,
         "credit-notes" => FakeDocumentKind.CreditNote,
         "support-documents" => FakeDocumentKind.SupportDocument,
+        "adjustment-notes" => FakeDocumentKind.AdjustmentNote,
         _ => null,
     };
 
@@ -806,6 +819,7 @@ public sealed class FactusFakeServer : IAsyncDisposable
     {
         FakeDocumentKind.Bill => "21",
         FakeDocumentKind.CreditNote => "22",
+        FakeDocumentKind.AdjustmentNote => "25",
         _ => "24",
     };
 

@@ -119,6 +119,34 @@ public sealed record FactusSupportDocumentRequest
     public required IReadOnlyList<FactusItem> Items { get; init; }
 }
 
+/// <summary>
+/// Nota de ajuste al documento soporte: POST <c>v2/adjustment-notes/validate</c>
+/// (https://developers.factus.com.co/notas-ajuste-documentos-soporte/descripcion-de-campos/). Motivos (tabla de referencia): "1"
+/// devolución parcial, "2" anulación del documento soporte, "3" rebaja, "4" ajuste de precio, "5" otros. Rango con documento "25".
+/// </summary>
+public sealed record FactusAdjustmentNoteRequest
+{
+    public required string ReferenceCode { get; init; }
+
+    public int? NumberingRangeId { get; init; }
+
+    /// <summary>Número del documento soporte que se ajusta (ej. "SEDS984000004").</summary>
+    public required string SupportDocumentNumber { get; init; }
+
+    public required string CorrectionConceptCode { get; init; }
+
+    public string? Observation { get; init; }
+
+    public required IReadOnlyList<FactusPaymentDetail> PaymentDetails { get; init; }
+
+    [JsonConverter(typeof(FactusNullableDecimalConverter))]
+    public decimal? CashRoundingAmount { get; init; }
+
+    public required FactusProvider Provider { get; init; }
+
+    public required IReadOnlyList<FactusItem> Items { get; init; }
+}
+
 /// <summary>Medio de pago. Un objeto por cada medio usado en la venta.</summary>
 public sealed record FactusPaymentDetail
 {
@@ -185,6 +213,13 @@ public sealed record FactusProvider
     public required string IdentificationDocumentCode { get; init; }
     public required string Identification { get; init; }
     public string? Dv { get; init; }
+
+    /// <summary>"1" jurídica, "2" natural. Lo documenta la nota de ajuste (en el documento soporte no aparece: se omite).</summary>
+    public string? LegalOrganizationCode { get; init; }
+
+    /// <summary>Razón social; obligatoria en la nota de ajuste si <see cref="LegalOrganizationCode"/> es "1".</summary>
+    public string? Company { get; init; }
+
     public string? TradeName { get; init; }
     public required string Names { get; init; }
     public required string Address { get; init; }
@@ -326,6 +361,9 @@ public static class FactusCodes
     public const string MethodVouchers = "72";
     public const string MethodOther = "ZZZ";
 
+    /// <summary>"1" medio de pago no definido (compras y ventas a crédito sin medio).</summary>
+    public const string MethodUndefined = "1";
+
     public const string UnitMeasureUnit = "94";
     public const string StandardContributor = "999";
 
@@ -341,4 +379,10 @@ public static class FactusCodes
     public const string RangeInvoice = "21";
     public const string RangeCreditNote = "22";
     public const string RangeSupportDocument = "24";
+    public const string RangeAdjustmentNote = "25";
+
+    /// <summary>Motivo "2" de la nota de ajuste: anulación del documento soporte.</summary>
+    public const string AdjustmentCancellation = "2";
+
+    public const string CountryColombia = "CO";
 }

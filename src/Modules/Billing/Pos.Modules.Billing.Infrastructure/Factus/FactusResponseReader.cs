@@ -13,7 +13,7 @@ namespace Pos.Modules.Billing.Infrastructure.Factus;
 /// </summary>
 internal static class FactusResponseReader
 {
-    private static readonly string[] NestedDocumentKeys = ["bill", "credit_note", "support_document", "document"];
+    private static readonly string[] NestedDocumentKeys = ["bill", "credit_note", "support_document", "adjustment_note", "document"];
     private static readonly string[] DateFormats = ["yyyy-MM-dd", "dd-MM-yyyy", "dd/MM/yyyy", "yyyy/MM/dd"];
 
     /// <summary>JSON de la respuesta, o <c>null</c> si está vacía o no es JSON.</summary>
@@ -44,7 +44,9 @@ internal static class FactusResponseReader
         if (element.ValueKind != JsonValueKind.Object)
             return null;
 
-        foreach (var key in NestedDocumentKeys)
+        // Solo se desciende si el propio data no es el documento: la respuesta de una nota trae ADEMÁS el documento que corrige
+        // (p. ej. la nota de ajuste incluye "support_document": {reference_code, number, cuds}) y no debe confundirse con ella.
+        foreach (var key in element.TryGetProperty("number", out _) || element.TryGetProperty("reference_code", out _) ? [] : NestedDocumentKeys)
         {
             if (element.TryGetProperty(key, out var nested) && nested.ValueKind == JsonValueKind.Object)
             {

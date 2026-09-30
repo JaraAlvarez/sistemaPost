@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -17,6 +18,7 @@ using Pos.Infrastructure.Security;
 using Pos.Modules.Billing.Application;
 using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Billing.Domain;
+using Pos.Modules.Billing.Infrastructure.Factus;
 using Pos.SharedKernel.Time;
 
 namespace Pos.Modules.Billing.Infrastructure;
@@ -334,7 +336,7 @@ internal sealed class FiscalSourceReader(PosDbContext context) : IFiscalSourceRe
             """
             SELECT p.id AS Id, p.number AS Number, p.supplier_invoice_number AS SupplierInvoiceNumber, p.invoice_date AS InvoiceDate,
                    p.supplier_id AS SupplierId, p.payment_mode AS PaymentMode, m.code AS MethodCode, m.kind AS MethodKind, m.dian_code AS DianCode,
-                   p.payment_reference AS Reference
+                   p.payment_reference AS Reference, p.void_reason AS VoidReason
             FROM purchasing.purchases p
             LEFT JOIN cash.payment_methods m ON m.id = p.payment_method_id
             WHERE p.id = @purchaseId
@@ -374,7 +376,7 @@ internal sealed class FiscalSourceReader(PosDbContext context) : IFiscalSourceRe
             [.. lines.Select(l => new FiscalSourceLine(
                 l.Id, l.LineNo, l.Code, l.Name, l.UnitCode, l.Quantity, Math.Round(l.UnitCost, 2), false, l.Gross, l.Discount, l.Gross - l.Discount, l.Total,
                 [.. taxes[l.Id].Select(t => new FiscalTax(t.Code, t.IsVat ? "VAT" : "OTHER", t.Rate, t.FixedAmount, t.TaxBase, t.Amount, false, false))]))],
-            [payment]);
+            [payment], row.VoidReason);
     }
 
     public async Task<FiscalParty?> GetSupplierAsync(Guid supplierId, CancellationToken cancellationToken)
@@ -441,7 +443,7 @@ internal sealed class FiscalSourceReader(PosDbContext context) : IFiscalSourceRe
 
     private sealed record PurchaseRow(
         Guid Id, string Number, string SupplierInvoiceNumber, DateOnly InvoiceDate, Guid SupplierId, string PaymentMode, string? MethodCode, string? MethodKind,
-        string? DianCode, string? Reference);
+        string? DianCode, string? Reference, string? VoidReason);
 
     private sealed record PurchaseLineRow(
         Guid Id, int LineNo, string Code, string Name, string UnitCode, decimal Quantity, decimal UnitCost, decimal Gross, decimal Discount, decimal TaxAmount,
@@ -581,7 +583,7 @@ internal sealed class FiscalDocumentPendingHandler(FiscalQueueSignal signal) : I
 /// <summary>Configuración <c>Pos:Billing</c>.</summary>
 public sealed class BillingOptions
 {
-    /// <summary>Adaptador: NONE (por defecto), FAKE (solo fuera de producción) o el del proveedor real (FACTUS).</summary>
+    /// <summary>Adaptador: NONE (por defecto: facturación electrónica apagada), FAKE (solo fuera de producción) o FACTUS (Factus API v2).</summary>
     public string Provider { get; set; } = "NONE";
 
     /// <summary>Si el proceso en segundo plano envía la cola (las pruebas lo apagan para dirigirla a mano).</summary>
@@ -774,14 +776,33 @@ public static class BillingInfrastructureRegistration
         services.AddScoped<FiscalDocumentProcessor>();
         services.AddScoped<FiscalRangeService>();
 
-        // Adaptador del proveedor: el nulo por defecto; el simulado solo fuera de producción. El de Factus se registra con Provider = FACTUS.
+        // Adaptador del proveedor: el nulo por defecto (fase apagada); el simulado solo fuera de producción; Factus con Provider = FACTUS.
         services.AddSingleton<NullFiscalProvider>();
         services.AddSingleton<FakeFiscalProvider>();
-        services.AddSingleton<IFiscalProvider>(sp =>
-            sp.GetRequiredService<BillingOptions>().Provider == "FAKE" && !sp.GetRequiredService<IHostEnvironment>().IsProduction()
-                ? sp.GetRequiredService<FakeFiscalProvider>()
-                : sp.GetRequiredService<NullFiscalProvider>());
+        services.AddFactusApi();
+        services.Replace(ServiceDescriptor.Singleton(sp => FactusConnection(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<IHostEnvironment>())));
+        services.AddSingleton<FactusFiscalProvider>();
+        services.AddSingleton<IFiscalProvider>(sp => sp.GetRequiredService<BillingOptions>().Provider switch
+        {
+            "FAKE" when !sp.GetRequiredService<IHostEnvironment>().IsProduction() => sp.GetRequiredService<FakeFiscalProvider>(),
+            FactusFiscalProvider.ProviderName => sp.GetRequiredService<FactusFiscalProvider>(),
+            _ => sp.GetRequiredService<NullFiscalProvider>(),
+        });
         services.AddHostedService<FiscalQueueWorker>();
+    }
+
+    /// <summary>
+    /// <c>Pos:Billing:Factus</c>: <c>TimeoutSeconds</c> (⚙️ 60) y <c>BaseUrl</c> — URL explícita solo FUERA de producción (Factus simulado
+    /// en las pruebas); en producción la URL sale siempre del ambiente de la empresa (sandbox o producción de Factus).
+    /// </summary>
+    private static FactusConnectionOptions FactusConnection(IConfiguration configuration, IHostEnvironment environment)
+    {
+        var section = configuration.GetSection("Pos:Billing:Factus");
+        return new FactusConnectionOptions
+        {
+            BaseUrl = !environment.IsProduction() && Uri.TryCreate(section["BaseUrl"], UriKind.Absolute, out var url) ? url : null,
+            RequestTimeout = TimeSpan.FromSeconds(int.TryParse(section["TimeoutSeconds"], out var seconds) ? Math.Clamp(seconds, 1, 300) : 60),
+        };
     }
 
     private static BillingOptions Read(IConfiguration configuration)

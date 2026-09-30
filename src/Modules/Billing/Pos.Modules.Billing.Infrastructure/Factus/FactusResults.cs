@@ -1,11 +1,14 @@
 namespace Pos.Modules.Billing.Infrastructure.Factus;
 
-/// <summary>Tipo de documento electrónico en Factus (define la ruta: bills, credit-notes, support-documents).</summary>
+/// <summary>Tipo de documento electrónico en Factus (define la ruta: bills, credit-notes, support-documents, adjustment-notes).</summary>
 public enum FactusDocumentKind
 {
     Bill,
     CreditNote,
     SupportDocument,
+
+    /// <summary>Nota de ajuste al documento soporte (https://developers.factus.com.co/notas-ajuste-documentos-soporte/).</summary>
+    AdjustmentNote,
 }
 
 /// <summary>Mensaje de Factus o de la DIAN: regla ("FAK24", "FAJ44b") o campo ("customer.identification") y texto.</summary>

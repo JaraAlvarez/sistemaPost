@@ -62,6 +62,12 @@ internal sealed partial class FactusApiClient(
         return SubmitAsync(FactusDocumentKind.SupportDocument, request.ReferenceCode, FactusJson.Serialize(request), cancellationToken);
     }
 
+    public Task<FactusResult> CreateAdjustmentNoteAsync(FactusAdjustmentNoteRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return SubmitAsync(FactusDocumentKind.AdjustmentNote, request.ReferenceCode, FactusJson.Serialize(request), cancellationToken);
+    }
+
     public async Task<FactusQueryResult<IReadOnlyList<FactusNumberingRange>>> GetNumberingRangesAsync(
         bool onlyActive, string? documentCode, CancellationToken cancellationToken)
     {
@@ -354,7 +360,7 @@ internal sealed partial class FactusApiClient(
                 var status = (int)response.StatusCode;
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    await tokens.InvalidateAsync(lease.Token!, cancellationToken);
+                    await tokens.InvalidateAsync(options, lease.Token!, cancellationToken);
                     if (attempt == 1)
                     {
                         LogUnauthorizedRetry(logger);
@@ -407,6 +413,7 @@ internal sealed partial class FactusApiClient(
         FactusDocumentKind.Bill => "bills",
         FactusDocumentKind.CreditNote => "credit-notes",
         FactusDocumentKind.SupportDocument => "support-documents",
+        FactusDocumentKind.AdjustmentNote => "adjustment-notes",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
