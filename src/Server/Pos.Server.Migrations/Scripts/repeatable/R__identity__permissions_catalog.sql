@@ -67,6 +67,7 @@ INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUE
     ('purchasing.supplier.bank_manage', 'purchasing', 'Registrar, modificar y verificar cuentas bancarias de proveedores (admite autorización de supervisor)', true),
     ('billing.document.manage',       'billing',      'Reintentar el envío de documentos electrónicos',                                  true),
     ('billing.document.view',         'billing',      'Consultar comprobantes y documentos fiscales con sus eventos',                    false),
+    ('billing.settings.manage',       'billing',      'Configurar la facturación electrónica: modo, ambiente, credenciales del proveedor y rangos', true),
     ('inventory.adjustment.quick',    'inventory',    'Ajuste rápido de un producto desde la caja cuando el sistema no tiene existencias (admite autorización de supervisor)', true),
     ('promotions.promotion.manage',   'promotions',   'Crear, simular, activar, pausar y terminar promociones',                          true),
     ('promotions.promotion.view',     'promotions',   'Consultar promociones y su reporte de descuentos',                                false),
@@ -123,7 +124,7 @@ WHERE code NOT IN (
     'purchasing.purchase.manage', 'purchasing.purchase.post', 'purchasing.purchase.view', 'purchasing.purchase.void',
     'purchasing.return.manage', 'purchasing.supplier.manage', 'purchasing.supplier.bank_manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',
     'cash.session.close_any', 'cash.session.operate', 'cash.session.review', 'expenses.expense.manage', 'expenses.expense.view',
-    'billing.document.manage', 'billing.document.view', 'inventory.adjustment.quick', 'promotions.promotion.manage', 'promotions.promotion.view', 'sales.discount.apply', 'sales.exchange.create', 'sales.expired.sell', 'sales.line.void', 'sales.price.override', 'sales.refund.warranty', 'sales.sale.cancel', 'sales.sale.create', 'sales.sale.reprint', 'sales.sale.view', 'sales.sale.void',
+    'billing.document.manage', 'billing.document.view', 'billing.settings.manage', 'inventory.adjustment.quick', 'promotions.promotion.manage', 'promotions.promotion.view', 'sales.discount.apply', 'sales.exchange.create', 'sales.expired.sell', 'sales.line.void', 'sales.price.override', 'sales.refund.warranty', 'sales.sale.cancel', 'sales.sale.create', 'sales.sale.reprint', 'sales.sale.view', 'sales.sale.void',
     'customers.customer.manage', 'customers.customer.quick_create', 'customers.customer.view', 'customers.group.manage', 'customers.history.view', 'customers.pricing.assign', 'customers.privacy.manage',
     'reporting.antifraud.view', 'reporting.cash.view', 'reporting.report.export', 'reporting.inventory.view', 'reporting.profit.view',
     'reporting.purchases.view', 'reporting.sales.advanced', 'reporting.sales.basic', 'reporting.taxes.view');

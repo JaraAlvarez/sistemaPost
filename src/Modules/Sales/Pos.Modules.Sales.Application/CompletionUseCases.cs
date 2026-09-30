@@ -274,7 +274,7 @@ internal sealed class CompleteSaleHandler(
         var issued = await billing.IssueAsync(
             new FiscalIssueRequest(
                 "SALE", sale.Id, sale.Number!, sale.BranchId, sale.PosTerminalId, sale.BusinessDate, sale.CustomerName, sale.CustomerIdentificationType,
-                sale.CustomerIdentification, sale.CustomerEmail, sale.Subtotal, sale.TaxTotal, sale.Total),
+                sale.CustomerIdentification, sale.CustomerEmail, sale.Subtotal, sale.TaxTotal, sale.Total, InvoiceRequested: sale.InvoiceRequested),
             cancellationToken);
         if (issued.IsFailure)
         {

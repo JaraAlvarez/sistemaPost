@@ -13,6 +13,7 @@
     <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
     <ProjectReference Include="../../Parties/Pos.Modules.Parties.Contracts/Pos.Modules.Parties.Contracts.csproj" />
     <ProjectReference Include="../../Cash/Pos.Modules.Cash.Contracts/Pos.Modules.Cash.Contracts.csproj" />
+    <ProjectReference Include="../../Billing/Pos.Modules.Billing.Contracts/Pos.Modules.Billing.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
