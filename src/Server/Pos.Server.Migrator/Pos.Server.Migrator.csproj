@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Consola del migrador: create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock. La usan el instalador y el actualizador. -->
+  <!-- Consola del migrador: create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore. La usan el instalador y el actualizador. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Pos.Server.Migrator</RootNamespace>

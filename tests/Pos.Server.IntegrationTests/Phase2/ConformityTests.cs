@@ -166,7 +166,7 @@ public class ConformityTests(PosServerFactory factory) : IClassFixture<PosServer
             FROM pg_attribute a
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname IN ('system', 'ref', 'org', 'identity', 'audit', 'catalog', 'inventory', 'parties', 'cash', 'purchasing', 'expenses', 'promotions', 'sales', 'billing', 'customers') AND a.attnum > 0 AND NOT a.attisdropped
+            WHERE n.nspname IN ('system', 'ref', 'org', 'identity', 'audit', 'catalog', 'inventory', 'parties', 'cash', 'purchasing', 'expenses', 'promotions', 'sales', 'billing', 'customers', 'backup') AND a.attnum > 0 AND NOT a.attisdropped
               AND c.relkind IN ('r', 'p')
             """,
             connection);

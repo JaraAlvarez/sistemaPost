@@ -1,0 +1,111 @@
+# Fase 11 · Backups (sin UI): código de recuperación, destinos, respaldar ahora, historial, verificación, descarga y alertas
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (migración 029; vuelve a crear los roles: pos_backup ahora puede crear la BD temporal de la prueba semanal),
+#        PostgreSQL 18 con pg_dump/pg_restore instalados en el equipo (o Pos:Backup:PgBinPath con su carpeta bin) y
+#        `dotnet run --project src/Server/Pos.Server.Host`.
+# La restauración se hace desde la consola: docs/guia-recuperacion.md.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. Propietario
+# @name owner
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{owner.response.body.token}}
+
+### 2. Alertas (sin backups aún: lastBackupTooOld y recoveryCodePending en true). /auth/me trae backupAlerts.
+GET {{api}}/backups/alerts
+Authorization: Bearer {{ownerToken}}
+
+### 3. Código de recuperación: se muestra UNA sola vez. Imprímalo y guárdelo fuera del equipo.
+# @name code
+POST {{api}}/backups/recovery-code
+Authorization: Bearer {{ownerToken}}
+
+### 4. Confirmarlo escribiéndolo de nuevo (un código distinto → 400 BACKUP.RECOVERY_CODE_MISMATCH)
+POST {{api}}/backups/recovery-code/confirm
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "code": "{{code.response.body.code}}" }
+
+### 5. Destinos: el LOCAL existe desde la instalación. Agregar un disco USB (etiqueta del volumen opcional)…
+# @name usb
+POST {{api}}/backups/destinations
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "kind": "EXTERNAL", "name": "USB de la tienda", "path": "E:\\BackupsPOS", "volumeLabel": "POSBACKUP",
+  "onScheduled": false, "onNightly": true, "onClosing": false, "onManual": true,
+  "keepDaily": 7, "keepWeekly": 4, "keepMonthly": 12, "isActive": true }
+
+### …una carpeta de red (la cuenta del servicio debe tener permiso de escritura)…
+POST {{api}}/backups/destinations
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "kind": "NETWORK", "name": "NAS de la oficina", "path": "\\\\NAS\\backups\\pos",
+  "onScheduled": false, "onNightly": true, "onClosing": true, "onManual": true,
+  "keepDaily": 7, "keepWeekly": 4, "keepMonthly": 12, "isActive": true }
+
+### …y la nube (MinIO en el VPS, docs/despliegue-nube.md §14)
+POST {{api}}/backups/destinations
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "kind": "S3", "name": "Nube", "endpoint": "https://backups.midominio.com", "region": "us-east-1", "bucket": "pos-backups",
+  "accessKey": "tienda-s01", "secretKey": "clave-larga-de-la-tienda",
+  "onScheduled": false, "onNightly": true, "onClosing": true, "onManual": true,
+  "keepDaily": 7, "keepWeekly": 4, "keepMonthly": 12, "isActive": true }
+
+### 6. Probar un destino (escribe, lee y borra un archivo pequeño)
+POST {{api}}/backups/destinations/{{usb.response.body.id}}/test
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/backups/destinations
+Authorization: Bearer {{ownerToken}}
+
+### 7. Respaldar ahora (202: en cola). Espere unos segundos y consulte el historial.
+POST {{api}}/backups
+Authorization: Bearer {{ownerToken}}
+
+### 8. Historial: verificado y copiado a cada destino (COPIED / PENDING si la USB no está conectada / FAILED)
+# @name runs
+GET {{api}}/backups
+Authorization: Bearer {{ownerToken}}
+
+### 9. Verificar y descargar el último (queda BACKUP_DOWNLOADED en la auditoría)
+POST {{api}}/backups/{{runs.response.body.$[0].id}}/verify
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/backups/{{runs.response.body.$[0].id}}/download
+Authorization: Bearer {{ownerToken}}
+
+### 10. Restauraciones de prueba (semanal, domingo 04:00) y configuración (claves backup.*)
+GET {{api}}/backups/restore-tests
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/settings
+Authorization: Bearer {{ownerToken}}
+
+### 11. Auditoría de los backups
+GET {{api}}/audit/logs?module=backup
+Authorization: Bearer {{ownerToken}}
+
+### 12. La cajera no puede respaldar (403); el administrador no puede generar el código (403)
+# @name cashier
+POST {{api}}/auth/pos-login
+Content-Type: application/json
+
+{ "posCode": "200", "pin": "5937" }
+
+###
+POST {{api}}/backups
+Authorization: Bearer {{cashier.response.body.token}}

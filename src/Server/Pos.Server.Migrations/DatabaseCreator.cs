@@ -45,7 +45,28 @@ public static partial class DatabaseCreator
 
             await ExecuteAsync(admin, $"GRANT {DatabaseMigrator.OwnerRole} TO {MigratorRole}", cancellationToken);
             await ExecuteAsync(admin, $"GRANT pg_read_all_data TO {BackupRole}", cancellationToken);
+            // Fase 11: la restauración de prueba semanal crea y borra una BD temporal propia (D11-08).
+            await ExecuteAsync(admin, $"ALTER ROLE {BackupRole} CREATEDB", cancellationToken);
+        }
 
+        await CreateDatabaseOnlyAsync(superuserConnectionString, databaseName!, cancellationToken);
+    }
+
+    /// <summary>
+    /// Crea (si no existe) una BD vacía con la configuración estándar, suponiendo que los roles ya existen. La usa la restauración de un
+    /// backup (Fase 11): restaura siempre en una BD nueva.
+    /// </summary>
+    public static async Task CreateDatabaseOnlyAsync(string superuserConnectionString, string databaseName, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(superuserConnectionString);
+        if (!IdentifierPattern().IsMatch(databaseName ?? string.Empty))
+        {
+            throw new ArgumentException("Nombre de base de datos inválido (solo minúsculas, dígitos y _).", nameof(databaseName));
+        }
+
+        await using (var admin = new NpgsqlConnection(superuserConnectionString))
+        {
+            await admin.OpenAsync(cancellationToken);
             await using var exists = new NpgsqlCommand("SELECT 1 FROM pg_database WHERE datname = @name", admin);
             exists.Parameters.AddWithValue("name", databaseName!);
             if (await exists.ExecuteScalarAsync(cancellationToken) is null)

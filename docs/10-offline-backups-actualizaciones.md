@@ -54,6 +54,11 @@ Todas las decisiones de la Fase 2 (UUID v7, secuencias por caja, idempotencia, s
 - **Contenido del paquete**: dump de BD + configuración de la instalación + versión de esquema y app + manifiesto con hash. Nunca incluye la clave de cifrado en claro.
 - **Clave de cifrado**: generada en la instalación; se entrega al propietario un **código de recuperación** (impreso/guardado) para poder restaurar en otro equipo. Sin él, el backup en nube no se puede leer ni siquiera por nosotros.
 
+> **Implementado en la Fase 11** (ADR-0050 a 0052): paquete `.posbak` cifrado con AES-256-GCM, código de recuperación del propietario,
+> destinos local, USB, red y nube S3 (MinIO en el VPS), programación (4 h, nocturno, cierre de jornada, antes de migrar, manual),
+> retención 7/4/12, verificación inmediata, restauración de prueba semanal y restauración desde la consola
+> ([guía de recuperación](guia-recuperacion.md)). La nube de backups está en ambas ediciones (no es un add-on).
+
 ### Restauración
 
 1. Asistente "Restaurar": elegir archivo → verificar firma/hash → mostrar fecha, versión y datos de la empresa.

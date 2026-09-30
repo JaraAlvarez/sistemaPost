@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Backup · Contrato público: permisos, DTOs y estado de los backups para las alertas. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Backup.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

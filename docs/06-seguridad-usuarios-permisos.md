@@ -36,7 +36,7 @@ Permiso efectivo(usuario, permiso, sucursal) =
 | reporting | `reporting.sales.basic`, `reporting.sales.advanced`, `reporting.profit.view` (sensible), `reporting.taxes.view`, `reporting.inventory.view`, `reporting.purchases.view`, `reporting.cash.view`, `reporting.antifraud.view` (sensible), `reporting.report.export` (sensible; el formato de permisos exige tres partes) — Fase 9, roles en docs/fases/fase-09-propuesta.md §8 |
 | audit | `audit.log.view` |
 | settings | `settings.manage` |
-| backup | `backup.run`, `backup.restore`, `backup.configure` |
+| backup | `backup.backup.run`, `backup.backup.view`, `backup.destination.configure` (sensible), `backup.recovery.manage` (sensible, solo propietario) — Fase 11; restaurar: consola del servidor |
 | licensing | `licensing.view`, `licensing.activate` |
 
 `is_sensitive = true` → candidatos a autorización de supervisor y aparecen en el reporte antifraude.

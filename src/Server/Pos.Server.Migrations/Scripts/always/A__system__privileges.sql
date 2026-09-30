@@ -8,18 +8,18 @@
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
 GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers,
-    reporting TO pos_app, pos_backup;
+    reporting, backup TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
-REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
+REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup
     FROM pos_app;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup
     FROM pos_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup
     FROM PUBLIC;
 
 -- Negocio
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup
     TO pos_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     system.document_series, system.settings, system.outbox_messages, system.inbox_messages,
@@ -46,6 +46,10 @@ REVOKE UPDATE, DELETE, TRUNCATE ON billing.fiscal_document_events FROM pos_app;
 
 -- Autorizaciones de tratamiento de datos: la prueba ante la SIC no se modifica (D8-06).
 REVOKE UPDATE, DELETE, TRUNCATE ON customers.customer_consents FROM pos_app;
+
+-- Backups (Fase 11): historiales de solo inserción.
+REVOKE UPDATE, DELETE, TRUNCATE ON backup.backup_runs, backup.restore_tests FROM pos_app;
+REVOKE DELETE, TRUNCATE ON backup.recovery_keys FROM pos_app;
 
 -- Reportes (D9-01/D9-02): solo lectura de las vistas del esquema reporting.
 REVOKE ALL ON ALL TABLES IN SCHEMA reporting FROM pos_app;

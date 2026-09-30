@@ -306,3 +306,34 @@ docker compose -p pos-cloud-local -f docker-compose.yml -f docker-compose.local.
 ```
 
 `.env.local` y `secrets/` están en `.gitignore`. El ingreso al portal necesita HTTPS (cookie `__Host-`): use la dirección de Caddy.
+
+## 14. Nube de backups de las tiendas (Fase 11, MinIO)
+
+Las tiendas suben sus backups (`.posbak`, **ya cifrados en la tienda**) a un almacenamiento compatible S3. En el VPS se usa **MinIO**
+como servicio aparte (perfil `backups`). Ni el VPS ni el portal pueden leer esos archivos: solo se abren con la clave del equipo de la
+tienda o con el código de recuperación del propietario.
+
+1. **DNS:** registro A de `backups.<DOMINIO>` → IP del VPS.
+2. **Configuración:** en `.env` defina `MINIO_ROOT_PASSWORD` (larga). Descomente el bloque `backups.{$DOMINIO}` del `Caddyfile`.
+3. **Arranque:**
+   ```bash
+   docker compose --profile backups up -d
+   ```
+4. **Bucket y usuario por tienda** (con el cliente `mc` que trae la imagen):
+   ```bash
+   docker compose exec minio mc alias set local http://localhost:9000 posadmin "$MINIO_ROOT_PASSWORD"
+   docker compose exec minio mc mb local/pos-backups
+   docker compose exec minio mc version enable local/pos-backups
+   docker compose exec minio mc admin user add local tienda-s01 "<clave-larga-de-la-tienda>"
+   docker compose exec minio mc admin policy attach local readwrite --user tienda-s01
+   ```
+   El versionado del bucket protege contra borrados o un ransomware en la tienda (se puede recuperar la versión anterior).
+5. **En la tienda** (`POST /api/v1/backups/destinations`): tipo `S3`, `endpoint` `https://backups.<DOMINIO>`, `bucket` `pos-backups`,
+   `accessKey` `tienda-s01`, `secretKey` la clave del paso 4, `onNightly` y `onClosing` en `true`. Pruebe con
+   `POST /api/v1/backups/destinations/{id}/test`.
+6. **Espacio:** cada tienda guarda según su retención (por defecto 7 diarios, 4 semanales y 12 mensuales). Revise el espacio del VPS con
+   `docker system df -v` y `df -h`.
+
+Recuperar un backup desde la nube en un equipo nuevo: descárguelo desde la consola de MinIO (`https://backups.<DOMINIO>` no expone la
+consola; use `docker compose exec minio mc cp local/pos-backups/<carpeta>/<archivo>.posbak /tmp/` y cópielo) y siga
+[guia-recuperacion.md](guia-recuperacion.md).

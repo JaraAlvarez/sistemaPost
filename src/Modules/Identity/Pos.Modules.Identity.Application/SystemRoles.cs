@@ -1,4 +1,5 @@
 using Pos.Modules.Audit.Contracts;
+using Pos.Modules.Backup.Contracts;
 using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Catalog.Contracts;
@@ -35,9 +36,10 @@ public static class SystemRoles
     [
         new(Owner, "Propietario", "Dueño del negocio: acceso total.", allPermissions),
         // El reintegro de dinero por garantía es una excepción legal que solo autoriza el propietario (Fase 7).
-        // Reconocer un incidente de integridad también es solo del propietario (Fase 10, D10-10): la alteración pudo hacerla un administrador.
+        // Reconocer un incidente de integridad (Fase 10, D10-10) y el código de recuperación de los backups (Fase 11) son solo del propietario.
         new(Administrator, "Administrador", "Administra la operación y la configuración.",
-            [.. allPermissions.Where(p => p != SalesPermissions.WarrantyRefund && p != AuditPermissions.IncidentAcknowledge)]),
+            [.. allPermissions.Where(p => p != SalesPermissions.WarrantyRefund && p != AuditPermissions.IncidentAcknowledge
+                && p != BackupPermissions.RecoveryManage)]),
         new(CashSupervisor, "Supervisor de caja", "Supervisa cajas, autoriza anulaciones y revisa cierres.",
             [OrganizationPermissions.BranchView, SettingsPermissions.SettingView, IdentityPermissions.UserView, IdentityPermissions.SessionRevoke,
              CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView,

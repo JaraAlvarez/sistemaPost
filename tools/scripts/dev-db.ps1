@@ -33,7 +33,7 @@ dotnet run --project $migrator -- create-database --superuser $superuser --datab
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $env:POS_MIGRATOR_CONNECTION = 'Host=127.0.0.1;Port=5488;Username=pos_migrator;Password=pos-dev-migrator;Database=pos'
-dotnet run --project $migrator -- migrate
+dotnet run --project $migrator -- migrate --no-backup
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host 'Base de datos de desarrollo lista en 127.0.0.1:5488 (BD pos).' -ForegroundColor Green

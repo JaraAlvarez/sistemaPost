@@ -5,6 +5,7 @@ using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
 using Pos.Modules.Audit.Contracts;
+using Pos.Modules.Backup.Contracts;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
 using Pos.Modules.Organization.Contracts;
@@ -45,7 +46,8 @@ public sealed class AuthServices(
     IActorContext actor,
     IIdGenerator ids,
     IClock clock,
-    IIntegrityStatus integrity)
+    IIntegrityStatus integrity,
+    IBackupStatus backups)
 {
     /// <summary>Hash válido de una contraseña que no existe: iguala el tiempo de respuesta cuando el usuario no existe.</summary>
     private static string? _dummyHash;
@@ -167,8 +169,10 @@ public sealed class AuthServices(
         var effective = await permissions.GetEffectiveAsync(user.Id, branchId, null, cancellationToken);
         // Aviso persistente de integridad (D10-05) para quien puede verificar la bitácora.
         var openIncidents = effective.Contains(AuditPermissions.LogVerify) ? await integrity.OpenIncidentsAsync(cancellationToken) : 0;
+        // Alertas de backups (D11-10) para quien puede verlos.
+        var backupAlerts = effective.Contains(BackupPermissions.View) ? (await backups.GetAlertsAsync(cancellationToken)).Count : 0;
         return new MeDto(user.Id, user.Username, user.DisplayName, sessionId, terminal ? "TERMINAL" : "BACKOFFICE", branchId, posTerminalId,
-            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents);
+            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts);
     }
 
     /// <summary>Ingreso fallido (Fase 10, §5.1): queda en la bitácora además de <c>identity.login_attempts</c>.</summary>

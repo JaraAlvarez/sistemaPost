@@ -54,3 +54,6 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0047](0047-catalogo-de-acciones-de-auditoria.md) | Catálogo de acciones de auditoría en el código y en la BD | Aceptada | 2026-09-29 |
 | [0048](0048-verificacion-programada-e-incidentes-de-integridad.md) | Verificación programada e incidentes de integridad | Aceptada | 2026-09-29 |
 | [0049](0049-datos-personales-y-retencion-de-la-bitacora.md) | Datos personales enmascarados y retención de la bitácora | Aceptada | 2026-09-29 |
+| [0050](0050-paquete-de-backup-cifrado-y-codigo-de-recuperacion.md) | Paquete de backup cifrado (.posbak) y código de recuperación | Aceptada | 2026-09-29 |
+| [0051](0051-destinos-programacion-y-retencion-de-backups.md) | Destinos, programación, retención y verificación de los backups | Aceptada | 2026-09-29 |
+| [0052](0052-restauracion-desde-la-consola.md) | Restauración solo desde la consola del servidor | Aceptada | 2026-09-29 |

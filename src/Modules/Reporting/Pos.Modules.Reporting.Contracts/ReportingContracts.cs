@@ -110,4 +110,5 @@ public sealed record DashboardDto(
     int LotsExpiringSoon,
     int DataRequestsDueSoon,
     int OpenIntegrityIncidents,
-    DateTimeOffset GeneratedAt);
+    DateTimeOffset GeneratedAt,
+    int BackupAlerts = 0);

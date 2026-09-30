@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Backup · Endpoints HTTP y registro del módulo (IModule). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Backup.Api</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Api.Abstractions/Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Backup.Infrastructure/Pos.Modules.Backup.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

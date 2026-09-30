@@ -4,6 +4,7 @@ using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
+using Pos.Modules.Backup.Contracts;
 using Pos.Modules.Inventory.Contracts;
 using Pos.Modules.Reporting.Contracts;
 using Pos.SharedKernel.Results;
@@ -489,6 +490,7 @@ internal sealed class GetDashboardHandler(
     IPermissionChecker permissions,
     ISettingsReader settings,
     IReportingReadModel read,
+    IBackupStatus backups,
     IClock clock) : IQueryHandler<GetDashboardQuery, DashboardDto>
 {
     public async Task<Result<DashboardDto>> Handle(GetDashboardQuery request, CancellationToken cancellationToken)
@@ -508,6 +510,9 @@ internal sealed class GetDashboardHandler(
             return dashboard.Error;
         }
 
-        return dashboard.Value with { GeneratedAt = clock.UtcNow };
+        var backupAlerts = await permissions.HasPermissionAsync(BackupPermissions.View, cancellationToken: cancellationToken)
+            ? (await backups.GetAlertsAsync(cancellationToken)).Count
+            : 0;
+        return dashboard.Value with { GeneratedAt = clock.UtcNow, BackupAlerts = backupAlerts };
     }
 }

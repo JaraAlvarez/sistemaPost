@@ -6,6 +6,7 @@ using System.Security.Cryptography.X509Certificates;
 using Pos.Application.Abstractions.Security;
 using Pos.Server.Host.Configuration;
 using Pos.Server.Host.Database;
+using Pos.Infrastructure.Security;
 
 namespace Pos.Server.Host.Security;
 

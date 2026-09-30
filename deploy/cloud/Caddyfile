@@ -24,3 +24,10 @@ licencias.{$DOMINIO} {
 		format json
 	}
 }
+
+# Fase 11 · Nube de backups (MinIO, perfil "backups"). Descomente cuando el DNS de backups.<DOMINIO> apunte al VPS y el servicio minio
+# esté activo. Sin límite de tamaño: los backups pueden pesar cientos de MB.
+# backups.{$DOMINIO} {
+# 	header -Server
+# 	reverse_proxy minio:9000
+# }
