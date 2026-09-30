@@ -1,6 +1,7 @@
 using System.Globalization;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -366,7 +367,7 @@ public sealed record ListReportsQuery : IQuery<IReadOnlyList<ReportInfoDto>>;
 public sealed record RunReportQuery(string Code, IReadOnlyDictionary<string, string?> Arguments, int Page = 1, int PageSize = 200) : IQuery<ReportResultDto>;
 
 /// <summary>Exportación a archivo (D9-09). Es un comando para que la auditoría (D9-12) se guarde en la transacción del caso de uso.</summary>
-public sealed record ExportReportCommand(string Code, IReadOnlyDictionary<string, string?> Arguments, ReportFormat Format) : ICommand<ReportFileDto>;
+public sealed record ExportReportCommand(string Code, IReadOnlyDictionary<string, string?> Arguments, ReportFormat Format) : ICommand<ReportFileDto>, IAllowedWhenRestricted;
 
 public sealed record GetDashboardQuery : IQuery<DashboardDto>;
 

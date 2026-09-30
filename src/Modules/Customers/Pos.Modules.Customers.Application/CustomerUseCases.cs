@@ -1,5 +1,6 @@
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -166,7 +167,7 @@ public sealed record QuickCreateCustomerCommand(
     string? LegalName,
     string? Email,
     string? Phone,
-    IReadOnlyList<ConsentRequest>? Consents) : ICommand<QuickCreateResultDto>;
+    IReadOnlyList<ConsentRequest>? Consents) : ICommand<QuickCreateResultDto>, IAllowedWhenRestricted;
 
 internal sealed class QuickCreateCustomerHandler(IPartyRegistry parties, CustomerService service, ICustomerStore store, IAuditWriter audit)
     : ICommandHandler<QuickCreateCustomerCommand, QuickCreateResultDto>
@@ -215,7 +216,7 @@ internal sealed class QuickCreateCustomerHandler(IPartyRegistry parties, Custome
 }
 
 /// <summary>Completa SOLO los datos vacíos (la cajera no modifica lo que ya tiene valor, D8-04).</summary>
-public sealed record CompleteCustomerCommand(Guid PartyId, string? Email, string? Phone, string? Address, string? MunicipalityCode) : ICommand<CustomerDto>;
+public sealed record CompleteCustomerCommand(Guid PartyId, string? Email, string? Phone, string? Address, string? MunicipalityCode) : ICommand<CustomerDto>, IAllowedWhenRestricted;
 
 internal sealed class CompleteCustomerHandler(IPartyRegistry parties, ICustomerStore store, CustomerService service)
     : ICommandHandler<CompleteCustomerCommand, CustomerDto>
@@ -238,7 +239,7 @@ internal sealed class CompleteCustomerHandler(IPartyRegistry parties, ICustomerS
 }
 
 /// <summary>Cliente creado desde la administración con todos sus datos.</summary>
-public sealed record CreateCustomerCommand(PartyRegistration Party, bool AlwaysRequestsInvoice, IReadOnlyList<ConsentRequest>? Consents) : ICommand<CustomerDto>;
+public sealed record CreateCustomerCommand(PartyRegistration Party, bool AlwaysRequestsInvoice, IReadOnlyList<ConsentRequest>? Consents) : ICommand<CustomerDto>, IAllowedWhenRestricted;
 
 internal sealed class CreateCustomerHandler(IPartyRegistry parties, CustomerService service) : ICommandHandler<CreateCustomerCommand, CustomerDto>
 {
@@ -357,7 +358,7 @@ internal sealed class AssignCustomerPricingHandler(ICustomerStore store, Custome
 // ─────────────────────────────── Autorizaciones ───────────────────────────────
 
 /// <summary>Registra autorizaciones o revocaciones del cliente (libro de solo inserción, D8-06).</summary>
-public sealed record RecordConsentsCommand(Guid PartyId, IReadOnlyList<ConsentRequest> Consents) : ICommand<CustomerDto>;
+public sealed record RecordConsentsCommand(Guid PartyId, IReadOnlyList<ConsentRequest> Consents) : ICommand<CustomerDto>, IAllowedWhenRestricted;
 
 internal sealed class RecordConsentsHandler(ICustomerStore store, CustomerService service) : ICommandHandler<RecordConsentsCommand, CustomerDto>
 {

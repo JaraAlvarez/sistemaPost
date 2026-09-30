@@ -1,5 +1,6 @@
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
@@ -151,7 +152,7 @@ public sealed record ExpenseRequest(
 /// Registra un gasto. Con <c>CashSessionId</c> sale del cajón en la misma transacción (movimiento EXPENSE, efectivo
 /// suficiente, RN-CSH-06). <c>FromCash</c>: el gasto menor que registra el cajero desde su jornada (exige la jornada).
 /// </summary>
-public sealed record CreateExpenseCommand(ExpenseRequest Expense, bool FromCash = false) : ICommand<ExpenseDto>;
+public sealed record CreateExpenseCommand(ExpenseRequest Expense, bool FromCash = false) : ICommand<ExpenseDto>, IAllowedWhenRestricted;
 
 internal sealed class CreateExpenseHandler(
     IInstallationContext installation,
@@ -224,7 +225,7 @@ internal sealed class CreateExpenseHandler(
 }
 
 /// <summary>Anula un gasto; si salió de la caja, el dinero vuelve con una corrección en esa jornada (que debe seguir abierta).</summary>
-public sealed record VoidExpenseCommand(Guid ExpenseId, string Reason) : ICommand<ExpenseDto>;
+public sealed record VoidExpenseCommand(Guid ExpenseId, string Reason) : ICommand<ExpenseDto>, IAllowedWhenRestricted;
 
 internal sealed class VoidExpenseHandler(IExpenseStore store, ICashRegister cash, IActorContext actor, IAuditWriter audit, IClock clock)
     : ICommandHandler<VoidExpenseCommand, ExpenseDto>

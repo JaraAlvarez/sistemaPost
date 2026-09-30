@@ -150,7 +150,7 @@ else if (_detail is not null)
 
         <MudTabPanel Text="Check-ins">
             <MudSimpleTable Dense="true" Outlined="true">
-                <thead><tr><th>Fecha</th><th>Resultado</th><th>Versión</th><th>Cajas</th><th>Reloj del equipo</th><th>IP</th><th>Token hasta</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Resultado</th><th>Versión</th><th>Cajas</th><th>Reloj del equipo</th><th>IP</th><th>Token hasta</th><th>Sello de auditoría</th></tr></thead>
                 <tbody>
                     @foreach (var c in _detail.RecentCheckins)
                     {
@@ -162,6 +162,7 @@ else if (_detail is not null)
                             <td>@Date(c.ReportedClock)</td>
                             <td>@(c.IpAddress ?? "—")</td>
                             <td>@Date(c.TokenValidUntil)</td>
+                            <td>@(c.AuditSealNo is null ? "—" : $"n.º {c.AuditSealNo} · {c.AuditSealCode}")</td>
                         </tr>
                     }
                 </tbody>

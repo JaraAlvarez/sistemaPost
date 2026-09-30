@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Licensing · Contrato público: permisos, estados y estado de la licencia para /auth/me y el tablero. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Licensing.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

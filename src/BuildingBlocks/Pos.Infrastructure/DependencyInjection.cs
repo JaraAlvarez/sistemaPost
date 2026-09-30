@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Infrastructure.Identifiers;
-using Pos.Infrastructure.Licensing;
 using Pos.Infrastructure.Messaging;
 using Pos.Infrastructure.Messaging.Behaviors;
 using Pos.Infrastructure.Time;
@@ -16,7 +15,7 @@ namespace Pos.Infrastructure;
 
 public static class DependencyInjection
 {
-    /// <summary>Servicios transversales: reloj, IDs, despachador con su pipeline y feature gate provisional.</summary>
+    /// <summary>Servicios transversales: reloj, IDs, despachador con su pipeline y filtro de licencia.</summary>
     public static IServiceCollection AddPosInfrastructure(this IServiceCollection services, TimeZoneInfo businessTimeZone)
     {
         ArgumentNullException.ThrowIfNull(businessTimeZone);
@@ -24,13 +23,14 @@ public static class DependencyInjection
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IClock>(sp => new SystemClock(sp.GetRequiredService<TimeProvider>(), businessTimeZone));
         services.TryAddSingleton<IIdGenerator, UuidV7IdGenerator>();
-        services.TryAddSingleton<IFeatureGate, AllowAllFeatureGate>();
+        services.TryAddSingleton<ILicenseGate, UnrestrictedLicenseGate>();
 
         services.TryAddScoped<IDispatcher, Dispatcher>();
 
         // Orden del pipeline (el primero es el más externo). Fase 2 agrega transacción y auditoría.
         services.AddScoped(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>));
         services.AddScoped(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+        services.AddScoped(typeof(IPipelineBehavior<,>), typeof(LicenseRestrictionBehavior<,>));
 
         return services;
     }

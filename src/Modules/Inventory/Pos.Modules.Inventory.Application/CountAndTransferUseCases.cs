@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
@@ -561,7 +562,7 @@ internal sealed class SetStockPolicyHandler(IInstallationContext installation, I
     }
 }
 
-public sealed record VerifyStockCommand : ICommand<VerificationDto>;
+public sealed record VerifyStockCommand : ICommand<VerificationDto>, IAllowedWhenRestricted;
 
 internal sealed class VerifyStockHandler(IStockVerifier verifier, IActorContext actor) : ICommandHandler<VerifyStockCommand, VerificationDto>
 {
@@ -578,7 +579,7 @@ internal sealed class ListVerificationsHandler(IStockVerifier verifier) : IQuery
 }
 
 /// <summary>Reconstruye un saldo desde su kardex (acción explícita, auditada como crítica; nunca automática).</summary>
-public sealed record RebuildStockCommand(Guid WarehouseId, Guid ProductId, string Reason) : ICommand<StockDto>;
+public sealed record RebuildStockCommand(Guid WarehouseId, Guid ProductId, string Reason) : ICommand<StockDto>, IAllowedWhenRestricted;
 
 internal sealed class RebuildStockHandler(
     IInstallationContext installation, InventoryGuards guards, IStockVerifier verifier, IInventoryReadModel readModel, IAuditWriter audit)

@@ -108,7 +108,10 @@ public sealed record CheckinDto(
     string Result,
     string? RejectionCode,
     string? SubscriptionStatus,
-    DateTimeOffset? TokenValidUntil);
+    DateTimeOffset? TokenValidUntil,
+    long? AuditSealNo = null,
+    string? AuditSealCode = null,
+    DateTimeOffset? AuditSealedAt = null);
 
 public sealed record OrganizationDetailDto(
     OrganizationRowDto Organization,

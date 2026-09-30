@@ -279,7 +279,9 @@ internal sealed class CheckinHandler(
         }
 
         var now = clock.UtcNow;
-        var report = new CheckinReport(request.AppVersion, request.ActiveTerminals, request.ReportedClock, command.IpAddress);
+        var report = new CheckinReport(
+            request.AppVersion, request.ActiveTerminals, request.ReportedClock, command.IpAddress,
+            request.AuditSeal?.SealNo, request.AuditSeal?.SealCode, request.AuditSeal?.SealedAt);
         var license = (await store.GetLicenseAsync(installation.LicenseId, cancellationToken))!;
         Error? rejection = null;
         if (!DeviceFingerprint.TryParse(request.Fingerprint, out var fingerprint))

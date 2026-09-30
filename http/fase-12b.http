@@ -1,0 +1,65 @@
+# Fase 12-B · Licencia dentro del POS (sin UI): estado, activar, verificar, liberar
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes:
+#   1. dev-db.ps1 (migración 030) y `dotnet run --project src/Server/Pos.Server.Host`.
+#   2. Su servidor de licencias local o el VPS (docs/despliegue-nube.md) con un cliente, una empresa con el MISMO NIT de la tienda,
+#      una suscripción y una clave POS-XXXXX-… creadas en el portal.
+#   3. En src/Server/Pos.Server.Host/appsettings.Development.json (NO en producción):
+#        "Pos": { "Licensing": { "ServerUrl": "http://127.0.0.1:8089/",
+#                                "DevelopmentTrustedKeys": [ "<clave pública x que imprime `keys` en el servidor>" ] } }
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. Propietario
+# @name owner
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{owner.response.body.token}}
+
+### 2. Estado: DEMO con los días que quedan (30 desde la instalación). /auth/me trae "license" para todos los usuarios.
+GET {{api}}/license
+Authorization: Bearer {{ownerToken}}
+
+### 3. Clave mal escrita → 400 LICENSE.KEY_FORMAT_INVALID
+POST {{api}}/license/activate
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "licenseKey": "POS-123" }
+
+### 4. Activar con su clave (requiere Internet) → VALID, empresa, edición, vigencia
+POST {{api}}/license/activate
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "licenseKey": "POS-XXXXX-XXXXX-XXXXX-XXXXX" }
+
+### 5. Suspenda la suscripción en el portal y verifique → RESTRICTED con el aviso SUBSCRIPTION_SUSPENDED
+POST {{api}}/license/check
+Authorization: Bearer {{ownerToken}}
+
+### 6. Restringida: crear una categoría → 422 LICENSE.RESTRICTED (vender en la jornada abierta, reportes y backups siguen)
+POST {{api}}/catalog/categories
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "name": "Prueba de licencia", "sortOrder": 0 }
+
+### 7. Reactive en el portal y verifique de nuevo → VALID
+POST {{api}}/license/check
+Authorization: Bearer {{ownerToken}}
+
+### 8. Historial de activaciones y verificaciones
+GET {{api}}/license/checkins
+Authorization: Bearer {{ownerToken}}
+
+### 9. Liberar este equipo (cambio de computador) → queda restringido hasta activar de nuevo
+POST {{api}}/license/deactivate
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "reason": "Cambio de computador" }

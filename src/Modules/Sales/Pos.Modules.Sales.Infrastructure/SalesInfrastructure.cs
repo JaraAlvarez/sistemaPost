@@ -5,6 +5,7 @@ using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Infrastructure.Persistence;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Sales.Application;
@@ -154,23 +155,24 @@ internal sealed class SalesStore(PosDbContext context) : ISalesStore
 }
 
 /// <summary>Lecturas de pantalla y del tiquete con SQL directo (cruza con org e identity para mostrar nombres).</summary>
-internal sealed class SalesReadModel(PosDbContext context) : ISalesReadModel
+internal sealed class SalesReadModel(PosDbContext context, ILicenseGate license) : ISalesReadModel
 {
     public async Task<TicketHeader?> GetTicketHeaderAsync(Guid posTerminalId, Guid cashierId, CancellationToken cancellationToken)
     {
         var (connection, transaction) = await SalesDb.OpenAsync(context, cancellationToken);
-        return await connection.QuerySingleOrDefaultAsync<TicketHeader>(new CommandDefinition(
+        var header = await connection.QuerySingleOrDefaultAsync<TicketHeader>(new CommandDefinition(
             """
             SELECT c.legal_name AS LegalName, c.trade_name AS TradeName,
                    c.identification_number || COALESCE('-' || c.check_digit, '') AS Nit, c.address AS Address, COALESCE(b.phone, c.phone) AS Phone,
                    b.name AS BranchName, b.address AS BranchAddress, t.code AS TerminalCode,
-                   (SELECT u.display_name FROM identity.users u WHERE u.id = @cashierId) AS CashierName
+                   (SELECT u.display_name FROM identity.users u WHERE u.id = @cashierId) AS CashierName, false AS Demo
             FROM org.pos_terminals t
             JOIN org.branches b ON b.id = t.branch_id
             JOIN org.companies c ON c.id = b.company_id
             WHERE t.id = @posTerminalId
             """,
             new { posTerminalId, cashierId }, transaction, cancellationToken: cancellationToken));
+        return header is null ? null : header with { Demo = license.Current.Demo };
     }
 
     public async Task<IReadOnlyList<SaleSummaryDto>> ListSalesAsync(SaleFilter filter, CancellationToken cancellationToken)

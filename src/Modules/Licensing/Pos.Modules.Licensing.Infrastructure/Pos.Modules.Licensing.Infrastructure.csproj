@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Licensing · Estado en la BD, cliente del servidor de licencias, huella del equipo, check-in diario y reloj confiable. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Licensing.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Licensing.Application/Pos.Modules.Licensing.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Claves públicas de confianza (D12B-04): se embeben al compilar la versión de producción. -->
+    <EmbeddedResource Include="trusted-keys.json" LogicalName="Pos.Licensing.TrustedKeys.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
+  </ItemGroup>
+</Project>

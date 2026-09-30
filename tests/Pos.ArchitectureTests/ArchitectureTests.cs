@@ -31,6 +31,8 @@ public class ArchitectureTests
             "Pos.Modules.Reporting.Infrastructure",
             "Pos.Modules.Backup.Api", "Pos.Modules.Backup.Application", "Pos.Modules.Backup.Contracts",
             "Pos.Modules.Backup.Infrastructure",
+            "Pos.Modules.Licensing.Api", "Pos.Modules.Licensing.Application", "Pos.Modules.Licensing.Contracts",
+            "Pos.Modules.Licensing.Infrastructure", "Pos.Licensing.Contracts",
             "Pos.Modules.Customers.Api", "Pos.Modules.Customers.Application", "Pos.Modules.Customers.Contracts", "Pos.Modules.Customers.Domain",
             "Pos.Modules.Customers.Infrastructure",
             "Pos.Modules.Sales.Api", "Pos.Modules.Sales.Application", "Pos.Modules.Sales.Contracts", "Pos.Modules.Sales.Domain",
@@ -172,5 +174,44 @@ public class ArchitectureTests
             .Select(x => $"{x.File}: la acción {x.Code} no está en el catálogo AuditActions.");
 
         audited.Concat(literals).ToList().ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// R10 (Fase 12-B, D12B-02): lista de comandos que siguen disponibles con la licencia RESTRINGIDA. Cambiarla exige revisar esta
+    /// prueba: un comando nuevo nace bloqueado en RESTRICTED (nunca en los demás estados) y solo se agrega aquí si es vender, cerrar la
+    /// jornada abierta, iniciar sesión, respaldar, exportar, verificar o atender la licencia.
+    /// </summary>
+    [Fact]
+    public void R10_Comandos_permitidos_con_la_licencia_restringida()
+    {
+        var allowed = ProductionAssemblies.All
+            .SelectMany(a => a.GetTypes())
+            .Where(t => t.GetInterfaces().Any(i => i.Name == "IAllowedWhenRestricted"))
+            .Select(t => $"{t.Namespace!.Split('.')[2]}.{t.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        allowed.ShouldBe(
+        [
+            "Audit.AcknowledgeIncidentCommand", "Audit.IssueIntegrityCertificateCommand", "Audit.VerifyAuditCommand",
+            "Backup.ConfirmRecoveryCodeCommand", "Backup.DownloadBackupCommand", "Backup.GenerateRecoveryCodeCommand", "Backup.RunBackupNowCommand",
+            "Backup.SaveDestinationCommand",
+            "Billing.RetryFiscalDocumentCommand",
+            "Cash.CancelClosingCommand", "Cash.CloseSessionCommand", "Cash.RegisterMovementCommand", "Cash.ReviewSessionCommand", "Cash.StartClosingCommand",
+            "Customers.AnonymizeCustomerCommand", "Customers.CloseDataRequestCommand", "Customers.CompleteCustomerCommand", "Customers.CreateCustomerCommand",
+            "Customers.CreateDataRequestCommand", "Customers.ExportCustomerDataCommand", "Customers.QuickCreateCustomerCommand", "Customers.RecordConsentsCommand",
+            "Expenses.CreateExpenseCommand", "Expenses.VoidExpenseCommand",
+            "Identity.ChangePasswordCommand", "Identity.ChangePinCommand", "Identity.CreateAuthorizationCommand", "Identity.CreateOwnerCommand",
+            "Identity.LoginCommand", "Identity.LogoutCommand", "Identity.PosLoginCommand", "Identity.RevokeSessionCommand", "Identity.UnlockUserCommand",
+            "Inventory.RebuildStockCommand", "Inventory.VerifyStockCommand",
+            "Licensing.ActivateLicenseCommand", "Licensing.CheckLicenseNowCommand", "Licensing.DeactivateLicenseCommand", "Licensing.RefreshLicenseCommand",
+            "Organization.SetupCommand",
+            "Reporting.ExportReportCommand",
+            "Sales.AddLineCommand", "Sales.ApplyDiscountCommand", "Sales.CancelSaleCommand", "Sales.ChangeQuantityCommand", "Sales.CompleteSaleCommand",
+            "Sales.HoldSaleCommand", "Sales.OverridePriceCommand", "Sales.RemoveDiscountCommand", "Sales.ReprintSaleCommand", "Sales.ResumeSaleCommand",
+            "Sales.SetCustomerCommand", "Sales.StartExchangeCommand", "Sales.StartSaleCommand", "Sales.VoidLineCommand", "Sales.VoidSaleCommand",
+            "Sales.WarrantyRefundCommand",
+        ],
+        ignoreOrder: true);
     }
 }

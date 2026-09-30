@@ -8,14 +8,14 @@
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
 GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers,
-    reporting, backup TO pos_app, pos_backup;
+    reporting, backup, licensing TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
-REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup
+REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup, licensing
     FROM pos_app;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup, licensing
     FROM pos_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers, backup, licensing
     FROM PUBLIC;
 
 -- Negocio
@@ -50,6 +50,10 @@ REVOKE UPDATE, DELETE, TRUNCATE ON customers.customer_consents FROM pos_app;
 -- Backups (Fase 11): historiales de solo inserción.
 REVOKE UPDATE, DELETE, TRUNCATE ON backup.backup_runs, backup.restore_tests FROM pos_app;
 REVOKE DELETE, TRUNCATE ON backup.recovery_keys FROM pos_app;
+
+-- Licencia (Fase 12-B, D12B-01): el estado del nodo se lee y se actualiza, nunca se borra; los intentos son de solo inserción.
+GRANT SELECT, INSERT, UPDATE ON licensing.license_state TO pos_app;
+GRANT SELECT, INSERT ON licensing.checkins TO pos_app;
 
 -- Reportes (D9-01/D9-02): solo lectura de las vistas del esquema reporting.
 REVOKE ALL ON ALL TABLES IN SCHEMA reporting FROM pos_app;

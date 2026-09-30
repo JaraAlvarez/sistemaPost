@@ -377,6 +377,11 @@ public static class SaleTicketBuilder
 
         e.Add(new TextLine($"NIT {header.Nit}", TicketAlign.Center));
         e.Add(new TextLine(header.BranchName, TicketAlign.Center));
+        if (header.Demo)
+        {
+            e.Add(new TextLine("*** DEMOSTRACIÓN ***", TicketAlign.Center, Bold: true));
+            e.Add(new TextLine("Sistema sin licencia activada", TicketAlign.Center));
+        }
         if ((header.BranchAddress ?? header.Address) is { } address)
         {
             e.Add(new TextLine(address, TicketAlign.Center));

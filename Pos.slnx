@@ -84,6 +84,10 @@
     <Project Path="src/Modules/Backup/Pos.Modules.Backup.Application/Pos.Modules.Backup.Application.csproj" />
     <Project Path="src/Modules/Backup/Pos.Modules.Backup.Infrastructure/Pos.Modules.Backup.Infrastructure.csproj" />
     <Project Path="src/Modules/Backup/Pos.Modules.Backup.Api/Pos.Modules.Backup.Api.csproj" />
+    <Project Path="src/Modules/Licensing/Pos.Modules.Licensing.Contracts/Pos.Modules.Licensing.Contracts.csproj" />
+    <Project Path="src/Modules/Licensing/Pos.Modules.Licensing.Application/Pos.Modules.Licensing.Application.csproj" />
+    <Project Path="src/Modules/Licensing/Pos.Modules.Licensing.Infrastructure/Pos.Modules.Licensing.Infrastructure.csproj" />
+    <Project Path="src/Modules/Licensing/Pos.Modules.Licensing.Api/Pos.Modules.Licensing.Api.csproj" />
   </Folder>
   <Folder Name="/src/Server/">
     <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />

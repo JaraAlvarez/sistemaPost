@@ -22,6 +22,7 @@
     <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
     <ProjectReference Include="../../Audit/Pos.Modules.Audit.Contracts/Pos.Modules.Audit.Contracts.csproj" />
     <ProjectReference Include="../../Backup/Pos.Modules.Backup.Contracts/Pos.Modules.Backup.Contracts.csproj" />
+    <ProjectReference Include="../../Licensing/Pos.Modules.Licensing.Contracts/Pos.Modules.Licensing.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

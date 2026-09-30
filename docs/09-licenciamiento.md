@@ -7,7 +7,9 @@
 > [0039](adr/0039-modelo-por-edicion-y-licencia-por-nit.md)). Los **planes por módulos, las *features* y los límites de cajas** de
 > este documento quedaron reemplazados por la **edición** Caja Única / Multicaja (ADR-0015) y una licencia por NIT. Ver las
 > [notas de implementación](#notas-de-implementación-fase-12-a) al final. La parte dentro del POS (estados locales, heartbeat,
-> restricciones) es la Fase 12-B.
+> restricciones) es la Fase 12-B, **implementada** ([informe](fases/fase-12b-informe.md), ADR
+> [0053](adr/0053-restricciones-de-licencia-por-lista-de-permitidos.md) · [0054](adr/0054-licencia-local-token-en-la-bd-y-reloj-confiable.md)):
+> ver [notas de la Fase 12-B](#notas-de-implementación-fase-12-b).
 
 ## Objetivos y restricciones
 
@@ -233,3 +235,18 @@ Permisos: `licensing.dashboard.view`, `licensing.data.view`, `licensing.account.
 **Qué sigue en 12-B (dentro del POS):** embeber las claves públicas (activa y reserva), activar en el asistente inicial con
 `POST /v1/activations`, check-in diario, estados locales `VALID`/`GRACE`/`RESTRICTED`/`DEMO` con las reglas RN-LIC-01..05 de este
 documento (nunca detener una jornada abierta ni bloquear consultas, reportes, exportación o backup) y detección del reloj atrasado.
+
+## Notas de implementación (Fase 12-B)
+
+Módulo `Licensing` del POS (`src/Modules/Licensing`), API `/api/v1/license`. Peticiones de ejemplo: `http/fase-12b.http`.
+
+| Tema | Implementado |
+|---|---|
+| Estados | `DEMO` (30 días desde la instalación, tiquete con "DEMOSTRACIÓN"), `VALID`, `VALID_OFFLINE` (sin check-in en 26 h), `GRACE`, `RESTRICTED`, `REACTIVATION_REQUIRED`. Se **calculan** con el token firmado, la huella y el reloj; no se guardan |
+| Qué bloquea `RESTRICTED` | Todo comando que no esté en la lista de permitidos (ADR-0053, prueba R10): se vende, se cobra y se cierra la jornada abierta; consultas, reportes, exportación y backups nunca se bloquean. Abrir jornada y administrar dan `LICENSE.RESTRICTED` |
+| Token | En `licensing.license_state` (viaja en los backups; en otro PC la huella no coincide → reactivar) |
+| Claves públicas | Embebidas (`trusted-keys.json`, se completa al compilar la versión de producción). En desarrollo, por configuración |
+| Check-in | Cada 24 h ± 2 h, al arrancar y con reintentos 1 min → 1 h; envía jornadas abiertas y el **sello de auditoría** (ADR-0048) |
+| Reloj | Hora confiable = emisión del token; atrasar el reloj más de 24 h restringe hasta el siguiente check-in (`LICENSE_CLOCK_ROLLBACK`) |
+| Permisos | `licensing.license.view` y `.check` (propietario y administrador), `licensing.license.manage` (solo propietario) |
+| Cajas | No hablan con la nube: ven el estado en `/auth/me` (`license`); la restricción se aplica en el servidor |

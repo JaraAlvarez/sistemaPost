@@ -1,6 +1,6 @@
 # Fase 12-B · Licencia dentro del POS — Propuesta
 
-> Estado: **PROPUESTA — pendiente de tu aprobación** · 2026-09-29
+> Estado: **APROBADA** (con las recomendaciones de la §13) · 2026-09-29 · [informe](fase-12b-informe.md)
 > Requisitos previos:
 > - La Fase 12-A está implementada: el servidor y el portal de licencias en la nube, y el contrato compartido
 >   `Pos.Licensing.Contracts` con la clave `POS-…`, la huella `fp1` 2 de 3, el token JWS EdDSA con `kid` y los códigos `LICENSE.*`.

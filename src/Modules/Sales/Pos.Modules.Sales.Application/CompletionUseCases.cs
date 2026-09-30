@@ -1,4 +1,5 @@
 using Pos.Application.Abstractions.Auditing;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
@@ -135,7 +136,7 @@ public sealed record PaymentRequest(Guid PaymentMethodId, decimal Amount, string
 /// saldo negativo) con el costo de cada línea, movimientos de caja por medio, comprobante, cambio de mercancía si lo hay y
 /// evento de sincronización. Idempotente: repetir con la misma clave devuelve la venta ya completada.
 /// </summary>
-public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>;
+public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>, IAllowedWhenRestricted;
 
 internal sealed class CompleteSaleHandler(
     ISalesStore store,
@@ -374,7 +375,7 @@ internal sealed class CompleteSaleHandler(
 /// autorización. Kardex inverso al costo y lote originales, salida de caja por medio (el efectivo debe alcanzar) y
 /// comprobante anulado. Una venta con cambios de mercancía, o pagada con un crédito de cambio, no se anula.
 /// </summary>
-public sealed record VoidSaleCommand(Guid SaleId, string Reason) : ICommand<SaleReceiptDto>;
+public sealed record VoidSaleCommand(Guid SaleId, string Reason) : ICommand<SaleReceiptDto>, IAllowedWhenRestricted;
 
 internal sealed class VoidSaleHandler(
     ISalesStore store,
@@ -460,7 +461,7 @@ internal sealed class VoidSaleHandler(
 // ─────────────────────────────── Reimprimir y consultar ───────────────────────────────
 
 /// <summary>Reimpresión (RN-SAL-14): el tiquete sale marcado "COPIA" y queda auditada.</summary>
-public sealed record ReprintSaleCommand(Guid SaleId) : ICommand<SaleReceiptDto>;
+public sealed record ReprintSaleCommand(Guid SaleId) : ICommand<SaleReceiptDto>, IAllowedWhenRestricted;
 
 internal sealed class ReprintSaleHandler(ISalesStore store, SaleReceipts receipts, IAuditWriter audit) : ICommandHandler<ReprintSaleCommand, SaleReceiptDto>
 {
