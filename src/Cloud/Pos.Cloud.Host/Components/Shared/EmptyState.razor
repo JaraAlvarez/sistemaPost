@@ -1,0 +1,24 @@
+@* Estado vacío uniforme de tablas y listas: ícono, título y una pista de qué hacer. *@
+<div class="bp-empty" role="status">
+    <span class="bp-empty-icon"><MudIcon Icon="@Icon" aria-hidden="true" /></span>
+    <span class="bp-empty-title">@Title</span>
+    @if (Hint is not null)
+    {
+        <MudText Typo="Typo.body2" Class="texto-secundario">@Hint</MudText>
+    }
+    @ChildContent
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Hint { get; set; }
+
+    [Parameter]
+    public string Icon { get; set; } = Icons.Material.Outlined.Inbox;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

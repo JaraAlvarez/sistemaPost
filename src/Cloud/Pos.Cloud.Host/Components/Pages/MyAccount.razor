@@ -5,14 +5,23 @@
 @inject PortalIdentityOptions IdentityOptions
 
 <PageTitle>Mi cuenta · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Mi cuenta</MudText>
+<PageHeader Title="Mi cuenta" Section="Personal" Description="Sus datos, su contraseña, el doble factor y las sesiones abiertas." />
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
-else if (_me is { } me)
+else if (_me is null && _loadFailed is not null)
 {
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_loadFailed</MudAlert>
+}
+else if (_me is null)
+{
+    <MudPaper Elevation="0" Class="bp-card"><TableSkeleton Rows="3" /></MudPaper>
+}
+else
+{
+    var me = _me;
     @if (me.MustChangePassword)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-4">
@@ -27,77 +36,122 @@ else if (_me is { } me)
         </MudAlert>
     }
 
-    <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
-        <tbody>
-            <tr><th>Nombre</th><td>@me.DisplayName</td></tr>
-            <tr><th>Correo</th><td>@me.Email</td></tr>
-            <tr><th>Rol</th><td>@PortalUsers.RoleName(me.Role)</td></tr>
-        </tbody>
-    </MudSimpleTable>
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="4">
+            <MudPaper Elevation="0" Class="bp-card pa-5" Style="height: 100%">
+                <MudStack AlignItems="AlignItems.Center" Spacing="2" Class="py-2">
+                    <MudAvatar Color="Color.Primary" Size="Size.Large" aria-hidden="true">@Initials(me.DisplayName)</MudAvatar>
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Align="Align.Center">@me.DisplayName</MudText>
+                    <MudText Typo="Typo.body2" Class="texto-secundario" Align="Align.Center" Style="word-break: break-all">@me.Email</MudText>
+                    <StatusChip Text="@RoleName(me.Role)" Color="Color.Info" />
+                </MudStack>
+                <MudDivider Class="my-4" />
+                <MudSimpleTable Dense="true" Elevation="0" Class="bp-kv">
+                    <tbody>
+                        <tr><th scope="row">Doble factor</th><td><StatusChip Text="@(me.TotpEnabled ? "Activo" : "Inactivo")" Color="@(me.TotpEnabled ? Color.Success : Color.Default)" /></td></tr>
+                        <tr><th scope="row">Contraseña</th><td>@(me.MustChangePassword || me.HasTemporaryPassword ? "Temporal" : "Propia")</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
 
-    <MudPaper Class="pa-4 mb-4" Elevation="1" Style="max-width: 560px">
-        <MudText Typo="Typo.h6" Class="mb-2">Cambiar contraseña</MudText>
-        <MudTextField T="string" @bind-Value="_current" Label="Contraseña actual" InputType="InputType.Password" autocomplete="current-password" />
-        <MudTextField T="string" @bind-Value="_new" Label="Contraseña nueva" InputType="InputType.Password" autocomplete="new-password"
-                      HelperText="Mínimo 12 caracteres, con letras y números; distinta del correo y de la anterior." />
-        <MudTextField T="string" @bind-Value="_confirm" Label="Repita la contraseña nueva" InputType="InputType.Password" autocomplete="new-password" />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="ChangeAsync">Cambiar contraseña</MudButton>
-        <MudText Typo="Typo.caption" Class="d-block mt-2">Al cambiarla se cierran sus otras sesiones abiertas.</MudText>
-    </MudPaper>
+        <MudItem xs="12" md="8">
+            <MudPaper Elevation="0" Class="bp-card pa-5 mb-4">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Password" Size="Size.Small" aria-hidden="true" />Cambiar contraseña</MudText>
+                <MudGrid Spacing="3">
+                    <MudItem xs="12"><MudTextField T="string" @bind-Value="_current" Label="Contraseña actual" InputType="InputType.Password" autocomplete="current-password" /></MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField T="string" @bind-Value="_new" Label="Contraseña nueva" InputType="InputType.Password" autocomplete="new-password"
+                                      HelperText="Mínimo 12 caracteres, con letras y números; distinta del correo y de la anterior." />
+                    </MudItem>
+                    <MudItem xs="12" sm="6"><MudTextField T="string" @bind-Value="_confirm" Label="Repita la contraseña nueva" InputType="InputType.Password" autocomplete="new-password" /></MudItem>
+                </MudGrid>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-4">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="ChangeAsync">Cambiar contraseña</MudButton>
+                    <MudText Typo="Typo.caption" Class="texto-secundario">Al cambiarla se cierran sus otras sesiones abiertas.</MudText>
+                </MudStack>
+            </MudPaper>
 
-    <MudPaper Class="pa-4 mb-4" Elevation="1" Style="max-width: 560px">
-        <MudText Typo="Typo.h6" Class="mb-2">Doble factor (código de una aplicación autenticadora)</MudText>
-        @if (me.TotpEnabled)
+            <MudPaper Elevation="0" Class="bp-card pa-5">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.PhonelinkLock" Size="Size.Small" aria-hidden="true" />Doble factor</MudText>
+                @if (me.TotpEnabled)
+                {
+                    <MudText Class="mb-2">Activo: al entrar con contraseña se le pide el código de su aplicación autenticadora. El ingreso con Google no lo pide.</MudText>
+                    @if (IdentityOptions.RequireTotp)
+                    {
+                        <MudText Typo="Typo.caption" Class="texto-secundario">En este portal el doble factor es obligatorio.</MudText>
+                    }
+                    else
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.End" Wrap="Wrap.Wrap" Class="mt-2">
+                            <MudTextField T="string" @bind-Value="_code" Label="Código actual para desactivarlo" MaxLength="6" autocomplete="one-time-code" InputMode="InputMode.numeric" Style="max-width: 260px" />
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="DisableTotpAsync">Desactivar doble factor</MudButton>
+                        </MudStack>
+                    }
+                }
+                else if (_enrollment is null)
+                {
+                    <MudText Class="mb-3">
+                        Opcional. Si lo activa, además de la contraseña se le pedirá el código de Google Authenticator, Microsoft
+                        Authenticator o Aegis.
+                    </MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.QrCode2" Disabled="Busy" OnClick="BeginTotpAsync">Activar doble factor</MudButton>
+                }
+                else
+                {
+                    <MudText Class="mb-2">Escanee el código con su aplicación autenticadora y escriba el primer código que muestre.</MudText>
+                    <img class="account-qr" src="@QrCodes.ToDataUri(_enrollment.EnrollmentLink)" alt="Código QR del doble factor" width="200" height="200" />
+                    <MudText Typo="Typo.caption" Class="d-block texto-secundario">Clave para escribirla a mano: <span class="mono">@_enrollment.Secret</span></MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.End" Wrap="Wrap.Wrap" Class="mt-2">
+                        <MudTextField T="string" @bind-Value="_code" Label="Primer código" MaxLength="6" autocomplete="one-time-code" InputMode="InputMode.numeric" Style="max-width: 260px" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="ConfirmTotpAsync">Activar</MudButton>
+                    </MudStack>
+                }
+                <MudText Typo="Typo.caption" Class="d-block mt-3 texto-secundario">Al activarlo o desactivarlo se cierran sus otras sesiones abiertas.</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudPaper Elevation="0" Class="bp-card bp-section">
+        <div class="pa-4 pb-0">
+            <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Devices" Size="Size.Small" aria-hidden="true" />Mis sesiones recientes</MudText>
+        </div>
+        @if (_sessions.Count == 0)
         {
-            <MudText Class="mb-2">
-                Activo: al entrar con contraseña se le pide el código. El ingreso con Google no lo pide.
-            </MudText>
-            @if (IdentityOptions.RequireTotp)
-            {
-                <MudText Typo="Typo.caption">En este portal el doble factor es obligatorio.</MudText>
-            }
-            else
-            {
-                <MudTextField T="string" @bind-Value="_code" Label="Código actual para desactivarlo" MaxLength="6" autocomplete="one-time-code" />
-                <MudButton Variant="Variant.Outlined" Color="Color.Error" Class="mt-3" Disabled="Busy" OnClick="DisableTotpAsync">Desactivar doble factor</MudButton>
-            }
-        }
-        else if (_enrollment is null)
-        {
-            <MudText Class="mb-2">
-                Opcional. Si lo activa, además de la contraseña se le pedirá el código de Google Authenticator, Microsoft
-                Authenticator o Aegis.
-            </MudText>
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="Busy" OnClick="BeginTotpAsync">Activar doble factor</MudButton>
+            <EmptyState Title="Sin sesiones registradas." Icon="@Icons.Material.Outlined.Devices" />
         }
         else
         {
-            <MudText Class="mb-2">Escanee el código con su aplicación autenticadora y escriba el primer código que muestre.</MudText>
-            <img class="account-qr" src="@QrCodes.ToDataUri(_enrollment.EnrollmentLink)" alt="Código QR del doble factor" />
-            <MudText Typo="Typo.caption" Class="d-block">Clave para escribirla a mano: @_enrollment.Secret</MudText>
-            <MudTextField T="string" @bind-Value="_code" Label="Primer código" MaxLength="6" autocomplete="one-time-code" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="ConfirmTotpAsync">Activar</MudButton>
+            <div class="bp-table-wrap">
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead><tr><th scope="col">Canal</th><th scope="col">Método</th><th scope="col">Inicio</th><th scope="col">Última actividad</th><th scope="col">IP</th><th scope="col">Estado</th></tr></thead>
+                    <tbody>
+                        @foreach (var s in _sessions)
+                        {
+                            <tr>
+                                <td>@(s.Channel == "API" ? "API" : "Portal")</td>
+                                <td>@(s.AuthMethod == "GOOGLE" ? "Google" : "Contraseña")</td>
+                                <td>@Date(s.CreatedAt)</td>
+                                <td>@Date(s.LastSeenAt)</td>
+                                <td>@(s.IpAddress ?? "—")</td>
+                                <td>
+                                    @if (s.RevokedAt is null)
+                                    {
+                                        <StatusChip Text="Abierta" Color="Color.Success" />
+                                    }
+                                    else
+                                    {
+                                        <StatusChip Text="Cerrada" Color="Color.Default" />
+                                        <span class="cell-sub">@s.RevokedReason</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
         }
-        <MudText Typo="Typo.caption" Class="d-block mt-2">Al activarlo o desactivarlo se cierran sus otras sesiones abiertas.</MudText>
     </MudPaper>
-
-    <MudText Typo="Typo.h6" Class="mb-2">Mis sesiones recientes</MudText>
-    <MudSimpleTable Dense="true" Outlined="true">
-        <thead><tr><th>Canal</th><th>Método</th><th>Inicio</th><th>Última actividad</th><th>IP</th><th>Estado</th></tr></thead>
-        <tbody>
-            @foreach (var s in _sessions)
-            {
-                <tr>
-                    <td>@(s.Channel == "API" ? "API" : "Portal")</td>
-                    <td>@(s.AuthMethod == "GOOGLE" ? "Google" : "Contraseña")</td>
-                    <td>@Date(s.CreatedAt)</td>
-                    <td>@Date(s.LastSeenAt)</td>
-                    <td>@(s.IpAddress ?? "—")</td>
-                    <td>@(s.RevokedAt is null ? "Abierta" : $"Cerrada: {s.RevokedReason}")</td>
-                </tr>
-            }
-        </tbody>
-    </MudSimpleTable>
 }
 
 @code {
@@ -108,6 +162,13 @@ else if (_me is { } me)
     private string? _confirm;
     private string? _code;
     private TotpEnrollmentDto? _enrollment;
+    private string? _loadFailed;
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? "?" : string.Concat(parts.Take(2).Select(p => p[..1])).ToUpperInvariant();
+    }
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -120,6 +181,7 @@ else if (_me is { } me)
         }
         else
         {
+            _loadFailed = account.Error.Message;
             Snackbar.Add(account.Error.Message, Severity.Error);
         }
     }

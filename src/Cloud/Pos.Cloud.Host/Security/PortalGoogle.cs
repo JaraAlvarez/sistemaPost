@@ -137,7 +137,7 @@ internal static class PortalGoogle
 
     public static IEndpointRouteBuilder MapPortalGoogleEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        // Botón "Ingresar con Google": formulario POST con token antifalsificación → desafío de Google.
+        // Botón "Continuar con Google": formulario POST con token antifalsificación → desafío de Google.
         endpoints.MapPost(ChallengePath, ([FromForm] string? returnUrl, HttpContext http, IOptions<PortalGoogleOptions> google) =>
             {
                 if (!google.Value.IsConfigured)

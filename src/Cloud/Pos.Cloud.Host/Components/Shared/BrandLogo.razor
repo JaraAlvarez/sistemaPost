@@ -1,0 +1,36 @@
+@* Logo de BusinessPost: símbolo en SVG en línea (sin peticiones ni orígenes externos) y el nombre en texto con Inter. *@
+<span class="bp-brand @Class" aria-label="@(Wordmark ? null : "BusinessPost")" role="@(Wordmark ? null : "img")">
+    <svg class="bp-brand-mark" width="@Size" height="@Size" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <rect width="32" height="32" rx="8" fill="#3341B0" />
+        <path fill="#FFFFFF" fill-rule="evenodd"
+              d="M9 7H17C20 7 22 9 22 11.6C22 13.3 21.1 14.7 19.8 15.4C21.8 16.1 23 17.9 23 20.1C23 23 20.8 25 17.8 25H9ZM12.6 10.2V14H16.7C17.9 14 18.6 13.2 18.6 12.1C18.6 11 17.9 10.2 16.7 10.2ZM12.6 17.1V21.8H17.2C18.6 21.8 19.4 20.9 19.4 19.45C19.4 18 18.6 17.1 17.2 17.1Z" />
+        <circle cx="26" cy="26" r="2.6" fill="#2DD4BF" />
+    </svg>
+    @if (Wordmark)
+    {
+        <span class="bp-brand-text">
+            <span class="bp-brand-name">Business<span class="bp-brand-accent">Post</span></span>
+            @if (Subtitle is not null)
+            {
+                <span class="bp-brand-sub">@Subtitle</span>
+            }
+        </span>
+    }
+</span>
+
+@code {
+    /// <summary>Lado del símbolo en píxeles.</summary>
+    [Parameter]
+    public int Size { get; set; } = 32;
+
+    /// <summary>Muestra el nombre "BusinessPost" junto al símbolo.</summary>
+    [Parameter]
+    public bool Wordmark { get; set; } = true;
+
+    /// <summary>Texto pequeño debajo del nombre (p. ej. "Portal de licencias").</summary>
+    [Parameter]
+    public string? Subtitle { get; set; }
+
+    [Parameter]
+    public string? Class { get; set; }
+}

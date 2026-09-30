@@ -1,0 +1,18 @@
+@* Esqueleto de carga de una tabla (mientras llega la consulta). *@
+<div class="pa-4" role="status" aria-live="polite">
+    <span class="visualmente-oculto">Cargando…</span>
+    @for (var i = 0; i < Rows; i++)
+    {
+        <div class="d-flex gap-4 mb-3" aria-hidden="true">
+            <MudSkeleton Width="28%" Height="22px" />
+            <MudSkeleton Width="18%" Height="22px" />
+            <MudSkeleton Width="22%" Height="22px" />
+            <MudSkeleton Width="14%" Height="22px" />
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int Rows { get; set; } = 5;
+}

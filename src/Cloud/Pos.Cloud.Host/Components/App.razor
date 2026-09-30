@@ -7,6 +7,10 @@
     @* Con Cloud:PathBase (p. ej. /businesspost) la base incluye la ruta: todos los enlaces del portal son relativos a ella. *@
     <base href="@(HttpContext.Request.PathBase + "/")" />
     <title>BusinessPost · Portal</title>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#111A3A" />
+    <link rel="icon" type="image/svg+xml" href="@Assets["favicon.svg"]" />
+    <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
     <link href="@Assets["app.css"]" rel="stylesheet" />
     <HeadOutlet @rendermode="PageRenderMode" />

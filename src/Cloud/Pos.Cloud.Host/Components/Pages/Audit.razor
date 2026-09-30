@@ -3,97 +3,122 @@
 @inherits PortalPageBase
 
 <PageTitle>Auditoría · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Auditoría</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Bitácora encadenada de todo lo que se hace en el portal, en la API del POS y en la consola del servidor. Nada se borra; la
-    verificación recalcula la cadena de hashes y los sellos.
-</MudText>
-
-<MudPaper Class="pa-4 mb-4" Elevation="1">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+<PageHeader Title="Auditoría" Section="Administración"
+            Description="Bitácora encadenada de todo lo que se hace en el portal, en la API del POS y en la consola del servidor. Nada se borra; la verificación recalcula la cadena de hashes y los sellos.">
+    <Actions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.VerifiedUser" Disabled="Busy" OnClick="VerifyAsync">Verificar la cadena</MudButton>
-        @if (_integrity is { } integrity)
-        {
-            <MudAlert Severity="@(integrity.IsValid ? Severity.Success : Severity.Error)" Dense="true">
-                @(integrity.IsValid ? "Cadena íntegra" : "Se encontraron problemas"): @integrity.RowsChecked filas y @integrity.SealsChecked sellos verificados,
-                @integrity.UnsealedRows filas aún sin sellar@(integrity.LastSealCode is null ? null : $"; último sello {integrity.LastSealCode}").
-            </MudAlert>
-        }
-    </MudStack>
-    @if (_integrity is { Findings.Count: > 0 } withFindings)
-    {
-        <ul class="mt-2">
-            @foreach (var finding in withFindings.Findings)
-            {
-                <li><MudText Typo="Typo.body2" Color="Color.Error">@finding</MudText></li>
-            }
-        </ul>
-    }
-</MudPaper>
+    </Actions>
+</PageHeader>
 
-<MudGrid Spacing="2" Class="mb-2">
-    <MudItem xs="6" md="2"><MudDatePicker Label="Desde" @bind-Date="_from" DateFormat="yyyy-MM-dd" Clearable="true" /></MudItem>
-    <MudItem xs="6" md="2"><MudDatePicker Label="Hasta (incluido)" @bind-Date="_to" DateFormat="yyyy-MM-dd" Clearable="true" /></MudItem>
-    <MudItem xs="6" md="2">
-        <MudSelect T="string" @bind-Value="_module" Label="Módulo">
+@if (_integrity is { } integrity)
+{
+    <MudAlert Severity="@(integrity.IsValid ? Severity.Success : Severity.Error)" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _integrity = null)">
+        <strong>@(integrity.IsValid ? "Cadena íntegra" : "Se encontraron problemas")</strong>: @integrity.RowsChecked filas y @integrity.SealsChecked sellos verificados,
+        @integrity.UnsealedRows filas aún sin sellar@(integrity.LastSealCode is null ? null : $"; último sello {integrity.LastSealCode}").
+        @if (integrity.Findings.Count > 0)
+        {
+            <ul class="mt-2 mb-0">
+                @foreach (var finding in integrity.Findings)
+                {
+                    <li>@finding</li>
+                }
+            </ul>
+        }
+    </MudAlert>
+}
+
+<MudPaper Elevation="0" Class="bp-card">
+    <div class="bp-toolbar">
+        <MudTextField T="string" @bind-Value="_text" Placeholder="Texto (resumen, entidad o usuario)" MaxLength="120" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" OnKeyUp="SearchOnEnterAsync" aria-label="Buscar en la auditoría" />
+        <MudSelect T="string" @bind-Value="_module" Label="Módulo" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Dense="true">
             <MudSelectItem T="string" Value="@string.Empty">Todos</MudSelectItem>
             <MudSelectItem T="string" Value="@("licensing")">Licencias</MudSelectItem>
             <MudSelectItem T="string" Value="@("portal")">Portal</MudSelectItem>
             <MudSelectItem T="string" Value="@("system")">Sistema</MudSelectItem>
         </MudSelect>
-    </MudItem>
-    <MudItem xs="6" md="2"><MudTextField T="string" @bind-Value="_action" Label="Acción (p. ej. SUBSCRIPTION_SUSPENDED)" MaxLength="80" /></MudItem>
-    <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_text" Label="Texto (resumen, entidad o usuario)" MaxLength="120" /></MudItem>
-    <MudItem xs="12" md="1" Class="d-flex align-center"><MudButton Variant="Variant.Outlined" OnClick="SearchAsync">Buscar</MudButton></MudItem>
-</MudGrid>
+        <MudTextField T="string" @bind-Value="_action" Label="Acción" Placeholder="SUBSCRIPTION_SUSPENDED" MaxLength="80" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Class="bp-filter" OnKeyUp="SearchOnEnterAsync" />
+        <MudDatePicker Label="Desde" @bind-Date="_from" DateFormat="yyyy-MM-dd" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" />
+        <MudDatePicker Label="Hasta (incluido)" @bind-Date="_to" DateFormat="yyyy-MM-dd" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FilterList" OnClick="SearchAsync">Filtrar</MudButton>
+    </div>
 
-@if (LoadError is not null)
-{
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
-}
-else if (_page is null)
-{
-    <MudProgressLinear Indeterminate="true" />
-}
-else
-{
-    <MudSimpleTable Dense="true" Hover="true" Outlined="true">
-        <thead><tr><th>#</th><th>Fecha</th><th>Módulo</th><th>Acción</th><th>Severidad</th><th>Usuario</th><th>Entidad</th><th>Resumen</th><th>IP</th></tr></thead>
-        <tbody>
-            @foreach (var e in _page.Rows)
-            {
-                <tr @onclick="@(() => _expanded = _expanded == e.Id ? null : e.Id)" class="clickable">
-                    <td>@e.Seq</td>
-                    <td>@Date(e.OccurredAt)</td>
-                    <td>@e.Module</td>
-                    <td>@e.Action</td>
-                    <td><MudChip T="string" Size="Size.Small" Color="@SeverityColor(e.Severity)">@e.Severity</MudChip></td>
-                    <td>@(e.UserDisplayName ?? "—")</td>
-                    <td>@(e.EntityLabel ?? e.EntityType ?? "—")</td>
-                    <td>@e.Summary</td>
-                    <td>@(e.IpAddress ?? "—")</td>
-                </tr>
-                @if (_expanded == e.Id && (e.OldValues is not null || e.NewValues is not null))
-                {
+    @if (LoadError is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="ma-4">@LoadError</MudAlert>
+    }
+    else if (_page is null)
+    {
+        <TableSkeleton Rows="8" />
+    }
+    else if (_page.Rows.Count == 0)
+    {
+        <EmptyState Title="No hay registros con esos filtros." Hint="Amplíe las fechas o quite filtros." Icon="@Icons.Material.Outlined.Policy" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead>
                     <tr>
-                        <td colspan="9">
-                            <MudText Typo="Typo.caption">Antes</MudText>
-                            <pre class="audit-values">@(e.OldValues ?? "—")</pre>
-                            <MudText Typo="Typo.caption">Después</MudText>
-                            <pre class="audit-values">@(e.NewValues ?? "—")</pre>
-                        </td>
+                        <th scope="col" class="num">#</th><th scope="col">Fecha</th><th scope="col">Módulo</th><th scope="col">Acción</th><th scope="col">Severidad</th>
+                        <th scope="col">Usuario</th><th scope="col">Entidad</th><th scope="col">Resumen</th><th scope="col">IP</th>
                     </tr>
-                }
-            }
-        </tbody>
-    </MudSimpleTable>
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2">
-        <MudButton Variant="Variant.Outlined" Disabled="@(_page.Page <= 1)" OnClick="@(() => GoToAsync(_page.Page - 1))">Anterior</MudButton>
-        <MudText>Página @_page.Page</MudText>
-        <MudButton Variant="Variant.Outlined" Disabled="@(!_page.HasMore)" OnClick="@(() => GoToAsync(_page.Page + 1))">Siguiente</MudButton>
-        <MudText Typo="Typo.caption">@_page.PageSize filas por página · clic en una fila para ver los valores antes/después.</MudText>
-    </MudStack>
-}
+                </thead>
+                <tbody>
+                    @foreach (var e in _page.Rows)
+                    {
+                        var hasValues = e.OldValues is not null || e.NewValues is not null;
+                        var expanded = _expanded == e.Id;
+                        <tr @onclick="@(() => { if (hasValues) { Toggle(e.Id); } })" class="@(hasValues ? "clickable" : null) @(expanded ? "row-selected" : null)">
+                            <td class="num">@e.Seq</td>
+                            <td>@Date(e.OccurredAt)</td>
+                            <td>@e.Module</td>
+                            <td><span class="mono">@e.Action</span></td>
+                            <td><StatusChip Text="@SeverityName(e.Severity)" Color="@SeverityColor(e.Severity)" /></td>
+                            <td>@(e.UserDisplayName ?? "—")</td>
+                            <td>@(e.EntityLabel ?? e.EntityType ?? "—")</td>
+                            <td style="white-space: normal; min-width: 260px">
+                                @e.Summary
+                                @if (hasValues)
+                                {
+                                    <button type="button" class="bp-linkbutton" aria-expanded="@(expanded ? "true" : "false")" @onclick="@(() => Toggle(e.Id))" @onclick:stopPropagation="true">
+                                        @(expanded ? "Ocultar cambios" : "Ver cambios")
+                                    </button>
+                                }
+                            </td>
+                            <td>@(e.IpAddress ?? "—")</td>
+                        </tr>
+                        @if (expanded && hasValues)
+                        {
+                            <tr class="row-selected">
+                                <td colspan="9" style="white-space: normal">
+                                    <MudGrid Spacing="3">
+                                        <MudItem xs="12" md="6">
+                                            <MudText Typo="Typo.caption" Class="texto-secundario">Antes</MudText>
+                                            <pre class="audit-values">@(e.OldValues ?? "—")</pre>
+                                        </MudItem>
+                                        <MudItem xs="12" md="6">
+                                            <MudText Typo="Typo.caption" Class="texto-secundario">Después</MudText>
+                                            <pre class="audit-values">@(e.NewValues ?? "—")</pre>
+                                        </MudItem>
+                                    </MudGrid>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+        <div class="bp-toolbar" style="border-bottom: none; border-top: 1px solid var(--mud-palette-lines-default)">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ChevronLeft" Disabled="@(_page.Page <= 1)" OnClick="@(() => GoToAsync(_page.Page - 1))">Anterior</MudButton>
+            <MudText Typo="Typo.body2">Página @_page.Page</MudText>
+            <MudButton Variant="Variant.Outlined" EndIcon="@Icons.Material.Filled.ChevronRight" Disabled="@(!_page.HasMore)" OnClick="@(() => GoToAsync(_page.Page + 1))">Siguiente</MudButton>
+            <span class="bp-toolbar-count">@_page.PageSize filas por página</span>
+        </div>
+    }
+</MudPaper>
 
 @code {
     private const int PageSize = 50;
@@ -114,7 +139,19 @@ else
         _ => Color.Default,
     };
 
+    private static string SeverityName(string severity) => severity.ToUpperInvariant() switch
+    {
+        "CRITICAL" => "Crítica",
+        "WARNING" => "Advertencia",
+        "INFO" => "Informativa",
+        _ => severity,
+    };
+
     protected override Task OnInitializedAsync() => GoToAsync(1);
+
+    private void Toggle(Guid id) => _expanded = _expanded == id ? null : id;
+
+    private Task SearchOnEnterAsync(KeyboardEventArgs e) => e.Key == "Enter" ? SearchAsync() : Task.CompletedTask;
 
     private Task SearchAsync() => GoToAsync(1);
 

@@ -6,18 +6,24 @@
 
 <PageTitle>Código de verificación · BusinessPost</PageTitle>
 
+<h1 class="auth-title">Código de verificación</h1>
+<p class="auth-lead">Abra su aplicación autenticadora (Google Authenticator, Microsoft Authenticator o Aegis) y escriba el código de 6 dígitos de BusinessPost.</p>
+
 @if (_error is not null)
 {
-    <div class="account-error" role="alert">@_error</div>
+    <AuthAlert>@_error</AuthAlert>
 }
 
-<p class="account-hint">Escriba el código de 6 dígitos que muestra su aplicación autenticadora.</p>
-<EditForm Model="Input" method="post" OnValidSubmit="VerifyAsync" FormName="totp">
-    <label for="code">Código</label>
-    <InputText id="code" type="text" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" />
-    <button type="submit">Verificar</button>
+<EditForm Model="Input" method="post" OnValidSubmit="VerifyAsync" FormName="totp" class="auth-form">
+    <div class="auth-field">
+        <label for="code">Código de 6 dígitos</label>
+        <InputText id="code" type="text" class="auth-code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"
+                   pattern="[0-9]{6}" required="required" autofocus="autofocus" />
+    </div>
+    <button type="submit" class="auth-button auth-button-primary">Verificar e ingresar</button>
 </EditForm>
-<p class="account-hint"><a href="cuenta/ingresar">Volver a ingresar</a></p>
+<p class="auth-hint">El código cambia cada 30 segundos. Si no le funciona, revise que la hora de su teléfono esté automática.</p>
+<div class="auth-foot"><a href="cuenta/ingresar">Volver a ingresar</a></div>
 
 @code {
     [CascadingParameter]

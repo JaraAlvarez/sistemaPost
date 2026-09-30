@@ -1,0 +1,81 @@
+@* Confirmación uniforme de las acciones delicadas (suspender, revocar, liberar equipo…). Puede pedir el motivo, que queda en la
+   auditoría: el botón de confirmar se habilita con el mínimo de caracteres que exige el servidor. *@
+<MudDialog DefaultFocus="DefaultFocus.FirstChild">
+    <TitleContent>
+        <div class="d-flex align-center gap-3">
+            <span class="bp-confirm-icon" style="@($"color: var(--mud-palette-{ColorName})")"><MudIcon Icon="@Icon" aria-hidden="true" /></span>
+            <MudText Typo="Typo.h6" HtmlTag="h2">@Title</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body1">@Message</MudText>
+        @if (Detail is not null)
+        {
+            <MudText Typo="Typo.body2" Class="texto-secundario mt-2">@Detail</MudText>
+        }
+        @if (AskReason)
+        {
+            <MudTextField T="string" @bind-Value="_reason" Label="@ReasonLabel" Variant="Variant.Outlined" Class="mt-4" Lines="2" MaxLength="300"
+                          Immediate="true" Required="true" RequiredError="Indique el motivo."
+                          HelperText="@($"Queda en la auditoría. Mínimo {MinReasonLength} caracteres.")" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancelar</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color" Disabled="@(!CanConfirm)" OnClick="Confirm">@ConfirmText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter]
+    public string Title { get; set; } = "Confirmar";
+
+    [Parameter]
+    public string Message { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Detail { get; set; }
+
+    [Parameter]
+    public string ConfirmText { get; set; } = "Confirmar";
+
+    [Parameter]
+    public Color Color { get; set; } = Color.Error;
+
+    [Parameter]
+    public string Icon { get; set; } = Icons.Material.Filled.WarningAmber;
+
+    [Parameter]
+    public bool AskReason { get; set; }
+
+    [Parameter]
+    public string ReasonLabel { get; set; } = "Motivo";
+
+    [Parameter]
+    public string? InitialReason { get; set; }
+
+    [Parameter]
+    public int MinReasonLength { get; set; } = 5;
+
+    private string? _reason;
+
+    private bool CanConfirm => !AskReason || (_reason ?? string.Empty).Trim().Length >= MinReasonLength;
+
+    private string ColorName => Color switch
+    {
+        Color.Success => "success",
+        Color.Warning => "warning",
+        Color.Info => "info",
+        Color.Primary => "primary",
+        _ => "error",
+    };
+
+    protected override void OnInitialized() => _reason = InitialReason;
+
+    private void Cancel() => Dialog.Cancel();
+
+    private void Confirm() => Dialog.Close(DialogResult.Ok((_reason ?? string.Empty).Trim()));
+}

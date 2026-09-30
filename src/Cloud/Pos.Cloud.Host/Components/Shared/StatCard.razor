@@ -1,0 +1,60 @@
+@* Indicador del tablero: ícono con el color semántico, etiqueta, valor y una pista. Con Href la tarjeta entera es un enlace. *@
+@if (Href is null)
+{
+    <MudPaper Elevation="0" Class="bp-card bp-stat">@Body</MudPaper>
+}
+else
+{
+    <a href="@Href" class="mud-paper bp-card bp-stat">@Body</a>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public int Value { get; set; }
+
+    /// <summary>Texto en lugar del número (p. ej. una fecha).</summary>
+    [Parameter]
+    public string? Text { get; set; }
+
+    [Parameter]
+    public string? Hint { get; set; }
+
+    [Parameter]
+    public string Icon { get; set; } = Icons.Material.Outlined.Insights;
+
+    [Parameter]
+    public Color Color { get; set; } = Color.Primary;
+
+    [Parameter]
+    public string? Href { get; set; }
+
+    private RenderFragment Body => __builder =>
+    {
+        <span class="bp-stat-icon" style="@($"color: var(--mud-palette-{ColorName})")">
+            <MudIcon Icon="@Icon" Style="@($"color: var(--mud-palette-{ColorName})")" aria-hidden="true" />
+        </span>
+        <span class="bp-stat-body">
+            <span class="bp-stat-label d-block">@Title</span>
+            <span class="bp-stat-value d-block @(Text is null ? null : "small")">@(Text ?? Value.ToString("N0", System.Globalization.CultureInfo.GetCultureInfo("es-CO")))</span>
+            @if (Hint is not null)
+            {
+                <span class="bp-stat-hint d-block">@Hint</span>
+            }
+        </span>
+    };
+
+    private string ColorName => Color switch
+    {
+        Color.Success => "success",
+        Color.Warning => "warning",
+        Color.Error => "error",
+        Color.Info => "info",
+        Color.Secondary => "secondary",
+        Color.Tertiary => "tertiary",
+        Color.Default => "text-secondary",
+        _ => "primary",
+    };
+}

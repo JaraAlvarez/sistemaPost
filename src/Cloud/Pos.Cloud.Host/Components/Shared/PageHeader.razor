@@ -1,0 +1,58 @@
+@* Encabezado uniforme de las pantallas: migas de pan, título (h1, recibe el foco al navegar), descripción y acciones. *@
+<header class="bp-page-header">
+    <div class="bp-page-header-text">
+        <nav class="bp-crumbs" aria-label="Migas de pan">
+            <ol>
+                <li>@Section</li>
+                @if (ParentText is not null)
+                {
+                    <li><a href="@ParentHref">@ParentText</a></li>
+                }
+                <li aria-current="page">@(Crumb ?? Title)</li>
+            </ol>
+        </nav>
+        <MudText Typo="Typo.h4" HtmlTag="h1" tabindex="-1">@Title</MudText>
+        @if (Description is not null)
+        {
+            <MudText Typo="Typo.body2" Class="bp-page-header-desc">@Description</MudText>
+        }
+        @if (ChildContent is not null)
+        {
+            <div class="bp-page-header-desc">@ChildContent</div>
+        }
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="bp-page-header-actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Grupo del menú al que pertenece la pantalla (primera miga, sin enlace).</summary>
+    [Parameter]
+    public string Section { get; set; } = "Portal";
+
+    /// <summary>Pantalla padre (p. ej. "Empresas" en la ficha de una empresa).</summary>
+    [Parameter]
+    public string? ParentText { get; set; }
+
+    [Parameter]
+    public string? ParentHref { get; set; }
+
+    /// <summary>Texto de la última miga cuando difiere del título.</summary>
+    [Parameter]
+    public string? Crumb { get; set; }
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    /// <summary>Contenido adicional bajo el título (datos clave de una ficha, por ejemplo).</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+}

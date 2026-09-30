@@ -68,7 +68,7 @@ public class PortalAccountFormTests(CloudFixture cloud) : IClassFixture<CloudFix
     {
         using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
         var page = await browser.GetStringAsync(new Uri("cuenta/ingresar", UriKind.Relative), Ct);
-        page.ShouldNotContain("Ingresar con Google");
+        page.ShouldNotContain("Continuar con Google");
         WebUtility.HtmlDecode(page).ShouldContain("Si activó el doble factor");
 
         using var challenge = await BrowserForms.PostFormAsync(browser, new Uri("cuenta/google", UriKind.Relative), page, []);

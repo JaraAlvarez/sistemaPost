@@ -1,0 +1,27 @@
+@* Chip de estado con color semántico (verde vigente, azul prueba/informativo, ámbar atención, rojo bloqueo, gris neutro) e ícono,
+   para que el estado no dependa solo del color. Relleno sólido: el texto cumple AA sobre el color en claro y en oscuro. *@
+<MudChip T="string" Size="Size.Small" Color="@EffectiveColor" Variant="@(EffectiveColor == MudBlazor.Color.Default ?Variant.Outlined : Variant.Filled)"
+         Icon="@IconFor(EffectiveColor)" Class="bp-chip">@(Text ?? PortalPageBase.StatusName(Status))</MudChip>
+
+@code {
+    /// <summary>Estado del dominio (ACTIVE, TRIAL, PAST_DUE…): da el texto y el color si no se indican.</summary>
+    [Parameter]
+    public string? Status { get; set; }
+
+    [Parameter]
+    public string? Text { get; set; }
+
+    [Parameter]
+    public Color? Color { get; set; }
+
+    private Color EffectiveColor => Color ?? PortalPageBase.StatusColor(Status);
+
+    private static string IconFor(Color color) => color switch
+    {
+        MudBlazor.Color.Success => Icons.Material.Filled.CheckCircle,
+        MudBlazor.Color.Info => Icons.Material.Filled.Info,
+        MudBlazor.Color.Warning => Icons.Material.Filled.WarningAmber,
+        MudBlazor.Color.Error => Icons.Material.Filled.Block,
+        _ => Icons.Material.Outlined.Circle,
+    };
+}

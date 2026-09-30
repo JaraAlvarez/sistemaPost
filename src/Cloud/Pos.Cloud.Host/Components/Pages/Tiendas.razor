@@ -4,108 +4,185 @@
 @using System.Globalization
 
 <PageTitle>Datos de las tiendas · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Datos de las tiendas</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Ventas, cierres de caja y existencias que las tiendas suben a la nube (cada minuto con Internet, o con un paquete .possync cargado aquí).
-</MudText>
+<PageHeader Title="Datos de las tiendas" Section="Operación"
+            Description="Ventas, cierres de caja y existencias que las tiendas suben a la nube (cada minuto con Internet, o con un paquete .possync cargado aquí).">
+    <Actions>
+        <AuthorizeView Policy="@CloudPermissions.SyncPackageUpload">
+            <MudFileUpload T="IBrowserFile" Accept=".possync" FilesChanged="SubirAsync" MaximumFileCount="1">
+                <CustomContent Context="upload">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="Busy" OnClick="@upload.OpenFilePickerAsync">Cargar paquete .possync</MudButton>
+                </CustomContent>
+            </MudFileUpload>
+        </AuthorizeView>
+    </Actions>
+</PageHeader>
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error" Class="mb-3">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
 
-<MudGrid Class="mb-2">
-    <MudItem xs="12" md="6">
-        <MudSelect T="Guid?" Value="_organization" ValueChanged="OrganizacionAsync" Label="Empresa" Variant="Variant.Outlined">
+<MudPaper Elevation="0" Class="bp-card mb-6">
+    <div class="bp-toolbar" style="border-bottom: none">
+        <MudSelect T="Guid?" Value="_organization" ValueChanged="OrganizacionAsync" Label="Empresa" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 260px">
             @foreach (var organization in _organizations)
             {
                 <MudSelectItem T="Guid?" Value="@organization.Id">@organization.LegalName · @organization.AccountName</MudSelectItem>
             }
         </MudSelect>
-    </MudItem>
-    <MudItem xs="6" md="3"><MudDatePicker Label="Desde" @bind-Date="_from" DateFormat="yyyy-MM-dd" /></MudItem>
-    <MudItem xs="6" md="3"><MudDatePicker Label="Hasta" @bind-Date="_to" DateFormat="yyyy-MM-dd" /></MudItem>
-</MudGrid>
-<MudStack Row="true" Class="mb-4" Wrap="Wrap.Wrap">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_organization is null || Busy)" OnClick="CargarAsync">Actualizar</MudButton>
-    <AuthorizeView Policy="@CloudPermissions.SyncPackageUpload">
-        <MudFileUpload T="IBrowserFile" Accept=".possync" FilesChanged="SubirAsync" MaximumFileCount="1">
-            <CustomContent Context="upload">
-                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="Busy" OnClick="@upload.OpenFilePickerAsync">Cargar paquete .possync</MudButton>
-            </CustomContent>
-        </MudFileUpload>
-    </AuthorizeView>
-</MudStack>
+        <MudDatePicker Label="Desde" @bind-Date="_from" DateFormat="yyyy-MM-dd" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" />
+        <MudDatePicker Label="Hasta" @bind-Date="_to" DateFormat="yyyy-MM-dd" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="@(_organization is null || Busy)" OnClick="CargarAsync">Actualizar</MudButton>
+    </div>
+</MudPaper>
 
-@if (_data is not null)
+@if (_organization is null)
 {
-    <MudText Typo="Typo.h6" Class="mb-2">Sincronización por sucursal</MudText>
-    <MudSimpleTable Dense="true" Outlined="true" Class="mb-6">
-        <thead><tr><th>Sucursal</th><th>Último lote</th><th>Vía</th><th>Ventas</th><th>Cierres</th><th>Saldos</th><th>Productos</th></tr></thead>
-        <tbody>
-            @foreach (var i in _data.Installations)
-            {
-                <tr><td>@(i.BranchName ?? i.InstallationId.ToString())</td><td>@Date(i.LastBatchAt)</td><td>@(i.LastVia == "FILE" ? "Paquete" : i.LastVia == "ONLINE" ? "En línea" : "—")</td>
-                    <td>@i.Sales</td><td>@i.CashSessions</td><td>@i.StockRows</td><td>@i.Products</td></tr>
-            }
-        </tbody>
-    </MudSimpleTable>
+    <MudPaper Elevation="0" Class="bp-card">
+        <EmptyState Title="Elija una empresa" Hint="Seleccione la empresa para ver las ventas, los cierres de caja y las existencias de sus sucursales." Icon="@Icons.Material.Outlined.Storefront" />
+    </MudPaper>
+}
+else if (_data is null)
+{
+    <MudPaper Elevation="0" Class="bp-card"><TableSkeleton /></MudPaper>
+}
+else
+{
+    var totalSales = _data.SalesByDay.Sum(d => d.Total);
+    var tickets = _data.SalesByDay.Sum(d => d.Tickets);
+    <MudGrid Spacing="3" Class="mb-2">
+        <MudItem xs="12" sm="6" lg="3"><StatCard Title="Ventas del periodo" Text="@Money(totalSales)" Icon="@Icons.Material.Outlined.Payments" Color="Color.Success" /></MudItem>
+        <MudItem xs="12" sm="6" lg="3"><StatCard Title="Tiquetes" Value="@tickets" Icon="@Icons.Material.Outlined.Receipt" /></MudItem>
+        <MudItem xs="12" sm="6" lg="3"><StatCard Title="Anuladas" Value="@_data.SalesByDay.Sum(d => d.Voided)" Icon="@Icons.Material.Outlined.RemoveShoppingCart" Color="Color.Warning" /></MudItem>
+        <MudItem xs="12" sm="6" lg="3"><StatCard Title="Sucursales" Value="@_data.Installations.Count" Icon="@Icons.Material.Outlined.Store" Color="Color.Secondary" /></MudItem>
+    </MudGrid>
 
-    <MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4">
-        <MudTabPanel Text="Ventas por día">
-            <MudSimpleTable Dense="true" Striped="true">
-                <thead><tr><th>Fecha</th><th>Sucursal</th><th style="text-align:right">Tiquetes</th><th style="text-align:right">Anuladas</th><th style="text-align:right">Ventas</th></tr></thead>
-                <tbody>
-                    @foreach (var d in _data.SalesByDay)
-                    {
-                        <tr><td>@d.BusinessDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td><td>@d.Branch</td><td style="text-align:right">@d.Tickets</td>
-                            <td style="text-align:right">@d.Voided</td><td style="text-align:right">@Money(d.Total)</td></tr>
-                    }
-                    <tr><td colspan="2"><b>Total</b></td><td style="text-align:right"><b>@_data.SalesByDay.Sum(d => d.Tickets)</b></td><td></td>
-                        <td style="text-align:right"><b>@Money(_data.SalesByDay.Sum(d => d.Total))</b></td></tr>
-                </tbody>
-            </MudSimpleTable>
-        </MudTabPanel>
-        <MudTabPanel Text="Ventas recientes">
-            <MudSimpleTable Dense="true" Striped="true">
-                <thead><tr><th>Fecha</th><th>Número</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th>Cliente</th><th>Estado</th><th style="text-align:right">Total</th></tr></thead>
-                <tbody>
-                    @foreach (var s in _data.RecentSales)
-                    {
-                        <tr><td>@Date(s.CompletedAt)</td><td>@s.Number</td><td>@s.Branch</td><td>@s.Terminal</td><td>@s.Cashier</td><td>@s.Customer</td>
-                            <td>@(s.Status == "VOIDED" ? "Anulada" : "Completada")</td><td style="text-align:right">@Money(s.Total)</td></tr>
-                    }
-                </tbody>
-            </MudSimpleTable>
-        </MudTabPanel>
-        <MudTabPanel Text="Cierres de caja">
-            <MudSimpleTable Dense="true" Striped="true">
-                <thead><tr><th>Cierre</th><th>Jornada</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th style="text-align:right">Esperado</th><th style="text-align:right">Contado</th><th style="text-align:right">Diferencia</th></tr></thead>
-                <tbody>
-                    @foreach (var c in _data.CashSessions)
-                    {
-                        <tr><td>@Date(c.ClosedAt)</td><td>@c.Number</td><td>@c.Branch</td><td>@c.Terminal</td><td>@c.Cashier</td>
-                            <td style="text-align:right">@Money(c.Expected)</td><td style="text-align:right">@Money(c.Counted)</td>
-                            <td style="text-align:right; color:@(c.Difference is < 0 ? "var(--mud-palette-error)" : "inherit")">@Money(c.Difference)</td></tr>
-                    }
-                </tbody>
-            </MudSimpleTable>
-        </MudTabPanel>
-        <MudTabPanel Text="Existencias">
-            <MudTextField T="string" @bind-Value="_search" Label="Buscar producto (nombre o SKU)" Immediate="true" DebounceInterval="400"
-                          OnDebounceIntervalElapsed="@(_ => ExistenciasAsync())" Class="mb-2" />
-            <MudSimpleTable Dense="true" Striped="true">
-                <thead><tr><th>Sucursal</th><th>Bodega</th><th>SKU</th><th>Producto</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Valor</th><th>Último movimiento</th></tr></thead>
-                <tbody>
-                    @foreach (var r in _stock)
-                    {
-                        <tr><td>@r.Branch</td><td>@r.Warehouse</td><td>@r.Sku</td><td>@r.Name</td><td style="text-align:right">@r.Quantity.ToString("#,##0.###", Co)</td>
-                            <td style="text-align:right">@Money(r.TotalValue)</td><td>@Date(r.LastMovementAt)</td></tr>
-                    }
-                </tbody>
-            </MudSimpleTable>
-        </MudTabPanel>
-    </MudTabs>
+    <MudPaper Elevation="0" Class="bp-card bp-section">
+        <div class="pa-4 pb-0">
+            <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Sync" Size="Size.Small" aria-hidden="true" />Sincronización por sucursal</MudText>
+        </div>
+        @if (_data.Installations.Count == 0)
+        {
+            <EmptyState Title="Esta empresa aún no ha sincronizado datos." Icon="@Icons.Material.Outlined.CloudOff" />
+        }
+        else
+        {
+            <div class="bp-table-wrap">
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead><tr><th scope="col">Sucursal</th><th scope="col">Último lote</th><th scope="col">Vía</th><th scope="col" class="num">Ventas</th><th scope="col" class="num">Cierres</th><th scope="col" class="num">Saldos</th><th scope="col" class="num">Productos</th></tr></thead>
+                    <tbody>
+                        @foreach (var i in _data.Installations)
+                        {
+                            <tr>
+                                <td>@(i.BranchName ?? i.InstallationId.ToString())</td>
+                                <td>@Date(i.LastBatchAt)</td>
+                                <td>@(i.LastVia == "FILE" ? "Paquete" : i.LastVia == "ONLINE" ? "En línea" : "—")</td>
+                                <td class="num">@i.Sales</td><td class="num">@i.CashSessions</td><td class="num">@i.StockRows</td><td class="num">@i.Products</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+
+    <MudPaper Elevation="0" Class="bp-card bp-section">
+        <MudTabs Elevation="0" Rounded="false" ApplyEffectsToContainer="true" TabPanelsClass="pa-0" Border="true">
+            <MudTabPanel Text="Ventas por día" Icon="@Icons.Material.Outlined.CalendarMonth">
+                @if (_data.SalesByDay.Count == 0)
+                {
+                    <EmptyState Title="Sin ventas en el periodo." Icon="@Icons.Material.Outlined.Receipt" />
+                }
+                else
+                {
+                    <div class="bp-table-wrap">
+                        <MudSimpleTable Dense="true" Striped="true" Elevation="0">
+                            <thead><tr><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col" class="num">Tiquetes</th><th scope="col" class="num">Anuladas</th><th scope="col" class="num">Ventas</th></tr></thead>
+                            <tbody>
+                                @foreach (var d in _data.SalesByDay)
+                                {
+                                    <tr><td>@d.BusinessDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td><td>@d.Branch</td><td class="num">@d.Tickets</td>
+                                        <td class="num">@d.Voided</td><td class="num">@Money(d.Total)</td></tr>
+                                }
+                                <tr><th scope="row" colspan="2">Total</th><td class="num"><b>@tickets</b></td><td></td><td class="num"><b>@Money(totalSales)</b></td></tr>
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudTabPanel>
+            <MudTabPanel Text="Ventas recientes" Icon="@Icons.Material.Outlined.ReceiptLong">
+                @if (_data.RecentSales.Count == 0)
+                {
+                    <EmptyState Title="Sin ventas recientes." Icon="@Icons.Material.Outlined.ReceiptLong" />
+                }
+                else
+                {
+                    <div class="bp-table-wrap">
+                        <MudSimpleTable Dense="true" Striped="true" Elevation="0">
+                            <thead><tr><th scope="col">Fecha</th><th scope="col">Número</th><th scope="col">Sucursal</th><th scope="col">Caja</th><th scope="col">Cajero</th><th scope="col">Cliente</th><th scope="col">Estado</th><th scope="col" class="num">Total</th></tr></thead>
+                            <tbody>
+                                @foreach (var s in _data.RecentSales)
+                                {
+                                    <tr><td>@Date(s.CompletedAt)</td><td>@s.Number</td><td>@s.Branch</td><td>@s.Terminal</td><td>@s.Cashier</td><td>@s.Customer</td>
+                                        <td><StatusChip Text="@(s.Status == "VOIDED" ? "Anulada" : "Completada")" Color="@(s.Status == "VOIDED" ? Color.Error : Color.Success)" /></td>
+                                        <td class="num">@Money(s.Total)</td></tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudTabPanel>
+            <MudTabPanel Text="Cierres de caja" Icon="@Icons.Material.Outlined.PointOfSale">
+                @if (_data.CashSessions.Count == 0)
+                {
+                    <EmptyState Title="Sin cierres de caja en el periodo." Icon="@Icons.Material.Outlined.PointOfSale" />
+                }
+                else
+                {
+                    <div class="bp-table-wrap">
+                        <MudSimpleTable Dense="true" Striped="true" Elevation="0">
+                            <thead><tr><th scope="col">Cierre</th><th scope="col">Jornada</th><th scope="col">Sucursal</th><th scope="col">Caja</th><th scope="col">Cajero</th><th scope="col" class="num">Esperado</th><th scope="col" class="num">Contado</th><th scope="col" class="num">Diferencia</th></tr></thead>
+                            <tbody>
+                                @foreach (var c in _data.CashSessions)
+                                {
+                                    <tr><td>@Date(c.ClosedAt)</td><td>@c.Number</td><td>@c.Branch</td><td>@c.Terminal</td><td>@c.Cashier</td>
+                                        <td class="num">@Money(c.Expected)</td><td class="num">@Money(c.Counted)</td>
+                                        <td class="num" style="@(c.Difference is < 0 ? "color: var(--mud-palette-error); font-weight: 600" : null)">@Money(c.Difference)</td></tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudTabPanel>
+            <MudTabPanel Text="Existencias" Icon="@Icons.Material.Outlined.Inventory2">
+                <div class="bp-toolbar">
+                    <MudTextField T="string" @bind-Value="_search" Placeholder="Buscar producto (nombre o SKU)" Immediate="true" DebounceInterval="400" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  OnDebounceIntervalElapsed="@(_ => ExistenciasAsync())" aria-label="Buscar producto" />
+                    <span class="bp-toolbar-count" role="status">@_stock.Count filas</span>
+                </div>
+                @if (_stock.Count == 0)
+                {
+                    <EmptyState Title="Sin existencias para mostrar." Icon="@Icons.Material.Outlined.Inventory2" />
+                }
+                else
+                {
+                    <div class="bp-table-wrap">
+                        <MudSimpleTable Dense="true" Striped="true" Elevation="0">
+                            <thead><tr><th scope="col">Sucursal</th><th scope="col">Bodega</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="num">Cantidad</th><th scope="col" class="num">Valor</th><th scope="col">Último movimiento</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in _stock)
+                                {
+                                    <tr><td>@r.Branch</td><td>@r.Warehouse</td><td><span class="mono">@r.Sku</span></td><td>@r.Name</td><td class="num">@r.Quantity.ToString("#,##0.###", Co)</td>
+                                        <td class="num">@Money(r.TotalValue)</td><td>@Date(r.LastMovementAt)</td></tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudTabPanel>
+        </MudTabs>
+    </MudPaper>
 }
 
 @code {

@@ -2,23 +2,25 @@
 @attribute [AllowAnonymous]
 
 <PageTitle>Sin acceso · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Sin acceso</MudText>
+<PageHeader Title="Sin acceso" Section="Portal" />
 
-<AuthorizeView>
-    <Authorized>
-        @if (context.User.HasClaim(Pos.Cloud.Infrastructure.Persistence.PortalClaims.Stage, Pos.Cloud.Infrastructure.Persistence.PortalClaims.ActiveStage))
-        {
-            <AccessDeniedNotice />
-            <MudLink Href="mi-cuenta">Ir a mi cuenta</MudLink>
-        }
-        else
-        {
-            <MudAlert Severity="Severity.Info" Class="mb-4">Falta completar el ingreso con el código del doble factor.</MudAlert>
-            <MudLink Href="@PortalLinks.Local(PortalAuthenticationHandler.LoginPath)">Volver a ingresar</MudLink>
-        }
-    </Authorized>
-    <NotAuthorized>
-        <MudAlert Severity="Severity.Info" Class="mb-4">Su sesión no está activa.</MudAlert>
-        <MudLink Href="@PortalLinks.Local(PortalAuthenticationHandler.LoginPath)">Ingresar al portal</MudLink>
-    </NotAuthorized>
-</AuthorizeView>
+<MudPaper Elevation="0" Class="bp-card pa-6" Style="max-width: 640px">
+    <AuthorizeView>
+        <Authorized>
+            @if (context.User.HasClaim(Pos.Cloud.Infrastructure.Persistence.PortalClaims.Stage, Pos.Cloud.Infrastructure.Persistence.PortalClaims.ActiveStage))
+            {
+                <AccessDeniedNotice />
+                <MudButton Href="mi-cuenta" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.AccountCircle">Ir a mi cuenta</MudButton>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-4">Falta completar el ingreso con el código del doble factor.</MudAlert>
+                <MudButton Href="@PortalLinks.Local(PortalAuthenticationHandler.LoginPath)" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Login">Volver a ingresar</MudButton>
+            }
+        </Authorized>
+        <NotAuthorized>
+            <MudAlert Severity="Severity.Info" Class="mb-4">Su sesión venció o se cerró. Ingrese de nuevo para continuar.</MudAlert>
+            <MudButton Href="@PortalLinks.Local(PortalAuthenticationHandler.LoginPath)" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Login">Ingresar al portal</MudButton>
+        </NotAuthorized>
+    </AuthorizeView>
+</MudPaper>

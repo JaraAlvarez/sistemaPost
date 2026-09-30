@@ -1,29 +1,38 @@
 @inherits PortalPageBase
+@inject IDialogService Dialogs
 
-@* Acciones sobre una suscripción, según el permiso del usuario (las mismas en la ficha de la empresa y en la lista). *@
-<MudGrid Spacing="2">
-    <MudItem xs="12" md="6">
-        <MudTextField T="string" @bind-Value="_reason" Label="Motivo (suspender, reactivar, cancelar, gracia, edición)" MaxLength="300" />
-    </MudItem>
-    <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_payment" Label="Referencia del pago (renovar)" MaxLength="100" /></MudItem>
-    <MudItem xs="6" md="1"><MudNumericField T="int" @bind-Value="_periods" Label="Periodos" Min="1" Max="24" /></MudItem>
-    <MudItem xs="6" md="2"><MudNumericField T="int" @bind-Value="_graceDays" Label="Días de gracia extra" Min="1" Max="30" /></MudItem>
-</MudGrid>
-<MudStack Row="true" Wrap="Wrap.Wrap" Class="mt-3">
+@* Acciones sobre una suscripción, según el permiso del usuario (las mismas en la ficha de la empresa y en la lista). Las acciones
+   delicadas se confirman en un diálogo que pide el motivo (queda en la auditoría). *@
+<AuthorizeView Policy="@CloudPermissions.SubscriptionManage">
+    <MudText Typo="Typo.subtitle2" HtmlTag="h3" Class="mb-2">Renovar</MudText>
+    <MudGrid Spacing="3">
+        <MudItem xs="12" sm="6" md="5"><MudTextField T="string" @bind-Value="_payment" Label="Referencia del pago" MaxLength="100" /></MudItem>
+        <MudItem xs="6" sm="3" md="2"><MudNumericField T="int" @bind-Value="_periods" Label="Periodos" Min="1" Max="24" /></MudItem>
+        <MudItem xs="6" sm="3" md="3" Class="d-flex align-center">
+            <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.EventRepeat" Disabled="Busy"
+                       OnClick="@(() => SendAsync(new RenewSubscriptionCommand(SubscriptionId, _payment ?? string.Empty, _periods), "Renovación registrada."))">Renovar</MudButton>
+        </MudItem>
+    </MudGrid>
+</AuthorizeView>
+
+<MudText Typo="Typo.subtitle2" HtmlTag="h3" Class="mt-5 mb-2">Otras acciones</MudText>
+<MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.Center">
+    <AuthorizeView Policy="@CloudPermissions.SubscriptionSupport">
+        <MudButton Variant="Variant.Outlined" Color="Color.Success" StartIcon="@Icons.Material.Filled.PlayCircleOutline" Disabled="Busy" OnClick="ReactivateAsync">Reactivar</MudButton>
+        <MudNumericField T="int" @bind-Value="_graceDays" Label="Días de gracia extra" Min="1" Max="30" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-0" Style="width: 170px" />
+        <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.MoreTime" Disabled="Busy" OnClick="ExtendGraceAsync">Extender gracia</MudButton>
+    </AuthorizeView>
     <AuthorizeView Policy="@CloudPermissions.SubscriptionManage">
-        <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="Busy" OnClick="@(() => SendAsync(new RenewSubscriptionCommand(SubscriptionId, _payment ?? string.Empty, _periods), "Renovación registrada."))">Renovar</MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => SendAsync(new SuspendSubscriptionCommand(SubscriptionId, _reason ?? string.Empty), "Suscripción suspendida."))">Suspender</MudButton>
-        <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => SendAsync(new ChangeEditionCommand(SubscriptionId, Edition == "SINGLE" ? "MULTI" : "SINGLE", _reason ?? string.Empty), "Edición cambiada."))">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.SwapHoriz" Disabled="Busy" OnClick="ChangeEditionAsync">
             Cambiar a @(Edition == "SINGLE" ? "Multicaja" : "Caja Única")
         </MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => SendAsync(new CancelSubscriptionCommand(SubscriptionId, _reason ?? string.Empty), "Suscripción cancelada y clave revocada."))">Cancelar</MudButton>
-    </AuthorizeView>
-    <AuthorizeView Policy="@CloudPermissions.SubscriptionSupport">
-        <MudButton Variant="Variant.Outlined" Color="Color.Success" Disabled="Busy" OnClick="@(() => SendAsync(new ReactivateSubscriptionCommand(SubscriptionId, _reason ?? string.Empty), "Suscripción reactivada."))">Reactivar</MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="@(() => SendAsync(new ExtendGraceCommand(SubscriptionId, _graceDays, _reason ?? string.Empty), "Gracia extendida."))">Extender gracia</MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.PauseCircleOutline" Disabled="Busy" OnClick="SuspendAsync">Suspender</MudButton>
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.Cancel" Disabled="Busy" OnClick="CancelAsync">Cancelar suscripción</MudButton>
     </AuthorizeView>
 </MudStack>
-<MudText Typo="Typo.caption" Class="mt-2">Los cambios llegan a las tiendas en su siguiente check-in (máximo 24 h, o al pulsar "verificar licencia" en el POS).</MudText>
+<MudText Typo="Typo.caption" Class="d-block mt-3 texto-secundario">
+    Los cambios llegan a las tiendas en su siguiente check-in (máximo 24 h, o al pulsar "verificar licencia" en el POS).
+</MudText>
 
 @code {
     [Parameter, EditorRequired]
@@ -32,19 +41,76 @@
     [Parameter, EditorRequired]
     public string Edition { get; set; } = "SINGLE";
 
+    /// <summary>Nombre de la empresa, para los textos de confirmación.</summary>
+    [Parameter]
+    public string? OrganizationName { get; set; }
+
     [Parameter]
     public EventCallback OnChanged { get; set; }
 
     private string? _payment;
-    private string? _reason;
     private int _periods = 1;
     private int _graceDays = 7;
+
+    private string Whose => OrganizationName is null ? "esta empresa" : OrganizationName;
+
+    private async Task SuspendAsync()
+    {
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Suspender suscripción", $"¿Suspender la suscripción de {Whose}?", "Suspender", "Motivo de la suspensión",
+            detail: "En su siguiente check-in el POS pasa a modo restringido: no podrá vender hasta que se reactive.");
+        if (reason is not null)
+        {
+            await SendAsync(new SuspendSubscriptionCommand(SubscriptionId, reason), "Suscripción suspendida.");
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Cancelar suscripción", $"¿Cancelar la suscripción de {Whose}?", "Cancelar suscripción", "Motivo de la cancelación",
+            detail: "También se revoca la clave de licencia. Para volver a operar habrá que crear otra suscripción y generar una clave nueva.");
+        if (reason is not null)
+        {
+            await SendAsync(new CancelSubscriptionCommand(SubscriptionId, reason), "Suscripción cancelada y clave revocada.");
+        }
+    }
+
+    private async Task ChangeEditionAsync()
+    {
+        var target = Edition == "SINGLE" ? "MULTI" : "SINGLE";
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Cambiar edición", $"¿Cambiar la edición de {Whose} a {EditionName(target)}?", "Cambiar edición", "Motivo del cambio", Color.Warning);
+        if (reason is not null)
+        {
+            await SendAsync(new ChangeEditionCommand(SubscriptionId, target, reason), "Edición cambiada.");
+        }
+    }
+
+    private async Task ReactivateAsync()
+    {
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Reactivar suscripción", $"¿Reactivar la suscripción de {Whose}?", "Reactivar", "Motivo de la reactivación", Color.Success);
+        if (reason is not null)
+        {
+            await SendAsync(new ReactivateSubscriptionCommand(SubscriptionId, reason), "Suscripción reactivada.");
+        }
+    }
+
+    private async Task ExtendGraceAsync()
+    {
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Extender gracia", $"¿Dar {_graceDays} días de gracia extra a {Whose}?", "Extender gracia", "Motivo", Color.Warning);
+        if (reason is not null)
+        {
+            await SendAsync(new ExtendGraceCommand(SubscriptionId, _graceDays, reason), "Gracia extendida.");
+        }
+    }
 
     private async Task SendAsync(Pos.Application.Abstractions.Messaging.IRequest<Pos.SharedKernel.Results.Result> command, string message)
     {
         if (await RunAsync(command, message))
         {
-            _reason = null;
             _payment = null;
             await OnChanged.InvokeAsync();
         }

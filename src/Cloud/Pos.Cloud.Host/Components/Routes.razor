@@ -25,7 +25,12 @@
     </Found>
     <NotFound>
         <LayoutView Layout="typeof(MainLayout)">
-            <MudText Typo="Typo.h5">No se encontró la página.</MudText>
+            <PageHeader Title="Página no encontrada" Section="Portal" />
+            <MudPaper Elevation="0" Class="bp-card">
+                <EmptyState Title="No se encontró la página." Hint="Revise la dirección o vuelva al inicio desde el menú." Icon="@Icons.Material.Outlined.SearchOff">
+                    <MudButton Href="./" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2">Ir al inicio</MudButton>
+                </EmptyState>
+            </MudPaper>
         </LayoutView>
     </NotFound>
 </Router>

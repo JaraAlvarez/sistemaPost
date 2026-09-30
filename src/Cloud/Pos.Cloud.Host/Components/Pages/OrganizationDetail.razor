@@ -1,189 +1,247 @@
 @page "/empresas/{OrganizationId:guid}"
 @attribute [Authorize(Policy = CloudPermissions.LicensingView)]
 @inherits PortalPageBase
+@inject IDialogService Dialogs
 
-<PageTitle>Empresa · BusinessPost</PageTitle>
+<PageTitle>@(_detail?.Organization.LegalName ?? "Empresa") · BusinessPost</PageTitle>
 
 @if (LoadError is not null)
 {
+    <PageHeader Title="Empresa" Section="Licenciamiento" ParentText="Empresas" ParentHref="empresas" />
     <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
 }
-else if (_detail is not null)
+else if (_detail is null)
+{
+    <MudSkeleton Width="35%" Height="40px" Class="mb-2" />
+    <MudSkeleton Width="50%" Class="mb-6" />
+    <MudPaper Elevation="0" Class="bp-card"><TableSkeleton /></MudPaper>
+}
+else
 {
     var org = _detail.Organization;
     var sub = org.Subscription;
     var license = _detail.Licenses.FirstOrDefault(l => l.Status == "ACTIVE");
 
-    <MudText Typo="Typo.h4">@org.LegalName</MudText>
-    <MudText Typo="Typo.body1" Class="mb-4">
-        NIT @org.Nit · @(org.City ?? "sin ciudad") · cliente <MudLink Href="@($"clientes/{org.AccountId}")">@org.AccountName</MudLink>
-    </MudText>
+    <PageHeader Title="@org.LegalName" Section="Licenciamiento" ParentText="Empresas" ParentHref="empresas">
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            @if (sub is not null)
+            {
+                <StatusChip Status="@sub.EffectiveStatus" />
+                <StatusChip Text="@EditionName(sub.Edition)" Color="Color.Default" />
+            }
+            else
+            {
+                <StatusChip Text="Sin suscripción" Color="Color.Default" />
+            }
+            <MudText Typo="Typo.body2" Class="texto-secundario">
+                NIT @org.Nit · @(org.City ?? "sin ciudad") · cliente <MudLink Href="@($"clientes/{org.AccountId}")" Typo="Typo.body2">@org.AccountName</MudLink>
+            </MudText>
+        </MudStack>
+    </PageHeader>
 
     @if (_generatedKey is not null)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-4" ShowCloseIcon="true" CloseIconClicked="@(() => _generatedKey = null)">
-            <MudText Typo="Typo.subtitle1">Clave de licencia — se muestra UNA sola vez. Cópiela y entréguela al cliente:</MudText>
+            <MudText Typo="Typo.subtitle2">Clave de licencia: se muestra UNA sola vez. Cópiela y entréguela al cliente.</MudText>
             <div class="key-once">@_generatedKey</div>
         </MudAlert>
     }
 
-    <MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4">
-        <MudTabPanel Text="Suscripción">
-            @if (sub is null)
-            {
-                <MudText Class="mb-2">La empresa no tiene suscripción vigente.</MudText>
-                <AuthorizeView Policy="@CloudPermissions.SubscriptionManage">
-                    <MudGrid Spacing="2">
-                        <MudItem xs="12" md="3">
-                            <MudSelect T="string" @bind-Value="_edition" Label="Edición">
-                                <MudSelectItem T="string" Value="@("SINGLE")">Caja Única</MudSelectItem>
-                                <MudSelectItem T="string" Value="@("MULTI")">Multicaja</MudSelectItem>
-                            </MudSelect>
-                        </MudItem>
-                        <MudItem xs="12" md="3">
-                            <MudSelect T="string" @bind-Value="_billing" Label="Periodicidad">
-                                <MudSelectItem T="string" Value="@("MONTHLY")">Mensual</MudSelectItem>
-                                <MudSelectItem T="string" Value="@("ANNUAL")">Anual</MudSelectItem>
-                            </MudSelect>
-                        </MudItem>
-                        <MudItem xs="12" md="2"><MudCheckBox T="bool" @bind-Value="_trial" Label="De prueba" /></MudItem>
-                        <MudItem xs="12" md="2"><MudNumericField T="int?" @bind-Value="_trialDays" Label="Días de prueba" Disabled="!_trial" Min="1" Max="90" /></MudItem>
-                        <MudItem xs="12" md="2"><MudTextField T="string" @bind-Value="_payment" Label="Referencia del pago" Disabled="_trial" /></MudItem>
-                    </MudGrid>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="CreateSubscriptionAsync">Crear suscripción</MudButton>
+    <MudPaper Elevation="0" Class="bp-card">
+        <MudTabs Elevation="0" Rounded="false" ApplyEffectsToContainer="true" TabPanelsClass="pa-5" Border="true" KeepPanelsAlive="false"
+                 MinimumTabWidth="120px">
+            <MudTabPanel Text="Suscripción" Icon="@Icons.Material.Outlined.EventRepeat">
+                @if (sub is null)
+                {
+                    <EmptyState Title="La empresa no tiene suscripción vigente." Icon="@Icons.Material.Outlined.EventBusy" />
+                    <AuthorizeView Policy="@CloudPermissions.SubscriptionManage">
+                        <MudText Typo="Typo.subtitle2" HtmlTag="h3" Class="mb-2">Crear suscripción</MudText>
+                        <MudGrid Spacing="3">
+                            <MudItem xs="12" sm="6" md="3">
+                                <MudSelect T="string" @bind-Value="_edition" Label="Edición">
+                                    <MudSelectItem T="string" Value="@("SINGLE")">Caja Única</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("MULTI")">Multicaja</MudSelectItem>
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="6" md="3">
+                                <MudSelect T="string" @bind-Value="_billing" Label="Periodicidad">
+                                    <MudSelectItem T="string" Value="@("MONTHLY")">Mensual</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("ANNUAL")">Anual</MudSelectItem>
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="4" md="2" Class="d-flex align-center"><MudSwitch T="bool" @bind-Value="_trial" Label="De prueba" Color="Color.Info" /></MudItem>
+                            <MudItem xs="6" sm="4" md="2"><MudNumericField T="int?" @bind-Value="_trialDays" Label="Días de prueba" Disabled="!_trial" Min="1" Max="90" /></MudItem>
+                            <MudItem xs="6" sm="4" md="2"><MudTextField T="string" @bind-Value="_payment" Label="Referencia del pago" Disabled="_trial" /></MudItem>
+                        </MudGrid>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="Busy" OnClick="CreateSubscriptionAsync">Crear suscripción</MudButton>
+                    </AuthorizeView>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true" Elevation="0" Class="bp-kv mb-6" Style="max-width: 720px">
+                        <tbody>
+                            <tr><th scope="row">Edición</th><td>@EditionName(sub.Edition) (@(sub.BillingPeriod == "ANNUAL" ? "anual" : "mensual"))</td></tr>
+                            <tr><th scope="row">Estado</th><td><StatusChip Status="@sub.EffectiveStatus" /> @(sub.SuspendedReason)</td></tr>
+                            <tr><th scope="row">Prueba hasta</th><td>@Date(sub.TrialEndsAt)</td></tr>
+                            <tr><th scope="row">Periodo pagado</th><td>@Day(sub.CurrentPeriodStart) → @Day(sub.CurrentPeriodEnd)</td></tr>
+                            <tr><th scope="row">Vigente hasta (token)</th><td>@Date(sub.ValidUntil)</td></tr>
+                            <tr><th scope="row">Gracia</th><td>@sub.GraceDays días (hasta @Date(sub.GraceUntil))</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+
+                    <SubscriptionActions SubscriptionId="sub.Id" Edition="@sub.Edition" OrganizationName="@org.LegalName" OnChanged="LoadAsync" />
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Licencia" Icon="@Icons.Material.Outlined.VpnKey">
+                @if (license is null)
+                {
+                    <EmptyState Title="La empresa no tiene clave vigente." Icon="@Icons.Material.Outlined.VpnKeyOff" />
+                    <AuthorizeView Policy="@CloudPermissions.LicenseManage">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                            <MudNumericField T="int?" @bind-Value="_maxInstallations" Label="Máximo de instalaciones (vacío = sin límite)" Min="1" Style="max-width: 320px" />
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Key" Disabled="Busy" OnClick="GenerateAsync">Generar clave</MudButton>
+                        </MudStack>
+                    </AuthorizeView>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true" Elevation="0" Class="bp-kv mb-6" Style="max-width: 720px">
+                        <tbody>
+                            <tr><th scope="row">Clave</th><td><span class="mono">@license.KeyPrefix…</span> <span class="texto-secundario">(solo se guarda su hash)</span></td></tr>
+                            <tr><th scope="row">Emitida</th><td>@Date(license.IssuedAt)</td></tr>
+                            <tr><th scope="row">Instalaciones activas</th><td>@license.ActiveInstallations de @(license.MaxInstallations?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "sin límite")</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                    <AuthorizeView Policy="@CloudPermissions.LicenseManage">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2">
+                            <MudNumericField T="int?" @bind-Value="_maxInstallations" Label="Máximo de instalaciones (vacío = sin límite)" Min="1" Style="max-width: 320px" />
+                            <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => SetMaxAsync(license.Id))">Guardar máximo</MudButton>
+                        </MudStack>
+                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" Class="mt-4">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Autorenew" Disabled="Busy" OnClick="@(() => RegenerateAsync(license.Id))">Regenerar clave</MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.KeyOff" Disabled="Busy" OnClick="@(() => RevokeAsync(license.Id))">Revocar clave</MudButton>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="d-block mt-3 texto-secundario">
+                            Regenerar revoca la clave anterior y emite otra; las sucursales ya activadas siguen funcionando. Revocar sin reemplazo deja
+                            a las tiendas en modo restringido en su siguiente check-in.
+                        </MudText>
+                    </AuthorizeView>
+                }
+
+                @if (_detail.Licenses.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle1" HtmlTag="h3" Class="mt-6 mb-2">Historial de claves</MudText>
+                    <div class="bp-table-wrap">
+                        <MudSimpleTable Dense="true" Outlined="true" Elevation="0">
+                            <thead><tr><th scope="col">Prefijo</th><th scope="col">Estado</th><th scope="col">Emitida</th><th scope="col">Revocada</th><th scope="col">Motivo</th></tr></thead>
+                            <tbody>
+                                @foreach (var l in _detail.Licenses)
+                                {
+                                    <tr>
+                                        <td><span class="mono">@l.KeyPrefix…</span></td>
+                                        <td><StatusChip Status="@l.Status" /></td>
+                                        <td>@Date(l.IssuedAt)</td>
+                                        <td>@Date(l.RevokedAt)</td>
+                                        <td style="white-space: normal">@(l.RevokedReason ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="@($"Instalaciones ({_detail.Installations.Count})")" Icon="@Icons.Material.Outlined.Computer">
+                <InstallationTable Rows="_detail.Installations" OnChanged="LoadAsync" EmptyTitle="Esta empresa aún no tiene instalaciones" />
+            </MudTabPanel>
+
+            <MudTabPanel Text="Historial" Icon="@Icons.Material.Outlined.History">
+                @if (_detail.Events.Count == 0)
+                {
+                    <EmptyState Title="Sin eventos registrados." Icon="@Icons.Material.Outlined.History" />
+                }
+                else
+                {
+                    <div class="bp-table-wrap">
+                        <MudSimpleTable Dense="true" Hover="true" Outlined="true" Elevation="0">
+                            <thead><tr><th scope="col">Fecha</th><th scope="col">Evento</th><th scope="col">Quién</th><th scope="col">Detalle</th></tr></thead>
+                            <tbody>
+                                @foreach (var e in _detail.Events)
+                                {
+                                    <tr>
+                                        <td>@Date(e.OccurredAt)</td>
+                                        <td><span class="mono">@e.Type</span></td>
+                                        <td>@e.ActorName</td>
+                                        <td style="white-space: normal">
+                                            @(e.OldValue is null && e.NewValue is null ? null : $"{e.OldValue ?? "—"} → {e.NewValue ?? "—"}")
+                                            @(e.PaymentReference is null ? null : $" · pago {e.PaymentReference}")
+                                            @(e.PeriodEnd is null ? null : $" · hasta {Day(e.PeriodEnd)}")
+                                            @(e.Reason is null ? null : $" · {e.Reason}")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Check-ins" Icon="@Icons.Material.Outlined.Sync">
+                @if (_detail.RecentCheckins.Count == 0)
+                {
+                    <EmptyState Title="Todavía no hay check-ins." Hint="Aparecen cuando una sucursal activa el POS y se conecta." Icon="@Icons.Material.Outlined.CloudOff" />
+                }
+                else
+                {
+                    <div class="bp-table-wrap">
+                        <MudSimpleTable Dense="true" Hover="true" Outlined="true" Elevation="0">
+                            <thead><tr><th scope="col">Fecha</th><th scope="col">Resultado</th><th scope="col">Versión</th><th scope="col" class="num">Cajas</th><th scope="col">Reloj del equipo</th><th scope="col">IP</th><th scope="col">Token hasta</th><th scope="col">Sello de auditoría</th></tr></thead>
+                            <tbody>
+                                @foreach (var c in _detail.RecentCheckins)
+                                {
+                                    <tr>
+                                        <td>@Date(c.OccurredAt)</td>
+                                        <td>
+                                            @if (c.Result == "TOKEN_ISSUED")
+                                            {
+                                                <StatusChip Text="@($"Token ({StatusName(c.SubscriptionStatus)})")" Color="@StatusColor(c.SubscriptionStatus)" />
+                                            }
+                                            else
+                                            {
+                                                <StatusChip Text="@($"Rechazado: {c.RejectionCode}")" Color="Color.Error" />
+                                            }
+                                        </td>
+                                        <td>@c.AppVersion</td>
+                                        <td class="num">@c.ActiveTerminals</td>
+                                        <td>@Date(c.ReportedClock)</td>
+                                        <td>@(c.IpAddress ?? "—")</td>
+                                        <td>@Date(c.TokenValidUntil)</td>
+                                        <td>@(c.AuditSealNo is null ? "—" : $"n.º {c.AuditSealNo} · {c.AuditSealCode}")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                }
+            </MudTabPanel>
+
+            <MudTabPanel Text="Datos" Icon="@Icons.Material.Outlined.Edit">
+                <AuthorizeView Policy="@CloudPermissions.AccountManage">
+                    <Authorized>
+                        <MudGrid Spacing="3">
+                            <MudItem xs="12" md="6"><MudTextField T="string" @bind-Value="_legalName" Label="Razón social" MaxLength="200" /></MudItem>
+                            <MudItem xs="12" md="4"><MudTextField T="string" @bind-Value="_city" Label="Ciudad" MaxLength="120" /></MudItem>
+                            <MudItem xs="12" md="2" Class="d-flex align-center"><MudSwitch T="bool" @bind-Value="_orgActive" Label="@(_orgActive ? "Activa" : "Inactiva")" Color="Color.Success" /></MudItem>
+                        </MudGrid>
+                        <MudText Typo="Typo.caption" Class="d-block mt-2 texto-secundario">El NIT no se modifica: el token de las tiendas está ligado a él.</MudText>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="Busy" OnClick="SaveOrganizationAsync">Guardar cambios</MudButton>
+                    </Authorized>
+                    <NotAuthorized><MudText>Solo el superadministrador modifica los datos de la empresa.</MudText></NotAuthorized>
                 </AuthorizeView>
-            }
-            else
-            {
-                <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
-                    <tbody>
-                        <tr><th>Edición</th><td>@EditionName(sub.Edition) (@(sub.BillingPeriod == "ANNUAL" ? "anual" : "mensual"))</td></tr>
-                        <tr><th>Estado</th><td><MudChip T="string" Size="Size.Small" Color="@StatusColor(sub.EffectiveStatus)">@StatusName(sub.EffectiveStatus)</MudChip> @(sub.SuspendedReason)</td></tr>
-                        <tr><th>Prueba hasta</th><td>@Date(sub.TrialEndsAt)</td></tr>
-                        <tr><th>Periodo pagado</th><td>@Day(sub.CurrentPeriodStart) → @Day(sub.CurrentPeriodEnd)</td></tr>
-                        <tr><th>Vigente hasta (token)</th><td>@Date(sub.ValidUntil)</td></tr>
-                        <tr><th>Gracia</th><td>@sub.GraceDays días (hasta @Date(sub.GraceUntil))</td></tr>
-                    </tbody>
-                </MudSimpleTable>
-
-                <SubscriptionActions SubscriptionId="sub.Id" Edition="@sub.Edition" OnChanged="LoadAsync" />
-            }
-        </MudTabPanel>
-
-        <MudTabPanel Text="Licencia">
-            @if (license is null)
-            {
-                <MudText Class="mb-2">La empresa no tiene clave vigente.</MudText>
-                <AuthorizeView Policy="@CloudPermissions.LicenseManage">
-                    <MudStack Row="true" AlignItems="AlignItems.Center">
-                        <MudNumericField T="int?" @bind-Value="_maxInstallations" Label="Máximo de instalaciones (vacío = sin límite)" Min="1" />
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="GenerateAsync">Generar clave</MudButton>
-                    </MudStack>
-                </AuthorizeView>
-            }
-            else
-            {
-                <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
-                    <tbody>
-                        <tr><th>Clave</th><td>@license.KeyPrefix… (solo se guarda su hash)</td></tr>
-                        <tr><th>Emitida</th><td>@Date(license.IssuedAt)</td></tr>
-                        <tr><th>Instalaciones activas</th><td>@license.ActiveInstallations de @(license.MaxInstallations?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "sin límite")</td></tr>
-                    </tbody>
-                </MudSimpleTable>
-                <AuthorizeView Policy="@CloudPermissions.LicenseManage">
-                    <MudGrid Spacing="2">
-                        <MudItem xs="12" md="4"><MudNumericField T="int?" @bind-Value="_maxInstallations" Label="Máximo de instalaciones (vacío = sin límite)" Min="1" /></MudItem>
-                        <MudItem xs="12" md="8"><MudTextField T="string" @bind-Value="_licenseReason" Label="Motivo (regenerar o revocar)" MaxLength="250" /></MudItem>
-                    </MudGrid>
-                    <MudStack Row="true" Class="mt-3">
-                        <MudButton Variant="Variant.Outlined" Disabled="Busy" OnClick="@(() => SetMaxAsync(license.Id))">Guardar máximo</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="Busy" OnClick="@(() => RegenerateAsync(license.Id))">Regenerar clave</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => RevokeAsync(license.Id))">Revocar clave</MudButton>
-                    </MudStack>
-                    <MudText Typo="Typo.caption" Class="mt-2">
-                        Regenerar revoca la clave anterior y emite otra; las sucursales ya activadas siguen funcionando. Revocar sin reemplazo deja
-                        a las tiendas en modo restringido en su siguiente check-in.
-                    </MudText>
-                </AuthorizeView>
-            }
-
-            @if (_detail.Licenses.Count > 0)
-            {
-                <MudText Typo="Typo.h6" Class="mt-4 mb-2">Historial de claves</MudText>
-                <MudSimpleTable Dense="true" Outlined="true">
-                    <thead><tr><th>Prefijo</th><th>Estado</th><th>Emitida</th><th>Revocada</th><th>Motivo</th></tr></thead>
-                    <tbody>
-                        @foreach (var l in _detail.Licenses)
-                        {
-                            <tr><td>@l.KeyPrefix…</td><td>@StatusName(l.Status)</td><td>@Date(l.IssuedAt)</td><td>@Date(l.RevokedAt)</td><td>@(l.RevokedReason ?? "—")</td></tr>
-                        }
-                    </tbody>
-                </MudSimpleTable>
-            }
-        </MudTabPanel>
-
-        <MudTabPanel Text="@($"Instalaciones ({_detail.Installations.Count})")">
-            <InstallationTable Rows="_detail.Installations" OnChanged="LoadAsync" />
-        </MudTabPanel>
-
-        <MudTabPanel Text="Historial">
-            <MudSimpleTable Dense="true" Outlined="true">
-                <thead><tr><th>Fecha</th><th>Evento</th><th>Quién</th><th>Detalle</th></tr></thead>
-                <tbody>
-                    @foreach (var e in _detail.Events)
-                    {
-                        <tr>
-                            <td>@Date(e.OccurredAt)</td>
-                            <td>@e.Type</td>
-                            <td>@e.ActorName</td>
-                            <td>
-                                @(e.OldValue is null && e.NewValue is null ? null : $"{e.OldValue ?? "—"} → {e.NewValue ?? "—"}")
-                                @(e.PaymentReference is null ? null : $" · pago {e.PaymentReference}")
-                                @(e.PeriodEnd is null ? null : $" · hasta {Day(e.PeriodEnd)}")
-                                @(e.Reason is null ? null : $" · {e.Reason}")
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </MudSimpleTable>
-        </MudTabPanel>
-
-        <MudTabPanel Text="Check-ins">
-            <MudSimpleTable Dense="true" Outlined="true">
-                <thead><tr><th>Fecha</th><th>Resultado</th><th>Versión</th><th>Cajas</th><th>Reloj del equipo</th><th>IP</th><th>Token hasta</th><th>Sello de auditoría</th></tr></thead>
-                <tbody>
-                    @foreach (var c in _detail.RecentCheckins)
-                    {
-                        <tr>
-                            <td>@Date(c.OccurredAt)</td>
-                            <td>@(c.Result == "TOKEN_ISSUED" ? $"Token ({StatusName(c.SubscriptionStatus)})" : $"Rechazado: {c.RejectionCode}")</td>
-                            <td>@c.AppVersion</td>
-                            <td>@c.ActiveTerminals</td>
-                            <td>@Date(c.ReportedClock)</td>
-                            <td>@(c.IpAddress ?? "—")</td>
-                            <td>@Date(c.TokenValidUntil)</td>
-                            <td>@(c.AuditSealNo is null ? "—" : $"n.º {c.AuditSealNo} · {c.AuditSealCode}")</td>
-                        </tr>
-                    }
-                </tbody>
-            </MudSimpleTable>
-        </MudTabPanel>
-
-        <MudTabPanel Text="Datos">
-            <AuthorizeView Policy="@CloudPermissions.AccountManage">
-                <Authorized>
-                    <MudGrid Spacing="2">
-                        <MudItem xs="12" md="6"><MudTextField T="string" @bind-Value="_legalName" Label="Razón social" MaxLength="200" /></MudItem>
-                        <MudItem xs="12" md="4"><MudTextField T="string" @bind-Value="_city" Label="Ciudad" MaxLength="120" /></MudItem>
-                        <MudItem xs="12" md="2"><MudCheckBox T="bool" @bind-Value="_orgActive" Label="Activa" /></MudItem>
-                    </MudGrid>
-                    <MudText Typo="Typo.caption">El NIT no se modifica: el token de las tiendas está ligado a él.</MudText>
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="SaveOrganizationAsync">Guardar</MudButton>
-                </Authorized>
-                <NotAuthorized><MudText>Solo el superadministrador modifica los datos de la empresa.</MudText></NotAuthorized>
-            </AuthorizeView>
-        </MudTabPanel>
-    </MudTabs>
+            </MudTabPanel>
+        </MudTabs>
+    </MudPaper>
 }
 
 @code {
@@ -198,7 +256,6 @@ else if (_detail is not null)
     private int? _trialDays;
     private string? _payment;
     private int? _maxInstallations;
-    private string? _licenseReason;
     private string? _legalName;
     private string? _city;
     private bool _orgActive = true;
@@ -240,20 +297,29 @@ else if (_detail is not null)
 
     private async Task RegenerateAsync(Guid licenseId)
     {
-        var generated = await RunAsync(new RegenerateLicenseCommand(licenseId, _licenseReason ?? string.Empty), "Clave regenerada; la anterior quedó revocada.");
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Regenerar clave", "¿Regenerar la clave de licencia de esta empresa?", "Regenerar clave", "Motivo", Color.Warning,
+            detail: "La clave actual queda revocada y se emite otra (se muestra una sola vez). Las sucursales ya activadas siguen funcionando.");
+        if (reason is null)
+        {
+            return;
+        }
+
+        var generated = await RunAsync(new RegenerateLicenseCommand(licenseId, reason), "Clave regenerada; la anterior quedó revocada.");
         if (generated.IsSuccess)
         {
             _generatedKey = generated.Value.Key;
-            _licenseReason = null;
             await LoadAsync();
         }
     }
 
     private async Task RevokeAsync(Guid licenseId)
     {
-        if (await RunAsync(new RevokeLicenseCommand(licenseId, _licenseReason ?? string.Empty), "Clave revocada."))
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Revocar clave", "¿Revocar la clave de licencia sin reemplazo?", "Revocar clave", "Motivo de la revocación",
+            detail: "Las tiendas de esta empresa quedan en modo restringido en su siguiente check-in. No se puede deshacer.");
+        if (reason is not null && await RunAsync(new RevokeLicenseCommand(licenseId, reason), "Clave revocada."))
         {
-            _licenseReason = null;
             await LoadAsync();
         }
     }
@@ -268,6 +334,12 @@ else if (_detail is not null)
 
     private async Task SaveOrganizationAsync()
     {
+        if (_detail?.Organization.Status == "ACTIVE" && !_orgActive
+            && !await Dialogs.ConfirmAsync("Desactivar empresa", $"¿Desactivar la empresa {_detail.Organization.LegalName}?", "Desactivar", Color.Warning))
+        {
+            return;
+        }
+
         if (await RunAsync(new UpdateOrganizationCommand(OrganizationId, _legalName ?? string.Empty, _city, _orgActive), "Empresa actualizada."))
         {
             await LoadAsync();

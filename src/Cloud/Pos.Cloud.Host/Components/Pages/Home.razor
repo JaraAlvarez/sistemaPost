@@ -3,59 +3,204 @@
 @inherits PortalPageBase
 
 <PageTitle>Tablero · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Tablero</MudText>
+<PageHeader Title="Tablero" Section="General" Description="Resumen de clientes, suscripciones e instalaciones al momento de abrir la página.">
+    <Actions>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_loading" OnClick="LoadAsync">Actualizar</MudButton>
+    </Actions>
+</PageHeader>
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
 else if (_data is null)
 {
-    <MudProgressLinear Indeterminate="true" />
+    <MudGrid Spacing="3">
+        @for (var i = 0; i < 8; i++)
+        {
+            <MudItem xs="12" sm="6" lg="3"><MudPaper Elevation="0" Class="bp-card pa-4"><MudSkeleton Width="40%" /><MudSkeleton Width="60%" Height="40px" /></MudPaper></MudItem>
+        }
+    </MudGrid>
+    <MudPaper Elevation="0" Class="bp-card mt-6"><TableSkeleton /></MudPaper>
 }
 else
 {
-    <MudGrid>
-        <MudItem xs="6" md="2"><Stat Title="Clientes" Value="@_data.Accounts" /></MudItem>
-        <MudItem xs="6" md="2"><Stat Title="Empresas" Value="@_data.Organizations" /></MudItem>
-        <MudItem xs="6" md="2"><Stat Title="Instalaciones activas" Value="@_data.ActiveInstallations" /></MudItem>
-        <MudItem xs="6" md="2"><Stat Title="Vencen en 7 días" Value="@_data.ExpiringIn7Days" Color="Color.Warning" /></MudItem>
-        <MudItem xs="6" md="2"><Stat Title="Vencen en 15 días" Value="@_data.ExpiringIn15Days" /></MudItem>
-        <MudItem xs="6" md="2"><Stat Title="Vencen en 30 días" Value="@_data.ExpiringIn30Days" /></MudItem>
+    var alerts = _data.Expired.Count + _data.Suspended.Count + _data.InGrace.Count + _data.WithoutCheckin.Count;
+
+    @if (alerts > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-5" Variant="Variant.Outlined">
+            <strong>Requiere atención:</strong>
+            @string.Join(" · ", AlertLines())
+        </MudAlert>
+    }
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Clientes" Value="@_data.Accounts" Icon="@Icons.Material.Outlined.Business" Href="clientes" Hint="@($"{_data.Organizations} empresas licenciadas")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Suscripciones vigentes" Value="@Count("ACTIVE", "TRIAL")" Icon="@Icons.Material.Outlined.EventAvailable" Color="Color.Success" Href="suscripciones"
+                      Hint="@($"{Count("TRIAL")} en prueba · {Count("PAST_DUE")} en gracia")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Vencen en 7 días" Value="@_data.ExpiringIn7Days" Icon="@Icons.Material.Outlined.HourglassBottom"
+                      Color="@(_data.ExpiringIn7Days > 0 ? Color.Warning : Color.Default)" Href="suscripciones"
+                      Hint="@($"{_data.ExpiringIn15Days} en 15 días · {_data.ExpiringIn30Days} en 30 días")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Alertas" Value="@alerts" Icon="@Icons.Material.Outlined.NotificationsActive" Color="@(alerts > 0 ? Color.Error : Color.Success)"
+                      Hint="@(alerts > 0 ? "Vencidas, suspendidas, en gracia o sin check-in" : "Todo en orden")" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Instalaciones activas" Value="@_data.ActiveInstallations" Icon="@Icons.Material.Outlined.Computer" Color="Color.Secondary" Href="instalaciones" Hint="Sucursales con equipo activo" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Último check-in" Text="@(_lastCheckin is null ? "Sin datos" : Date(_lastCheckin))" Icon="@Icons.Material.Outlined.Sync" Color="Color.Info"
+                      Hint="Hora de Colombia, de cualquier sucursal" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Suspendidas" Value="@Count("SUSPENDED")" Icon="@Icons.Material.Outlined.PauseCircle" Color="@(Count("SUSPENDED") > 0 ? Color.Error : Color.Default)" Href="suscripciones" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <StatCard Title="Sin check-in reciente" Value="@_data.WithoutCheckin.Count" Icon="@Icons.Material.Outlined.CloudOff"
+                      Color="@(_data.WithoutCheckin.Count > 0 ? Color.Warning : Color.Default)" Hint="@($"Más de {_data.NoCheckinDays} días sin reportar")" />
+        </MudItem>
     </MudGrid>
 
-    <SubscriptionList Title="Vencen en los próximos 30 días" Rows="_data.Expiring" Empty="Nada vence en los próximos 30 días." />
-    <SubscriptionList Title="En periodo de gracia" Rows="_data.InGrace" Empty="Ninguna suscripción está en gracia." />
-    <SubscriptionList Title="Suspendidas" Rows="_data.Suspended" Empty="No hay suscripciones suspendidas." />
-    <SubscriptionList Title="Vencidas (sin gracia)" Rows="_data.Expired" Empty="No hay suscripciones vencidas." />
-
-    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Instalaciones sin check-in hace más de @_data.NoCheckinDays días</MudText>
-    @if (_data.WithoutCheckin.Count == 0)
-    {
-        <MudText Typo="Typo.body2">Todas las instalaciones activas reportaron recientemente.</MudText>
-    }
-    else
-    {
-        <MudSimpleTable Dense="true" Hover="true" Outlined="true">
-            <thead><tr><th>Empresa</th><th>Sucursal</th><th>Versión</th><th>Último check-in</th><th>IP</th></tr></thead>
-            <tbody>
-                @foreach (var i in _data.WithoutCheckin)
+    <MudGrid Spacing="3" Class="mt-2">
+        <MudItem xs="12" lg="4">
+            <MudPaper Elevation="0" Class="bp-card pa-5" Style="height: 100%">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title">Suscripciones por estado</MudText>
+                @if (_data.SubscriptionsByStatus.Values.Sum() == 0)
                 {
-                    <tr>
-                        <td><MudLink Href="@($"empresas/{i.OrganizationId}")">@i.OrganizationName</MudLink></td>
-                        <td>@(i.BranchName ?? "—")</td>
-                        <td>@i.AppVersion</td>
-                        <td>@Date(i.LastCheckinAt)</td>
-                        <td>@(i.LastIp ?? "—")</td>
-                    </tr>
+                    <EmptyState Title="Aún no hay suscripciones" Hint="Se crean desde la ficha de cada empresa." Icon="@Icons.Material.Outlined.EventRepeat" />
                 }
-            </tbody>
-        </MudSimpleTable>
-    }
+                else
+                {
+                    var max = Math.Max(1, _data.SubscriptionsByStatus.Values.Max());
+                    <div class="bp-status-bars">
+                        @foreach (var status in Statuses)
+                        {
+                            var count = Count(status);
+                            <div class="bp-status-bar-row">
+                                <span>@StatusName(status)</span>
+                                <span class="bp-status-bar-track" aria-hidden="true">
+                                    <span class="bp-status-bar-fill d-block" style="@($"width: {count * 100 / max}%; background: var(--mud-palette-{CssColor(status)})")"></span>
+                                </span>
+                                <span class="num">@count</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" lg="8">
+            <SubscriptionList Title="Vencen en los próximos 30 días" Rows="_data.Expiring" Empty="Nada vence en los próximos 30 días." Icon="@Icons.Material.Outlined.HourglassBottom" Compact="true" />
+        </MudItem>
+    </MudGrid>
+
+    <SubscriptionList Title="En periodo de gracia" Rows="_data.InGrace" Empty="Ninguna suscripción está en gracia." Icon="@Icons.Material.Outlined.Timelapse" />
+    <SubscriptionList Title="Suspendidas" Rows="_data.Suspended" Empty="No hay suscripciones suspendidas." Icon="@Icons.Material.Outlined.PauseCircle" />
+    <SubscriptionList Title="Vencidas (sin gracia)" Rows="_data.Expired" Empty="No hay suscripciones vencidas." Icon="@Icons.Material.Outlined.EventBusy" />
+
+    <MudPaper Elevation="0" Class="bp-card bp-section">
+        <div class="pa-4 pb-0">
+            <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title">
+                <MudIcon Icon="@Icons.Material.Outlined.CloudOff" Size="Size.Small" aria-hidden="true" />
+                Instalaciones sin check-in hace más de @_data.NoCheckinDays días
+            </MudText>
+        </div>
+        @if (_data.WithoutCheckin.Count == 0)
+        {
+            <EmptyState Title="Todas las instalaciones activas reportaron recientemente." Icon="@Icons.Material.Outlined.CloudDone" />
+        }
+        else
+        {
+            <div class="bp-table-wrap">
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead><tr><th scope="col">Empresa</th><th scope="col">Sucursal</th><th scope="col">Versión</th><th scope="col">Último check-in</th><th scope="col">IP</th></tr></thead>
+                    <tbody>
+                        @foreach (var i in _data.WithoutCheckin)
+                        {
+                            <tr>
+                                <td><MudLink Href="@($"empresas/{i.OrganizationId}")">@i.OrganizationName</MudLink></td>
+                                <td>@(i.BranchName ?? "—")</td>
+                                <td>@i.AppVersion</td>
+                                <td>@Date(i.LastCheckinAt)</td>
+                                <td>@(i.LastIp ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
 }
 
 @code {
-    private DashboardDto? _data;
+    private static readonly string[] Statuses = ["ACTIVE", "TRIAL", "PAST_DUE", "SUSPENDED", "EXPIRED", "CANCELLED"];
 
-    protected override async Task OnInitializedAsync() => _data = await LoadAsync(new GetDashboardQuery());
+    private DashboardDto? _data;
+    private DateTimeOffset? _lastCheckin;
+    private bool _loading;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _data = await LoadAsync(new GetDashboardQuery());
+
+            // Último check-in de cualquier sucursal: solo informativo (si el rol no ve las instalaciones, queda "Sin datos").
+            var installations = await Operations.SendAsync(new ListInstallationsQuery(null, null));
+            _lastCheckin = installations.IsSuccess ? installations.Value.Max(i => i.LastCheckinAt) : null;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private int Count(params string[] statuses) =>
+        _data is null ? 0 : statuses.Sum(s => _data.SubscriptionsByStatus.TryGetValue(s, out var n) ? n : 0);
+
+    private static string CssColor(string status) => StatusColor(status) switch
+    {
+        Color.Success => "success",
+        Color.Info => "info",
+        Color.Warning => "warning",
+        Color.Error => "error",
+        _ => "text-disabled",
+    };
+
+    private IEnumerable<string> AlertLines()
+    {
+        if (_data is null)
+        {
+            yield break;
+        }
+
+        if (_data.Expired.Count > 0)
+        {
+            yield return $"{_data.Expired.Count} vencida(s)";
+        }
+
+        if (_data.Suspended.Count > 0)
+        {
+            yield return $"{_data.Suspended.Count} suspendida(s)";
+        }
+
+        if (_data.InGrace.Count > 0)
+        {
+            yield return $"{_data.InGrace.Count} en gracia";
+        }
+
+        if (_data.WithoutCheckin.Count > 0)
+        {
+            yield return $"{_data.WithoutCheckin.Count} instalación(es) sin check-in";
+        }
+    }
 }

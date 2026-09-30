@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using Pos.Application.Abstractions.Messaging;
+using Pos.Cloud.Abstractions;
 using Pos.Cloud.Host.Security;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
@@ -60,6 +61,15 @@ public abstract class PortalPageBase : ComponentBase
         "SINGLE" => "Caja Única",
         "MULTI" => "Multicaja",
         _ => edition ?? "—",
+    };
+
+    public static string RoleName(string? role) => role switch
+    {
+        PortalRoles.Superadmin => "Superadministrador",
+        PortalRoles.Support => "Soporte",
+        PortalRoles.Reseller => "Distribuidor",
+        PortalRoles.Customer => "Cliente",
+        _ => role ?? "—",
     };
 
     protected async Task<T?> LoadAsync<T>(IRequest<Result<T>> query)

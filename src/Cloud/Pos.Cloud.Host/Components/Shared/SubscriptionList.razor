@@ -1,30 +1,50 @@
-<MudText Typo="Typo.h6" Class="mt-6 mb-2">@Title</MudText>
-@if (Rows.Count == 0)
-{
-    <MudText Typo="Typo.body2">@Empty</MudText>
-}
-else
-{
-    <MudSimpleTable Dense="true" Hover="true" Outlined="true">
-        <thead>
-            <tr><th>Empresa</th><th>NIT</th><th>Edición</th><th>Estado</th><th>Vigente hasta</th><th>Gracia hasta</th><th>Días</th></tr>
-        </thead>
-        <tbody>
-            @foreach (var s in Rows)
+@* Lista de suscripciones del tablero (una tarjeta por grupo: por vencer, en gracia, suspendidas, vencidas). *@
+<MudPaper Elevation="0" Class="@($"bp-card {(Compact ? null : "bp-section")}")" Style="height: 100%">
+    <div class="pa-4 pb-0 d-flex align-center">
+        <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title">
+            @if (Icon is not null)
             {
-                <tr>
-                    <td><MudLink Href="@($"empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink></td>
-                    <td>@s.Nit</td>
-                    <td>@PortalPageBase.EditionName(s.Edition)</td>
-                    <td><MudChip T="string" Size="Size.Small" Color="@PortalPageBase.StatusColor(s.Status)">@PortalPageBase.StatusName(s.Status)</MudChip></td>
-                    <td>@PortalPageBase.Day(s.ValidUntil)</td>
-                    <td>@PortalPageBase.Day(s.GraceUntil)</td>
-                    <td>@s.DaysLeft</td>
-                </tr>
+                <MudIcon Icon="@Icon" Size="Size.Small" aria-hidden="true" />
             }
-        </tbody>
-    </MudSimpleTable>
-}
+            @Title
+        </MudText>
+        <MudSpacer />
+        @if (Rows.Count > 0)
+        {
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="mb-3">@Rows.Count</MudChip>
+        }
+    </div>
+    @if (Rows.Count == 0)
+    {
+        <EmptyState Title="@Empty" Icon="@Icons.Material.Outlined.CheckCircle" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead>
+                    <tr><th scope="col">Empresa</th><th scope="col">Edición</th><th scope="col">Estado</th><th scope="col">Vigente hasta</th><th scope="col">Gracia hasta</th><th scope="col" class="num">Días</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Rows)
+                    {
+                        <tr>
+                            <td>
+                                <MudLink Href="@($"empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink>
+                                <span class="cell-sub">NIT @s.Nit</span>
+                            </td>
+                            <td>@PortalPageBase.EditionName(s.Edition)</td>
+                            <td><StatusChip Status="@s.Status" /></td>
+                            <td>@PortalPageBase.Day(s.ValidUntil)</td>
+                            <td>@PortalPageBase.Day(s.GraceUntil)</td>
+                            <td class="num">@s.DaysLeft</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
 
 @code {
     [Parameter, EditorRequired]
@@ -35,4 +55,11 @@ else
 
     [Parameter]
     public string Empty { get; set; } = "Sin registros.";
+
+    [Parameter]
+    public string? Icon { get; set; }
+
+    /// <summary>Sin margen superior (cuando va dentro de una rejilla).</summary>
+    [Parameter]
+    public bool Compact { get; set; }
 }

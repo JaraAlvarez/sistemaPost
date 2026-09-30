@@ -500,7 +500,7 @@ portal"). La contraseña queda de respaldo.
 4. **Requisitos del proxy:** la URI de redirección se arma con el esquema y el host que ve la aplicación, así que deben llegarle
    `X-Forwarded-Proto: https` y el `Host` original (`Cloud__TrustForwardedHeaders=true`, como en el §18; Caddy los envía solo). Si
    Google responde `redirect_uri_mismatch`, compare la URI del error con la registrada en el paso 2.
-5. **Prueba:** abra `https://businesspost.tutiendanueva.com/cuenta/ingresar` → *Ingresar con Google* → elija la cuenta. Debe quedar
+5. **Prueba:** abra `https://businesspost.tutiendanueva.com/cuenta/ingresar` → *Continuar con Google* → elija la cuenta. Debe quedar
    en el portal; en *Auditoría* aparece `PORTAL_LOGIN_SUCCEEDED` con "método GOOGLE", la IP y el navegador. Un correo que no es usuario
    del portal ve "No fue posible ingresar con esa cuenta de Google" y queda un `PORTAL_LOGIN_FAILED`.
 

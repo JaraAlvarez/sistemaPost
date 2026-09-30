@@ -6,32 +6,39 @@
 
 <PageTitle>Activar doble factor · BusinessPost</PageTitle>
 
+<h1 class="auth-title">Active el doble factor</h1>
+<p class="auth-lead">En este portal el doble factor es obligatorio: protege su cuenta aunque alguien conozca su contraseña.</p>
+
 @if (_error is not null)
 {
-    <div class="account-error" role="alert">@_error</div>
+    <AuthAlert>@_error</AuthAlert>
 }
 
 @if (_enrollment is not null)
 {
-    <p class="account-hint">
-        En este portal el doble factor es obligatorio. Escanee este código con Google Authenticator, Microsoft Authenticator o Aegis y escriba el
-        primer código que muestre.
-    </p>
-    <img class="account-qr" src="@QrCodes.ToDataUri(_enrollment.EnrollmentLink)" alt="Código QR del doble factor" />
-    <p class="account-hint">Si no puede escanearlo, escriba esta clave en la aplicación:</p>
-    <p class="account-secret">@_enrollment.Secret</p>
+    <ol class="auth-steps">
+        <li>Instale Google Authenticator, Microsoft Authenticator o Aegis en su teléfono.</li>
+        <li>Escanee este código QR con la aplicación.</li>
+        <li>Escriba el primer código de 6 dígitos que muestre.</li>
+    </ol>
+    <img class="auth-qr" src="@QrCodes.ToDataUri(_enrollment.EnrollmentLink)" alt="Código QR del doble factor" width="200" height="200" />
+    <p class="auth-hint">Si no puede escanearlo, escriba esta clave en la aplicación:</p>
+    <p class="auth-secret">@_enrollment.Secret</p>
 }
 
 @if (_enrollment is not null || !HttpMethods.IsGet(HttpContext.Request.Method))
 {
-    <EditForm Model="Input" method="post" OnValidSubmit="ConfirmAsync" FormName="enroll">
-        <label for="code">Primer código</label>
-        <InputText id="code" type="text" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" />
-        <button type="submit">Activar y entrar</button>
+    <EditForm Model="Input" method="post" OnValidSubmit="ConfirmAsync" FormName="enroll" class="auth-form">
+        <div class="auth-field">
+            <label for="code">Primer código</label>
+            <InputText id="code" type="text" class="auth-code" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"
+                       pattern="[0-9]{6}" required="required" />
+        </div>
+        <button type="submit" class="auth-button auth-button-primary">Activar y entrar</button>
     </EditForm>
 }
 
-<p class="account-hint"><a href="cuenta/ingresar">Volver a ingresar</a></p>
+<div class="auth-foot"><a href="cuenta/ingresar">Volver a ingresar</a></div>
 
 @code {
     [CascadingParameter]

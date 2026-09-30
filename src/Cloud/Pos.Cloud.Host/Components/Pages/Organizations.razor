@@ -3,24 +3,55 @@
 @inherits PortalPageBase
 
 <PageTitle>Empresas · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Empresas licenciadas</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Las empresas se registran desde la ficha de su cliente. Una licencia por NIT; cada sucursal es una instalación.</MudText>
-
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
-    <MudTextField T="string" @bind-Value="_search" Label="Buscar por razón social, NIT o ciudad" Variant="Variant.Outlined" Margin="Margin.Dense" />
-    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Buscar</MudButton>
-</MudStack>
+<PageHeader Title="Empresas licenciadas" Crumb="Empresas" Section="Licenciamiento"
+            Description="Una licencia por NIT; cada sucursal es una instalación. Las empresas se registran desde la ficha de su cliente." />
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
 
-<OrganizationTable Rows="_rows" />
+<MudPaper Elevation="0" Class="bp-card">
+    <div class="bp-toolbar">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Buscar por razón social, NIT o ciudad" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="400"
+                      OnDebounceIntervalElapsed="@(_ => LoadAsync())" Clearable="true" OnClearButtonClick="@(_ => LoadAsync())" aria-label="Buscar empresas" />
+        <MudSelect T="string" @bind-Value="_status" Label="Suscripción" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">Todas</MudSelectItem>
+            @foreach (var status in Statuses)
+            {
+                <MudSelectItem T="string" Value="@status">@StatusName(status)</MudSelectItem>
+            }
+            <MudSelectItem T="string" Value="@("NONE")">Sin suscripción</MudSelectItem>
+        </MudSelect>
+        @if (_rows is not null)
+        {
+            <span class="bp-toolbar-count" role="status">@Filtered.Count de @_rows.Count empresas</span>
+        }
+    </div>
+    @if (_rows is null)
+    {
+        <TableSkeleton />
+    }
+    else
+    {
+        <OrganizationTable Rows="Filtered" EmptyTitle="Ninguna empresa coincide" EmptyHint="Pruebe con otra búsqueda o filtro." />
+    }
+</MudPaper>
 
 @code {
-    private IReadOnlyList<OrganizationRowDto> _rows = [];
+    private static readonly string[] Statuses = ["TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "EXPIRED", "CANCELLED"];
+
+    private IReadOnlyList<OrganizationRowDto>? _rows;
     private string? _search;
+    private string _status = string.Empty;
+
+    private List<OrganizationRowDto> Filtered => (_rows ?? []).Where(o => _status switch
+    {
+        "" => true,
+        "NONE" => o.Subscription is null,
+        _ => o.Subscription?.EffectiveStatus == _status,
+    }).ToList();
 
     protected override Task OnInitializedAsync() => LoadAsync();
 

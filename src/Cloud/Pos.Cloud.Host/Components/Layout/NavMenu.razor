@@ -1,34 +1,55 @@
+@* Menú lateral agrupado por tarea; cada entrada aparece solo con el permiso que exige su página. Enlaces relativos a <base href>. *@
 <AuthorizeView>
     <Authorized>
-        <MudNavMenu>
-            @if (context.User.HasPortalPermission(CloudPermissions.DashboardView))
-            {
-                <MudNavLink Href="./" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Tablero</MudNavLink>
-            }
-            @if (context.User.HasPortalPermission(CloudPermissions.LicensingView))
-            {
-                <MudNavLink Href="clientes" Icon="@Icons.Material.Filled.Business">Clientes</MudNavLink>
-                <MudNavLink Href="empresas" Icon="@Icons.Material.Filled.Storefront">Empresas</MudNavLink>
-                <MudNavLink Href="suscripciones" Icon="@Icons.Material.Filled.EventRepeat">Suscripciones</MudNavLink>
-                <MudNavLink Href="instalaciones" Icon="@Icons.Material.Filled.Computer">Instalaciones y equipos</MudNavLink>
-            }
-            @if (context.User.HasPortalPermission(CloudPermissions.SyncDataView))
-            {
-                <MudNavLink Href="tiendas" Icon="@Icons.Material.Filled.QueryStats">Datos de las tiendas</MudNavLink>
-            }
-            @if (context.User.HasPortalPermission(CloudPermissions.AuditView))
-            {
-                <MudNavLink Href="auditoria" Icon="@Icons.Material.Filled.Policy">Auditoría</MudNavLink>
-            }
-            @if (context.User.HasPortalPermission(CloudPermissions.PortalUserManage))
-            {
-                <MudNavLink Href="usuarios" Icon="@Icons.Material.Filled.People">Usuarios del portal</MudNavLink>
-            }
-            @if (context.User.HasPortalPermission(CloudPermissions.SigningKeyView))
-            {
-                <MudNavLink Href="claves-de-firma" Icon="@Icons.Material.Filled.Key">Claves de firma</MudNavLink>
-            }
-            <MudNavLink Href="mi-cuenta" Icon="@Icons.Material.Filled.AccountCircle">Mi cuenta</MudNavLink>
-        </MudNavMenu>
+        @{
+            var user = context.User;
+            var licensing = user.HasPortalPermission(CloudPermissions.LicensingView);
+            var stores = user.HasPortalPermission(CloudPermissions.SyncDataView);
+            var admin = user.HasPortalPermission(CloudPermissions.PortalUserManage) || user.HasPortalPermission(CloudPermissions.SigningKeyView)
+                        || user.HasPortalPermission(CloudPermissions.AuditView);
+        }
+        <div class="bp-nav">
+            <MudNavMenu aria-label="Menú principal">
+                @if (user.HasPortalPermission(CloudPermissions.DashboardView))
+                {
+                    <MudNavLink Href="./" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.SpaceDashboard">Tablero</MudNavLink>
+                }
+
+                @if (licensing)
+                {
+                    <span class="bp-nav-section">Licenciamiento</span>
+                    <MudNavLink Href="clientes" Icon="@Icons.Material.Outlined.Business">Clientes</MudNavLink>
+                    <MudNavLink Href="empresas" Icon="@Icons.Material.Outlined.Storefront">Empresas</MudNavLink>
+                    <MudNavLink Href="suscripciones" Icon="@Icons.Material.Outlined.EventRepeat">Suscripciones</MudNavLink>
+                    <MudNavLink Href="instalaciones" Icon="@Icons.Material.Outlined.Computer">Instalaciones y equipos</MudNavLink>
+                }
+
+                @if (stores)
+                {
+                    <span class="bp-nav-section">Operación</span>
+                    <MudNavLink Href="tiendas" Icon="@Icons.Material.Outlined.QueryStats">Datos de las tiendas</MudNavLink>
+                }
+
+                @if (admin)
+                {
+                    <span class="bp-nav-section">Administración</span>
+                    @if (user.HasPortalPermission(CloudPermissions.PortalUserManage))
+                    {
+                        <MudNavLink Href="usuarios" Icon="@Icons.Material.Outlined.ManageAccounts">Usuarios del portal</MudNavLink>
+                    }
+                    @if (user.HasPortalPermission(CloudPermissions.SigningKeyView))
+                    {
+                        <MudNavLink Href="claves-de-firma" Icon="@Icons.Material.Outlined.Key">Claves de firma</MudNavLink>
+                    }
+                    @if (user.HasPortalPermission(CloudPermissions.AuditView))
+                    {
+                        <MudNavLink Href="auditoria" Icon="@Icons.Material.Outlined.Policy">Auditoría</MudNavLink>
+                    }
+                }
+
+                <span class="bp-nav-section">Personal</span>
+                <MudNavLink Href="mi-cuenta" Icon="@Icons.Material.Outlined.AccountCircle">Mi cuenta</MudNavLink>
+            </MudNavMenu>
+        </div>
     </Authorized>
 </AuthorizeView>

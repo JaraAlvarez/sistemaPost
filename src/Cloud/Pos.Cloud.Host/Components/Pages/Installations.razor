@@ -3,35 +3,50 @@
 @inherits PortalPageBase
 
 <PageTitle>Instalaciones · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Instalaciones y equipos</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Cada sucursal que activa el POS es una instalación; su equipo (servidor de tienda o equipo único) queda ligado por la huella.
-    Liberar el equipo permite activar uno nuevo con la misma clave (cambio de PC o equipo dañado).
-</MudText>
-
-<MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
-    <MudTextField T="string" @bind-Value="_search" Label="Buscar por empresa, NIT o sucursal" Variant="Variant.Outlined" Margin="Margin.Dense" />
-    <MudSelect T="string" @bind-Value="_status" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 180px">
-        <MudSelectItem T="string" Value="@string.Empty">Todas</MudSelectItem>
-        <MudSelectItem T="string" Value="@("ACTIVE")">Con equipo activo</MudSelectItem>
-        <MudSelectItem T="string" Value="@("INACTIVE")">Sin equipo</MudSelectItem>
-    </MudSelect>
-    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Buscar</MudButton>
-</MudStack>
+<PageHeader Title="Instalaciones y equipos" Section="Licenciamiento"
+            Description="Cada sucursal que activa el POS es una instalación; su equipo queda ligado por la huella. Liberar el equipo permite activar uno nuevo con la misma clave." />
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
-else if (_rows is null)
+
+<MudPaper Elevation="0" Class="bp-card mb-4">
+    <div class="bp-toolbar" style="border-bottom: none">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Buscar por empresa, NIT o sucursal" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="400"
+                      OnDebounceIntervalElapsed="@(_ => LoadAsync())" Clearable="true" OnClearButtonClick="@(_ => LoadAsync())" aria-label="Buscar instalaciones" />
+        <MudSelect T="string" @bind-Value="_status" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">Todas</MudSelectItem>
+            <MudSelectItem T="string" Value="@("ACTIVE")">Con equipo activo</MudSelectItem>
+            <MudSelectItem T="string" Value="@("INACTIVE")">Sin equipo</MudSelectItem>
+        </MudSelect>
+        @if (_rows is not null)
+        {
+            <span class="bp-toolbar-count" role="status">@Filtered.Count() de @_rows.Count instalaciones</span>
+        }
+    </div>
+</MudPaper>
+
+@if (_rows is null)
 {
-    <MudProgressLinear Indeterminate="true" />
+    <MudPaper Elevation="0" Class="bp-card"><TableSkeleton /></MudPaper>
 }
 else
 {
     var rows = Filtered.ToList();
-    <MudText Typo="Typo.caption" Class="mb-2">@rows.Count de @_rows.Count instalaciones</MudText>
-    <InstallationTable Rows="rows" ShowOrganization="true" OnChanged="LoadAsync" />
+    @if (rows.Count == 0 && _rows.Count > 0)
+    {
+        <MudPaper Elevation="0" Class="bp-card"><EmptyState Title="Ninguna instalación coincide con los filtros" Icon="@Icons.Material.Outlined.SearchOff" /></MudPaper>
+    }
+    else if (rows.Count == 0)
+    {
+        <MudPaper Elevation="0" Class="bp-card"><InstallationTable Rows="rows" /></MudPaper>
+    }
+    else
+    {
+        <InstallationTable Rows="rows" ShowOrganization="true" OnChanged="LoadAsync" />
+    }
 }
 
 @code {

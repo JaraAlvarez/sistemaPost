@@ -117,7 +117,7 @@ public class PortalGoogleTests(GoogleCloudFixture cloud) : IClassFixture<GoogleC
         using (browser)
         {
             var login = await browser.GetStringAsync(new Uri("cuenta/ingresar?returnUrl=%2Finstalaciones", UriKind.Relative), Ct);
-            login.ShouldContain("Ingresar con Google");
+            login.ShouldContain("Continuar con Google");
 
             // Mayúsculas distintas a las registradas: el correo se compara sin distinguirlas.
             using var complete = await SignInWithGoogleAsync(browser, login, cloud.Factory.Google.Issue(email.ToUpperInvariant(), verified: true));
@@ -254,7 +254,7 @@ public class PortalGoogleTests(GoogleCloudFixture cloud) : IClassFixture<GoogleC
     }
 
     /// <summary>
-    /// El recorrido del navegador: botón "Ingresar con Google" (POST) → Google (se simula la vuelta con <paramref name="code"/>) →
+    /// El recorrido del navegador: botón "Continuar con Google" (POST) → Google (se simula la vuelta con <paramref name="code"/>) →
     /// <c>/signin-google</c> → <c>/cuenta/google/completar</c>. Devuelve la respuesta de este último.
     /// </summary>
     private static async Task<HttpResponseMessage> SignInWithGoogleAsync(HttpClient browser, string loginPage, string code)

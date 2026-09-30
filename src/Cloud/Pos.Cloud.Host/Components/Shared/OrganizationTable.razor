@@ -1,34 +1,54 @@
-<MudSimpleTable Dense="true" Hover="true" Outlined="true">
-    <thead>
-        <tr><th>Razón social</th><th>NIT</th><th>Cliente</th><th>Edición</th><th>Suscripción</th><th>Vigente hasta</th><th>Clave</th><th>Instalaciones</th></tr>
-    </thead>
-    <tbody>
-        @foreach (var o in Rows)
-        {
-            <tr>
-                <td><MudLink Href="@($"empresas/{o.Id}")">@o.LegalName</MudLink></td>
-                <td>@o.Nit</td>
-                <td>@o.AccountName</td>
-                <td>@PortalPageBase.EditionName(o.Subscription?.Edition)</td>
-                <td>
-                    @if (o.Subscription is { } s)
-                    {
-                        <MudChip T="string" Size="Size.Small" Color="@PortalPageBase.StatusColor(s.EffectiveStatus)">@PortalPageBase.StatusName(s.EffectiveStatus)</MudChip>
-                    }
-                    else
-                    {
-                        <span>Sin suscripción</span>
-                    }
-                </td>
-                <td>@PortalPageBase.Day(o.Subscription?.ValidUntil)</td>
-                <td>@(o.LicensePrefix is null ? "—" : $"{o.LicensePrefix}…")</td>
-                <td>@o.ActiveInstallations</td>
-            </tr>
-        }
-    </tbody>
-</MudSimpleTable>
+@if (Rows.Count == 0)
+{
+    <EmptyState Title="@EmptyTitle" Hint="@EmptyHint" Icon="@Icons.Material.Outlined.Storefront" />
+}
+else
+{
+    <div class="bp-table-wrap">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+            <thead>
+                <tr>
+                    <th scope="col">Razón social</th><th scope="col">Cliente</th><th scope="col">Edición</th><th scope="col">Suscripción</th>
+                    <th scope="col">Vigente hasta</th><th scope="col">Clave</th><th scope="col" class="num">Instalaciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var o in Rows)
+                {
+                    <tr>
+                        <td>
+                            <MudLink Href="@($"empresas/{o.Id}")" Typo="Typo.body2" Class="font-weight-medium">@o.LegalName</MudLink>
+                            <span class="cell-sub">NIT @o.Nit@(o.City is null ? null : $" · {o.City}")</span>
+                        </td>
+                        <td>@o.AccountName</td>
+                        <td>@PortalPageBase.EditionName(o.Subscription?.Edition)</td>
+                        <td>
+                            @if (o.Subscription is { } s)
+                            {
+                                <StatusChip Status="@s.EffectiveStatus" />
+                            }
+                            else
+                            {
+                                <StatusChip Text="Sin suscripción" Color="Color.Default" />
+                            }
+                        </td>
+                        <td>@PortalPageBase.Day(o.Subscription?.ValidUntil)</td>
+                        <td><span class="mono">@(o.LicensePrefix is null ? "—" : $"{o.LicensePrefix}…")</span></td>
+                        <td class="num">@o.ActiveInstallations</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired]
     public IReadOnlyList<OrganizationRowDto> Rows { get; set; } = [];
+
+    [Parameter]
+    public string EmptyTitle { get; set; } = "No hay empresas";
+
+    [Parameter]
+    public string? EmptyHint { get; set; }
 }

@@ -1,8 +1,28 @@
 @inherits LayoutComponentBase
 
-<div class="account-page">
-    <div class="account-card">
-        <h1 class="account-title">BusinessPost · Portal</h1>
-        @Body
-    </div>
+@* Pantallas de acceso (/cuenta): formularios renderizados en el servidor, sin MudBlazor ni scripts. Claro/oscuro según el sistema. *@
+<div class="auth">
+    <aside class="auth-hero" aria-label="BusinessPost">
+        <BrandLogo Size="40" Subtitle="Portal de la nube" />
+        <div>
+            <p class="auth-hero-title">Licencias, tiendas y soporte en un solo lugar.</p>
+            <p class="auth-hero-lead">El portal de BusinessPost para administrar clientes, suscripciones e instalaciones del punto de venta.</p>
+            <ul class="auth-hero-list">
+                <li>@Check Suscripciones y vencimientos al día, con alertas.</li>
+                <li>@Check Instalaciones y equipos de cada sucursal.</li>
+                <li>@Check Auditoría encadenada de todo lo que se hace.</li>
+            </ul>
+        </div>
+        <p class="auth-hero-foot">Acceso solo para personal autorizado. Toda la actividad queda registrada.</p>
+    </aside>
+    <main class="auth-main">
+        <div class="auth-card">
+            <BrandLogo Size="36" Subtitle="Portal de la nube" />
+            @Body
+        </div>
+    </main>
 </div>
+
+@code {
+    private static readonly RenderFragment Check = @<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="rgba(94,234,212,.18)" /><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>;
+}

@@ -3,48 +3,99 @@
 @inherits PortalPageBase
 
 <PageTitle>Clientes · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Clientes</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Cliente comercial (o distribuidor) dueño de una o varias empresas licenciadas.</MudText>
+<PageHeader Title="Clientes" Section="Licenciamiento" Description="Cliente comercial (o distribuidor) dueño de una o varias empresas licenciadas.">
+    <Actions>
+        <AuthorizeView Policy="@CloudPermissions.AccountManage">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@(_showNew ? Icons.Material.Filled.Close : Icons.Material.Filled.Add)"
+                       OnClick="@(() => _showNew = !_showNew)" aria-expanded="@(_showNew ? "true" : "false")">
+                @(_showNew ? "Cerrar formulario" : "Nuevo cliente")
+            </MudButton>
+        </AuthorizeView>
+    </Actions>
+</PageHeader>
 
 <AuthorizeView Policy="@CloudPermissions.AccountManage">
-    <MudPaper Class="pa-4 mb-4" Elevation="1">
-        <MudText Typo="Typo.h6">Nuevo cliente</MudText>
-        <AccountForm Input="_new" />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="CreateAsync">Registrar cliente</MudButton>
-    </MudPaper>
+    @if (_showNew)
+    {
+        <MudPaper Elevation="0" Class="bp-card pa-5 mb-6">
+            <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Nuevo cliente</MudText>
+            <AccountForm Input="_new" />
+            <MudStack Row="true" Justify="Justify.FlexEnd" Class="mt-4">
+                <MudButton Variant="Variant.Text" OnClick="@(() => _showNew = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="CreateAsync">Registrar cliente</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
 </AuthorizeView>
-
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
-    <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, NIT o correo" Variant="Variant.Outlined" Margin="Margin.Dense" />
-    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Buscar</MudButton>
-</MudStack>
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
 
-<MudSimpleTable Dense="true" Hover="true" Outlined="true">
-    <thead><tr><th>Nombre</th><th>Tipo</th><th>NIT</th><th>Contacto</th><th>Empresas</th><th>Estado</th></tr></thead>
-    <tbody>
-        @foreach (var a in _accounts)
+<MudPaper Elevation="0" Class="bp-card">
+    <div class="bp-toolbar">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Buscar por nombre, NIT o correo" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="400"
+                      OnDebounceIntervalElapsed="@(_ => LoadAsync())" Clearable="true" OnClearButtonClick="@(_ => LoadAsync())" aria-label="Buscar clientes" />
+        <MudSelect T="string" @bind-Value="_kind" Label="Tipo" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">Todos</MudSelectItem>
+            <MudSelectItem T="string" Value="@("DIRECT")">Directos</MudSelectItem>
+            <MudSelectItem T="string" Value="@("RESELLER")">Distribuidores</MudSelectItem>
+        </MudSelect>
+        @if (_accounts is not null)
         {
-            <tr>
-                <td><MudLink Href="@($"clientes/{a.Id}")">@a.Name</MudLink></td>
-                <td>@(a.Kind == "RESELLER" ? "Distribuidor" : "Directo")</td>
-                <td>@(a.Nit is null ? "—" : $"{a.Nit}-{a.NitCheckDigit}")</td>
-                <td>@(a.ContactName ?? "—") @(a.ContactEmail is null ? null : $"· {a.ContactEmail}")</td>
-                <td>@a.Organizations</td>
-                <td>@StatusName(a.Status)</td>
-            </tr>
+            <span class="bp-toolbar-count" role="status">@Filtered.Count() de @_accounts.Count clientes</span>
         }
-    </tbody>
-</MudSimpleTable>
+    </div>
+
+    @if (_accounts is null)
+    {
+        <TableSkeleton />
+    }
+    else if (!Filtered.Any())
+    {
+        <EmptyState Title="@(_accounts.Count == 0 && string.IsNullOrWhiteSpace(_search) ? "Todavía no hay clientes" : "Ningún cliente coincide con la búsqueda")"
+                    Hint="@(_accounts.Count == 0 && string.IsNullOrWhiteSpace(_search) ? "Registre el primero con «Nuevo cliente»." : "Pruebe con otro nombre, NIT o correo.")"
+                    Icon="@Icons.Material.Outlined.Business" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th scope="col">Nombre</th><th scope="col">Tipo</th><th scope="col">NIT</th><th scope="col">Contacto</th><th scope="col" class="num">Empresas</th><th scope="col">Estado</th></tr></thead>
+                <tbody>
+                    @foreach (var a in Filtered)
+                    {
+                        <tr>
+                            <td><MudLink Href="@($"clientes/{a.Id}")" Typo="Typo.body2" Class="font-weight-medium">@a.Name</MudLink></td>
+                            <td>@(a.Kind == "RESELLER" ? "Distribuidor" : "Directo")</td>
+                            <td>@(a.Nit is null ? "—" : $"{a.Nit}-{a.NitCheckDigit}")</td>
+                            <td>
+                                @(a.ContactName ?? "—")
+                                @if (a.ContactEmail is not null)
+                                {
+                                    <span class="cell-sub">@a.ContactEmail</span>
+                                }
+                            </td>
+                            <td class="num">@a.Organizations</td>
+                            <td><StatusChip Status="@a.Status" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
 
 @code {
-    private IReadOnlyList<AccountDto> _accounts = [];
+    private IReadOnlyList<AccountDto>? _accounts;
     private string? _search;
+    private string _kind = string.Empty;
+    private bool _showNew;
     private AccountForm.Model _new = new();
+
+    private IEnumerable<AccountDto> Filtered => (_accounts ?? []).Where(a => _kind.Length == 0 || a.Kind == _kind);
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -56,6 +107,7 @@
         if (created.IsSuccess)
         {
             _new = new();
+            _showNew = false;
             await LoadAsync();
         }
     }

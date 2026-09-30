@@ -1,42 +1,99 @@
 @page "/clientes/{AccountId:guid}"
 @attribute [Authorize(Policy = CloudPermissions.LicensingView)]
 @inherits PortalPageBase
+@inject IDialogService Dialogs
 
-<PageTitle>Cliente · BusinessPost</PageTitle>
+<PageTitle>@(_account?.Name ?? "Cliente") · BusinessPost</PageTitle>
 
 @if (LoadError is not null)
 {
+    <PageHeader Title="Cliente" Section="Licenciamiento" ParentText="Clientes" ParentHref="clientes" />
     <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
 }
-else if (_account is not null)
+else if (_account is null)
 {
-    <MudText Typo="Typo.h4" GutterBottom="true">@_account.Name</MudText>
+    <MudSkeleton Width="30%" Height="40px" Class="mb-4" />
+    <MudPaper Elevation="0" Class="bp-card"><TableSkeleton /></MudPaper>
+}
+else
+{
+    <PageHeader Title="@_account.Name" Section="Licenciamiento" ParentText="Clientes" ParentHref="clientes">
+        <ChildContent>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                <StatusChip Status="@_account.Status" />
+                <StatusChip Text="@(_account.Kind == "RESELLER" ? "Distribuidor" : "Cliente directo")" Color="Color.Default" />
+                @if (_account.Nit is not null)
+                {
+                    <MudText Typo="Typo.body2" Class="texto-secundario">NIT @_account.Nit-@_account.NitCheckDigit</MudText>
+                }
+            </MudStack>
+        </ChildContent>
+        <Actions>
+            <AuthorizeView Policy="@CloudPermissions.AccountManage">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@(_showNewOrg ? Icons.Material.Filled.Close : Icons.Material.Filled.Add)"
+                           OnClick="@(() => _showNewOrg = !_showNewOrg)" aria-expanded="@(_showNewOrg ? "true" : "false")">
+                    @(_showNewOrg ? "Cerrar formulario" : "Nueva empresa")
+                </MudButton>
+            </AuthorizeView>
+        </Actions>
+    </PageHeader>
 
     <AuthorizeView Policy="@CloudPermissions.AccountManage">
         <Authorized>
-            <MudPaper Class="pa-4 mb-4" Elevation="1">
-                <MudText Typo="Typo.h6">Datos del cliente</MudText>
-                <AccountForm Input="_edit" />
-                <MudCheckBox T="bool" @bind-Value="_active" Label="Activo" />
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="SaveAsync">Guardar</MudButton>
-            </MudPaper>
-
-            <MudPaper Class="pa-4 mb-4" Elevation="1">
-                <MudText Typo="Typo.h6">Nueva empresa licenciada</MudText>
-                <MudText Typo="Typo.body2" Class="mb-2">La licencia es de la razón social: el NIT es único en todo el servidor.</MudText>
-                <MudGrid Spacing="2">
-                    <MudItem xs="12" md="5"><MudTextField T="string" @bind-Value="_orgName" Label="Razón social" MaxLength="200" /></MudItem>
-                    <MudItem xs="8" md="3"><MudTextField T="string" @bind-Value="_orgNit" Label="NIT (sin DV)" MaxLength="15" /></MudItem>
-                    <MudItem xs="4" md="1"><MudTextField T="string" @bind-Value="_orgDv" Label="DV" MaxLength="1" /></MudItem>
-                    <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_orgCity" Label="Ciudad" MaxLength="120" /></MudItem>
-                </MudGrid>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="CreateOrganizationAsync">Registrar empresa</MudButton>
-            </MudPaper>
+            @if (_showNewOrg)
+            {
+                <MudPaper Elevation="0" Class="bp-card pa-5 mb-6">
+                    <MudText Typo="Typo.h6" HtmlTag="h2">Nueva empresa licenciada</MudText>
+                    <MudText Typo="Typo.body2" Class="texto-secundario mb-3">La licencia es de la razón social: el NIT es único en todo el servidor.</MudText>
+                    <MudGrid Spacing="3">
+                        <MudItem xs="12" md="5"><MudTextField T="string" @bind-Value="_orgName" Label="Razón social" MaxLength="200" /></MudItem>
+                        <MudItem xs="8" md="3"><MudTextField T="string" @bind-Value="_orgNit" Label="NIT (sin DV)" MaxLength="15" InputMode="InputMode.numeric" /></MudItem>
+                        <MudItem xs="4" md="1"><MudTextField T="string" @bind-Value="_orgDv" Label="DV" MaxLength="1" InputMode="InputMode.numeric" /></MudItem>
+                        <MudItem xs="12" md="3"><MudTextField T="string" @bind-Value="_orgCity" Label="Ciudad" MaxLength="120" /></MudItem>
+                    </MudGrid>
+                    <MudStack Row="true" Justify="Justify.FlexEnd" Class="mt-4">
+                        <MudButton Variant="Variant.Text" OnClick="@(() => _showNewOrg = false)">Cancelar</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="CreateOrganizationAsync">Registrar empresa</MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
         </Authorized>
     </AuthorizeView>
 
-    <MudText Typo="Typo.h6" Class="mb-2">Empresas</MudText>
-    <OrganizationTable Rows="_organizations" />
+    <MudPaper Elevation="0" Class="bp-card mb-6">
+        <div class="pa-4 pb-0 d-flex align-center">
+            <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Storefront" Size="Size.Small" aria-hidden="true" />Empresas</MudText>
+            <MudSpacer />
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="mb-3">@_organizations.Count</MudChip>
+        </div>
+        <OrganizationTable Rows="_organizations" EmptyTitle="Este cliente aún no tiene empresas" EmptyHint="Registre la primera con «Nueva empresa»." />
+    </MudPaper>
+
+    <AuthorizeView Policy="@CloudPermissions.AccountManage">
+        <Authorized>
+            <MudPaper Elevation="0" Class="bp-card pa-5">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Edit" Size="Size.Small" aria-hidden="true" />Datos del cliente</MudText>
+                <AccountForm Input="_edit" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mt-4">
+                    <MudSwitch T="bool" @bind-Value="_active" Label="@(_active ? "Cliente activo" : "Cliente inactivo")" Color="Color.Success" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="SaveAsync">Guardar cambios</MudButton>
+                </MudStack>
+            </MudPaper>
+        </Authorized>
+        <NotAuthorized>
+            <MudPaper Elevation="0" Class="bp-card pa-5">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title">Datos del cliente</MudText>
+                <MudSimpleTable Dense="true" Elevation="0" Class="bp-kv">
+                    <tbody>
+                        <tr><th scope="row">Contacto</th><td>@(_account.ContactName ?? "—")</td></tr>
+                        <tr><th scope="row">Correo</th><td>@(_account.ContactEmail ?? "—")</td></tr>
+                        <tr><th scope="row">Teléfono</th><td>@(_account.ContactPhone ?? "—")</td></tr>
+                        <tr><th scope="row">Notas</th><td>@(_account.Notes ?? "—")</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </NotAuthorized>
+    </AuthorizeView>
 }
 
 @code {
@@ -47,6 +104,7 @@ else if (_account is not null)
     private IReadOnlyList<OrganizationRowDto> _organizations = [];
     private AccountForm.Model _edit = new();
     private bool _active = true;
+    private bool _showNewOrg;
     private string? _orgName;
     private string? _orgNit;
     private string? _orgDv;
@@ -67,6 +125,12 @@ else if (_account is not null)
 
     private async Task SaveAsync()
     {
+        if (_account?.Status == "ACTIVE" && !_active
+            && !await Dialogs.ConfirmAsync("Desactivar cliente", $"¿Desactivar al cliente {_account.Name}?", "Desactivar", Color.Warning))
+        {
+            return;
+        }
+
         if (await RunAsync(new UpdateAccountCommand(AccountId, _edit.ToInput(), _active), "Cliente actualizado."))
         {
             await LoadAsync();
@@ -80,6 +144,7 @@ else if (_account is not null)
         if (created.IsSuccess)
         {
             (_orgName, _orgNit, _orgDv, _orgCity) = (null, null, null, null);
+            _showNewOrg = false;
             await LoadAsync();
         }
     }

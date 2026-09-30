@@ -4,66 +4,87 @@
 @inject IDialogService Dialogs
 
 <PageTitle>Claves de firma · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Claves de firma de los tokens</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
+<PageHeader Title="Claves de firma de los tokens" Crumb="Claves de firma" Section="Administración">
     El servidor firma los tokens de licencia con la clave ACTIVA (Ed25519, identificada por su <code>kid</code>); el POS trae
     embebidas las claves públicas. Rotación: una clave de RESERVA publicada se vuelve activa cuando el servidor arranca con su
     archivo privado, y la anterior pasa a RETIRADA (sigue verificando los tokens ya emitidos). Una clave comprometida se REVOCA.
-</MudText>
+</PageHeader>
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
 
-@if (_keys.Count > 0 && !_keys.Any(k => k.Status == "ACTIVE" && k.LoadedInServer))
+@if (_keys is { Count: > 0 } && !_keys.Any(k => k.Status == "ACTIVE" && k.LoadedInServer))
 {
     <MudAlert Severity="Severity.Error" Class="mb-4">
         El servidor no tiene una clave activa cargada: NO se están emitiendo tokens. Configure el archivo de la clave privada y reinicie.
     </MudAlert>
 }
 
-<MudSimpleTable Dense="true" Hover="true" Outlined="true">
-    <thead><tr><th>kid</th><th>Estado</th><th>Creada</th><th>Activada</th><th>Retirada</th><th>Revocada</th><th>En este servidor</th><th>Clave pública</th><th></th></tr></thead>
-    <tbody>
-        @foreach (var k in _keys)
-        {
-            <tr>
-                <td><code>@k.Kid</code></td>
-                <td><MudChip T="string" Size="Size.Small" Color="@KeyColor(k.Status)">@KeyStatusName(k.Status)</MudChip></td>
-                <td>@Date(k.CreatedAt)</td>
-                <td>@Date(k.ActivatedAt)</td>
-                <td>@Date(k.RetiredAt)</td>
-                <td>@Date(k.RevokedAt)</td>
-                <td>@(k.LoadedInServer ? "Sí (firma con esta)" : "—")</td>
-                <td class="cell-ellipsis" title="@k.PublicKey"><code>@k.PublicKey</code></td>
-                <td>
-                    @if (k.Status is "STANDBY" or "RETIRED")
+<MudPaper Elevation="0" Class="bp-card">
+    @if (_keys is null)
+    {
+        <TableSkeleton Rows="3" />
+    }
+    else if (_keys.Count == 0)
+    {
+        <EmptyState Title="No hay claves de firma registradas." Hint="Genere la primera con la consola del servidor (generate-signing-key)." Icon="@Icons.Material.Outlined.Key" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead>
+                    <tr>
+                        <th scope="col">kid</th><th scope="col">Estado</th><th scope="col">Creada</th><th scope="col">Activada</th><th scope="col">Retirada</th>
+                        <th scope="col">Revocada</th><th scope="col">En este servidor</th><th scope="col">Clave pública</th><th scope="col"><span class="visualmente-oculto">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var k in _keys)
                     {
-                        <AuthorizeView Policy="@CloudPermissions.SigningKeyManage">
-                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="Busy" OnClick="@(() => RevokeAsync(k.Kid))">Revocar</MudButton>
-                        </AuthorizeView>
+                        <tr>
+                            <td><code>@k.Kid</code></td>
+                            <td><StatusChip Text="@KeyStatusName(k.Status)" Color="@KeyColor(k.Status)" /></td>
+                            <td>@Date(k.CreatedAt)</td>
+                            <td>@Date(k.ActivatedAt)</td>
+                            <td>@Date(k.RetiredAt)</td>
+                            <td>@Date(k.RevokedAt)</td>
+                            <td>@(k.LoadedInServer ? "Sí (firma con esta)" : "—")</td>
+                            <td class="cell-ellipsis" title="@k.PublicKey"><code>@k.PublicKey</code></td>
+                            <td class="text-right">
+                                @if (k.Status is "STANDBY" or "RETIRED")
+                                {
+                                    <AuthorizeView Policy="@CloudPermissions.SigningKeyManage">
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.KeyOff" Disabled="Busy"
+                                                   OnClick="@(() => RevokeAsync(k.Kid))">Revocar</MudButton>
+                                    </AuthorizeView>
+                                }
+                            </td>
+                        </tr>
                     }
-                </td>
-            </tr>
-        }
-    </tbody>
-</MudSimpleTable>
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
 
 <AuthorizeView Policy="@CloudPermissions.SigningKeyManage">
-    <MudPaper Class="pa-4 mt-4" Elevation="1">
-        <MudText Typo="Typo.h6">Publicar una clave de reserva</MudText>
-        <MudText Typo="Typo.body2" Class="mb-2">
+    <MudPaper Elevation="0" Class="bp-card pa-5 bp-section">
+        <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Publish" Size="Size.Small" aria-hidden="true" />Publicar una clave de reserva</MudText>
+        <MudText Typo="Typo.body2" Class="texto-secundario mb-3">
             Genere el par en un equipo seguro (<code>generate-signing-key --out &lt;ruta&gt;</code>), guarde la privada fuera del servidor y
             pegue aquí solo la clave pública. Así el POS la trae embebida y la rotación no exige reinstalar.
         </MudText>
-        <MudTextField T="string" @bind-Value="_publicKey" Label="Clave pública (la línea «clave pública» que imprime generate-signing-key, 43 caracteres)" MaxLength="100" />
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="RegisterAsync">Publicar como reserva</MudButton>
+        <MudTextField T="string" @bind-Value="_publicKey" Label="Clave pública (la línea «clave pública» que imprime generate-signing-key, 43 caracteres)" MaxLength="100"
+                      Variant="Variant.Outlined" Class="mono" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="Busy" OnClick="RegisterAsync">Publicar como reserva</MudButton>
     </MudPaper>
 </AuthorizeView>
 
 @code {
-    private IReadOnlyList<SigningKeyDto> _keys = [];
+    private IReadOnlyList<SigningKeyDto>? _keys;
     private string? _publicKey;
 
     private static string KeyStatusName(string status) => status switch
@@ -99,11 +120,10 @@
 
     private async Task RevokeAsync(string kid)
     {
-        var confirmed = await Dialogs.ShowMessageBoxAsync(
-            "Revocar clave de firma",
-            $"¿Revocar la clave {kid}? Los tokens firmados con ella dejarán de aceptarse en el check-in. No se puede deshacer.",
-            yesText: "Revocar", cancelText: "Cancelar");
-        if (confirmed == true && await RunAsync(new PortalRevokeSigningKeyCommand(kid), "Clave revocada."))
+        var confirmed = await Dialogs.ConfirmAsync(
+            "Revocar clave de firma", $"¿Revocar la clave {kid}?", "Revocar",
+            detail: "Los tokens firmados con ella dejarán de aceptarse en el check-in. No se puede deshacer.");
+        if (confirmed && await RunAsync(new PortalRevokeSigningKeyCommand(kid), "Clave revocada."))
         {
             await LoadAsync();
         }

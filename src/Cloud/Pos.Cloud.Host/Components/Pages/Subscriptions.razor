@@ -3,78 +3,106 @@
 @inherits PortalPageBase
 
 <PageTitle>Suscripciones · BusinessPost</PageTitle>
-<MudText Typo="Typo.h4" GutterBottom="true">Suscripciones</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Una suscripción vigente por empresa. Las nuevas se crean desde la ficha de la empresa.</MudText>
-
-<MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
-    <MudSelect T="string" Value="_status" ValueChanged="StatusChangedAsync" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 180px">
-        <MudSelectItem T="string" Value="@string.Empty">Todos</MudSelectItem>
-        @foreach (var status in Statuses)
-        {
-            <MudSelectItem T="string" Value="@status">@StatusName(status)</MudSelectItem>
-        }
-    </MudSelect>
-    <MudSelect T="int" @bind-Value="_expiry" Label="Vencimiento" Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 200px">
-        <MudSelectItem T="int" Value="0">Cualquiera</MudSelectItem>
-        <MudSelectItem T="int" Value="7">Vence en 7 días o menos</MudSelectItem>
-        <MudSelectItem T="int" Value="15">Vence en 15 días o menos</MudSelectItem>
-        <MudSelectItem T="int" Value="30">Vence en 30 días o menos</MudSelectItem>
-        <MudSelectItem T="int" Value="-1">Ya vencida (vigencia pasada)</MudSelectItem>
-    </MudSelect>
-    <MudTextField T="string" @bind-Value="_search" Label="Empresa o NIT" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
-    <MudButton Variant="Variant.Outlined" OnClick="LoadAsync">Actualizar</MudButton>
-</MudStack>
+<PageHeader Title="Suscripciones" Section="Licenciamiento" Description="Una suscripción vigente por empresa. Las nuevas se crean desde la ficha de la empresa.">
+    <Actions>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" Disabled="Busy" OnClick="LoadAsync">Actualizar</MudButton>
+    </Actions>
+</PageHeader>
 
 @if (LoadError is not null)
 {
-    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
 }
 
-<MudText Typo="Typo.caption">@Filtered.Count() de @_rows.Count suscripciones</MudText>
-<MudSimpleTable Dense="true" Hover="true" Outlined="true">
-    <thead>
-        <tr><th>Empresa</th><th>NIT</th><th>Edición</th><th>Periodicidad</th><th>Estado</th><th>Vigente hasta</th><th>Gracia hasta</th><th>Días</th><th></th></tr>
-    </thead>
-    <tbody>
-        @foreach (var s in Filtered)
+<MudPaper Elevation="0" Class="bp-card">
+    <div class="bp-toolbar">
+        <MudTextField T="string" @bind-Value="_search" Placeholder="Buscar por empresa o NIT" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Clearable="true" aria-label="Buscar suscripciones" />
+        <MudSelect T="string" Value="_status" ValueChanged="StatusChangedAsync" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">Todos</MudSelectItem>
+            @foreach (var status in Statuses)
+            {
+                <MudSelectItem T="string" Value="@status">@StatusName(status)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="int" @bind-Value="_expiry" Label="Vencimiento" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Dense="true">
+            <MudSelectItem T="int" Value="0">Cualquiera</MudSelectItem>
+            <MudSelectItem T="int" Value="7">Vence en 7 días o menos</MudSelectItem>
+            <MudSelectItem T="int" Value="15">Vence en 15 días o menos</MudSelectItem>
+            <MudSelectItem T="int" Value="30">Vence en 30 días o menos</MudSelectItem>
+            <MudSelectItem T="int" Value="-1">Ya vencida (vigencia pasada)</MudSelectItem>
+        </MudSelect>
+        @if (_rows is not null)
         {
-            <tr class="@(s.Id == _selected?.Id ? "row-selected" : null)">
-                <td><MudLink Href="@($"empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink></td>
-                <td>@s.Nit</td>
-                <td>@EditionName(s.Edition)</td>
-                <td>@(s.BillingPeriod == "ANNUAL" ? "Anual" : "Mensual")</td>
-                <td>
-                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(s.Status)">@StatusName(s.Status)</MudChip>
-                    @if (s.SuspendedReason is not null)
-                    {
-                        <MudText Typo="Typo.caption">@s.SuspendedReason</MudText>
-                    }
-                </td>
-                <td>@Day(s.ValidUntil)</td>
-                <td>@Day(s.GraceUntil)</td>
-                <td>@s.DaysLeft</td>
-                <td>
-                    @if (CanAct)
-                    {
-                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => _selected = s)">Acciones</MudButton>
-                    }
-                </td>
-            </tr>
+            <span class="bp-toolbar-count" role="status">@Filtered.Count() de @_rows.Count suscripciones</span>
         }
-    </tbody>
-</MudSimpleTable>
+    </div>
 
-@if (_selected is { } selected)
-{
-    <MudPaper Class="pa-4 mt-4" Elevation="2">
-        <MudStack Row="true" AlignItems="AlignItems.Center">
-            <MudText Typo="Typo.h6">@selected.OrganizationName · @EditionName(selected.Edition) · @StatusName(selected.Status)</MudText>
-            <MudSpacer />
-            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => _selected = null)" />
-        </MudStack>
-        <SubscriptionActions @key="selected.Id" SubscriptionId="selected.Id" Edition="@selected.Edition" OnChanged="LoadAsync" />
-    </MudPaper>
-}
+    @if (_rows is null)
+    {
+        <TableSkeleton />
+    }
+    else if (!Filtered.Any())
+    {
+        <EmptyState Title="@(_rows.Count == 0 ? "No hay suscripciones" : "Ninguna suscripción coincide con los filtros")"
+                    Hint="@(_rows.Count == 0 ? "Se crean desde la ficha de cada empresa." : "Cambie el estado, el vencimiento o la búsqueda.")" Icon="@Icons.Material.Outlined.EventRepeat" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead>
+                    <tr>
+                        <th scope="col">Empresa</th><th scope="col">Edición</th><th scope="col">Periodicidad</th><th scope="col">Estado</th>
+                        <th scope="col">Vigente hasta</th><th scope="col">Gracia hasta</th><th scope="col" class="num">Días</th>
+                        <th scope="col"><span class="visualmente-oculto">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Filtered)
+                    {
+                        var selected = s.Id == _selected?.Id;
+                        <tr class="@(selected ? "row-selected" : null)">
+                            <td>
+                                <MudLink Href="@($"empresas/{s.OrganizationId}")" Typo="Typo.body2" Class="font-weight-medium">@s.OrganizationName</MudLink>
+                                <span class="cell-sub">NIT @s.Nit</span>
+                            </td>
+                            <td>@EditionName(s.Edition)</td>
+                            <td>@(s.BillingPeriod == "ANNUAL" ? "Anual" : "Mensual")</td>
+                            <td>
+                                <StatusChip Status="@s.Status" />
+                                @if (s.SuspendedReason is not null)
+                                {
+                                    <span class="cell-sub">@s.SuspendedReason</span>
+                                }
+                            </td>
+                            <td>@Day(s.ValidUntil)</td>
+                            <td>@Day(s.GraceUntil)</td>
+                            <td class="num">@s.DaysLeft</td>
+                            <td class="text-right">
+                                @if (CanAct)
+                                {
+                                    <MudButton Size="Size.Small" Variant="@(selected ? Variant.Filled : Variant.Outlined)" Color="Color.Primary"
+                                               EndIcon="@(selected ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                                               OnClick="@(() => _selected = selected ? null : s)" aria-expanded="@(selected ? "true" : "false")"
+                                               aria-label="@($"Acciones de la suscripción de {s.OrganizationName}")">Acciones</MudButton>
+                                }
+                            </td>
+                        </tr>
+                        @if (selected)
+                        {
+                            <tr class="row-selected">
+                                <td colspan="8" class="pa-4" style="white-space: normal">
+                                    <SubscriptionActions @key="s.Id" SubscriptionId="s.Id" Edition="@s.Edition" OrganizationName="@s.OrganizationName" OnChanged="LoadAsync" />
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
 
 @code {
     private static readonly string[] Statuses = ["TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "EXPIRED", "CANCELLED"];
@@ -82,14 +110,14 @@
     [CascadingParameter]
     private Task<AuthenticationState> Authentication { get; set; } = default!;
 
-    private IReadOnlyList<SubscriptionRowDto> _rows = [];
+    private IReadOnlyList<SubscriptionRowDto>? _rows;
     private SubscriptionRowDto? _selected;
     private string _status = string.Empty;
     private int _expiry;
     private string? _search;
     private bool CanAct { get; set; }
 
-    private IEnumerable<SubscriptionRowDto> Filtered => _rows
+    private IEnumerable<SubscriptionRowDto> Filtered => (_rows ?? [])
         .Where(s => _expiry switch
         {
             0 => true,
