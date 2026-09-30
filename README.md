@@ -1,4 +1,4 @@
-# PosSupermercado
+# BusinessPost
 
 Sistema POS comercial para supermercados y comercio minorista: local-first, instalable en Windows y licenciado por suscripción.
 

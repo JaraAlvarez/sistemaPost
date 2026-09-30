@@ -3,32 +3,32 @@
         <MudNavMenu>
             @if (context.User.HasPortalPermission(CloudPermissions.DashboardView))
             {
-                <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Tablero</MudNavLink>
+                <MudNavLink Href="./" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Tablero</MudNavLink>
             }
             @if (context.User.HasPortalPermission(CloudPermissions.LicensingView))
             {
-                <MudNavLink Href="/clientes" Icon="@Icons.Material.Filled.Business">Clientes</MudNavLink>
-                <MudNavLink Href="/empresas" Icon="@Icons.Material.Filled.Storefront">Empresas</MudNavLink>
-                <MudNavLink Href="/suscripciones" Icon="@Icons.Material.Filled.EventRepeat">Suscripciones</MudNavLink>
-                <MudNavLink Href="/instalaciones" Icon="@Icons.Material.Filled.Computer">Instalaciones y equipos</MudNavLink>
+                <MudNavLink Href="clientes" Icon="@Icons.Material.Filled.Business">Clientes</MudNavLink>
+                <MudNavLink Href="empresas" Icon="@Icons.Material.Filled.Storefront">Empresas</MudNavLink>
+                <MudNavLink Href="suscripciones" Icon="@Icons.Material.Filled.EventRepeat">Suscripciones</MudNavLink>
+                <MudNavLink Href="instalaciones" Icon="@Icons.Material.Filled.Computer">Instalaciones y equipos</MudNavLink>
             }
             @if (context.User.HasPortalPermission(CloudPermissions.SyncDataView))
             {
-                <MudNavLink Href="/tiendas" Icon="@Icons.Material.Filled.QueryStats">Datos de las tiendas</MudNavLink>
+                <MudNavLink Href="tiendas" Icon="@Icons.Material.Filled.QueryStats">Datos de las tiendas</MudNavLink>
             }
             @if (context.User.HasPortalPermission(CloudPermissions.AuditView))
             {
-                <MudNavLink Href="/auditoria" Icon="@Icons.Material.Filled.Policy">Auditoría</MudNavLink>
+                <MudNavLink Href="auditoria" Icon="@Icons.Material.Filled.Policy">Auditoría</MudNavLink>
             }
             @if (context.User.HasPortalPermission(CloudPermissions.PortalUserManage))
             {
-                <MudNavLink Href="/usuarios" Icon="@Icons.Material.Filled.People">Usuarios del portal</MudNavLink>
+                <MudNavLink Href="usuarios" Icon="@Icons.Material.Filled.People">Usuarios del portal</MudNavLink>
             }
             @if (context.User.HasPortalPermission(CloudPermissions.SigningKeyView))
             {
-                <MudNavLink Href="/claves-de-firma" Icon="@Icons.Material.Filled.Key">Claves de firma</MudNavLink>
+                <MudNavLink Href="claves-de-firma" Icon="@Icons.Material.Filled.Key">Claves de firma</MudNavLink>
             }
-            <MudNavLink Href="/mi-cuenta" Icon="@Icons.Material.Filled.AccountCircle">Mi cuenta</MudNavLink>
+            <MudNavLink Href="mi-cuenta" Icon="@Icons.Material.Filled.AccountCircle">Mi cuenta</MudNavLink>
         </MudNavMenu>
     </Authorized>
 </AuthorizeView>

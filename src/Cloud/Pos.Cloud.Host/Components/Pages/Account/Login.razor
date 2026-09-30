@@ -5,7 +5,7 @@
 @inject IDispatcher Dispatcher
 @inject NavigationManager Navigation
 
-<PageTitle>Ingresar · Licencias</PageTitle>
+<PageTitle>Ingresar · BusinessPost</PageTitle>
 
 @if (_error is not null)
 {
@@ -51,7 +51,7 @@
         var challenge = result.Value.Value!;
         PortalCookie.Write(HttpContext.Response, challenge.Token, challenge.ExpiresAt);
         var next = challenge.Stage == "ENROLLMENT_REQUIRED" ? "/cuenta/activar-doble-factor" : "/cuenta/segundo-factor";
-        Navigation.NavigateTo($"{next}?returnUrl={Uri.EscapeDataString(PortalCookie.SafeReturnUrl(ReturnUrl))}");
+        Navigation.NavigateTo($"{PortalLinks.Local(next)}?returnUrl={Uri.EscapeDataString(PortalCookie.SafeReturnUrl(ReturnUrl))}");
     }
 
     private sealed class LoginInput

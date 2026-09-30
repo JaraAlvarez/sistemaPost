@@ -29,7 +29,7 @@ public class ServerEndpointsTests(PosServerFactory factory) : IClassFixture<PosS
     {
         var body = await _client.GetFromJsonAsync<JsonElement>("/api/v1/system/info", Ct);
 
-        body.GetProperty("product").GetString().ShouldBe("PosSupermercado");
+        body.GetProperty("product").GetString().ShouldBe("BusinessPost");
         body.GetProperty("version").GetString().ShouldStartWith("0.1.0");
         body.GetProperty("environment").GetString().ShouldBe("Development");
         body.GetProperty("businessTimeZone").GetString().ShouldBe("America/Bogota");

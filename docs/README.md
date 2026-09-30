@@ -1,4 +1,4 @@
-# POS Supermercado — Documentación de arquitectura
+# BusinessPost — Documentación de arquitectura
 
 > Fase 1 · Entregable "Primera tarea" (puntos A–T) · Estado: **PROPUESTA — pendiente de aprobación** · 2026-09-28
 

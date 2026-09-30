@@ -48,7 +48,7 @@ public static class AgentInfo
     private static readonly Assembly AgentAssembly = typeof(AgentInfo).Assembly;
 
     public static string ProductName { get; } =
-        AgentAssembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "PosSupermercado";
+        AgentAssembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "BusinessPost";
 
     public static string Version { get; } =
         (AgentAssembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0").Split('+')[0];

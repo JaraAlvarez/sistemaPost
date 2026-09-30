@@ -1,0 +1,15 @@
+# Variante para un VPS que YA tiene Caddy (p. ej. el que sirve tutiendanueva.com con Express + React): docs/despliegue-nube.md §18.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.caddy-existente.yml up -d
+#
+# - No arranca el Caddy de este proyecto (quedaría en conflicto con el existente por los puertos 80/443).
+# - Publica la aplicación SOLO en la interfaz local del VPS (127.0.0.1:${APP_LOCAL_PORT}); el Caddy existente la alcanza ahí.
+#   Nunca publique ese puerto en 0.0.0.0: la aplicación confía en los X-Forwarded-* (Cloud__TrustForwardedHeaders).
+services:
+  app:
+    ports:
+      - "127.0.0.1:${APP_LOCAL_PORT:-5080}:8080"
+
+  caddy:
+    # Solo se arranca con `--profile caddy-incluido` (no se usa en esta variante).
+    profiles: [caddy-incluido]

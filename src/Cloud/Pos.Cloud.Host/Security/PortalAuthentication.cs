@@ -22,32 +22,53 @@ internal static class PortalSchemes
 }
 
 /// <summary>
-/// Cookie de sesión del portal: prefijo <c>__Host-</c> (solo HTTPS, sin dominio, ruta /), <c>HttpOnly</c> y <c>SameSite=Strict</c>
-/// (§6). Contiene solo el token opaco; la sesión vive en la BD y se puede revocar.
+/// Cookie de sesión del portal (§6): <c>Secure</c>, <c>HttpOnly</c>, <c>SameSite=Strict</c>, sin dominio. Contiene solo el token
+/// opaco; la sesión vive en la BD y se puede revocar.
+/// <list type="bullet">
+/// <item>En la raíz de un (sub)dominio propio: <c>__Host-pos-portal</c> con ruta <c>/</c> (el prefijo <c>__Host-</c> exige ruta /).</item>
+/// <item>Bajo una ruta de un dominio compartido (<c>Cloud:PathBase</c>, p. ej. <c>/businesspost</c>): <c>__Secure-pos-portal</c> con
+/// ruta = la base. No se usa <c>__Host-</c> porque obligaría a la ruta /, y el navegador enviaría la sesión del portal a las demás
+/// aplicaciones del mismo dominio (p. ej. la tienda en Express/React). <c>__Secure-</c> conserva la garantía de "solo HTTPS".</item>
+/// </list>
 /// </summary>
 internal static class PortalCookie
 {
     public const string Name = "__Host-pos-portal";
 
+    /// <summary>Nombre de la cookie bajo una ruta base (ver el resumen de la clase).</summary>
+    public const string PathBaseName = "__Secure-pos-portal";
+
+    public static string NameFor(HttpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return request.PathBase.HasValue ? PathBaseName : Name;
+    }
+
+    public static string? Read(HttpRequest request) => request.Cookies[NameFor(request)];
+
     public static void Write(HttpResponse response, string token, DateTimeOffset expires)
     {
         ArgumentNullException.ThrowIfNull(response);
-        response.Cookies.Append(Name, token, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Path = "/",
-            Expires = expires,
-            IsEssential = true,
-        });
+        var request = response.HttpContext.Request;
+        response.Cookies.Append(NameFor(request), token, Options(request, expires));
     }
 
     public static void Delete(HttpResponse response)
     {
         ArgumentNullException.ThrowIfNull(response);
-        response.Cookies.Delete(Name, new CookieOptions { HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/" });
+        var request = response.HttpContext.Request;
+        response.Cookies.Delete(NameFor(request), Options(request, null));
     }
+
+    private static CookieOptions Options(HttpRequest request, DateTimeOffset? expires) => new()
+    {
+        HttpOnly = true,
+        Secure = true,
+        SameSite = SameSiteMode.Strict,
+        Path = request.PathBase.HasValue ? request.PathBase.Value : "/",
+        Expires = expires,
+        IsEssential = true,
+    };
 
     /// <summary>Solo rutas locales del portal (evita redirecciones abiertas).</summary>
     public static string SafeReturnUrl(string? returnUrl) =>
@@ -55,6 +76,18 @@ internal static class PortalCookie
         && !url.StartsWith("/\\", StringComparison.Ordinal) && !url.StartsWith("/cuenta", StringComparison.OrdinalIgnoreCase)
             ? url
             : "/";
+}
+
+/// <summary>Enlaces del portal relativos a <c>&lt;base href&gt;</c> (que incluye <c>Cloud:PathBase</c>).</summary>
+internal static class PortalLinks
+{
+    /// <summary><c>/mi-cuenta</c> → <c>mi-cuenta</c>; <c>/</c> → <c>./</c> (la raíz del portal).</summary>
+    public static string Local(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var relative = path.TrimStart('/');
+        return relative.Length > 0 ? relative : "./";
+    }
 }
 
 internal sealed class PortalAuthenticationOptions : AuthenticationSchemeOptions
@@ -88,7 +121,7 @@ internal sealed class PortalAuthenticationHandler(IOptionsMonitor<PortalAuthenti
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var token = Options.Channel == SessionChannel.Portal ? Request.Cookies[PortalCookie.Name] : BearerToken();
+        var token = Options.Channel == SessionChannel.Portal ? PortalCookie.Read(Request) : BearerToken();
         if (string.IsNullOrEmpty(token))
         {
             return AuthenticateResult.NoResult();
@@ -105,7 +138,7 @@ internal sealed class PortalAuthenticationHandler(IOptionsMonitor<PortalAuthenti
     {
         if (Options.Channel == SessionChannel.Portal)
         {
-            Response.Redirect($"{LoginPath}?returnUrl={Uri.EscapeDataString(PortalCookie.SafeReturnUrl(Request.Path + Request.QueryString))}");
+            Response.Redirect($"{Request.PathBase}{LoginPath}?returnUrl={Uri.EscapeDataString(PortalCookie.SafeReturnUrl(Request.Path + Request.QueryString))}");
             return;
         }
 
@@ -118,7 +151,7 @@ internal sealed class PortalAuthenticationHandler(IOptionsMonitor<PortalAuthenti
     {
         if (Options.Channel == SessionChannel.Portal)
         {
-            Response.Redirect(DeniedPath);
+            Response.Redirect(Request.PathBase + DeniedPath);
             return;
         }
 
@@ -190,7 +223,7 @@ internal sealed class MustChangePasswordMiddleware(RequestDelegate next)
         if (HttpMethods.IsGet(context.Request.Method) && context.User.MustChangePassword()
             && context.User.HasClaim(PortalClaims.Stage, PortalClaims.ActiveStage) && IsPortalPage(context.Request.Path))
         {
-            context.Response.Redirect(MyAccountPath);
+            context.Response.Redirect(context.Request.PathBase + MyAccountPath);
             return Task.CompletedTask;
         }
 

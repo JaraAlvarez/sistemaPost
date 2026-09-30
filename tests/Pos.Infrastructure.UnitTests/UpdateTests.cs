@@ -21,8 +21,8 @@ public sealed class UpdateTests : IDisposable
         }
     }
 
-    private static UpdateManifest Manifest(string version = "1.4.0", string product = "PosSupermercado") =>
-        new(product, UpdateChannels.Stable, version, $"PosSupermercado-{version}.zip", new string('a', 64), 1234, "1.4.0", DateTimeOffset.UtcNow, "Novedades");
+    private static UpdateManifest Manifest(string version = "1.4.0", string product = "BusinessPost") =>
+        new(product, UpdateChannels.Stable, version, $"BusinessPost-{version}.zip", new string('a', 64), 1234, "1.4.0", DateTimeOffset.UtcNow, "Novedades");
 
     [Fact]
     public void El_manifiesto_firmado_verifica_y_cualquier_cambio_lo_invalida()
@@ -30,15 +30,15 @@ public sealed class UpdateTests : IDisposable
         var ring = new LicenseKeyRing([_key.PublicKey]);
         var signed = UpdateSigning.Sign(Manifest(), _key);
 
-        UpdateSigning.Verify(UpdateSigning.Deserialize(UpdateSigning.Serialize(signed)), ring, "PosSupermercado", out var manifest).ShouldBe(ManifestStatus.Valid);
+        UpdateSigning.Verify(UpdateSigning.Deserialize(UpdateSigning.Serialize(signed)), ring, "BusinessPost", out var manifest).ShouldBe(ManifestStatus.Valid);
         manifest!.Version.ShouldBe("1.4.0");
 
         var tampered = UpdateSigning.Sign(Manifest("9.9.9"), _key) with { Signature = signed.Signature };
-        UpdateSigning.Verify(tampered, ring, "PosSupermercado", out _).ShouldBe(ManifestStatus.BadSignature);
+        UpdateSigning.Verify(tampered, ring, "BusinessPost", out _).ShouldBe(ManifestStatus.BadSignature);
         using var other = LicenseSigningKey.Generate();
-        UpdateSigning.Verify(UpdateSigning.Sign(Manifest(), other), ring, "PosSupermercado", out _).ShouldBe(ManifestStatus.UnknownKey);
-        UpdateSigning.Verify(UpdateSigning.Sign(Manifest(product: "Otro"), _key), ring, "PosSupermercado", out _).ShouldBe(ManifestStatus.WrongProduct);
-        UpdateSigning.Verify(UpdateSigning.Deserialize("{ no es json"), ring, "PosSupermercado", out _).ShouldBe(ManifestStatus.Malformed);
+        UpdateSigning.Verify(UpdateSigning.Sign(Manifest(), other), ring, "BusinessPost", out _).ShouldBe(ManifestStatus.UnknownKey);
+        UpdateSigning.Verify(UpdateSigning.Sign(Manifest(product: "Otro"), _key), ring, "BusinessPost", out _).ShouldBe(ManifestStatus.WrongProduct);
+        UpdateSigning.Verify(UpdateSigning.Deserialize("{ no es json"), ring, "BusinessPost", out _).ShouldBe(ManifestStatus.Malformed);
     }
 
     [Theory]
@@ -59,7 +59,7 @@ public sealed class UpdateTests : IDisposable
     {
         LanDiscovery.IsRequest(LanDiscovery.RequestBytes).ShouldBeTrue();
         LanDiscovery.IsRequest("OTRA COSA"u8).ShouldBeFalse();
-        var response = new DiscoveryResponse("PosSupermercado", "La Economía", "Centro", "SERVIDOR", 5443, "ab12", "1.4.0");
+        var response = new DiscoveryResponse("BusinessPost", "La Economía", "Centro", "SERVIDOR", 5443, "ab12", "1.4.0");
         LanDiscovery.Parse(LanDiscovery.Serialize(response)).ShouldBe(response);
         new DiscoveredServer("192.168.1.10", response).Url.ShouldBe("https://192.168.1.10:5443/");
     }

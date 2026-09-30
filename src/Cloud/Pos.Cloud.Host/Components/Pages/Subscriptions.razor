@@ -2,7 +2,7 @@
 @attribute [Authorize(Policy = CloudPermissions.LicensingView)]
 @inherits PortalPageBase
 
-<PageTitle>Suscripciones · Licencias</PageTitle>
+<PageTitle>Suscripciones · BusinessPost</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Suscripciones</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Una suscripción vigente por empresa. Las nuevas se crean desde la ficha de la empresa.</MudText>
 
@@ -39,7 +39,7 @@
         @foreach (var s in Filtered)
         {
             <tr class="@(s.Id == _selected?.Id ? "row-selected" : null)">
-                <td><MudLink Href="@($"/empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink></td>
+                <td><MudLink Href="@($"empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink></td>
                 <td>@s.Nit</td>
                 <td>@EditionName(s.Edition)</td>
                 <td>@(s.BillingPeriod == "ANNUAL" ? "Anual" : "Mensual")</td>

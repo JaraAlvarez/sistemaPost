@@ -1,4 +1,4 @@
-/* POS Supermercado · estilos propios (Fase 15). MudBlazor pone la base; aquí va la pantalla de caja. */
+/* BusinessPost · estilos propios (Fase 15). MudBlazor pone la base; aquí va la pantalla de caja. */
 html, body { margin: 0; height: 100%; }
 .arranque { display: flex; align-items: center; justify-content: center; height: 100vh; font: 18px system-ui, "Segoe UI", sans-serif; color: #555; }
 #blazor-error-ui { position: fixed; bottom: 0; left: 0; right: 0; padding: 10px 16px; background: #fdecec; color: #a4262c; z-index: 2000; font-family: system-ui, sans-serif; }

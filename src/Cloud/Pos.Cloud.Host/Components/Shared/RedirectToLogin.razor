@@ -4,6 +4,6 @@
     protected override void OnInitialized()
     {
         var returnUrl = PortalCookie.SafeReturnUrl("/" + Navigation.ToBaseRelativePath(Navigation.Uri));
-        Navigation.NavigateTo($"{PortalAuthenticationHandler.LoginPath}?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+        Navigation.NavigateTo($"{PortalLinks.Local(PortalAuthenticationHandler.LoginPath)}?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
     }
 }

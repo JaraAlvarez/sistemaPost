@@ -1,9 +1,13 @@
-# Despliegue del servidor de licencias en la nube (Fase 12-A)
+# Despliegue de la nube de BusinessPost (servidor de licencias, Fase 12-A)
 
 > Guía paso a paso para poner en producción el servidor de licencias (API del POS `/v1`, API interna `/admin` y portal web) en un
 > VPS con **Ubuntu 24.04 LTS**. Decisión L-11 de la [propuesta](fases/fase-12a-propuesta.md): Docker Compose con la aplicación,
 > **PostgreSQL 18** y **Caddy** (HTTPS automático con Let's Encrypt) en `licencias.<su-dominio>`; respaldo diario cifrado **fuera
 > del VPS**; la clave privada de firma en un archivo protegido, nunca en el repositorio ni en la BD.
+>
+> **Despliegue del dueño:** el VPS ya tiene Caddy sirviendo `tutiendanueva.com` (Express + React). La nube de BusinessPost va en el
+> subdominio **`https://businesspost.tutiendanueva.com/`** dentro de ese Caddy: siga los pasos 1–17 con los cambios del **§18**
+> (en lugar de `licencias.midominio.com`, use `businesspost.tutiendanueva.com`).
 
 ## 0. Piezas
 
@@ -12,6 +16,7 @@
 | Imagen de la aplicación | `src/Cloud/Pos.Cloud.Host/Dockerfile` | Multi-etapa (`dotnet/sdk:10.0` → `dotnet/aspnet:10.0`), usuario no root (UID 1654), sonda `healthcheck`, sin secretos |
 | Compose | `deploy/cloud/docker-compose.yml` | `postgres` (volumen `pgdata`, sin puertos publicados), `db-init` (crea BD/roles y migra; termina), `app` (solo red interna, sistema de archivos de solo lectura), `caddy` (80/443) |
 | Proxy | `deploy/cloud/Caddyfile` | `licencias.{$DOMINIO}` → `app:8080`, certificado automático |
+| Proxy existente (§18) | `deploy/cloud/Caddyfile.caddy-existente` + `docker-compose.caddy-existente.yml` | Bloque para un Caddy que ya está en el VPS: `businesspost.tutiendanueva.com` → `127.0.0.1:5080` (o, como alternativa, la ruta `/businesspost/`) |
 | Configuración | `deploy/cloud/.env.example` → `.env` | Dominio, contraseñas, ruta de la clave de firma, respaldo |
 | Respaldo | `deploy/cloud/backup.sh` / `restore.sh` | `pg_dump` + llaves de Data Protection cifrados con `age`; copia con `rclone` o `rsync` |
 | Prueba local | `deploy/cloud/docker-compose.local.yml` + `Caddyfile.local` | Mismo despliegue en su PC: app en `127.0.0.1:8089`, Caddy con `tls internal` en `127.0.0.1:8443` |
@@ -362,10 +367,10 @@ La migración de la nube `V2026.10.005` (sello de auditoría en los check-ins) s
 Caddy sirve la carpeta `deploy/cloud/updates` del VPS en `https://licencias.<DOMINIO>/updates/` (solo lectura).
 
 1. Arme la versión en su PC con `tools/scripts/build-installer.ps1` (ver [guía de instalación](guia-instalacion.md) §2).
-2. Copie al VPS `PosSupermercado-<versión>.zip` y el manifiesto firmado `stable.json` (o `beta.json`):
+2. Copie al VPS `BusinessPost-<versión>.zip` y el manifiesto firmado `stable.json` (o `beta.json`):
 
    ```bash
-   scp artifacts/releases/PosSupermercado-1.0.1.zip artifacts/releases/stable.json usuario@vps:~/pos/deploy/cloud/updates/
+   scp artifacts/releases/BusinessPost-1.0.1.zip artifacts/releases/stable.json usuario@vps:~/pos/deploy/cloud/updates/
    ```
 3. Las tiendas lo descargan en las siguientes 6 horas y lo instalan a las 02:00 sin jornadas abiertas. Para un piloto, publique primero
    en `beta.json` y configure esas tiendas con `Pos:Updates:Channel = beta`.
@@ -398,3 +403,61 @@ docker compose up -d
 3. **Usuarios Cliente:** en el portal, Usuarios → rol **Cliente** y la **cuenta** del cliente. Entra con contraseña y autenticador como
    los demás y solo ve las empresas de esa cuenta (ventas, cierres, existencias y cargar paquetes).
 4. Las migraciones `V2026.10.006` (rol Cliente) y `V2026.10.007` (esquema `sync`) se aplican solas al actualizar (§10).
+
+## 18. Dentro de un dominio existente con Caddy (businesspost.tutiendanueva.com)
+
+El VPS del dueño ya tiene **Caddy** sirviendo `tutiendanueva.com` (Express + React). En ese caso **no** se arranca el Caddy de este
+proyecto (chocaría por los puertos 80/443): la aplicación se publica solo en `127.0.0.1:5080` y el Caddy existente la alcanza ahí.
+
+### Opción principal: subdominio `businesspost.tutiendanueva.com`
+
+1. **DNS:** registro **A** (y **AAAA** si hay IPv6) `businesspost.tutiendanueva.com` → IP del VPS. Compruebe con
+   `dig +short businesspost.tutiendanueva.com`.
+2. **`.env`** (paso 4): `DOMINIO=tutiendanueva.com` (lo exige el compose aunque no se use su Caddy), `APP_LOCAL_PORT=5080` (cámbielo si
+   ese puerto ya lo usa Express) y `CLOUD_PATH_BASE=` **vacío**.
+3. **Arranque** (paso 6), siempre con los dos archivos:
+
+   ```bash
+   cd /opt/pos/deploy/cloud
+   docker compose -f docker-compose.yml -f docker-compose.caddy-existente.yml up -d
+   curl -s http://127.0.0.1:5080/health          # "Healthy" (desde el propio VPS)
+   ```
+   Use los mismos `-f` en **todos** los comandos `docker compose` de esta guía (actualizar, `logs`, `ps`, respaldo). Para no repetirlos:
+   `echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.caddy-existente.yml' >> .env`.
+4. **Caddy existente:** agregue el bloque `businesspost.tutiendanueva.com { … }` de `deploy/cloud/Caddyfile.caddy-existente` al
+   Caddyfile del VPS (normalmente `/etc/caddy/Caddyfile`), ajuste el puerto si cambió `APP_LOCAL_PORT` y recargue:
+
+   ```bash
+   sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy
+   curl -s https://businesspost.tutiendanueva.com/health
+   curl -s https://businesspost.tutiendanueva.com/v1/public-keys
+   ```
+   El bloque sirve `/updates/` como archivos estáticos desde `/opt/pos/deploy/cloud/updates` (el §16 no cambia: suba ahí el ZIP y el
+   manifiesto). Si el Caddy existente corre **en Docker**, monte esa carpeta en su contenedor (p. ej. en `/srv/businesspost-updates`,
+   solo lectura, y use esa ruta en `root`) y cambie `127.0.0.1:5080` por `host.docker.internal:5080` (con
+   `extra_hosts: ["host.docker.internal:host-gateway"]`), o conecte ambos contenedores a una red de Docker común y use `app:8080`.
+5. **Tiendas:** el instalador se arma con
+   `-LicenseServer https://businesspost.tutiendanueva.com/ -UpdateBaseUrl https://businesspost.tutiendanueva.com/updates/`
+   (guía de instalación §2). El portal queda en `https://businesspost.tutiendanueva.com/cuenta/ingresar`.
+
+Seguridad: el puerto 5080 **solo** escucha en `127.0.0.1` (no lo abra en el firewall). La aplicación confía en los `X-Forwarded-For/Proto`
+que le llegan (`Cloud__TrustForwardedHeaders`), así que nada que no sea el Caddy local debe poder alcanzarla. La cookie del portal sigue
+siendo `__Host-pos-portal` (solo HTTPS, sin dominio, ruta `/`): al ser un subdominio propio, el navegador no la envía a
+`tutiendanueva.com`.
+
+### Alternativa: bajo una ruta, `https://tutiendanueva.com/businesspost/`
+
+Solo si no se puede crear el subdominio. Diferencias con la opción principal:
+
+- `.env`: `CLOUD_PATH_BASE=/businesspost`. La aplicación quita el prefijo ella misma (`UsePathBase`): el proxy debe reenviar la ruta
+  **completa** (`handle /businesspost/*`, **no** `handle_path`). Todo queda bajo la ruta: `/businesspost/health`, `/businesspost/v1/…`,
+  `/businesspost/admin/…` y el portal (`<base href="/businesspost/">`, redirecciones de ingreso y salida dentro de la ruta).
+- Caddy: los bloques comentados de la **alternativa** en `deploy/cloud/Caddyfile.caddy-existente`, dentro del sitio `tutiendanueva.com`
+  existente y antes de su `handle` general de Express/React. Las actualizaciones quedan en `https://tutiendanueva.com/businesspost/updates/`.
+- **Cookie:** el prefijo `__Host-` exige ruta `/`, lo que haría que el navegador enviara la sesión del portal también a Express/React.
+  Con ruta base la cookie se llama `__Secure-pos-portal` (sigue siendo solo HTTPS, `HttpOnly`, `SameSite=Strict`, sin dominio) y su ruta
+  es `/businesspost`. La cookie antifalsificación de los formularios también queda limitada a la ruta.
+- Tiendas: `-LicenseServer https://tutiendanueva.com/businesspost/ -UpdateBaseUrl https://tutiendanueva.com/businesspost/updates/`. El
+  POS y el simulador (`--server https://tutiendanueva.com/businesspost`) conservan la ruta al llamar a `/v1`.
+- Si más adelante pasa al subdominio, cambie la dirección en cada tienda (`Pos:Licensing:ServerUrl`, `Pos:Updates:ManifestUrl`); los
+  usuarios del portal vuelven a ingresar.

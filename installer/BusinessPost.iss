@@ -1,10 +1,10 @@
 ﻿; =====================================================================================================================================
-; Instalador de PosSupermercado (Fase 13, docs/fases/fase-13-propuesta.md, ADR-0055 y ADR-0056).
+; Instalador de BusinessPost (Fase 13, docs/fases/fase-13-propuesta.md, ADR-0055 y ADR-0056).
 ; Se compila con tools/scripts/build-installer.ps1 (Inno Setup 6): no lo compile a mano, el script prepara artifacts\package.
 ;
 ; Modos: Todo en uno (Caja Única) · Servidor (Multicaja) · Caja (Multicaja).
-; Deja: C:\Program Files\PosSupermercado\app\<versión>\{server,migrator,agent}, app\current (unión NTFS a la versión activa),
-;       updater\ y pgsql\ (PostgreSQL 18 empaquetado). Datos, backups y configuración en C:\ProgramData\PosSupermercado (se CONSERVAN al
+; Deja: C:\Program Files\BusinessPost\app\<versión>\{server,migrator,agent}, app\current (unión NTFS a la versión activa),
+;       updater\ y pgsql\ (PostgreSQL 18 empaquetado). Datos, backups y configuración en C:\ProgramData\BusinessPost (se CONSERVAN al
 ;       desinstalar salvo que el usuario pida borrarlos, con doble confirmación).
 ; =====================================================================================================================================
 
@@ -20,12 +20,14 @@
 #ifndef UpdateManifest
   #define UpdateManifest ""
 #endif
-#define Product "PosSupermercado"
-#define DataDir "{commonappdata}\PosSupermercado"
+#define Product "BusinessPost"
+#define DataDir "{commonappdata}\BusinessPost"
 
 [Setup]
-AppId={{6F2B3C9E-8C3A-4E7B-9E1D-2C5A7B0F4D11}
-AppName=POS Supermercado
+; AppId nuevo con el nombre BusinessPost (antes no había instalaciones en clientes). No lo cambie: identifica la instalación en
+; el registro de Windows (desinstalar y actualizar encima).
+AppId={{ED01E874-EA07-4102-813B-7DAD1DE455D9}
+AppName=BusinessPost
 AppVersion={#AppVersion}
 AppPublisher={#Product}
 DefaultDirName={autopf}\{#Product}
@@ -40,8 +42,8 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 OutputDir=..\artifacts\releases
-OutputBaseFilename=PosSupermercado-Setup-{#AppVersion}
-UninstallDisplayName=POS Supermercado
+OutputBaseFilename=BusinessPost-Setup-{#AppVersion}
+UninstallDisplayName=BusinessPost
 SetupLogging=yes
 CloseApplications=no
 
@@ -57,9 +59,9 @@ Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"
 
 [Icons]
 ; La interfaz se abre en Edge en modo aplicación (Fase 15, D15-03): sin barra de direcciones ni pestañas, como un programa.
-Name: "{commondesktop}\POS Supermercado"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"
-Name: "{commonprograms}\POS Supermercado\POS Supermercado"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"
-Name: "{commonprograms}\POS Supermercado\Paquete de soporte"; Filename: "{app}\app\current\migrator\Pos.Server.Migrator.exe"; Parameters: "support-bundle"; Check: IsServerMode
+Name: "{commondesktop}\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"
+Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"
+Name: "{commonprograms}\BusinessPost\Paquete de soporte"; Filename: "{app}\app\current\migrator\Pos.Server.Migrator.exe"; Parameters: "support-bundle"; Check: IsServerMode
 
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop {#Product}-Updater"; Flags: runhidden; RunOnceId: "StopUpdater"

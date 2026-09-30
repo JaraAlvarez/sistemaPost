@@ -160,6 +160,7 @@ internal sealed partial class BackupRunner(
     TimeProvider time,
     ILogger<BackupRunner> logger) : IDisposable
 {
+    // Identificador criptográfico interno y estable (no es el nombre comercial): cambiarlo dejaría ilegibles los secretos ya cifrados.
     public const string DestinationPurpose = "PosSupermercado.Backup.Destination.v1";
 
     /// <summary>Un solo cliente para el almacenamiento S3 (subidas largas: hasta 2 horas).</summary>

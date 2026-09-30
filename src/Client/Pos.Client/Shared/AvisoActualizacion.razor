@@ -1,0 +1,126 @@
+@* Barra "Nueva versión disponible" del backoffice (system.update.view). El botón Actualizar (system.update.manage) usa el mismo
+   endpoint que "Instalar ahora" de /admin/actualizaciones, previa confirmación. El estado se consulta al cargar y cada 30 min. *@
+@implements IDisposable
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+@if (_status.ValueKind == JsonValueKind.Object && _status.Bool("readyToInstall"))
+{
+    @if (_status.Bool("installRequested"))
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2 aviso-actualizacion">
+            Instalando la versión @_status.Str("availableVersion"): el servidor se reiniciará en el próximo minuto.
+        </MudAlert>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2 aviso-actualizacion" ContentAlignment="HorizontalAlignment.Left">
+            <div class="d-flex align-center flex-wrap gap-2">
+                <span><b>Nueva versión @_status.Str("availableVersion") disponible.</b> Se instala sola a las 02:00 sin jornadas abiertas.</span>
+                <MudLink Href="/admin/actualizaciones">Ver novedades</MudLink>
+                @if (Session.Has("system.update.manage"))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Disabled="_busy" OnClick="@(() => _confirmar = true)">Actualizar</MudButton>
+                }
+            </div>
+        </MudAlert>
+    }
+}
+
+@if (_confirmar)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Actualizar a la versión @_status.Str("availableVersion")</h2>
+            <MudText Typo="Typo.body2" Class="mb-2">
+                La actualización se instala en el próximo minuto y <b>reinicia el servidor</b>: durante uno o dos minutos nadie podrá vender ni
+                consultar. Antes de continuar, verifique que <b>todas las cajas estén cerradas</b> (sin jornadas abiertas) y que nadie esté vendiendo.
+            </MudText>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _confirmar = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="_busy" OnClick="ActualizarAsync">Actualizar y reiniciar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly TimeSpan Intervalo = TimeSpan.FromMinutes(30);
+
+    private readonly CancellationTokenSource _stop = new();
+    private JsonElement _status;
+    private bool _busy, _confirmar;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.Has("system.update.view"))
+        {
+            return;
+        }
+
+        await ConsultarAsync();
+        _ = RevisarPeriodicamenteAsync();
+    }
+
+    private async Task RevisarPeriodicamenteAsync()
+    {
+        using var timer = new PeriodicTimer(Intervalo);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+            {
+                await ConsultarAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // El componente se cerró.
+        }
+    }
+
+    private async Task ConsultarAsync()
+    {
+        try
+        {
+            _status = await Api.GetAsync<JsonElement>("api/v1/system/updates");
+        }
+        catch (ApiException)
+        {
+            // Sin estado no se muestra la barra; la página de actualizaciones informa el error.
+        }
+        catch (HttpRequestException)
+        {
+            // Servidor reiniciándose o sin red: se reintenta en la próxima revisión.
+        }
+    }
+
+    private async Task ActualizarAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync("api/v1/system/updates/install-now");
+            Snackbar.Add("Actualización pedida: el servidor se reiniciará en el próximo minuto.", Severity.Warning);
+            await ConsultarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("No se pudo hablar con el servidor. Intente de nuevo en un momento.", Severity.Error);
+        }
+
+        _busy = false;
+        _confirmar = false;
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _stop.Dispose();
+    }
+}

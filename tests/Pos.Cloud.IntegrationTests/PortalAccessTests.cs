@@ -166,5 +166,23 @@ public class PortalAccessTests(CloudFixture cloud) : IClassFixture<CloudFixture>
         }
     }
 
+    [Fact]
+    public async Task Sin_ruta_base_el_formulario_de_ingreso_usa_la_cookie_Host_con_ruta_raiz()
+    {
+        using var browser = cloud.Factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://licencias.test/"), AllowAutoRedirect = false, HandleCookies = true,
+        });
+        var login = new Uri("/cuenta/ingresar", UriKind.Relative);
+        var page = await browser.GetStringAsync(login, Ct);
+        page.ShouldContain("<base href=\"/\"");
+        using var response = await BrowserForms.PostFormAsync(browser, login, page,
+            new() { ["Input.Email"] = cloud.SuperadminUser.Email, ["Input.Password"] = cloud.SuperadminUser.Password });
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect, await response.Content.ReadAsStringAsync(Ct));
+        var cookie = response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("__Host-pos-portal=", StringComparison.Ordinal));
+        cookie.ShouldContain("path=/;", Case.Insensitive);
+        cookie.ShouldContain("secure", Case.Insensitive);
+    }
+
     private sealed record MeResponse(PortalMeDto Me, IReadOnlyList<PortalSessionInfoDto> Sessions);
 }

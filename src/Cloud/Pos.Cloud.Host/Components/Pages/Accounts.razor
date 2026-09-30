@@ -2,7 +2,7 @@
 @attribute [Authorize(Policy = CloudPermissions.LicensingView)]
 @inherits PortalPageBase
 
-<PageTitle>Clientes · Licencias</PageTitle>
+<PageTitle>Clientes · BusinessPost</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Clientes</MudText>
 <MudText Typo="Typo.body2" Class="mb-4">Cliente comercial (o distribuidor) dueño de una o varias empresas licenciadas.</MudText>
 
@@ -30,7 +30,7 @@
         @foreach (var a in _accounts)
         {
             <tr>
-                <td><MudLink Href="@($"/clientes/{a.Id}")">@a.Name</MudLink></td>
+                <td><MudLink Href="@($"clientes/{a.Id}")">@a.Name</MudLink></td>
                 <td>@(a.Kind == "RESELLER" ? "Distribuidor" : "Directo")</td>
                 <td>@(a.Nit is null ? "—" : $"{a.Nit}-{a.NitCheckDigit}")</td>
                 <td>@(a.ContactName ?? "—") @(a.ContactEmail is null ? null : $"· {a.ContactEmail}")</td>

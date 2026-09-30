@@ -7,7 +7,7 @@
 
 | Qué | Dónde está |
 |---|---|
-| El archivo `.posbak` más reciente | Disco USB de la tienda, carpeta de red, nube (MinIO en el VPS) o `C:\ProgramData\PosSupermercado\backups\local` si el disco sobrevivió |
+| El archivo `.posbak` más reciente | Disco USB de la tienda, carpeta de red, nube (MinIO en el VPS) o `C:\ProgramData\BusinessPost\backups\local` si el disco sobrevivió |
 | El **código de recuperación** (24 caracteres, `XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`) | Lo tiene el **propietario** (impreso). Sin él, un backup no se abre en otro equipo |
 | La cadena del superusuario de PostgreSQL del equipo nuevo | La define la instalación (Fase 13) |
 

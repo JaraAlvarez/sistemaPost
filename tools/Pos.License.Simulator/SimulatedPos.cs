@@ -131,7 +131,7 @@ public sealed class SimulatedPos
     /// <summary>Lee las claves públicas de confianza publicadas por el servidor y las agrega a las conocidas.</summary>
     public async Task<IReadOnlyList<PublicKeyDto>> RefreshPublicKeysAsync(CancellationToken cancellationToken = default)
     {
-        var response = await _http.GetFromJsonAsync<PublicKeysResponse>(LicensingRoutes.PublicKeys, Json, cancellationToken)
+        var response = await _http.GetFromJsonAsync<PublicKeysResponse>(Relative(LicensingRoutes.PublicKeys), Json, cancellationToken)
             ?? throw new InvalidOperationException("El servidor no devolvió claves públicas.");
         foreach (var key in response.Keys)
         {
@@ -251,13 +251,16 @@ public sealed class SimulatedPos
     {
         try
         {
-            return await _http.PostAsJsonAsync(route, request, Json, cancellationToken);
+            return await _http.PostAsJsonAsync(Relative(route), request, Json, cancellationToken);
         }
         catch (HttpRequestException)
         {
             return null;
         }
     }
+
+    /// <summary>Rutas relativas a la dirección base: funciona también con un servidor bajo una ruta (<c>https://dominio/businesspost/</c>).</summary>
+    private static Uri Relative(string route) => new(route.TrimStart('/'), UriKind.Relative);
 
     private static SimulatorResult Unreachable() =>
         new(false, 0, SimulatorResult.UnreachableCode, "No se pudo conectar con el servidor de licencias.");

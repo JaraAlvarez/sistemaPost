@@ -22,8 +22,8 @@
 param(
     [Parameter(Mandatory)] [ValidateSet('KillServer', 'KillDatabase', 'Clock', 'Network', 'DiskFull')] [string] $Scenario,
     [string] $LoadFile = 'carga.json',
-    [string] $InstallRoot = "$env:ProgramFiles\PosSupermercado",
-    [string] $Product = 'PosSupermercado',
+    [string] $InstallRoot = "$env:ProgramFiles\BusinessPost",
+    [string] $Product = 'BusinessPost',
     [int] $Seconds = 30,
     [string] $Drive = 'D:',
     [int] $FreeMB = 200

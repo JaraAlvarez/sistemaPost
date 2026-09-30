@@ -16,6 +16,17 @@ internal sealed class CloudOptions
     /// <summary>Aceptar X-Forwarded-For/Proto del proxy (Caddy). Solo si el puerto de la aplicación NO está expuesto a internet.</summary>
     public bool TrustForwardedHeaders { get; set; }
 
+    /// <summary>
+    /// Ruta base cuando el servidor vive bajo una ruta de un dominio existente (p. ej. <c>/businesspost</c> en
+    /// <c>https://tutiendanueva.com/businesspost/</c>). Vacío = raíz de un (sub)dominio propio. El proxy debe reenviar la ruta
+    /// COMPLETA (sin quitar el prefijo); ver docs/despliegue-nube.md.
+    /// </summary>
+    public string? PathBase { get; set; }
+
+    /// <summary><see cref="PathBase"/> normalizada: <c>/businesspost</c> (con barra inicial y sin barra final) o vacía.</summary>
+    public PathString NormalizedPathBase =>
+        PathBase?.Trim().Trim('/') is { Length: > 0 } path ? new PathString("/" + path) : PathString.Empty;
+
     public CloudSecurityOptions Security { get; set; } = new();
 
     /// <summary>Sellado de la auditoría en segundo plano (las pruebas pueden desactivarlo).</summary>

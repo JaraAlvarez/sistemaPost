@@ -7,10 +7,10 @@ using Pos.Updates.Contracts;
 // Uso:
 //   Pos.Release new-key --out clave-actualizaciones.pem
 //        Genera la clave de firma de actualizaciones. Guárdela FUERA del VPS (como la de licencias). Imprime kid y x para update-keys.json.
-//   Pos.Release sign --package PosSupermercado-1.4.0.zip --version 1.4.0 --key clave.pem --out stable.json
-//                    [--channel stable] [--package-url PosSupermercado-1.4.0.zip] [--min-terminal 1.4.0] [--notes "Novedades…"] [--product PosSupermercado]
+//   Pos.Release sign --package BusinessPost-1.4.0.zip --version 1.4.0 --key clave.pem --out stable.json
+//                    [--channel stable] [--package-url BusinessPost-1.4.0.zip] [--min-terminal 1.4.0] [--notes "Novedades…"] [--product BusinessPost]
 //        Firma el manifiesto de una versión (huella SHA-256 y tamaño del paquete).
-//   Pos.Release verify --manifest stable.json --public-key <x> [--product PosSupermercado]
+//   Pos.Release verify --manifest stable.json --public-key <x> [--product BusinessPost]
 // Códigos de salida: 0 = correcto, 1 = manifiesto inválido, 2 = uso incorrecto.
 var options = new Dictionary<string, string>(StringComparer.Ordinal);
 for (var i = 1; i < args.Length; i++)
@@ -65,7 +65,7 @@ try
             await using var stream = File.OpenRead(package);
             var sha = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream));
             var manifest = new UpdateManifest(
-                options.GetValueOrDefault("product", "PosSupermercado"), channel, version, options.GetValueOrDefault("package-url", Path.GetFileName(package)),
+                options.GetValueOrDefault("product", "BusinessPost"), channel, version, options.GetValueOrDefault("package-url", Path.GetFileName(package)),
                 sha, stream.Length, options.GetValueOrDefault("min-terminal", version), DateTimeOffset.UtcNow, options.GetValueOrDefault("notes", string.Empty));
             var signed = UpdateSigning.Sign(manifest, key);
             await File.WriteAllTextAsync(Required("out"), UpdateSigning.Serialize(signed));
@@ -83,7 +83,7 @@ try
                 return 2;
             }
 
-            var status = UpdateSigning.Verify(signed, new LicenseKeyRing([publicKey]), options.GetValueOrDefault("product", "PosSupermercado"), out var manifest);
+            var status = UpdateSigning.Verify(signed, new LicenseKeyRing([publicKey]), options.GetValueOrDefault("product", "BusinessPost"), out var manifest);
             Console.WriteLine(status == ManifestStatus.Valid
                 ? $"Manifiesto válido: {JsonSerializer.Serialize(manifest)}"
                 : $"MANIFIESTO INVÁLIDO: {status}");

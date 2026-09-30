@@ -4,7 +4,7 @@
 @inject IDispatcher Dispatcher
 @inject NavigationManager Navigation
 
-<PageTitle>Activar doble factor · Licencias</PageTitle>
+<PageTitle>Activar doble factor · BusinessPost</PageTitle>
 
 @if (_error is not null)
 {
@@ -31,7 +31,7 @@
     </EditForm>
 }
 
-<p class="account-hint"><a href="/cuenta/ingresar">Volver a ingresar</a></p>
+<p class="account-hint"><a href="cuenta/ingresar">Volver a ingresar</a></p>
 
 @code {
     [CascadingParameter]
@@ -46,7 +46,7 @@
     private TotpEnrollmentDto? _enrollment;
     private string? _error;
 
-    private string Token => HttpContext.Request.Cookies[PortalCookie.Name] ?? string.Empty;
+    private string Token => PortalCookie.Read(HttpContext.Request) ?? string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -80,7 +80,7 @@
 
         var session = result.Value.Value!;
         PortalCookie.Write(HttpContext.Response, session.Token, session.ExpiresAt);
-        Navigation.NavigateTo(session.User.MustChangePassword ? "/mi-cuenta" : PortalCookie.SafeReturnUrl(ReturnUrl), forceLoad: true);
+        Navigation.NavigateTo(PortalLinks.Local(session.User.MustChangePassword ? "/mi-cuenta" : PortalCookie.SafeReturnUrl(ReturnUrl)), forceLoad: true);
     }
 
     private sealed class CodeInput

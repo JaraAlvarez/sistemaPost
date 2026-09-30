@@ -4,16 +4,16 @@
     crea el paquete de actualización (ZIP), firma su manifiesto y compila el instalador con Inno Setup.
 .DESCRIPTION
     Salida en artifacts\releases:
-      PosSupermercado-<versión>.zip          paquete de actualización (server, migrator, agent)
-      <canal>.json                           manifiesto firmado (si se pasa -SigningKey)
-      PosSupermercado-Setup-<versión>.exe    instalador (si Inno Setup 6 está instalado)
+      BusinessPost-<versión>.zip          paquete de actualización (server, migrator, agent)
+      <canal>.json                        manifiesto firmado (si se pasa -SigningKey)
+      BusinessPost-Setup-<versión>.exe    instalador (si Inno Setup 6 está instalado)
     Suba el ZIP y el manifiesto a la carpeta updates/ del VPS (docs/despliegue-nube.md §16).
 .PARAMETER PostgresZip
     ZIP oficial de binarios de PostgreSQL 18 para Windows x64 (https://www.enterprisedb.com/download-postgresql-binaries). Se incluye sin
     pgAdmin, StackBuilder ni documentación.
 .EXAMPLE
     ./tools/scripts/build-installer.ps1 -Version 1.0.0 -PostgresZip C:\descargas\postgresql-18.1-1-windows-x64-binaries.zip `
-        -LicenseServer https://licencias.midominio.com/ -UpdateBaseUrl https://licencias.midominio.com/updates/ -SigningKey D:\claves\actualizaciones.pem
+        -LicenseServer https://businesspost.tutiendanueva.com/ -UpdateBaseUrl https://businesspost.tutiendanueva.com/updates/ -SigningKey D:\claves\actualizaciones.pem
 #>
 [CmdletBinding()]
 param(
@@ -59,7 +59,7 @@ foreach ($extra in 'pgAdmin 4', 'StackBuilder', 'doc', 'symbols', 'include') {
 if (-not (Test-Path (Join-Path $package 'pgsql\bin\initdb.exe'))) { throw 'El ZIP de PostgreSQL no tiene pgsql\bin\initdb.exe.' }
 
 Write-Host 'Paquete de actualización...' -ForegroundColor Cyan
-$zip = Join-Path $releases "PosSupermercado-$Version.zip"
+$zip = Join-Path $releases "BusinessPost-$Version.zip"
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $app '*') -DestinationPath $zip -CompressionLevel Optimal
 
@@ -74,7 +74,7 @@ if ($SigningKey) {
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($iscc) {
     $manifest = if ($UpdateBaseUrl) { $UpdateBaseUrl.TrimEnd('/') + "/$Channel.json" } else { '' }
-    & $iscc "/DAppVersion=$Version" "/DPackageDir=$package" "/DLicenseServer=$LicenseServer" "/DUpdateManifest=$manifest" (Join-Path $root 'installer\PosSupermercado.iss')
+    & $iscc "/DAppVersion=$Version" "/DPackageDir=$package" "/DLicenseServer=$LicenseServer" "/DUpdateManifest=$manifest" (Join-Path $root 'installer\BusinessPost.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación del instalador.' }
 } else {
     Write-Warning 'Inno Setup 6 no está instalado: instálelo (winget install JRSoftware.InnoSetup) para generar el .exe del instalador.'
