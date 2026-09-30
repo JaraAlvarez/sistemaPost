@@ -105,4 +105,36 @@ public static class PurchasingErrors
 
     public static readonly Error InvalidSettlement = Error.Validation(
         "PURCHASING.INVALID_SETTLEMENT", "Liquidación inválida: NOTA_CREDITO, REINTEGRO o REPOSICION con su referencia.");
+
+    // ─────────────── Fase 8 (8.4): mejoras de proveedores ───────────────
+
+    public static readonly Error InvalidOrderingTerms = Error.Validation(
+        "PURCHASING.INVALID_ORDERING_TERMS", "Pedido mínimo ≥ 0 y nota de hora de corte de hasta 200 caracteres.");
+
+    public static readonly Error InvalidSchedule = Error.Validation(
+        "PURCHASING.INVALID_SCHEDULE", "Agenda inválida: día de 1 (lunes) a 7 (domingo), notas de hasta 200 caracteres, sin repetir tipo, día y sucursal (máximo 60).");
+
+    public static readonly Error InvalidWithholdingDefault = Error.Validation(
+        "PURCHASING.INVALID_WITHHOLDING_DEFAULT", "Retención sugerida inválida: una por tipo, tarifa mayor que 0 y hasta 100 % (4 decimales), concepto de hasta 100 caracteres.");
+
+    public static readonly Error InvalidBankAccount = Error.Validation(
+        "PURCHASING.INVALID_BANK_ACCOUNT", "Cuenta bancaria inválida: banco, tipo, número de 5 a 20 dígitos, titular (hasta 150) y su identificación (tipo y número).");
+
+    public static readonly Error BankNotFound = Error.Validation("PURCHASING.BANK_NOT_FOUND", "El banco no existe en el catálogo (GET /api/v1/purchasing/banks).");
+
+    public static readonly Error BankAccountNotFound = Error.NotFound("PURCHASING.BANK_ACCOUNT_NOT_FOUND", "La cuenta bancaria no existe para este proveedor.");
+
+    public static readonly Error BankAccountDuplicated = Error.Conflict(
+        "PURCHASING.BANK_ACCOUNT_DUPLICATED", "Esa cuenta (banco y número) ya está registrada para este proveedor.");
+
+    public static readonly Error BankAccountNotPending = Error.BusinessRule(
+        "PURCHASING.BANK_ACCOUNT_NOT_PENDING", "La cuenta no está pendiente de verificación.");
+
+    public static readonly Error BankAccountSameUser = Error.BusinessRule(
+        "PURCHASING.BANK_ACCOUNT_SAME_USER", "La cuenta la debe verificar un usuario distinto del que la registró o modificó (RN-PUR-09).");
+
+    public static readonly Error ProductNotFound = Error.NotFound("PURCHASING.PRODUCT_NOT_FOUND", "El producto no existe.");
+
+    public static readonly Error InvalidPeriod = Error.Validation(
+        "PURCHASING.INVALID_PERIOD", "Período inválido: la fecha inicial debe ser anterior o igual a la final (máximo 3 años) y los días entre 0 y 90.");
 }

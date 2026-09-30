@@ -56,6 +56,7 @@ INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUE
     ('purchasing.purchase.void',      'purchasing',   'Anular compras contabilizadas',                                                 true),
     ('purchasing.return.manage',      'purchasing',   'Registrar, contabilizar y liquidar devoluciones a proveedor',                   true),
     ('purchasing.supplier.manage',    'purchasing',   'Crear y modificar proveedores y los productos que suministran',                 false),
+    ('purchasing.supplier.bank_manage', 'purchasing', 'Registrar, modificar y verificar cuentas bancarias de proveedores (admite autorización de supervisor)', true),
     ('billing.document.manage',       'billing',      'Reintentar el envío de documentos electrónicos',                                  true),
     ('billing.document.view',         'billing',      'Consultar comprobantes y documentos fiscales con sus eventos',                    false),
     ('inventory.adjustment.quick',    'inventory',    'Ajuste rápido de un producto desde la caja cuando el sistema no tiene existencias (admite autorización de supervisor)', true),
@@ -98,7 +99,7 @@ WHERE code NOT IN (
     'settings.setting.view', 'cash.payment_method.manage', 'parties.party.manage', 'parties.party.view',
     'purchasing.order.approve', 'purchasing.order.manage', 'purchasing.payable.pay', 'purchasing.payable.view',
     'purchasing.purchase.manage', 'purchasing.purchase.post', 'purchasing.purchase.view', 'purchasing.purchase.void',
-    'purchasing.return.manage', 'purchasing.supplier.manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',
+    'purchasing.return.manage', 'purchasing.supplier.manage', 'purchasing.supplier.bank_manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',
     'cash.session.close_any', 'cash.session.operate', 'cash.session.review', 'expenses.expense.manage', 'expenses.expense.view',
     'billing.document.manage', 'billing.document.view', 'inventory.adjustment.quick', 'promotions.promotion.manage', 'promotions.promotion.view', 'sales.discount.apply', 'sales.exchange.create', 'sales.expired.sell', 'sales.line.void', 'sales.price.override', 'sales.refund.warranty', 'sales.sale.cancel', 'sales.sale.create', 'sales.sale.reprint', 'sales.sale.view', 'sales.sale.void',
     'customers.customer.manage', 'customers.customer.quick_create', 'customers.customer.view', 'customers.group.manage', 'customers.history.view', 'customers.pricing.assign', 'customers.privacy.manage');

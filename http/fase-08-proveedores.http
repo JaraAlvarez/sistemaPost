@@ -1,0 +1,121 @@
+# Fase 8 · Bloque 8.4 · Mejoras de proveedores (sin UI)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica la migración 025 y R__ref__banks) y `dotnet run --project src/Server/Pos.Server.Host`.
+# Requiere un proveedor (http/fase-05.http, paso 4b), un producto comprado y un segundo usuario ADMIN para verificar cuentas.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+@supplierId = 00000000-0000-0000-0000-000000000000
+@productId = 00000000-0000-0000-0000-000000000000
+
+### 1. Entrar como Propietario
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@token = {{login.response.body.token}}
+
+### 2. Ficha resumen (por defecto los últimos 90 días): comprado, # compras, última compra, saldo, vencido, devoluciones, productos activos
+GET {{api}}/purchasing/suppliers/{{supplierId}}/summary?from=2026-07-01&to=2026-09-30
+Authorization: Bearer {{token}}
+
+### 3. ¿Quién me vende esto? (último costo solo con inventory.cost.view)
+GET {{api}}/purchasing/products/{{productId}}/suppliers
+Authorization: Bearer {{token}}
+
+### 4. Historial de costo neto por compra y proveedor (exige inventory.cost.view)
+GET {{api}}/purchasing/products/{{productId}}/cost-history?from=2026-01-01&limit=50
+Authorization: Bearer {{token}}
+
+### 5. Agenda y pedido mínimo (PUT reemplaza la agenda completa; dayOfWeek 1 = lunes … 7 = domingo; sin branchId = todas)
+PUT {{api}}/purchasing/suppliers/{{supplierId}}/schedule
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "minimumOrderAmount": 300000,
+  "orderCutoffNote": "Pedidos hasta el lunes a las 10 a. m.",
+  "entries": [
+    { "dayOfWeek": 1, "kind": "Order", "notes": "Por WhatsApp al vendedor" },
+    { "dayOfWeek": 1, "kind": "Visit" },
+    { "dayOfWeek": 3, "kind": "Delivery" }
+  ]
+}
+
+### 6. Consultar la agenda (con la próxima fecha de cada entrada)
+GET {{api}}/purchasing/suppliers/{{supplierId}}/schedule
+Authorization: Bearer {{token}}
+
+### 7. Bancos (código ACH)
+GET {{api}}/purchasing/banks
+Authorization: Bearer {{token}}
+
+### 8. Registrar una cuenta bancaria: queda PENDING_VERIFICATION (auditoría CRÍTICA). Solo OWNER/ADMIN (o autorización de supervisor)
+# @name account
+POST {{api}}/purchasing/suppliers/{{supplierId}}/bank-accounts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "bankCode": "1007", "accountType": "Savings", "accountNumber": "123-456789-01", "holderName": "Distribuidora Láctea SAS",
+  "holderIdentificationType": "NIT", "holderIdentificationNumber": "800197268", "isPrimary": true
+}
+
+@accountId = {{account.response.body.id}}
+
+### 9. Cuentas del proveedor con su estado
+GET {{api}}/purchasing/suppliers/{{supplierId}}/bank-accounts
+Authorization: Bearer {{token}}
+
+### 10. Verificar: quien la registró recibe 422 PURCHASING.BANK_ACCOUNT_SAME_USER; debe hacerlo OTRO usuario con el permiso
+POST {{api}}/purchasing/suppliers/{{supplierId}}/bank-accounts/{{accountId}}/verify
+Authorization: Bearer {{token}}
+
+### 11. Modificar (cambiar el número la deja otra vez POR VERIFICAR; isActive=false la inactiva)
+PUT {{api}}/purchasing/suppliers/{{supplierId}}/bank-accounts/{{accountId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "bankCode": "1007", "accountType": "Checking", "accountNumber": "98765432101", "holderName": "Distribuidora Láctea SAS",
+  "holderIdentificationType": "NIT", "holderIdentificationNumber": "800197268", "isPrimary": true, "isActive": true
+}
+
+### 12. Pago por transferencia con la cuenta principal por verificar: se registra con "warnings": [PURCHASING.BANK_ACCOUNT_UNVERIFIED]
+POST {{api}}/purchasing/payments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "supplierId": "{{supplierId}}", "paymentMethodId": "00000000-0000-0000-0000-000000000000", "reference": "TRF-801",
+  "allocations": [ { "accountId": "00000000-0000-0000-0000-000000000000", "amount": 50000 } ]
+}
+
+### 13. Retenciones sugeridas (una por tipo, tarifa en %): pre-llenan las compras nuevas que no traen retenciones
+PUT {{api}}/purchasing/suppliers/{{supplierId}}/withholdings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "withholdings": [
+    { "kind": "Retefuente", "rate": 2.5, "concept": "Compras generales" },
+    { "kind": "Reteica", "rate": 0.414 }
+  ]
+}
+
+### 14. Compra nueva SIN "withholdings": llegan pre-llenadas en el borrador para revisar y confirmar (RN-PUR-10)
+POST {{api}}/purchasing/purchases
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "supplierId": "{{supplierId}}", "warehouseId": "00000000-0000-0000-0000-000000000000", "supplierInvoiceNumber": "FE-950",
+  "invoiceDate": "2026-09-29", "paymentMode": "Credit", "proration": "Value", "chargesTotal": 0,
+  "lines": [ { "productId": "{{productId}}", "quantity": 100, "unitCost": 2000 } ]
+}
+
+### 15. Vencimientos para el tablero: vencidas y las que vencen en los próximos 7 días
+GET {{api}}/purchasing/payables/due?days=7
+Authorization: Bearer {{token}}

@@ -36,6 +36,16 @@ public interface IPurchasingStore
     Task<PayablePayment?> GetPaymentAsync(Guid id, CancellationToken cancellationToken);
 
     Task<SupplierReturn?> GetReturnAsync(Guid id, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<SupplierSchedule>> GetSchedulesAsync(Guid supplierId, CancellationToken cancellationToken);
+
+    void Remove(SupplierSchedule entry);
+
+    Task<IReadOnlyList<SupplierWithholdingDefault>> GetWithholdingDefaultsAsync(Guid supplierId, CancellationToken cancellationToken);
+
+    void Remove(SupplierWithholdingDefault item);
+
+    Task<IReadOnlyList<SupplierBankAccount>> GetBankAccountsAsync(Guid supplierId, CancellationToken cancellationToken);
 }
 
 /// <summary>Consultas de pantalla (listados, cartera, estado de cuenta).</summary>
@@ -50,7 +60,24 @@ public interface IPurchasingQueries
     Task<IReadOnlyList<PayableDto>> ListPayablesAsync(Guid? supplierId, bool openOnly, DateOnly asOf, bool withEntries, CancellationToken cancellationToken);
 
     Task<IReadOnlyDictionary<Guid, string>> SupplierNamesAsync(IReadOnlyCollection<Guid> supplierIds, CancellationToken cancellationToken);
+
+    /// <summary>Compras y devoluciones del proveedor en el período, su última compra y los productos activos (Fase 8).</summary>
+    Task<SupplierActivity> GetSupplierActivityAsync(Guid supplierId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
+
+    /// <summary>Proveedores que venden el producto (con el último costo; el caso de uso lo oculta sin permiso).</summary>
+    Task<IReadOnlyList<ProductSupplierDto>> ListProductSuppliersAsync(Guid productId, CancellationToken cancellationToken);
+
+    /// <summary>Costo neto por compra contabilizada (más reciente primero).</summary>
+    Task<IReadOnlyList<CostHistoryEntryDto>> ListCostHistoryAsync(
+        Guid productId, Guid? supplierId, DateOnly? from, DateOnly? to, int limit, CancellationToken cancellationToken);
+
+    /// <summary>Catálogo de bancos (ref.banks).</summary>
+    Task<IReadOnlyList<BankDto>> ListBanksAsync(bool includeInactive, CancellationToken cancellationToken);
 }
+
+/// <summary>Actividad del proveedor en un período (compras por fecha de factura, devoluciones por fecha del documento).</summary>
+public sealed record SupplierActivity(
+    decimal PurchasedTotal, int PurchaseCount, DateOnly? LastPurchaseDate, decimal? LastPurchaseTotal, decimal ReturnsTotal, int ReturnCount, int ActiveProducts);
 
 /// <summary><c>Kind</c>: ORDER, PURCHASE, RETURN o PAYMENT.</summary>
 public sealed record DocumentFilter(string Kind, Guid BranchId, Guid? SupplierId, string? Status, bool? RequiresSupportDocument, int Limit = 500);

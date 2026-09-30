@@ -8,6 +8,7 @@ using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
 using Pos.Infrastructure;
+using Pos.Modules.Inventory.Contracts;
 using Pos.Modules.Purchasing.Application;
 using Pos.Modules.Purchasing.Contracts;
 using Pos.Modules.Purchasing.Domain;
@@ -40,6 +41,69 @@ public sealed class PurchasingModule : IModule
         MapPurchases(group.MapGroup("/purchases"));
         MapPayables(group);
         MapReturns(group.MapGroup("/returns"));
+        MapSupplierImprovements(group);
+    }
+
+    /// <summary>Fase 8, bloque 8.4 (D8-14): resumen, costos por producto, agenda, cuentas bancarias, retenciones sugeridas y vencimientos.</summary>
+    private static void MapSupplierImprovements(RouteGroupBuilder group)
+    {
+        var suppliers = group.MapGroup("/suppliers");
+        suppliers.MapGet("/{supplierId:guid}/summary", async (Guid supplierId, DateOnly? from, DateOnly? to, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetSupplierSummaryQuery(supplierId, from, to), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PayableView)
+            .WithSummary("Ficha resumen: comprado en el período (por defecto 90 días), compras, última compra, saldo, vencido, devoluciones y productos activos");
+        suppliers.MapGet("/{supplierId:guid}/schedule", async (Guid supplierId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetSupplierScheduleQuery(supplierId), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PurchaseView)
+            .WithSummary("Agenda de visita, pedido y entrega (por sucursal o todas) y pedido mínimo");
+        suppliers.MapPut("/{supplierId:guid}/schedule", async (Guid supplierId, SupplierScheduleRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new SetSupplierScheduleCommand(supplierId, r.MinimumOrderAmount, r.OrderCutoffNote, r.Entries), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.SupplierManage)
+            .WithSummary("Reemplaza la agenda completa y fija el pedido mínimo y la nota de hora de corte");
+        suppliers.MapGet("/{supplierId:guid}/bank-accounts", async (Guid supplierId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListSupplierBankAccountsQuery(supplierId), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PayableView)
+            .WithSummary("Cuentas bancarias del proveedor con su estado de verificación");
+        suppliers.MapPost("/{supplierId:guid}/bank-accounts", async (Guid supplierId, BankAccountRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new CreateSupplierBankAccountCommand(supplierId, r), ct))
+                    .ToCreatedResult(a => $"/api/v1/purchasing/suppliers/{supplierId}/bank-accounts/{a.Id}"))
+            .RequirePermission(PurchasingPermissions.SupplierBankManage, allowSupervisor: true)
+            .WithSummary("Registra una cuenta: queda POR VERIFICAR (auditoría crítica, RN-PUR-09)");
+        suppliers.MapPut("/{supplierId:guid}/bank-accounts/{accountId:guid}",
+                async (Guid supplierId, Guid accountId, BankAccountRequest r, IDispatcher d, CancellationToken ct) =>
+                    (await d.Send(new UpdateSupplierBankAccountCommand(supplierId, accountId, r), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.SupplierBankManage, allowSupervisor: true)
+            .WithSummary("Modifica, marca principal, inactiva o reactiva la cuenta: un cambio de datos o reactivación la deja POR VERIFICAR");
+        suppliers.MapPost("/{supplierId:guid}/bank-accounts/{accountId:guid}/verify", async (Guid supplierId, Guid accountId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new VerifySupplierBankAccountCommand(supplierId, accountId), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.SupplierBankManage, allowSupervisor: true)
+            .WithSummary("Verifica la cuenta: otro usuario distinto del que la registró o modificó");
+        suppliers.MapGet("/{supplierId:guid}/withholdings", async (Guid supplierId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetSupplierWithholdingsQuery(supplierId), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PurchaseView)
+            .WithSummary("Retenciones sugeridas (tipo y tarifa) que pre-llenan las compras nuevas");
+        suppliers.MapPut("/{supplierId:guid}/withholdings", async (Guid supplierId, SupplierWithholdingsRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new SetSupplierWithholdingsCommand(supplierId, r.Withholdings), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.SupplierManage)
+            .WithSummary("Reemplaza las retenciones sugeridas (una por tipo); la compra las sigue mostrando para confirmar (RN-PUR-10)");
+
+        group.MapGet("/banks", async (bool? includeInactive, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListBanksQuery(includeInactive ?? false), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PurchaseView)
+            .WithSummary("Bancos de Colombia (código ACH) para registrar cuentas de proveedores");
+        group.MapGet("/products/{productId:guid}/suppliers", async (Guid productId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListProductSuppliersQuery(productId), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PurchaseView)
+            .WithSummary("¿Quién me vende esto?: proveedores del producto, días de entrega, preferido (último costo solo con inventory.cost.view)");
+        group.MapGet("/products/{productId:guid}/cost-history",
+                async (Guid productId, Guid? supplierId, DateOnly? from, DateOnly? to, int? limit, IDispatcher d, CancellationToken ct) =>
+                    (await d.Send(new GetCostHistoryQuery(productId, supplierId, from, to, limit), ct)).ToHttpResult())
+            .RequirePermission(InventoryPermissions.CostView)
+            .WithSummary("Costo neto por unidad base en cada compra contabilizada, por proveedor");
+        group.MapGet("/payables/due", async (int? days, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetDuePayablesQuery(days), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PayableView)
+            .WithSummary("Vencimientos: cuentas vencidas y las que vencen en los próximos días (por defecto 7)");
     }
 
     private static void MapSuppliers(RouteGroupBuilder group)
@@ -203,3 +267,7 @@ public sealed record ReasonRequest(string Reason);
 public sealed record PostPurchaseRequest(Guid? CashSessionId);
 
 public sealed record SettleReturnRequest(ReturnSettlement Settlement, string Reference);
+
+public sealed record SupplierScheduleRequest(decimal? MinimumOrderAmount, string? OrderCutoffNote, IReadOnlyList<ScheduleEntryInput>? Entries);
+
+public sealed record SupplierWithholdingsRequest(IReadOnlyList<WithholdingDefaultRequest>? Withholdings);

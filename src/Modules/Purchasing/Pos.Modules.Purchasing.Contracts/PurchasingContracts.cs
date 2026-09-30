@@ -16,6 +16,9 @@ public static class PurchasingPermissions
     public const string PayablePay = "purchasing.payable.pay";
     public const string ReturnManage = "purchasing.return.manage";
 
+    /// <summary>Registrar, modificar y verificar cuentas bancarias de proveedores (Fase 8, RN-PUR-09): solo propietario y administrador.</summary>
+    public const string SupplierBankManage = "purchasing.supplier.bank_manage";
+
     public static IEnumerable<PermissionDefinition> All =>
     [
         new(SupplierManage, "Crear y modificar proveedores y los productos que suministran", isSensitive: false),
@@ -28,6 +31,7 @@ public static class PurchasingPermissions
         new(PayableView, "Consultar cuentas por pagar, pagos y cartera por edades", isSensitive: true),
         new(PayablePay, "Registrar y anular pagos a proveedores", isSensitive: true),
         new(ReturnManage, "Registrar, contabilizar y liquidar devoluciones a proveedor", isSensitive: true),
+        new(SupplierBankManage, "Registrar, modificar y verificar cuentas bancarias de proveedores (admite autorización de supervisor)", isSensitive: true),
     ];
 }
 
@@ -156,6 +160,99 @@ public sealed record PurchaseDto(
     IReadOnlyList<WithholdingDto> Withholdings,
     IReadOnlyList<PurchaseAlertDto> Alerts);
 
+// ─────────────────────────────── Fase 8 (8.4): mejoras de proveedores ───────────────────────────────
+
+/// <summary>
+/// Ficha resumen del proveedor en el período (compras contabilizadas por fecha de factura, devoluciones contabilizadas o
+/// liquidadas por fecha del documento) y su cartera a la fecha. <c>PrimaryBankAccountStatus</c>: estado de la cuenta
+/// principal activa (null si no tiene).
+/// </summary>
+public sealed record SupplierSummaryDto(
+    Guid SupplierId,
+    string Code,
+    string Name,
+    string Status,
+    DateOnly From,
+    DateOnly To,
+    decimal PurchasedTotal,
+    int PurchaseCount,
+    DateOnly? LastPurchaseDate,
+    decimal? LastPurchaseTotal,
+    decimal ReturnsTotal,
+    int ReturnCount,
+    decimal Balance,
+    decimal OverdueBalance,
+    int OverdueCount,
+    int ActiveProducts,
+    int PaymentTermDays,
+    decimal? MinimumOrderAmount,
+    string? PrimaryBankAccountStatus);
+
+/// <summary>"¿Quién me vende esto?": proveedores del producto (último costo solo con inventory.cost.view).</summary>
+public sealed record ProductSupplierDto(
+    Guid SupplierId,
+    string SupplierCode,
+    string SupplierName,
+    string SupplierStatus,
+    string? SupplierProductCode,
+    Guid? PackagingId,
+    decimal? LastCost,
+    DateTimeOffset? LastPurchaseAt,
+    int? LeadTimeDays,
+    bool IsPreferred);
+
+/// <summary>Costo neto por unidad base de un producto en cada compra contabilizada.</summary>
+public sealed record CostHistoryEntryDto(
+    Guid PurchaseId,
+    string PurchaseNumber,
+    string SupplierInvoiceNumber,
+    DateOnly InvoiceDate,
+    Guid SupplierId,
+    string SupplierName,
+    Guid? PackagingId,
+    decimal Factor,
+    decimal Quantity,
+    decimal BaseQuantity,
+    decimal UnitCost,
+    decimal DiscountAmount,
+    decimal NetUnitCost);
+
+/// <summary>Entrada de la agenda. <c>DayOfWeek</c>: 1 = lunes … 7 = domingo; <c>Kind</c>: VISIT, ORDER o DELIVERY; sin sucursal = todas.</summary>
+public sealed record ScheduleEntryDto(Guid Id, int DayOfWeek, string DayName, string Kind, Guid? BranchId, string? Notes, DateOnly NextDate);
+
+public sealed record SupplierScheduleDto(Guid SupplierId, decimal? MinimumOrderAmount, string? OrderCutoffNote, IReadOnlyList<ScheduleEntryDto> Entries);
+
+/// <summary>Cuenta bancaria del proveedor. <c>Status</c>: PENDING_VERIFICATION, VERIFIED o INACTIVE.</summary>
+public sealed record SupplierBankAccountDto(
+    Guid Id,
+    Guid SupplierId,
+    string BankCode,
+    string BankName,
+    string AccountType,
+    string AccountNumber,
+    string MaskedNumber,
+    string HolderName,
+    string HolderIdentificationType,
+    string HolderIdentificationNumber,
+    string Status,
+    bool IsPrimary,
+    DateTimeOffset ChangedAt,
+    Guid ChangedBy,
+    DateTimeOffset? VerifiedAt,
+    Guid? VerifiedBy);
+
+public sealed record BankDto(string Code, string Name);
+
+/// <summary>Retención sugerida del proveedor. <c>Kind</c>: RETEFUENTE, RETEIVA o RETEICA; tarifa en %.</summary>
+public sealed record SupplierWithholdingDefaultDto(string Kind, decimal Rate, string? Concept);
+
+/// <summary>Vencimientos para el tablero: cuentas vencidas y las que vencen en los próximos <c>Days</c> días.</summary>
+public sealed record DuePayablesDto(
+    DateOnly AsOf, int Days, decimal OverdueTotal, decimal DueSoonTotal, IReadOnlyList<PayableDto> Overdue, IReadOnlyList<PayableDto> DueSoon);
+
+/// <summary>Advertencia que no bloquea la operación (p. ej. PURCHASING.BANK_ACCOUNT_UNVERIFIED en un pago).</summary>
+public sealed record OperationWarningDto(string Code, string Message);
+
 /// <summary>Documento en un listado. <c>Kind</c>: ORDER, PURCHASE, RETURN o PAYMENT.</summary>
 public sealed record PurchasingDocumentDto(
     Guid Id, string Kind, string Number, Guid SupplierId, string SupplierName, string Status, DateOnly Date, decimal Total, string? Reference, DateTimeOffset CreatedAt);
@@ -199,7 +296,8 @@ public sealed record PaymentDto(
     string? Notes,
     string? VoidReason,
     Guid? CashSessionId,
-    IReadOnlyList<AllocationDto> Allocations);
+    IReadOnlyList<AllocationDto> Allocations,
+    IReadOnlyList<OperationWarningDto>? Warnings = null);
 
 public sealed record SupplierReturnLineDto(
     Guid Id, Guid PurchaseLineId, Guid ProductId, string Sku, string ProductName, decimal BaseQuantity, decimal UnitCost, decimal Total, decimal CreditAmount, Guid? LotId);

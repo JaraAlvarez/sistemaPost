@@ -1,3 +1,4 @@
+using Pos.SharedKernel;
 using Pos.SharedKernel.Domain;
 using Pos.SharedKernel.Results;
 
@@ -86,6 +87,23 @@ public sealed class Supplier : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletabl
     }
 
     public void SetStatus(SupplierStatus status) => Status = status;
+
+    /// <summary>Pedido mínimo del proveedor (en pesos, antes de impuestos) y nota de la hora de corte (Fase 8, D8-14).</summary>
+    public decimal? MinimumOrderAmount { get; private set; }
+
+    public string? OrderCutoffNote { get; private set; }
+
+    public Result SetOrderingTerms(decimal? minimumOrderAmount, string? orderCutoffNote)
+    {
+        if (minimumOrderAmount < 0m || !Guard.HasAtMostDecimals(minimumOrderAmount ?? 0m, 2) || orderCutoffNote?.Trim().Length > 200)
+        {
+            return PurchasingErrors.InvalidOrderingTerms;
+        }
+
+        MinimumOrderAmount = minimumOrderAmount;
+        OrderCutoffNote = string.IsNullOrWhiteSpace(orderCutoffNote) ? null : orderCutoffNote.Trim();
+        return Result.Success();
+    }
 }
 
 /// <summary>Producto que suministra un proveedor: su código, presentación habitual y último costo por unidad base.</summary>
