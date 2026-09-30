@@ -1,6 +1,6 @@
 # Fase 10 · Auditoría — Propuesta
 
-> Estado: **PROPUESTA** — pendiente de tu revisión y aprobación · 2026-09-29
+> Estado: **APROBADA** (con las recomendaciones de la §14) · 2026-09-29
 > Requisitos previos: Fases 2 a 9 implementadas. La **infraestructura** de auditoría ya existe desde la Fase 2 (se adelantó a propósito,
 > plan 12 §S): bitácora particionada de solo inserción, sellos por lotes encadenados por nodo, verificador y sello impreso en el Z.
 > Base: plan [12 §S, fase 10](../12-plan-riesgos-decisiones.md), doc [06 "Auditoría"](../06-seguridad-usuarios-permisos.md),
@@ -217,3 +217,8 @@ http/fase-10.http
    fijar un plazo de borrado?
 6. **Horario para el reporte "fuera de horario":** ¿lo tomamos de una configuración nueva por tienda (**recomendado**, por defecto
    22:00–06:00), o me dices el horario de tu tienda?
+
+**Resolución (aprobación del propietario):** se adoptan las seis recomendaciones: verificación diaria incremental a las 03:00 y completa
+los domingos; solo el propietario reconoce un incidente de integridad; el ancla en la nube se envía con el cliente de licencias de la
+Fase 12; se enmascaran correo, teléfono, dirección y notas de clientes y terceros en la bitácora; la bitácora nunca se borra en la
+tienda (mínimo 10 años, archivo con el backup); el horario "fuera de horario" es configurable por tienda (por defecto 22:00–06:00).
