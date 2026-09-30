@@ -36,7 +36,7 @@
 | 12-A · Servidor y portal web de licencias | [propuesta](fases/fase-12a-propuesta.md) · [informe](fases/fase-12a-informe.md) · [despliegue](despliegue-nube.md) | Implementada — pendiente de validación |
 | 12-B · Licencia dentro del POS | [propuesta](fases/fase-12b-propuesta.md) · [informe](fases/fase-12b-informe.md) | Implementada — pendiente de tu validación |
 | 13 · Instalador y actualizaciones | [propuesta](fases/fase-13-propuesta.md) · [informe](fases/fase-13-informe.md) · [guía de instalación](guia-instalacion.md) | Implementada — pendiente de tu validación (compilar el instalador) |
-| 14 · Endurecimiento y pruebas | [propuesta](fases/fase-14-propuesta.md) | Propuesta — pendiente de tu aprobación |
+| 14 · Endurecimiento y pruebas | [propuesta](fases/fase-14-propuesta.md) · [informe](fases/fase-14-informe.md) · [seguridad](seguridad-revision.md) | Herramientas implementadas — corridas largas pendientes (tú) |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
 

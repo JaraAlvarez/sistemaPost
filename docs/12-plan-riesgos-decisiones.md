@@ -27,7 +27,7 @@ Respeto tu lista de 15 fases, con **cuatro ajustes** que evitan retrabajo (marca
 | 11-B | ⚠️ **Facturación electrónica** (nueva) | Adaptador con proveedor tecnológico elegido, contingencia, notas crédito, habilitación | Documentos aceptados en ambiente de habilitación del ente fiscal |
 | 12 | **Licenciamiento** | License Server (MVP sin cobro), activación, token, heartbeat, estados locales, límites | Activar, vencer, gracia, restringir y reactivar en pruebas con reloj simulado |
 | 13 | **Instalador** | MSI/bootstrapper, PostgreSQL empaquetado, servicios, asistente inicial, emparejamiento de cajas, desinstalación | Instalación limpia en Windows 10/11 sin conocimientos técnicos |
-| 14 | **Pruebas** | *Las pruebas se escriben en todas las fases.* Esta fase es de **endurecimiento**: rendimiento con volumen real, pruebas de fallos (corte de luz, red), actualización/rollback, piloto en un supermercado real | Informe de pruebas + piloto |
+| 14 | **Pruebas** | *Las pruebas se escriben en todas las fases.* Esta fase es de **endurecimiento**: rendimiento con volumen real, pruebas de fallos (corte de luz, red), actualización/rollback. **El piloto en un supermercado real pasa a después de la Fase 15** (sin pantallas no se puede pilotear) | Informe de pruebas |
 | 15 | **Diseño visual** | UI de caja (optimizada para teclado/escáner) y backoffice | Producto usable |
 
 **Cómo validarás cada fase sin interfaz:** documentación OpenAPI navegable (Scalar/Swagger), colecciones `.http` con los flujos de la fase, y un **informe de pruebas** con los escenarios ejecutados y las reglas `RN-xxx` cubiertas.
