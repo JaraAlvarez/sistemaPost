@@ -50,8 +50,9 @@ public sealed class SalesModule : IModule
         group.MapGet("/held", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListHeldSalesQuery(), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCreate)
             .WithSummary("Ventas suspendidas de esta caja");
-        group.MapGet("/", async (DateOnly? from, DateOnly? to, string? status, string? number, Guid? terminalId, Guid? cashSessionId, int? limit, IDispatcher d,
-                CancellationToken ct) => (await d.Send(new ListSalesQuery(from, to, status, number, terminalId, cashSessionId, limit), ct)).ToHttpResult())
+        group.MapGet("/", async (DateOnly? from, DateOnly? to, string? status, string? number, Guid? terminalId, Guid? cashSessionId, int? limit, Guid? customerId,
+                IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListSalesQuery(from, to, status, number, terminalId, cashSessionId, limit, customerId), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleView)
             .WithSummary("Ventas de la sucursal por fecha de negocio, estado, número, caja o jornada");
         group.MapGet("/{saleId:guid}", async (Guid saleId, IDispatcher d, CancellationToken ct) => (await d.Send(new GetSaleQuery(saleId), ct)).ToHttpResult())
@@ -85,9 +86,9 @@ public sealed class SalesModule : IModule
                 (await d.Send(new RemoveDiscountCommand(saleId, discountId), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.DiscountApply, allowSupervisor: true);
         group.MapPut("/{saleId:guid}/customer", async (Guid saleId, CustomerRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new SetCustomerCommand(saleId, r.PartyId), ct)).ToHttpResult())
+                (await d.Send(new SetCustomerCommand(saleId, r.PartyId, r.InvoiceRequested), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCreate)
-            .WithSummary("Cliente de la venta (partyId null = Consumidor final)");
+            .WithSummary("Cliente de la venta (partyId null = Consumidor final) y si pide factura electrónica; aplica su lista de precio y re-precia las líneas");
         group.MapPost("/{saleId:guid}/hold", async (Guid saleId, HoldRequest? r, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new HoldSaleCommand(saleId, r?.Label), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCreate)
@@ -138,7 +139,7 @@ public sealed record PriceRequest(decimal Price);
 
 public sealed record DiscountRequest(Guid? LineId, decimal? Percent, decimal? Amount, string Reason);
 
-public sealed record CustomerRequest(Guid? PartyId);
+public sealed record CustomerRequest(Guid? PartyId, bool? InvoiceRequested = null);
 
 public sealed record HoldRequest(string? Label);
 

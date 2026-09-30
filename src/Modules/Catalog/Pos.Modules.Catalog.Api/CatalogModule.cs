@@ -98,7 +98,8 @@ public sealed class CatalogModule : IModule
                 (await d.Send(command, ct)).ToCreatedResult(l => $"/api/v1/catalog/price-lists/{l.Id}"))
             .RequirePermission(CatalogPermissions.MasterManage);
         group.MapPut("/price-lists/{priceListId:guid}", async (Guid priceListId, UpdatePriceListRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new UpdatePriceListCommand(priceListId, r.Name, r.PricesIncludeTax, r.IsDefault, r.IsActive), ct)).ToHttpResult())
+                (await d.Send(new UpdatePriceListCommand(
+                    priceListId, r.Name, r.PricesIncludeTax, r.IsDefault, r.IsActive, r.AdjustmentPercent, r.RoundingIncrement, r.AllowsPromotions), ct)).ToHttpResult())
             .RequirePermission(CatalogPermissions.MasterManage);
 
         group.MapGet("/barcode-rules", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListBarcodeRulesQuery(), ct)).ToHttpResult())
@@ -248,7 +249,9 @@ public sealed record UpdateTaxRequest(string Name, string? DianCode, bool IsActi
 
 public sealed record TaxRateRequest(decimal? Rate, decimal? FixedAmount, DateOnly ValidFrom);
 
-public sealed record UpdatePriceListRequest(string Name, bool PricesIncludeTax, bool IsDefault, bool IsActive);
+public sealed record UpdatePriceListRequest(
+    string Name, bool PricesIncludeTax, bool IsDefault, bool IsActive, decimal? AdjustmentPercent = null, decimal? RoundingIncrement = null,
+    bool? AllowsPromotions = null);
 
 public sealed record ProductStatusRequest(ProductStatus Status);
 

@@ -7,19 +7,19 @@
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
-GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
     TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
-REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
     FROM pos_app;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
     FROM pos_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
     FROM PUBLIC;
 
 -- Negocio
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA org, identity, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
     TO pos_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
     system.document_series, system.settings, system.outbox_messages, system.inbox_messages,
@@ -43,6 +43,9 @@ REVOKE UPDATE, DELETE, TRUNCATE ON cash.cash_movements FROM pos_app;
 
 -- Eventos de los documentos fiscales: solo agregar y leer (D7-12).
 REVOKE UPDATE, DELETE, TRUNCATE ON billing.fiscal_document_events FROM pos_app;
+
+-- Autorizaciones de tratamiento de datos: la prueba ante la SIC no se modifica (D8-06).
+REVOKE UPDATE, DELETE, TRUNCATE ON customers.customer_consents FROM pos_app;
 
 -- Auditoría: solo agregar y leer
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;

@@ -15,7 +15,8 @@ internal static class MasterMapping
 
     public static BrandDto ToDto(this Brand b) => new(b.Id, b.Name, b.Status.Db());
 
-    public static PriceListDto ToDto(this PriceList l) => new(l.Id, l.Code, l.Name, l.IsDefault, l.PricesIncludeTax, l.Status.Db());
+    public static PriceListDto ToDto(this PriceList l) =>
+        new(l.Id, l.Code, l.Name, l.IsDefault, l.PricesIncludeTax, l.Status.Db(), l.AdjustmentPercent, l.RoundingIncrement, l.AllowsPromotions);
 
     public static BarcodeRuleDto ToDto(this VariableBarcodeRule r) =>
         new(r.Id, r.Prefix, r.Content.Db(), r.PluStart, r.PluLength, r.ValueStart, r.ValueLength, r.ValueDecimals, r.Status.Db());
@@ -393,7 +394,10 @@ internal sealed class ListPriceListsHandler(ICatalogStore store) : IQueryHandler
             .Select(l => l.ToDto()).ToList();
 }
 
-public sealed record CreatePriceListCommand(string Code, string Name, bool PricesIncludeTax) : ICommand<PriceListDto>;
+/// <summary>Lista de precio. Fase 8: <c>AdjustmentPercent</c> (% sobre la general), redondeo y si admite promociones.</summary>
+public sealed record CreatePriceListCommand(
+    string Code, string Name, bool PricesIncludeTax, decimal? AdjustmentPercent = null, decimal? RoundingIncrement = null, bool? AllowsPromotions = null)
+    : ICommand<PriceListDto>;
 
 internal sealed class CreatePriceListHandler(IInstallationContext installation, ICatalogStore store, IIdGenerator ids)
     : ICommandHandler<CreatePriceListCommand, PriceListDto>
@@ -409,6 +413,12 @@ internal sealed class CreatePriceListHandler(IInstallationContext installation, 
         var list = PriceList.Create(ids.NewId(), companyId.Value, request.Code, request.Name, request.PricesIncludeTax, isDefault: false);
         if (list.IsSuccess)
         {
+            var rules = list.Value.ConfigureRules(request.AdjustmentPercent, request.RoundingIncrement ?? 50m, request.AllowsPromotions ?? true);
+            if (rules.IsFailure)
+            {
+                return Task.FromResult(Result.Failure<PriceListDto>(rules.Error));
+            }
+
             store.Add(list.Value);
         }
 
@@ -416,7 +426,9 @@ internal sealed class CreatePriceListHandler(IInstallationContext installation, 
     }
 }
 
-public sealed record UpdatePriceListCommand(Guid PriceListId, string Name, bool PricesIncludeTax, bool IsDefault, bool IsActive) : ICommand<PriceListDto>;
+public sealed record UpdatePriceListCommand(
+    Guid PriceListId, string Name, bool PricesIncludeTax, bool IsDefault, bool IsActive, decimal? AdjustmentPercent = null, decimal? RoundingIncrement = null,
+    bool? AllowsPromotions = null) : ICommand<PriceListDto>;
 
 internal sealed class UpdatePriceListHandler(ICatalogStore store, Pos.Application.Abstractions.Data.IUnitOfWork unitOfWork)
     : ICommandHandler<UpdatePriceListCommand, PriceListDto>
@@ -434,6 +446,13 @@ internal sealed class UpdatePriceListHandler(ICatalogStore store, Pos.Applicatio
         if (updated.IsFailure)
         {
             return updated.Error;
+        }
+
+        var rules = list.ConfigureRules(
+            request.IsDefault ? null : request.AdjustmentPercent, request.RoundingIncrement ?? list.RoundingIncrement, request.AllowsPromotions ?? list.AllowsPromotions);
+        if (rules.IsFailure)
+        {
+            return rules.Error;
         }
 
         if (request.IsDefault && !list.IsDefault)

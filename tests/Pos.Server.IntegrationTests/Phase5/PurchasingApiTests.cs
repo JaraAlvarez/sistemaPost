@@ -316,7 +316,8 @@ public class PurchasingApiTests
 
         (await cashier.GetAsync("/api/v1/parties?search=lactea", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await cashier.GetAsync("/api/v1/purchasing/purchases", Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
-        (await cashier.PostAsJsonAsync("/api/v1/parties", new { }, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.BadRequest); // Fase 7: la cajera crea clientes (llega a la validación)
+        // Fase 8 (D8-04): la cajera ya no crea ni modifica terceros; crea clientes con el alta rápida (/customers/quick).
+        (await cashier.PostAsJsonAsync("/api/v1/parties", new { }, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
 
         // Compras registra borradores pero no contabiliza (lo hace el administrador).
         var draft = await scenario.DraftAsync("FE-40", [new { productId = scenario.Rice, quantity = 1, unitCost = 1_000 }], client: buyer);

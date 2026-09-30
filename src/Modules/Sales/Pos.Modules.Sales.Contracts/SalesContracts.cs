@@ -65,7 +65,9 @@ public sealed record SaleLineDto(
     string Status,
     bool ExpiredLotAuthorized,
     decimal ReturnedQuantity,
-    IReadOnlyList<SaleLineTaxDto> Taxes);
+    IReadOnlyList<SaleLineTaxDto> Taxes,
+    Guid? PriceListId = null,
+    string PriceSource = "DEFAULT");
 
 public sealed record SalePaymentDto(
     Guid Id, Guid PaymentMethodId, string MethodCode, string MethodKind, decimal Tendered, decimal Applied, decimal Change, string? Reference, string? CardFranchise,
@@ -109,7 +111,11 @@ public sealed record SaleDto(
     IReadOnlyList<SaleLineDto> Lines,
     IReadOnlyList<SalePaymentDto> Payments,
     IReadOnlyList<SaleDiscountDto> Discounts,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    Guid? PriceListId = null,
+    string? PriceListCode = null,
+    string? CustomerGroupCode = null,
+    bool InvoiceRequested = false);
 
 /// <summary>
 /// Resultado de cobrar, anular o reimprimir: la venta, el tiquete en el modelo neutro (lo imprime el agente de caja) y si hay
@@ -154,4 +160,28 @@ public interface IPriceSimulator
 {
     Task<Result<SimulationDto>> SimulateAsync(
         Guid branchId, IReadOnlyList<SimulationLineRequest> lines, IReadOnlyList<PromotionDefinition> promotions, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Movimiento del historial de un cliente. <c>Kind</c>: SALE, EXCHANGE o WARRANTY_REFUND.</summary>
+public sealed record CustomerHistoryEntryDto(
+    string Kind, Guid Id, string? Number, DateOnly BusinessDate, DateTimeOffset At, string BranchName, string TerminalCode, decimal Total, string Status,
+    IReadOnlyList<string> PaymentMethods, string? OriginalSaleNumber);
+
+public sealed record CustomerTopProductDto(Guid ProductId, string Sku, string Name, decimal Quantity, decimal Total);
+
+/// <summary>
+/// Resumen de compras del cliente (D8-13): total comprado = ventas completadas − créditos de cambios − reintegros (un cambio no
+/// se cuenta dos veces); ticket promedio sobre las ventas completadas.
+/// </summary>
+public sealed record CustomerSalesSummaryDto(
+    int Purchases, decimal TotalPurchased, decimal AverageTicket, DateTimeOffset? FirstPurchaseAt, DateTimeOffset? LastPurchaseAt, string? UsualBranch,
+    int VoidedSales, int Exchanges, decimal ReturnedCredit, IReadOnlyList<CustomerTopProductDto> TopProducts);
+
+/// <summary>Historial de compras de un cliente, calculado en línea desde las ventas (D8-13).</summary>
+public interface ICustomerSalesHistory
+{
+    Task<IReadOnlyList<CustomerHistoryEntryDto>> GetHistoryAsync(
+        Guid partyId, DateOnly? from, DateOnly? to, int page, int pageSize, CancellationToken cancellationToken = default);
+
+    Task<CustomerSalesSummaryDto> GetSummaryAsync(Guid partyId, CancellationToken cancellationToken = default);
 }

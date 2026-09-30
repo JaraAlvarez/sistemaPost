@@ -42,7 +42,16 @@ public sealed record PartyData(
     string? MunicipalityCode,
     string? Notes);
 
-public sealed record ContactData(string Name, string? Position, string? Phone, string? Email, bool IsPrimary);
+/// <summary>Para qué se le escribe a un contacto (Fase 8: vendedor, cartera, logística).</summary>
+public enum ContactRole
+{
+    Other,
+    Sales,
+    Collections,
+    Logistics,
+}
+
+public sealed record ContactData(string Name, string? Position, string? Phone, string? Email, bool IsPrimary, ContactRole Role = ContactRole.Other);
 
 /// <summary>Contacto de un tercero (vendedor, cartera…).</summary>
 public sealed class PartyContact : Entity<Guid>
@@ -63,8 +72,11 @@ public sealed class PartyContact : Entity<Guid>
 
     public bool IsPrimary { get; private set; }
 
+    public ContactRole Role { get; private set; }
+
     internal static PartyContact Create(Guid id, ContactData data) => new(id, data.Name.Trim())
     {
+        Role = data.Role,
         Position = Party.Clean(data.Position),
         Phone = Party.Clean(data.Phone),
         Email = Party.Clean(data.Email)?.ToLowerInvariant(),
@@ -210,6 +222,88 @@ public sealed partial class Party : AggregateRoot<Guid>, ICompanyOwned, ISoftDel
         return Result.Success();
     }
 
+    /// <summary>
+    /// Completa SOLO los datos de contacto vacíos (Fase 8, D8-04: la cajera no modifica lo que ya tiene valor). Devuelve los
+    /// campos que se completaron.
+    /// </summary>
+    public Result<IReadOnlyList<string>> CompleteEmpty(string? email, string? phone, string? address, string? municipalityCode)
+    {
+        if (IsSystem)
+        {
+            return PartyErrors.SystemParty;
+        }
+
+        if (Status == PartyStatus.Merged)
+        {
+            return PartyErrors.Merged;
+        }
+
+        if (!IsValidEmail(email) || Clean(phone) is { Length: > 30 } || Clean(address) is { Length: > 250 })
+        {
+            return PartyErrors.InvalidEmail;
+        }
+
+        var filled = new List<string>();
+        if (Email is null && Clean(email) is { } newEmail)
+        {
+            Email = newEmail.ToLowerInvariant();
+            filled.Add("email");
+        }
+
+        if (Phone is null && Clean(phone) is { } newPhone)
+        {
+            Phone = newPhone;
+            filled.Add("phone");
+        }
+
+        if (Address is null && Clean(address) is { } newAddress)
+        {
+            Address = newAddress;
+            filled.Add("address");
+        }
+
+        if (MunicipalityCode is null && Clean(municipalityCode) is { } newMunicipality)
+        {
+            MunicipalityCode = newMunicipality;
+            filled.Add("municipalityCode");
+        }
+
+        return filled;
+    }
+
+    /// <summary>
+    /// Supresión del titular (Ley 1581, D8-08): anonimiza nombres y datos de contacto; conserva la identificación mientras exista
+    /// la obligación de conservar los documentos. Las ventas guardan su propio snapshot y no cambian.
+    /// </summary>
+    public Result Anonymize()
+    {
+        if (IsSystem)
+        {
+            return PartyErrors.SystemParty;
+        }
+
+        if (PersonType == PersonType.Legal)
+        {
+            LegalName = AnonymizedName;
+        }
+        else
+        {
+            FirstNames = "TITULAR";
+            LastNames = "SUPRIMIDO";
+        }
+
+        TradeName = null;
+        Email = null;
+        Phone = null;
+        Address = null;
+        Notes = null;
+        _contacts.Clear();
+        SearchText = TextNormalization.ForSearch($"{DisplayName} {IdentificationNumber}");
+        return Result.Success();
+    }
+
+    public const string AnonymizedName = "TITULAR SUPRIMIDO";
+
     /// <summary>Fusión (la ejecuta la sincronización en la nube): este tercero queda apuntando al que se conserva.</summary>
     public Result MergeInto(Guid survivorId)
     {
@@ -241,7 +335,7 @@ public sealed partial class Party : AggregateRoot<Guid>, ICompanyOwned, ISoftDel
 
     internal static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static bool IsValidEmail(string? email) =>
+    internal static bool IsValidEmail(string? email) =>
         string.IsNullOrWhiteSpace(email) || (email.Trim().Length <= 200 && EmailPattern().IsMatch(email.Trim()));
 
     private Result Apply(PartyData data, IdentificationTypeInfo type)

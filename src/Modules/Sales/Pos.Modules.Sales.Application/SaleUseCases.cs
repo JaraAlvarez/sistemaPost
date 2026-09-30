@@ -60,11 +60,11 @@ internal sealed class StartSaleHandler(ISalesStore store, TerminalResolver termi
             return Error.Conflict(SalesErrors.OpenSaleExists.Code, $"{SalesErrors.OpenSaleExists.Message} Venta en curso: {open.Id}.");
         }
 
-        var consumer = await customers.ResolveAsync(null, cancellationToken);
+        var consumer = await customers.FinalConsumerAsync(cancellationToken);
         var session = scope.Value.Session!;
         var sale = Sale.Start(
             ids.NewId(), scope.Value.CompanyId, scope.Value.BranchId, scope.Value.PosTerminalId, scope.Value.WarehouseId, session.Id, scope.Value.UserId,
-            session.BusinessDate, clock.UtcNow, consumer.Value);
+            session.BusinessDate, clock.UtcNow, consumer);
         store.Add(sale);
         return sale.ToDto();
     }
@@ -118,8 +118,8 @@ internal sealed class AddLineHandler(
 
         var (sale, scope) = loaded.Value;
         var item = !string.IsNullOrWhiteSpace(request.Code)
-            ? await catalog.FindByCodeAsync(request.Code, sale.BranchId, cancellationToken)
-            : request.ProductId is { } productId ? await catalog.GetAsync(productId, request.PackagingId, sale.BranchId, cancellationToken) : null;
+            ? await catalog.FindByCodeAsync(request.Code, sale.BranchId, sale.PriceListId, cancellationToken)
+            : request.ProductId is { } productId ? await catalog.GetAsync(productId, request.PackagingId, sale.BranchId, sale.PriceListId, cancellationToken) : null;
         if (item is null)
         {
             return SalesAppErrors.CodeNotFound;
@@ -136,7 +136,8 @@ internal sealed class AddLineHandler(
         var input = new SaleLineInput(
             item.ProductId, item.Sku, item.Name, request.Code?.Trim(), item.Source, item.BaseUnitCode, item.PackagingId, item.PackagingName, item.Factor, quantity,
             item.UnitPrice ?? 0m, item.PriceIncludesTax, item.CategoryId, item.BrandId, item.IsStockable, item.AllowsDecimalQuantity, item.AllowsOpenPrice,
-            [.. item.Taxes.Select(t => new PricingTax(t.TaxId, t.Code, t.Kind, t.Rate, t.FixedAmount))], expiredBy);
+            [.. item.Taxes.Select(t => new PricingTax(t.TaxId, t.Code, t.Kind, t.Rate, t.FixedAmount))], expiredBy, item.PriceListId,
+            item.UnitPrice is null ? PriceSources.Open : item.PriceSource);
         var merge = await settings.GetAsync(SalesSettings.MergeSameProduct, new SettingContext(sale.CompanyId, sale.BranchId, scope.PosTerminalId), cancellationToken);
         var line = sale.AddLine(input, merge, ids.NewId);
         if (line.IsFailure)
@@ -326,10 +327,14 @@ internal sealed class RemoveDiscountHandler(SaleEditor editor) : ICommandHandler
 
 // ─────────────────────────────── Cliente, suspender, recuperar, cancelar ───────────────────────────────
 
-/// <summary>Cliente de la venta (null = Consumidor final).</summary>
-public sealed record SetCustomerCommand(Guid SaleId, Guid? PartyId) : ICommand<SaleDto>;
+/// <summary>
+/// Cliente de la venta (null = Consumidor final) y "pide factura electrónica" (null = lo que diga el cliente). Fija la lista de
+/// precio del cliente (D8-09) y RE-PRECIA las líneas activas, salvo precio abierto, modificado o de etiqueta de báscula
+/// (RN-PRL-02); la respuesta avisa qué líneas cambiaron.
+/// </summary>
+public sealed record SetCustomerCommand(Guid SaleId, Guid? PartyId, bool? InvoiceRequested = null) : ICommand<SaleDto>;
 
-internal sealed class SetCustomerHandler(SaleEditor editor, CustomerResolver customers) : ICommandHandler<SetCustomerCommand, SaleDto>
+internal sealed class SetCustomerHandler(SaleEditor editor, CustomerResolver customers, ICatalogSaleItems catalog) : ICommandHandler<SetCustomerCommand, SaleDto>
 {
     public async Task<Result<SaleDto>> Handle(SetCustomerCommand request, CancellationToken cancellationToken)
     {
@@ -339,14 +344,32 @@ internal sealed class SetCustomerHandler(SaleEditor editor, CustomerResolver cus
             return loaded.Error;
         }
 
-        var customer = await customers.ResolveAsync(request.PartyId, cancellationToken);
+        var sale = loaded.Value.Sale;
+        var customer = await customers.ResolveAsync(request.PartyId, sale.BranchId, cancellationToken);
         if (customer.IsFailure)
         {
             return customer.Error;
         }
 
-        var set = loaded.Value.Sale.SetCustomer(customer.Value);
-        return set.IsSuccess ? loaded.Value.Sale.ToDto() : set.Error;
+        var set = sale.SetCustomer(customer.Value.Snapshot, customer.Value.Pricing, request.InvoiceRequested ?? customer.Value.AlwaysRequestsInvoice);
+        if (set.IsFailure)
+        {
+            return set.Error;
+        }
+
+        var warnings = new List<string>();
+        foreach (var line in sale.ActiveLines.Where(l => !l.PriceOverridden && !PriceSources.IsFixed(l.PriceSource)).ToList())
+        {
+            var before = line.UnitPrice;
+            if (await catalog.GetAsync(line.ProductId, line.PackagingId, sale.BranchId, sale.PriceListId, cancellationToken) is { UnitPrice: { } price } item
+                && sale.RepriceLine(line.Id, price, item.PriceIncludesTax, item.PriceListId, item.PriceSource))
+            {
+                warnings.Add($"{line.Name}: precio {before:N0} → {price:N0} ({sale.PriceListCode ?? "lista general"}).");
+            }
+        }
+
+        await editor.RecalculateAsync(sale, cancellationToken);
+        return sale.ToDto(warnings);
     }
 }
 

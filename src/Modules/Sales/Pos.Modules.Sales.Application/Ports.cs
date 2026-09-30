@@ -33,7 +33,7 @@ public sealed record TicketHeader(
     string LegalName, string TradeName, string Nit, string? Address, string? Phone, string BranchName, string? BranchAddress, string TerminalCode, string CashierName);
 
 public sealed record SaleFilter(
-    Guid BranchId, DateOnly? From, DateOnly? To, string? Status, string? Number, Guid? PosTerminalId, Guid? CashSessionId, int Limit);
+    Guid BranchId, DateOnly? From, DateOnly? To, string? Status, string? Number, Guid? PosTerminalId, Guid? CashSessionId, int Limit, Guid? CustomerId = null);
 
 /// <summary>Lecturas de pantalla y del tiquete (cruza con org e identity para mostrar nombres).</summary>
 public interface ISalesReadModel

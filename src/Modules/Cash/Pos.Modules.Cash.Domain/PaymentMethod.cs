@@ -15,6 +15,12 @@ public enum PaymentMethodKind
 
     /// <summary>Crédito de un cambio de mercancía (Fase 7, D7-11): paga parte de la venta nueva; no es dinero ni entra al cajón.</summary>
     ExchangeCredit,
+
+    /// <summary>Venta a crédito (fiado): reservado, se activa en la Fase 8-B (D8-15).</summary>
+    CustomerCredit,
+
+    /// <summary>Redención de puntos: reservado, se activa en la Fase 8-B (D8-16).</summary>
+    LoyaltyPoints,
 }
 
 public enum MasterStatus
@@ -114,6 +120,9 @@ public static class CashErrors
 
     public static readonly Error CashMethodRequired = Error.BusinessRule(
         "CASH.CASH_METHOD_REQUIRED", "El efectivo y el crédito por cambio del sistema no se pueden inactivar.");
+
+    public static readonly Error PaymentKindNotAvailable = Error.BusinessRule(
+        "CASH.PAYMENT_KIND_NOT_AVAILABLE", "Los medios de crédito (fiado) y de puntos se activan en la Fase 8-B.");
 
     public static readonly Error ExchangeCreditReserved = Error.Validation(
         "CASH.EXCHANGE_CREDIT_RESERVED", "El crédito por cambio es un medio del sistema: no se crean otros de ese tipo.");

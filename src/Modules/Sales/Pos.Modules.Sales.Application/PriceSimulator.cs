@@ -22,7 +22,7 @@ public sealed class PriceSimulator(ICatalogSaleItems catalog) : IPriceSimulator
         var items = new List<(Guid Key, CatalogSaleItem Item, decimal Quantity)>();
         foreach (var line in lines)
         {
-            if (await catalog.GetAsync(line.ProductId, line.PackagingId, branchId, cancellationToken) is not { UnitPrice: not null } item)
+            if (await catalog.GetAsync(line.ProductId, line.PackagingId, branchId, null, cancellationToken) is not { UnitPrice: not null } item)
             {
                 return Error.BusinessRule(SalesErrors.ProductNotSellable.Code, $"El producto {line.ProductId} no existe o no tiene precio vigente.");
             }

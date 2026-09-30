@@ -17,6 +17,12 @@ public interface IPartyStore
     Task<Party?> GetAsync(Guid id, CancellationToken cancellationToken);
 
     Task<Party?> FindByIdentificationAsync(string type, string number, CancellationToken cancellationToken);
+
+    /// <summary>Terceros con ese número en cualquier tipo de identificación (posibles duplicados CC/NIT).</summary>
+    Task<IReadOnlyList<Party>> FindByNumberAsync(string number, CancellationToken cancellationToken);
+
+    /// <summary>Bloqueo de la transacción sobre una identificación: serializa dos altas simultáneas de la misma.</summary>
+    Task LockIdentificationAsync(string type, string number, CancellationToken cancellationToken);
 }
 
 /// <summary>Datos de referencia de la DIAN (esquema ref, solo lectura).</summary>
@@ -31,6 +37,9 @@ public interface IPartyReferenceData
 public interface IPartyQueries
 {
     Task<PartyPageDto> SearchAsync(string? text, bool includeInactive, int page, int pageSize, CancellationToken cancellationToken);
+
+    /// <summary>Búsqueda de la caja por identificación, teléfono o nombre (D8-03).</summary>
+    Task<IReadOnlyList<PartyMatch>> LookupAsync(string text, int limit, CancellationToken cancellationToken);
 }
 
 public sealed class PartiesPermissionCatalog : IPermissionCatalogProvider
@@ -78,7 +87,7 @@ internal static class PartyMapping
         p.FirstNames, p.LastNames, p.TradeName, p.TaxRegime, p.FiscalResponsibilities.Split(';', StringSplitOptions.RemoveEmptyEntries), p.Email, p.Phone,
         p.Address, p.MunicipalityCode, p.Notes, p.IsSystem, p.Status.ToString().ToUpperInvariant(), p.MergedIntoId,
         [.. p.Contacts.OrderByDescending(c => c.IsPrimary).ThenBy(c => c.Name, StringComparer.CurrentCulture)
-            .Select(c => new PartyContactDto(c.Id, c.Name, c.Position, c.Phone, c.Email, c.IsPrimary))]);
+            .Select(c => new PartyContactDto(c.Id, c.Name, c.Position, c.Phone, c.Email, c.IsPrimary, c.Role.ToString().ToUpperInvariant()))]);
 
     public static PartyData ToData(this PartyInput input) => new(
         input.PersonType, (input.IdentificationType ?? string.Empty).Trim().ToUpperInvariant(), input.IdentificationNumber, input.CheckDigit, input.LegalName,

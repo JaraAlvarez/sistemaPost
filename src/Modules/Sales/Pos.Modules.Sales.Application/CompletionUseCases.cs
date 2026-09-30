@@ -5,6 +5,7 @@ using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
 using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Cash.Contracts;
+using Pos.Modules.Customers.Contracts;
 using Pos.Modules.Inventory.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Sales.Contracts;
@@ -148,6 +149,9 @@ internal sealed class CompleteSaleHandler(
     IBillingService billing,
     IDocumentNumberAllocator numbers,
     ISettingsReader settings,
+    CustomerResolver customers,
+    ICustomerCreditGate credit,
+    ILoyaltyProgram loyalty,
     IOutbox outbox,
     IIdGenerator ids,
     IClock clock) : ICommandHandler<CompleteSaleCommand, SaleReceiptDto>
@@ -206,6 +210,17 @@ internal sealed class CompleteSaleHandler(
         if (limit > 0m && sale.CustomerId is null && sale.Total > limit)
         {
             return SalesErrors.CustomerRequired;
+        }
+
+        // RN-SAL-19: el snapshot del comprador es el del momento del cobro; si pide factura, sus datos deben estar completos.
+        if (sale.CustomerId is { } customerId && await customers.ProfileAsync(customerId, cancellationToken) is { } buyer)
+        {
+            sale.RefreshCustomer(CustomerResolver.Snapshot(buyer, sale.CustomerFiscal?.ConsentPolicyVersion));
+            if (sale.InvoiceRequested && CustomerResolver.MissingInvoiceData(buyer) is { Count: > 0 } missing)
+            {
+                return Error.BusinessRule(
+                    SalesErrors.CustomerFiscalDataIncomplete.Code, $"{SalesErrors.CustomerFiscalDataIncomplete.Message} Faltan: {string.Join(", ", missing)}.");
+            }
         }
 
         var tenders = await TendersAsync(sale, request.Payments ?? [], cancellationToken);
@@ -294,6 +309,23 @@ internal sealed class CompleteSaleHandler(
             if (method.Kind == "EXCHANGE_CREDIT")
             {
                 return SalesErrors.ExchangeCreditNotAllowed;
+            }
+
+            // Crédito y puntos (D8-15, D8-16): reservados; la implementación nula los rechaza hasta la Fase 8-B.
+            if (method.Kind is "CUSTOMER_CREDIT" or "LOYALTY_POINTS")
+            {
+                if (sale.CustomerId is not { } holder)
+                {
+                    return SalesErrors.PaymentKindNotAvailable;
+                }
+
+                var allowed = method.Kind == "CUSTOMER_CREDIT"
+                    ? await credit.AuthorizeAsync(holder, payment.Amount, cancellationToken)
+                    : await loyalty.RedeemAsync(holder, payment.Amount, cancellationToken);
+                if (allowed.IsFailure)
+                {
+                    return allowed.Error;
+                }
             }
 
             var reference = string.IsNullOrWhiteSpace(payment.Reference) ? null : payment.Reference.Trim();
@@ -459,7 +491,8 @@ internal sealed class GetSaleHandler(ISalesStore store) : IQueryHandler<GetSaleQ
 }
 
 /// <summary>Ventas de la sucursal con filtros (fechas de negocio, estado, número, caja, jornada).</summary>
-public sealed record ListSalesQuery(DateOnly? From, DateOnly? To, string? Status, string? Number, Guid? PosTerminalId, Guid? CashSessionId, int? Limit)
+public sealed record ListSalesQuery(
+    DateOnly? From, DateOnly? To, string? Status, string? Number, Guid? PosTerminalId, Guid? CashSessionId, int? Limit, Guid? CustomerId = null)
     : IQuery<IReadOnlyList<SaleSummaryDto>>;
 
 internal sealed class ListSalesHandler(Pos.Application.Abstractions.Installation.IInstallationContext installation, ISalesReadModel readModel)
@@ -469,7 +502,7 @@ internal sealed class ListSalesHandler(Pos.Application.Abstractions.Installation
         installation.BranchId is { } branch
             ? Result.Success(await readModel.ListSalesAsync(
                 new SaleFilter(branch, request.From, request.To, request.Status?.ToUpperInvariant(), request.Number?.Trim(), request.PosTerminalId, request.CashSessionId,
-                    Math.Clamp(request.Limit ?? 200, 1, 1000)),
+                    Math.Clamp(request.Limit ?? 200, 1, 1000), request.CustomerId),
                 cancellationToken))
             : SalesAppErrors.SetupRequired;
 }

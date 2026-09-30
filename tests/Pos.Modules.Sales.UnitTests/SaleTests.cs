@@ -170,10 +170,10 @@ public class SaleTests
         var sale = NewSale();
         var party = Guid.NewGuid();
 
-        sale.SetCustomer(new CustomerSnapshot(party, "Ana Pérez", "CC", "52123456", "ana@example.com")).IsSuccess.ShouldBeTrue();
+        sale.SetCustomer(new CustomerSnapshot(party, "Ana Pérez", "CC", "52123456", "ana@example.com"), SalePricing.General, false).IsSuccess.ShouldBeTrue();
 
         (sale.CustomerId, sale.CustomerName, sale.CustomerIdentification, sale.CustomerEmail).ShouldBe(((Guid?)party, "Ana Pérez", "52123456", (string?)"ana@example.com"));
-        Should.Throw<ArgumentNullException>(() => sale.SetCustomer(null!));
+        Should.Throw<ArgumentNullException>(() => sale.SetCustomer(null!, SalePricing.General, false));
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public class SaleTests
         sale.OverridePrice(line.Id, 1m, null).Error.ShouldBe(SalesErrors.NotOpen);
         sale.ApplyDiscount(Guid.NewGuid(), null, 5m, null, "Motivo válido", Cashier, null, Now).Error.ShouldBe(SalesErrors.NotOpen);
         sale.RemoveDiscount(Guid.NewGuid()).Error.ShouldBe(SalesErrors.NotOpen);
-        sale.SetCustomer(ConsumidorFinal).Error.ShouldBe(SalesErrors.NotOpen);
+        sale.SetCustomer(ConsumidorFinal, SalePricing.General, false).Error.ShouldBe(SalesErrors.NotOpen);
         sale.Hold(null, Now).Error.ShouldBe(SalesErrors.NotOpen);
 
         sale.Resume().IsSuccess.ShouldBeTrue();

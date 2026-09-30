@@ -17,7 +17,7 @@ public sealed class CatalogSaleItems(ICatalogStore store, ICatalogQueries querie
 {
     public const int ScaleQuantityDecimals = 3;
 
-    public async Task<CatalogSaleItem?> FindByCodeAsync(string code, Guid? branchId, CancellationToken cancellationToken = default)
+    public async Task<CatalogSaleItem?> FindByCodeAsync(string code, Guid? branchId, Guid? priceListId = null, CancellationToken cancellationToken = default)
     {
         var normalized = Barcodes.NormalizeForLookup(code ?? string.Empty);
         if (normalized.Length == 0)
@@ -50,11 +50,45 @@ public sealed class CatalogSaleItems(ICatalogStore store, ICatalogQueries querie
             return null;
         }
 
-        return await BuildAsync(productId, packagingId, source, reading, branchId, cancellationToken);
+        return await BuildAsync(productId, packagingId, source, reading, branchId, priceListId, cancellationToken);
     }
 
-    public Task<CatalogSaleItem?> GetAsync(Guid productId, Guid? packagingId, Guid? branchId, CancellationToken cancellationToken = default) =>
-        BuildAsync(productId, packagingId, "PRODUCT", null, branchId, cancellationToken);
+    public Task<CatalogSaleItem?> GetAsync(
+        Guid productId, Guid? packagingId, Guid? branchId, Guid? priceListId = null, CancellationToken cancellationToken = default) =>
+        BuildAsync(productId, packagingId, "PRODUCT", null, branchId, priceListId, cancellationToken);
+
+    public async Task<PriceListInfo?> GetPriceListAsync(Guid priceListId, CancellationToken cancellationToken = default) =>
+        await store.GetPriceListAsync(priceListId, cancellationToken) is { } l
+            ? new PriceListInfo(l.Id, l.Code, l.Name, l.IsDefault, l.AdjustmentPercent, l.RoundingIncrement, l.AllowsPromotions, l.Status == MasterStatus.Active)
+            : null;
+
+    /// <summary>
+    /// Precio en la lista del cliente (Fase 8, D8-09/D8-11): el propio de la lista; si no tiene, la general con el porcentaje y el
+    /// redondeo de la lista (DERIVED) o la general tal cual (DEFAULT).
+    /// </summary>
+    private async Task<(decimal Price, bool IncludesTax, string Source, bool AllowsPromotions)?> PriceAsync(
+        Guid productId, Guid? packagingId, Guid? branchId, Guid? priceListId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var general = await queries.GetEffectivePriceAsync(productId, packagingId, branchId, now, cancellationToken);
+        if (priceListId is not { } listId || await store.GetPriceListAsync(listId, cancellationToken) is not { IsDefault: false } list)
+        {
+            return general is { } g ? (g.Price, g.IncludesTax, "DEFAULT", true) : null;
+        }
+
+        if (await queries.GetListPriceAsync(listId, productId, packagingId, branchId, now, cancellationToken) is { } own)
+        {
+            return (own.Price, own.IncludesTax, "LIST", list.AllowsPromotions);
+        }
+
+        if (general is not { } basePrice)
+        {
+            return null;
+        }
+
+        return list.AdjustmentPercent is not null
+            ? (list.Derive(basePrice.Price), basePrice.IncludesTax, "DERIVED", list.AllowsPromotions)
+            : (basePrice.Price, basePrice.IncludesTax, "DEFAULT", list.AllowsPromotions);
+    }
 
     public async Task<IReadOnlyDictionary<Guid, IReadOnlySet<Guid>>> GetCategorySubtreesAsync(
         IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken = default)
@@ -108,7 +142,8 @@ public sealed class CatalogSaleItems(ICatalogStore store, ICatalogQueries querie
     }
 
     private async Task<CatalogSaleItem?> BuildAsync(
-        Guid productId, Guid? packagingId, string source, VariableBarcodeReading? reading, Guid? branchId, CancellationToken cancellationToken)
+        Guid productId, Guid? packagingId, string source, VariableBarcodeReading? reading, Guid? branchId, Guid? priceListId,
+        CancellationToken cancellationToken)
     {
         var product = await store.GetProductAsync(productId, cancellationToken);
         if (product is null)
@@ -123,7 +158,10 @@ public sealed class CatalogSaleItems(ICatalogStore store, ICatalogQueries querie
         }
 
         var now = clock.UtcNow;
-        var price = await queries.GetEffectivePriceAsync(productId, packaging?.Id, branchId, now, cancellationToken);
+        // La etiqueta de báscula por precio ya trae el valor: la cantidad sale del precio general (no se re-precia, D8-09).
+        var priced = reading is { Content: VariableBarcodeContent.Price } ? await PriceAsync(productId, packaging?.Id, branchId, null, now, cancellationToken)
+            : await PriceAsync(productId, packaging?.Id, branchId, priceListId, now, cancellationToken);
+        var price = priced is { } found ? (found.Price, found.IncludesTax) : ((decimal Price, bool IncludesTax)?)null;
         var taxes = (await reader.GetTaxesAsync([productId], clock.BusinessDateOf(now), cancellationToken)).GetValueOrDefault(productId) ?? [];
 
         decimal quantity = 1m;
@@ -163,7 +201,8 @@ public sealed class CatalogSaleItems(ICatalogStore store, ICatalogQueries querie
         return new CatalogSaleItem(
             product.Id, product.Sku, product.Name, product.ShortName, packaging?.Id, packaging?.Name, packaging?.Factor ?? 1m, product.BaseUnitCode,
             product.SaleMode.Db(), source, quantity, price?.Price, amount, price?.IncludesTax ?? true, taxes, product.CategoryId, product.BrandId, product.IsStockable,
-            product.AllowsDecimalQuantity, product.AllowsOpenPrice, reasons.Count == 0, reasons);
+            product.AllowsDecimalQuantity, product.AllowsOpenPrice, reasons.Count == 0, reasons, priceListId,
+            reading is { Content: VariableBarcodeContent.Price } ? "SCALE_LABEL" : priced?.Source ?? "OPEN", priced?.AllowsPromotions ?? true);
     }
 }
 
@@ -176,7 +215,7 @@ internal sealed class ScanCodeHandler(ICatalogSaleItems items, ICurrentUser curr
     public async Task<Result<ScanResultDto>> Handle(ScanCodeQuery request, CancellationToken cancellationToken)
     {
         var branchId = request.BranchId ?? currentUser.BranchId ?? installation.BranchId;
-        if (await items.FindByCodeAsync(request.Code, branchId, cancellationToken) is not { } item)
+        if (await items.FindByCodeAsync(request.Code, branchId, null, cancellationToken) is not { } item)
         {
             return CatalogErrors.CodeNotFound;
         }

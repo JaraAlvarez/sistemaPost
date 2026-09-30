@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
+using System.Text.Json;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -15,8 +16,11 @@ namespace Pos.Modules.Sales.Infrastructure;
 
 internal sealed class SalesModelContributor : IModelContributor
 {
+
     public void Configure(ModelBuilder modelBuilder)
     {
+        // El snapshot fiscal es un valor (jsonb), no una entidad.
+        modelBuilder.Ignore<CustomerFiscal>();
         modelBuilder.Entity<Sale>(b =>
         {
             b.ToTable("sales", "sales");
@@ -31,6 +35,7 @@ internal sealed class SalesModelContributor : IModelContributor
             b.HasMany(x => x.Discounts).WithOne().HasForeignKey("SaleId").IsRequired().OnDelete(DeleteBehavior.Cascade);
             b.Navigation(x => x.Discounts).HasField("_discounts");
             b.Ignore(x => x.ActiveLines);
+            b.Property(x => x.CustomerFiscal).HasColumnType("jsonb").HasConversion(new FiscalConverter());
             b.HasControlColumns();
             b.HasXminConcurrency();
         });
@@ -91,6 +96,15 @@ internal sealed class SalesModelContributor : IModelContributor
             b.Property(x => x.Destination).HasUpperSnakeConversion();
         });
     }
+}
+
+/// <summary>Snapshot fiscal del comprador ↔ jsonb (D8-05).</summary>
+internal sealed class FiscalConverter()
+    : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<CustomerFiscal?, string?>(
+        v => v == null ? null : JsonSerializer.Serialize(v, Options),
+        v => v == null ? null : JsonSerializer.Deserialize<CustomerFiscal>(v, Options))
+{
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 }
 
 internal static class SalesDb
@@ -173,13 +187,14 @@ internal sealed class SalesReadModel(PosDbContext context) : ISalesReadModel
               AND (@number::text IS NULL OR s.number = @number)
               AND (@terminal::uuid IS NULL OR s.pos_terminal_id = @terminal)
               AND (@session::uuid IS NULL OR s.cash_session_id = @session)
+              AND (@customer::uuid IS NULL OR s.customer_id = @customer)
             ORDER BY s.opened_at DESC
             LIMIT @limit
             """,
             new
             {
                 branchId = filter.BranchId, from = SalesDb.Text(filter.From), to = SalesDb.Text(filter.To), status = filter.Status, number = filter.Number,
-                terminal = filter.PosTerminalId, session = filter.CashSessionId, limit = filter.Limit,
+                terminal = filter.PosTerminalId, session = filter.CashSessionId, limit = filter.Limit, customer = filter.CustomerId,
             },
             transaction, cancellationToken: cancellationToken));
         return [.. rows.Select(r => r.ToDto())];
@@ -236,6 +251,134 @@ internal sealed class SalesReadModel(PosDbContext context) : ISalesReadModel
     }
 }
 
+/// <summary>
+/// Historial del cliente calculado en línea desde las ventas y los cambios (D8-13), con el índice por cliente de la migración
+/// 024. Total comprado = ventas completadas − créditos de cambios y reintegros (un cambio no se cuenta dos veces).
+/// </summary>
+internal sealed class CustomerSalesHistory(PosDbContext context) : ICustomerSalesHistory
+{
+    public async Task<IReadOnlyList<CustomerHistoryEntryDto>> GetHistoryAsync(
+        Guid partyId, DateOnly? from, DateOnly? to, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var (connection, transaction) = await SalesDb.OpenAsync(context, cancellationToken);
+        var rows = await connection.QueryAsync<HistoryRow>(new CommandDefinition(
+            """
+            SELECT * FROM (
+                SELECT 'SALE' AS Kind, s.id AS Id, s.number AS Number, s.business_date AS BusinessDate, s.completed_at AS At, b.name AS BranchName,
+                       t.code AS TerminalCode, s.total AS Total, s.status AS Status,
+                       (SELECT string_agg(DISTINCT p.method_code, ';') FROM sales.sale_payments p WHERE p.sale_id = s.id) AS Payments,
+                       NULL::varchar AS OriginalSaleNumber
+                FROM sales.sales s
+                JOIN org.branches b ON b.id = s.branch_id
+                JOIN org.pos_terminals t ON t.id = s.pos_terminal_id
+                WHERE s.company_id = @companyId AND s.customer_id = @partyId AND s.status IN ('COMPLETED', 'VOIDED')
+                UNION ALL
+                SELECT r.kind, r.id, r.number, r.business_date, r.completed_at, b.name, t.code, r.credit_total, r.status, NULL, o.number
+                FROM sales.customer_returns r
+                JOIN sales.sales o ON o.id = r.original_sale_id
+                JOIN org.branches b ON b.id = r.branch_id
+                JOIN org.pos_terminals t ON t.id = r.pos_terminal_id
+                WHERE o.company_id = @companyId AND o.customer_id = @partyId AND r.status = 'COMPLETED'
+            ) h
+            WHERE (@from::date IS NULL OR h.BusinessDate >= @from::date) AND (@to::date IS NULL OR h.BusinessDate <= @to::date)
+            ORDER BY h.At DESC
+            LIMIT @limit OFFSET @offset
+            """,
+            new
+            {
+                companyId = context.TenantCompanyId, partyId, from = SalesDb.Text(from), to = SalesDb.Text(to), limit = pageSize, offset = (page - 1) * pageSize,
+            },
+            transaction, cancellationToken: cancellationToken));
+        return [.. rows.Select(r => new CustomerHistoryEntryDto(
+            r.Kind, r.Id, r.Number, DateOnly.FromDateTime(r.BusinessDate), SalesDb.Utc(r.At), r.BranchName, r.TerminalCode, r.Total, r.Status,
+            r.Payments?.Split(';', StringSplitOptions.RemoveEmptyEntries) ?? [], r.OriginalSaleNumber))];
+    }
+
+    public async Task<CustomerSalesSummaryDto> GetSummaryAsync(Guid partyId, CancellationToken cancellationToken = default)
+    {
+        var (connection, transaction) = await SalesDb.OpenAsync(context, cancellationToken);
+        var args = new { companyId = context.TenantCompanyId, partyId };
+        var totals = await connection.QuerySingleAsync<SummaryRow>(new CommandDefinition(
+            """
+            SELECT COUNT(*) FILTER (WHERE s.status = 'COMPLETED')::int AS Purchases,
+                   COALESCE(SUM(s.total) FILTER (WHERE s.status = 'COMPLETED'), 0) AS Gross,
+                   COUNT(*) FILTER (WHERE s.status = 'VOIDED')::int AS Voided,
+                   MIN(s.completed_at) FILTER (WHERE s.status = 'COMPLETED') AS FirstAt,
+                   MAX(s.completed_at) FILTER (WHERE s.status = 'COMPLETED') AS LastAt,
+                   (SELECT b.name FROM sales.sales x JOIN org.branches b ON b.id = x.branch_id
+                    WHERE x.company_id = @companyId AND x.customer_id = @partyId AND x.status = 'COMPLETED'
+                    GROUP BY b.name ORDER BY COUNT(*) DESC, b.name LIMIT 1) AS UsualBranch,
+                   (SELECT COALESCE(SUM(r.credit_total), 0) FROM sales.customer_returns r JOIN sales.sales o ON o.id = r.original_sale_id
+                    WHERE o.company_id = @companyId AND o.customer_id = @partyId AND r.status = 'COMPLETED') AS Returned,
+                   (SELECT COUNT(*)::int FROM sales.customer_returns r JOIN sales.sales o ON o.id = r.original_sale_id
+                    WHERE o.company_id = @companyId AND o.customer_id = @partyId AND r.status = 'COMPLETED' AND r.kind = 'EXCHANGE') AS Exchanges
+            FROM sales.sales s
+            WHERE s.company_id = @companyId AND s.customer_id = @partyId AND s.status IN ('COMPLETED', 'VOIDED')
+            """,
+            args, transaction, cancellationToken: cancellationToken));
+        var top = await connection.QueryAsync<CustomerTopProductDto>(new CommandDefinition(
+            """
+            SELECT l.product_id AS ProductId, l.sku AS Sku, l.name AS Name, SUM(l.quantity - l.returned_quantity) AS Quantity,
+                   ROUND(SUM(l.total * (l.quantity - l.returned_quantity) / l.quantity), 2) AS Total
+            FROM sales.sale_lines l
+            JOIN sales.sales s ON s.id = l.sale_id
+            WHERE s.company_id = @companyId AND s.customer_id = @partyId AND s.status = 'COMPLETED' AND l.status = 'ACTIVE' AND l.quantity > l.returned_quantity
+            GROUP BY l.product_id, l.sku, l.name
+            ORDER BY SUM(l.quantity - l.returned_quantity) DESC, l.sku
+            LIMIT 10
+            """,
+            args, transaction, cancellationToken: cancellationToken));
+        return new CustomerSalesSummaryDto(
+            totals.Purchases, totals.Gross - totals.Returned, totals.Purchases == 0 ? 0m : decimal.Round(totals.Gross / totals.Purchases, 2, MidpointRounding.AwayFromZero),
+            totals.FirstAt is { } first ? SalesDb.Utc(first) : null, totals.LastAt is { } last ? SalesDb.Utc(last) : null, totals.UsualBranch, totals.Voided,
+            totals.Exchanges, totals.Returned, [.. top]);
+    }
+
+    private sealed class HistoryRow
+    {
+        public string Kind { get; set; } = string.Empty;
+
+        public Guid Id { get; set; }
+
+        public string? Number { get; set; }
+
+        public DateTime BusinessDate { get; set; }
+
+        public DateTime At { get; set; }
+
+        public string BranchName { get; set; } = string.Empty;
+
+        public string TerminalCode { get; set; } = string.Empty;
+
+        public decimal Total { get; set; }
+
+        public string Status { get; set; } = string.Empty;
+
+        public string? Payments { get; set; }
+
+        public string? OriginalSaleNumber { get; set; }
+    }
+
+    private sealed class SummaryRow
+    {
+        public int Purchases { get; set; }
+
+        public decimal Gross { get; set; }
+
+        public int Voided { get; set; }
+
+        public DateTime? FirstAt { get; set; }
+
+        public DateTime? LastAt { get; set; }
+
+        public string? UsualBranch { get; set; }
+
+        public decimal Returned { get; set; }
+
+        public int Exchanges { get; set; }
+    }
+}
+
 /// <summary>D7-13: la caja pregunta por las ventas sin terminar antes de cerrar (RN-CSH-03).</summary>
 internal sealed class OpenSalesProbe(PosDbContext context) : IOpenSalesProbe
 {
@@ -266,5 +409,6 @@ public static class SalesInfrastructureRegistration
         services.AddScoped<ISalesStore, SalesStore>();
         services.AddScoped<ISalesReadModel, SalesReadModel>();
         services.AddScoped<IOpenSalesProbe, OpenSalesProbe>();
+        services.AddScoped<ICustomerSalesHistory, CustomerSalesHistory>();
     }
 }
