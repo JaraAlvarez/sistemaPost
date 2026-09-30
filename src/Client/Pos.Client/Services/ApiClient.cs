@@ -55,6 +55,18 @@ public sealed class ApiClient(HttpClient http, SessionState session)
         return (name.Trim('"'), response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream", await response.Content.ReadAsByteArrayAsync());
     }
 
+    /// <summary>Sube un archivo (importaciones .xlsx o .csv) como multipart/form-data en el campo <c>file</c>.</summary>
+    public async Task<T> UploadAsync<T>(string path, string fileName, byte[] content)
+    {
+        using var request = Request(HttpMethod.Post, path, null, null, null);
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(content), "file", fileName);
+        request.Content = form;
+        using var response = await http.SendAsync(request);
+        await EnsureAsync(response);
+        return (await response.Content.ReadFromJsonAsync<T>(Json))!;
+    }
+
     public async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, Guid? grant = null, string? idempotencyKey = null)
     {
         using var request = Request(method, path, body, grant, idempotencyKey);

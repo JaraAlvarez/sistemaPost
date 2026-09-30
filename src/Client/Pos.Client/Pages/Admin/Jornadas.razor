@@ -1,0 +1,409 @@
+@page "/admin/jornadas"
+@inject ApiClient Api
+@inject SessionState Session
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+<PageTitle>Jornadas de caja · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Jornadas de caja" Cargando="_loading" Error="@_error">
+    <ChildContent>
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="6" sm="3">
+                <MudDatePicker @bind-Date="_desde" Label="Desde" DateFormat="dd/MM/yyyy" />
+            </MudItem>
+            <MudItem xs="6" sm="3">
+                <MudDatePicker @bind-Date="_hasta" Label="Hasta" DateFormat="dd/MM/yyyy" />
+            </MudItem>
+            <MudItem xs="6" sm="2">
+                <MudSelect T="string" @bind-Value="_estado" Label="Estado">
+                    <MudSelectItem T="string" Value="@("")">Todas</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("OPEN")">Abiertas</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("CLOSING")">En cierre</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("CLOSED")">Cerradas</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="2">
+                <MudCheckBox T="bool" @bind-Value="_pendientes" Label="Por revisar" />
+            </MudItem>
+            <MudItem xs="12" sm="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_loading" OnClick="BuscarAsync">Buscar</MudButton>
+            </MudItem>
+        </MudGrid>
+
+        <MudGrid>
+            <MudItem xs="12" md="5">
+                <MudTable Items="_sessions" Dense="true" Hover="true" Striped="true" OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => SeleccionarAsync(e.Item))">
+                    <HeaderContent>
+                        <MudTh>Jornada</MudTh><MudTh>Caja</MudTh><MudTh>Cajero</MudTh><MudTh>Fecha</MudTh><MudTh>Estado</MudTh><MudTh Class="num">Diferencia</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("number")</MudTd>
+                        <MudTd>@context.Str("terminalCode")</MudTd>
+                        <MudTd>@context.Str("cashierName")</MudTd>
+                        <MudTd>@context.Str("businessDate")</MudTd>
+                        <MudTd>
+                            @Estado(context.Str("status"))
+                            @if (context.Bool("reviewRequired") && !context.Bool("reviewed"))
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Por revisar</MudChip>
+                            }
+                        </MudTd>
+                        <MudTd Class="num">@(context.Prop("difference").ValueKind == JsonValueKind.Number ? Format.Money(context.Dec("difference")) : "")</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay jornadas con esos filtros.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudItem>
+            <MudItem xs="12" md="7">
+                @if (_detalle.ValueKind != JsonValueKind.Object)
+                {
+                    <MudAlert Severity="Severity.Info">Elija una jornada de la lista para ver sus totales, movimientos y reporte.</MudAlert>
+                }
+                else
+                {
+                    <MudPaper Class="pa-3" Outlined="true">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                            <MudText Typo="Typo.h6">Jornada @_detalle.Str("number") · caja @_detalle.Str("terminalCode")</MudText>
+                            <MudSpacer />
+                            @if (PuedeRevisar)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="AbrirRevision">Revisar</MudButton>
+                            }
+                            @if (PuedeCerrarSupervisor)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" OnClick="AbrirCierreAsync">Cerrar como supervisor</MudButton>
+                            }
+                        </MudStack>
+                        <MudText Typo="Typo.body2">
+                            Cajero: @_detalle.Str("cashierName") · Estado: @Estado(_detalle.Str("status")) · Día: @_detalle.Str("businessDate")
+                        </MudText>
+                        <MudText Typo="Typo.body2">
+                            Abierta: @Format.Date(_detalle.Date("openedAt")) · Cerrada: @Format.Date(_detalle.Date("closedAt")) · Base inicial: @Format.Money(_detalle.Dec("openingFloat"))
+                        </MudText>
+                        @if (_detalle.Bool("expectedHidden"))
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true" Class="my-2">Arqueo ciego: el valor esperado no se muestra mientras la jornada no esté cerrada.</MudAlert>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2">
+                                Esperado: @Format.Money(Opcional(_detalle, "expectedTotal")) · Contado: @Format.Money(Opcional(_detalle, "countedTotal")) · Diferencia: @Format.Money(Opcional(_detalle, "difference"))
+                            </MudText>
+                        }
+                        @if (_detalle.Bool("closedBySupervisor"))
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="my-2">Cerrada por supervisor. Motivo: @_detalle.Str("closeReason")</MudAlert>
+                        }
+                        @if (_detalle.Str("differenceNote").Length > 0)
+                        {
+                            <MudText Typo="Typo.body2">Nota del cajero: @_detalle.Str("differenceNote")</MudText>
+                        }
+                        @if (_detalle.Bool("reviewRequired"))
+                        {
+                            <MudText Typo="Typo.body2">
+                                @(_detalle.Date("reviewedAt") is null ? "Pendiente de revisión." : $"Revisada el {Format.Date(_detalle.Date("reviewedAt"))}: {_detalle.Str("reviewNote")}")
+                            </MudText>
+                        }
+                        @if (_detalle.Str("zSealCode").Length > 0)
+                        {
+                            <MudText Typo="Typo.caption">Sello Z n.º @_detalle.Str("zSealNo") · @_detalle.Str("zSealCode")</MudText>
+                        }
+
+                        <MudText Typo="Typo.subtitle1" Class="mt-3">Totales por medio de pago</MudText>
+                        <MudSimpleTable Dense="true" Outlined="true" Striped="true">
+                            <thead><tr><th>Medio</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferencia</th><th class="num">Transacciones</th></tr></thead>
+                            <tbody>
+                                @foreach (var total in _detalle.Prop("totals").Items())
+                                {
+                                    <tr>
+                                        <td>@total.Str("name")</td>
+                                        <td class="num">@Format.Money(Opcional(total, "expected"))</td>
+                                        <td class="num">@Format.Money(Opcional(total, "counted"))</td>
+                                        <td class="num">@Format.Money(Opcional(total, "difference"))</td>
+                                        <td class="num">@total.Str("transactions")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+
+                        <MudText Typo="Typo.subtitle1" Class="mt-3">Movimientos</MudText>
+                        <div style="overflow-x: auto; max-height: 40vh; overflow-y: auto;">
+                            <MudSimpleTable Dense="true" Outlined="true" Striped="true">
+                                <thead><tr><th>#</th><th>Hora</th><th>Tipo</th><th>Medio</th><th class="num">Valor</th><th>Documento o motivo</th><th>Usuario</th><th>Autorizó</th></tr></thead>
+                                <tbody>
+                                    @foreach (var movement in _detalle.Prop("movements").Items())
+                                    {
+                                        <tr>
+                                            <td>@movement.Str("lineNo")</td>
+                                            <td>@Format.Date(movement.Date("occurredAt"))</td>
+                                            <td>@TipoMovimiento(movement.Str("movementType"))</td>
+                                            <td>@movement.Str("paymentMethodName")</td>
+                                            <td class="num">@(movement.Dec("direction") < 0 ? "−" : "")@Format.Money(movement.Dec("amount"))</td>
+                                            <td>@(movement.Str("sourceNumber").Length > 0 ? movement.Str("sourceNumber") : movement.Str("reason"))</td>
+                                            <td>@movement.Str("userName")</td>
+                                            <td>@movement.Str("authorizedByName")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        </div>
+
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
+                            <MudText Typo="Typo.subtitle1">@(Cerrada ? "Reporte Z" : "Reporte X (parcial)")</MudText>
+                            <MudSpacer />
+                            @if (_reporte is not null)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="DescargarAsync">Descargar</MudButton>
+                            }
+                        </MudStack>
+                        @if (_reporte is not null)
+                        {
+                            <div class="tiquete">@_reporte</div>
+                        }
+                        else if (_reporteError is not null)
+                        {
+                            <MudText Typo="Typo.caption">@_reporteError</MudText>
+                        }
+                    </MudPaper>
+                }
+            </MudItem>
+        </MudGrid>
+    </ChildContent>
+</Pagina>
+
+@if (_revisar)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Revisar la jornada @_detalle.Str("number")</h2>
+            <MudText Typo="Typo.body2" Class="mb-2">Diferencia: @Format.Money(Opcional(_detalle, "difference")). Deje constancia de lo que se decidió (p. ej. se descuenta al cajero o se corrige en la jornada siguiente).</MudText>
+            <MudTextField @bind-Value="_nota" Label="Nota de la revisión" Lines="3" Immediate="true" AutoFocus="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _revisar = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RevisarAsync">Registrar revisión</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_cerrar)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Cerrar como supervisor la jornada @_detalle.Str("number")</h2>
+            <MudText Typo="Typo.body2" Class="mb-2">
+                Para jornadas que el cajero dejó abiertas. Cuente el efectivo del cajón por denominación y escriba el total de los demás medios.
+                El cierre es definitivo, queda para revisión y se audita como incidente crítico.
+            </MudText>
+            <Conteo Denominaciones="_denominaciones" Cantidades="_conteo" OnChanged="@(() => StateHasChanged())" />
+            @foreach (var method in _medios.Where(m => !m.AffectsCashDrawer))
+            {
+                <MudNumericField T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0" />
+            }
+            <MudText Typo="Typo.body2" Class="mt-2">Efectivo contado: @Format.Money(_denominaciones.Sum(d => d.Value * _conteo.GetValueOrDefault(d.Id)))</MudText>
+            <MudTextField @bind-Value="_motivo" Label="Motivo del cierre por supervisor" Immediate="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _cerrar = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="CerrarAsync">Confirmar cierre</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] ReservedKinds = ["EXCHANGE_CREDIT", "CUSTOMER_CREDIT", "LOYALTY_POINTS"];
+
+    private List<JsonElement> _sessions = [];
+    private JsonElement _detalle;
+    private DateTime? _desde = DateTime.Today.AddDays(-7), _hasta = DateTime.Today;
+    private string _estado = "";
+    private bool _pendientes, _loading = true, _busy, _revisar, _cerrar;
+    private string? _error, _reporte, _reporteError, _nota, _motivo;
+    private IReadOnlyList<Denomination> _denominaciones = [];
+    private IReadOnlyList<PaymentMethod> _medios = [];
+    private readonly Dictionary<Guid, int> _conteo = [];
+    private readonly Dictionary<Guid, decimal> _otros = [];
+
+    private bool Cerrada => string.Equals(_detalle.Str("status"), "CLOSED", StringComparison.OrdinalIgnoreCase);
+
+    private bool PuedeRevisar =>
+        Session.Has("cash.session.review") && Cerrada && _detalle.Bool("reviewRequired") && _detalle.Date("reviewedAt") is null;
+
+    private bool PuedeCerrarSupervisor => Session.Has("cash.session.close_any") && !Cerrada;
+
+    protected override Task OnInitializedAsync() => BuscarAsync();
+
+    private async Task BuscarAsync()
+    {
+        _loading = true;
+        try
+        {
+            var query = new List<string>();
+            if (_desde is { } desde)
+            {
+                query.Add("from=" + desde.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            }
+
+            if (_hasta is { } hasta)
+            {
+                query.Add("to=" + hasta.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            }
+
+            if (_estado.Length > 0)
+            {
+                query.Add("status=" + _estado);
+            }
+
+            if (_pendientes)
+            {
+                query.Add("pendingReview=true");
+            }
+
+            _sessions = (await Api.GetAsync<JsonElement>("api/v1/cash/sessions?" + string.Join("&", query))).Items();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task SeleccionarAsync(JsonElement session)
+    {
+        try
+        {
+            await CargarDetalleAsync(session.GetProperty("id").GetGuid());
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task CargarDetalleAsync(Guid id)
+    {
+        _detalle = await Api.GetAsync<JsonElement>($"api/v1/cash/sessions/{id}");
+        _reporte = null;
+        _reporteError = null;
+        try
+        {
+            var report = await Api.GetAsync<JsonElement>($"api/v1/cash/sessions/{id}/{(Cerrada ? "report-z" : "report-x")}");
+            _reporte = report.Str("text");
+        }
+        catch (ApiException ex)
+        {
+            _reporteError = ex.Message;
+        }
+    }
+
+    private void AbrirRevision()
+    {
+        _nota = null;
+        _revisar = true;
+    }
+
+    private async Task RevisarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var id = _detalle.GetProperty("id").GetGuid();
+            await Api.PostAsync<JsonElement>($"api/v1/cash/sessions/{id}/review", new { note = _nota });
+            Snackbar.Add("Revisión registrada.", Severity.Success);
+            _revisar = false;
+            await CargarDetalleAsync(id);
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task AbrirCierreAsync()
+    {
+        try
+        {
+            _denominaciones = [.. (await Api.GetAsync<List<Denomination>>("api/v1/cash/denominations")).Where(d => d.Status == "ACTIVE").OrderByDescending(d => d.Value)];
+            _medios = [.. (await Api.GetAsync<List<PaymentMethod>>("api/v1/cash/payment-methods"))
+                .Where(m => m.Status == "ACTIVE" && !ReservedKinds.Contains(m.Kind)).OrderBy(m => m.SortOrder)];
+            _conteo.Clear();
+            _otros.Clear();
+            _motivo = null;
+            _cerrar = true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task CerrarAsync()
+    {
+        var cash = _medios.FirstOrDefault(m => m.AffectsCashDrawer);
+        if (cash is null)
+        {
+            Snackbar.Add("No hay un medio de pago en efectivo activo.", Severity.Error);
+            return;
+        }
+
+        var count = _conteo.Where(c => c.Value > 0)
+            .Select(c => (object)new { paymentMethodId = cash.Id, denominationId = (Guid?)c.Key, quantity = (int?)c.Value, amount = (decimal?)null })
+            .Concat(_otros.Where(o => o.Value > 0)
+                .Select(o => (object)new { paymentMethodId = o.Key, denominationId = (Guid?)null, quantity = (int?)null, amount = (decimal?)o.Value }))
+            .ToList();
+        _busy = true;
+        try
+        {
+            var id = _detalle.GetProperty("id").GetGuid();
+            await Api.PostAsync<JsonElement>($"api/v1/cash/sessions/{id}/supervisor-close", new { count, reason = _motivo });
+            Snackbar.Add("Jornada cerrada por supervisor. Queda pendiente de revisión.", Severity.Success);
+            _cerrar = false;
+            await CargarDetalleAsync(id);
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task DescargarAsync()
+    {
+        var name = $"reporte-{(Cerrada ? "z" : "x")}-{_detalle.Str("number")}.txt";
+        var content = System.Text.Encoding.UTF8.GetBytes(_reporte ?? "");
+        await Js.InvokeVoidAsync("pos.download", name, "text/plain", Convert.ToBase64String(content));
+    }
+
+    private static decimal? Opcional(JsonElement element, string name) =>
+        element.Prop(name).ValueKind == JsonValueKind.Number ? element.Dec(name) : null;
+
+    private static string Estado(string status) => status.ToUpperInvariant() switch
+    {
+        "OPEN" => "Abierta",
+        "CLOSING" => "En cierre",
+        "CLOSED" => "Cerrada",
+        _ => status,
+    };
+
+    private static string TipoMovimiento(string type) => type.ToUpperInvariant() switch
+    {
+        "OPENING_FLOAT" => "Base inicial",
+        "SALE" => "Venta",
+        "SALE_VOID" => "Anulación de venta",
+        "CUSTOMER_REFUND" => "Reintegro al cliente",
+        "CASH_IN" => "Ingreso de efectivo",
+        "CASH_OUT_WITHDRAWAL" => "Retiro (sangría)",
+        "EXPENSE" => "Gasto",
+        "SUPPLIER_PAYMENT" => "Pago a proveedor",
+        "CORRECTION" => "Corrección",
+        "NO_SALE_DRAWER_OPEN" => "Apertura sin venta",
+        _ => type,
+    };
+}

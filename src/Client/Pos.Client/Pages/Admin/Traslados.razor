@@ -1,0 +1,457 @@
+@page "/admin/traslados"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Traslados · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Traslados entre bodegas" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("inventory.transfer.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="Nuevo">Nuevo traslado</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudSelect T="string" Value="_estado" ValueChanged="@(v => FiltrarAsync(v))" Label="Estado" Class="mb-3" Style="max-width: 280px">
+            <MudSelectItem T="string" Value="@("")">Todos</MudSelectItem>
+            <MudSelectItem T="string" Value="@("DRAFT")">Borrador</MudSelectItem>
+            <MudSelectItem T="string" Value="@("IN_TRANSIT")">En tránsito</MudSelectItem>
+            <MudSelectItem T="string" Value="@("RECEIVED")">Recibido</MudSelectItem>
+            <MudSelectItem T="string" Value="@("RECEIVED_WITH_DIFFERENCES")">Recibido con diferencias</MudSelectItem>
+            <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
+        </MudSelect>
+        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Origen</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Str("number")</MudTd>
+                <MudTd>@Format.Date(context.Date("createdAt"))</MudTd>
+                <MudTd>@Bodega(context.Str("warehouseId"))</MudTd>
+                <MudTd>@Estado(context.Str("status"))</MudTd>
+                <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context.GetProperty("id").GetGuid()))">Ver</MudButton></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No hay traslados.</MudText></NoRecordsContent>
+        </MudTable>
+    </ChildContent>
+</Pagina>
+
+@if (_nuevo)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(760px, 96vw)">
+            <h2>Nuevo traslado</h2>
+            <MudStack Row="true">
+                <MudSelect T="Guid?" @bind-Value="_origen" Label="Bodega de origen">
+                    @foreach (var warehouse in Elegibles)
+                    {
+                        <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="Guid?" @bind-Value="_destino" Label="Bodega de destino">
+                    @foreach (var warehouse in Elegibles)
+                    {
+                        <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+            <MudTextField T="string" @bind-Value="_notas" Label="Observación (opcional)" Immediate="true" />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
+                <MudTextField T="string" @bind-Value="_buscar" Label="Producto: nombre, SKU o código (Enter busca)" Immediate="true" OnKeyDown="BuscarTeclaAsync"
+                              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
+                <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Style="max-width: 140px" />
+            </MudStack>
+            @if (_resultados.Count > 0)
+            {
+                <MudSimpleTable Dense="true" Class="my-2">
+                    <tbody>
+                        @foreach (var product in _resultados)
+                        {
+                            <tr>
+                                <td>@product.Str("sku")</td>
+                                <td>@product.Str("name")</td>
+                                <td>@product.Str("baseUnitCode")</td>
+                                <td><MudButton Size="Size.Small" OnClick="@(() => AgregarLinea(product))">Agregar</MudButton></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            <MudSimpleTable Dense="true" Class="my-2">
+                <thead><tr><th>SKU</th><th>Producto</th><th class="num">Cantidad</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var line in _lineas)
+                    {
+                        <tr>
+                            <td>@line.Sku</td>
+                            <td>@line.Nombre</td>
+                            <td class="num">@Format.Quantity(line.Cantidad) @line.Unidad</td>
+                            <td><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" OnClick="@(() => _lineas.Remove(line))" /></td>
+                        </tr>
+                    }
+                    @if (_lineas.Count == 0)
+                    {
+                        <tr><td colspan="4">Agregue al menos un producto.</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudText Typo="Typo.caption">Al despachar, la mercancía sale del origen al costo promedio y queda en tránsito hasta que el destino la reciba.</MudText>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
+                <MudButton Disabled="_busy" OnClick="@(() => CrearAsync(false))">Guardar borrador</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(true))">Guardar y despachar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_traslado.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(860px, 96vw)">
+            <h2>Traslado @_traslado.Str("number") · @Estado(Status)</h2>
+            <MudText Typo="Typo.body2">
+                De @Bodega(_traslado.Str("originWarehouseId")) a @Bodega(_traslado.Str("destinationWarehouseId"))
+                @if (_traslado.Date("dispatchedAt") is { } dispatched)
+                {
+                    <span> · Despachado @Format.Date(dispatched)</span>
+                }
+                @if (_traslado.Date("receivedAt") is { } received)
+                {
+                    <span> · Recibido @Format.Date(received)</span>
+                }
+            </MudText>
+            @if (_traslado.Str("notes") is { Length: > 0 } notes)
+            {
+                <MudText Typo="Typo.body2">Observación: @notes</MudText>
+            }
+            @if (_recibiendo)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="my-2">Indique lo que llegó. Lo que falte frente a lo despachado queda como pérdida (faltante en traslado).</MudAlert>
+            }
+            <MudSimpleTable Dense="true" Class="my-2">
+                <thead>
+                    <tr>
+                        <th>SKU</th><th>Producto</th><th class="num">Despachado</th><th class="num">Recibido</th>
+                        @if (VerCostos)
+                        {
+                            <th class="num">Costo unitario</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in _traslado.Prop("lines").Items())
+                    {
+                        var productId = line.GetProperty("productId").GetGuid();
+                        <tr>
+                            <td>@line.Str("sku")</td>
+                            <td>@line.Str("productName")</td>
+                            <td class="num">@Format.Quantity(line.Dec("quantitySent"))</td>
+                            <td class="num">
+                                @if (_recibiendo)
+                                {
+                                    <MudNumericField T="decimal" Value="@_recibido.GetValueOrDefault(productId)" ValueChanged="@((decimal v) => _recibido[productId] = v)"
+                                                     Min="0" Max="@line.Dec("quantitySent")" Style="max-width: 140px" />
+                                }
+                                else
+                                {
+                                    @(line.Prop("quantityReceived").ValueKind == JsonValueKind.Number ? Format.Quantity(line.Dec("quantityReceived")) : "—")
+                                }
+                            </td>
+                            @if (VerCostos)
+                            {
+                                <td class="num">@(line.Prop("unitCost").ValueKind == JsonValueKind.Number ? Format.Money(line.Dec("unitCost")) : "—")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <div class="acciones">
+                @if (_recibiendo)
+                {
+                    <MudButton OnClick="@(() => _recibiendo = false)">Volver</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RecibirAsync">Confirmar recepción</MudButton>
+                }
+                else
+                {
+                    <MudButton OnClick="Cerrar">Cerrar</MudButton>
+                    @if (Session.Has("inventory.transfer.manage"))
+                    {
+                        @if (Status == "DRAFT")
+                        {
+                            <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => AccionAsync("cancel", "Traslado anulado."))">
+                                @(_confirmar == "cancel" ? "Confirmar anulación" : "Anular")
+                            </MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("dispatch", "Traslado despachado: la mercancía quedó en tránsito."))">
+                                @(_confirmar == "dispatch" ? "Confirmar despacho" : "Despachar")
+                            </MudButton>
+                        }
+                        @if (Status == "IN_TRANSIT")
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="IniciarRecepcion">Recibir</MudButton>
+                        }
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _items = [];
+    private List<JsonElement> _bodegas = [];
+    private List<JsonElement> _resultados = [];
+    private readonly List<Linea> _lineas = [];
+    private readonly Dictionary<Guid, decimal> _recibido = [];
+    private JsonElement _traslado;
+    private string _estado = "";
+    private string? _error, _notas, _buscar, _confirmar;
+    private Guid? _origen, _destino;
+    private decimal _cantidad = 1;
+    private bool _loading = true, _busy, _nuevo, _recibiendo;
+
+    private string Status => _traslado.Str("status");
+
+    private bool VerCostos => Session.Has("inventory.cost.view");
+
+    private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarBodegasAsync();
+        await CargarAsync();
+    }
+
+    private async Task CargarBodegasAsync()
+    {
+        if (Session.Me is not { } me)
+        {
+            return;
+        }
+
+        try
+        {
+            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            _items = (await Api.GetAsync<JsonElement>($"api/v1/inventory/transfers{(string.IsNullOrEmpty(_estado) ? "" : "?status=" + Uri.EscapeDataString(_estado))}")).Items();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task FiltrarAsync(string? estado)
+    {
+        _estado = estado ?? "";
+        await CargarAsync();
+    }
+
+    private string Bodega(string id)
+    {
+        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
+        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
+    }
+
+    private static string Estado(string status) => status switch
+    {
+        "DRAFT" => "Borrador",
+        "IN_TRANSIT" => "En tránsito",
+        "RECEIVED" => "Recibido",
+        "RECEIVED_WITH_DIFFERENCES" => "Recibido con diferencias",
+        "CANCELLED" => "Anulado",
+        _ => status,
+    };
+
+    private void Nuevo()
+    {
+        _origen = _destino = null;
+        _notas = _buscar = null;
+        _cantidad = 1;
+        _resultados = [];
+        _lineas.Clear();
+        _nuevo = true;
+    }
+
+    private async Task BuscarTeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await BuscarAsync();
+        }
+    }
+
+    private async Task BuscarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_buscar))
+        {
+            _resultados = [];
+            return;
+        }
+
+        try
+        {
+            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            if (_resultados.Count == 1)
+            {
+                AgregarLinea(_resultados[0]);
+            }
+            else if (_resultados.Count == 0)
+            {
+                Snackbar.Add("No hay productos que coincidan.", Severity.Info);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void AgregarLinea(JsonElement product)
+    {
+        var id = product.GetProperty("id").GetGuid();
+        if (_lineas.Any(l => l.ProductId == id))
+        {
+            Snackbar.Add("El producto ya está en el traslado.", Severity.Warning);
+            return;
+        }
+
+        _lineas.Add(new Linea(id, product.Str("sku"), product.Str("name"), product.Str("baseUnitCode"), _cantidad));
+        _resultados = [];
+        _buscar = null;
+        _cantidad = 1;
+    }
+
+    private async Task CrearAsync(bool despachar)
+    {
+        _busy = true;
+        try
+        {
+            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/transfers", new
+            {
+                originWarehouseId = _origen,
+                destinationWarehouseId = _destino,
+                notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
+                lines = _lineas.Select(l => new { productId = l.ProductId, quantity = l.Cantidad }).ToList(),
+            });
+            var id = created.GetProperty("id").GetGuid();
+            _nuevo = false;
+            if (despachar)
+            {
+                await Api.PostAsync($"api/v1/inventory/transfers/{id}/dispatch");
+                Snackbar.Add("Traslado creado y despachado: la mercancía quedó en tránsito.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Traslado guardado en borrador.", Severity.Success);
+            }
+
+            await CargarAsync();
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            await CargarAsync();
+        }
+
+        _busy = false;
+    }
+
+    private async Task VerAsync(Guid id)
+    {
+        try
+        {
+            _traslado = await Api.GetAsync<JsonElement>($"api/v1/inventory/transfers/{id}");
+            _recibiendo = false;
+            _confirmar = null;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void Cerrar()
+    {
+        _traslado = default;
+        _recibiendo = false;
+        _confirmar = null;
+    }
+
+    private void IniciarRecepcion()
+    {
+        _recibido.Clear();
+        foreach (var line in _traslado.Prop("lines").Items())
+        {
+            _recibido[line.GetProperty("productId").GetGuid()] = line.Dec("quantitySent");
+        }
+
+        _recibiendo = true;
+    }
+
+    private async Task RecibirAsync()
+    {
+        _busy = true;
+        var id = _traslado.GetProperty("id").GetGuid();
+        try
+        {
+            await Api.PostAsync($"api/v1/inventory/transfers/{id}/receive", new
+            {
+                received = _recibido.Select(r => new { productId = r.Key, quantity = r.Value }).ToList(),
+            });
+            Snackbar.Add("Traslado recibido.", Severity.Success);
+            await CargarAsync();
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task AccionAsync(string action, string message)
+    {
+        if (_confirmar != action)
+        {
+            _confirmar = action;
+            return;
+        }
+
+        _busy = true;
+        var id = _traslado.GetProperty("id").GetGuid();
+        try
+        {
+            await Api.PostAsync($"api/v1/inventory/transfers/{id}/{action}");
+            Snackbar.Add(message, Severity.Success);
+            await CargarAsync();
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _confirmar = null;
+        _busy = false;
+    }
+
+    private sealed record Linea(Guid ProductId, string Sku, string Nombre, string Unidad, decimal Cantidad);
+}

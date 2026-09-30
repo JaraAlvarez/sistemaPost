@@ -1,0 +1,449 @@
+@page "/admin/cuentas-por-pagar"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Cuentas por pagar · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Cuentas por pagar" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("purchasing.payable.pay"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Payments" OnClick="@(() => NuevoPagoAsync(null, null))">Registrar pago</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        @if (_vencimientos.ValueKind == JsonValueKind.Object)
+        {
+            <MudStack Row="true" Class="mb-3 flex-wrap">
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.caption">Vencido a hoy</MudText>
+                    <div class="cifra" style="color:var(--mud-palette-error)">@Format.Money(_vencimientos.Dec("overdueTotal"))</div>
+                    <MudText Typo="Typo.caption">@Vencidas.Count factura(s)</MudText>
+                </MudPaper>
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.caption">Vence en los próximos @_vencimientos.Dec("days") días</MudText>
+                    <div class="cifra">@Format.Money(_vencimientos.Dec("dueSoonTotal"))</div>
+                    <MudText Typo="Typo.caption">@PorVencer.Count factura(s)</MudText>
+                </MudPaper>
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.caption">Total por pagar</MudText>
+                    <div class="cifra">@Format.Money(_edades.Prop("totals").Dec("total"))</div>
+                </MudPaper>
+            </MudStack>
+        }
+        <MudTabs Elevation="0" Class="mb-2">
+            <MudTabPanel Text="Facturas por pagar">
+                <MudStack Row="true" Class="my-3" AlignItems="AlignItems.Center">
+                    <MudSelect T="Guid?" Value="_proveedor" ValueChanged="@(v => FiltrarProveedorAsync(v))" Label="Proveedor" Clearable="true" Style="min-width:280px">
+                        @foreach (var supplier in _proveedores)
+                        {
+                            <MudSelectItem T="Guid?" Value="@supplier.Id">@supplier.Nombre</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudCheckBox T="bool" Value="_soloAbiertas" ValueChanged="@(v => FiltrarAbiertasAsync(v))" Label="Solo con saldo" />
+                </MudStack>
+                <MudTable Items="_cuentas" Dense="true" Hover="true" Striped="true">
+                    <HeaderContent>
+                        <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Emisión</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">Saldo</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("supplierName")</MudTd>
+                        <MudTd>@context.Str("documentNumber")</MudTd>
+                        <MudTd>@Dia(context, "issueDate")</MudTd>
+                        <MudTd>@Dia(context, "dueDate")</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("originalAmount"))</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                        <MudTd>@EstadoCuenta(context)</MudTd>
+                        <MudTd>
+                            @if (Session.Has("purchasing.payable.pay") && context.Str("status") == "OPEN" && context.Dec("balance") > 0)
+                            {
+                                <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => NuevoPagoAsync(context.GetProperty("supplierId").GetGuid(), context.GetProperty("id").GetGuid()))">Pagar</MudButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay cuentas por pagar.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+            <MudTabPanel Text="Cartera por edades">
+                <MudText Typo="Typo.body2" Class="my-3">Saldos vencidos por días al @Dia(_edades, "asOf").</MudText>
+                <MudTable Items="Edades" Dense="true" Hover="true" Striped="true">
+                    <HeaderContent>
+                        <MudTh>Proveedor</MudTh><MudTh Class="num">Corriente</MudTh><MudTh Class="num">1 a 30</MudTh><MudTh Class="num">31 a 60</MudTh><MudTh Class="num">61 a 90</MudTh>
+                        <MudTh Class="num">Más de 90</MudTh><MudTh Class="num">Total</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("supplierCode") · @context.Str("supplierName")</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("current"))</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("days1To30"))</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("days31To60"))</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("days61To90"))</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("over90"))</MudTd>
+                        <MudTd Class="num"><b>@Format.Money(context.Dec("total"))</b></MudTd>
+                    </RowTemplate>
+                    <FooterContent>
+                        <MudTd><b>Total</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("current"))</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("days1To30"))</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("days31To60"))</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("days61To90"))</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("over90"))</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("total"))</b></MudTd>
+                    </FooterContent>
+                    <NoRecordsContent><MudText>No hay saldos por pagar.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+            <MudTabPanel Text="Vencimientos">
+                <MudText Typo="Typo.h6" Class="mt-3 mb-1">Vencidas</MudText>
+                <MudTable Items="Vencidas" Dense="true" Striped="true" Class="mb-3">
+                    <HeaderContent>
+                        <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Venció</MudTh><MudTh Class="num">Días vencida</MudTh><MudTh Class="num">Saldo</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("supplierName")</MudTd>
+                        <MudTd>@context.Str("documentNumber")</MudTd>
+                        <MudTd>@Dia(context, "dueDate")</MudTd>
+                        <MudTd Class="num">@context.Dec("daysOverdue")</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay facturas vencidas.</MudText></NoRecordsContent>
+                </MudTable>
+                <MudText Typo="Typo.h6" Class="mb-1">Por vencer en los próximos @_vencimientos.Dec("days") días</MudText>
+                <MudTable Items="PorVencer" Dense="true" Striped="true">
+                    <HeaderContent>
+                        <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Saldo</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("supplierName")</MudTd>
+                        <MudTd>@context.Str("documentNumber")</MudTd>
+                        <MudTd>@Dia(context, "dueDate")</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>Nada vence en esos días.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+            <MudTabPanel Text="Pagos">
+                <MudTable Items="_pagos" Dense="true" Hover="true" Striped="true" Class="mt-3">
+                    <HeaderContent>
+                        <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Fecha</MudTh><MudTh>Referencia</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("number")</MudTd>
+                        <MudTd>@context.Str("supplierName")</MudTd>
+                        <MudTd>@Dia(context, "date")</MudTd>
+                        <MudTd>@context.Str("reference")</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
+                        <MudTd>@(context.Str("status") == "VOIDED" ? "Anulado" : "Registrado")</MudTd>
+                        <MudTd>
+                            @if (Session.Has("purchasing.payable.pay") && context.Str("status") == "POSTED")
+                            {
+                                <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => PedirAnulacion(context))">Anular</MudButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay pagos registrados.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+        </MudTabs>
+    </ChildContent>
+</Pagina>
+
+@if (_pagando)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width:min(760px, 96vw)">
+            <h2>Registrar pago a proveedor</h2>
+            <MudSelect T="Guid?" Value="_pagoProveedor" ValueChanged="@(v => ElegirProveedorAsync(v))" Label="Proveedor">
+                @foreach (var supplier in _conSaldo)
+                {
+                    <MudSelectItem T="Guid?" Value="@supplier.Id">@supplier.Nombre</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_aplicaciones.Count > 0)
+            {
+                <MudSimpleTable Dense="true" Outlined="true" Class="my-2">
+                    <thead><tr><th></th><th>Documento</th><th>Vence</th><th class="num">Saldo</th><th class="num">Valor a pagar</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in _aplicaciones)
+                        {
+                            <tr>
+                                <td><MudCheckBox T="bool" @bind-Value="item.Incluir" Dense="true" /></td>
+                                <td>@item.Documento</td>
+                                <td>@item.Vence</td>
+                                <td class="num">@Format.Money(item.Saldo)</td>
+                                <td style="min-width:140px"><MudNumericField T="decimal" @bind-Value="item.Valor" Min="0" Max="item.Saldo" Disabled="!item.Incluir" /></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudText Class="num mb-2"><b>Total del pago: @Format.Money(TotalPago)</b></MudText>
+            }
+            else if (_pagoProveedor is not null)
+            {
+                <MudText Typo="Typo.body2" Class="my-2">El proveedor no tiene facturas con saldo.</MudText>
+            }
+            <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
+                @foreach (var method in _medios)
+                {
+                    <MudSelectItem T="Guid?" Value="@method.GetProperty("id").GetGuid()">@method.Str("name")@(method.Bool("requiresReference") ? " (exige referencia)" : "")</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_referencia" Label="Referencia (transferencia, cheque…)" Immediate="true" />
+            <MudDatePicker @bind-Date="_fecha" Label="Fecha del pago" DateFormat="dd/MM/yyyy" />
+            <MudTextField @bind-Value="_notas" Label="Notas" Immediate="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _pagando = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="PagarAsync">Registrar pago</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_anular.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Anular el pago @_anular.Str("number")</h2>
+            <MudText Typo="Typo.body2">@_anular.Str("supplierName") · @Format.Money(_anular.Dec("total")). Los saldos de las facturas vuelven a quedar pendientes.</MudText>
+            <MudTextField @bind-Value="_motivo" Label="Motivo (5 a 300 caracteres)" Immediate="true" AutoFocus="true" Lines="2" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _anular = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="AnularAsync">Anular</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _cuentas = [];
+    private List<JsonElement> _pagos = [];
+    private List<JsonElement> _medios = [];
+    private List<Proveedor> _proveedores = [];
+    private List<Proveedor> _conSaldo = [];
+    private List<Aplicacion> _aplicaciones = [];
+    private JsonElement _vencimientos, _edades, _anular;
+    private Guid? _proveedor, _pagoProveedor, _medio;
+    private DateTime? _fecha;
+    private string? _error, _referencia, _notas, _motivo;
+    private bool _loading = true, _busy, _soloAbiertas = true, _pagando;
+
+    private List<JsonElement> Vencidas => _vencimientos.Prop("overdue").Items();
+
+    private List<JsonElement> PorVencer => _vencimientos.Prop("dueSoon").Items();
+
+    private List<JsonElement> Edades => _edades.Prop("rows").Items();
+
+    private JsonElement Totales => _edades.Prop("totals");
+
+    private decimal TotalPago => _aplicaciones.Where(a => a.Incluir).Sum(a => a.Valor);
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private static string EstadoCuenta(JsonElement account) => account.Str("status") switch
+    {
+        "OPEN" when account.Dec("daysOverdue") > 0 => $"Vencida ({account.Dec("daysOverdue")} días)",
+        "OPEN" => "Pendiente",
+        "SETTLED" => "Pagada",
+        "VOIDED" => "Anulada",
+        var other => other,
+    };
+
+    /// <summary>Fecha sin hora (DateOnly del servidor, "yyyy-MM-dd").</summary>
+    private static string Dia(JsonElement element, string name) =>
+        DateOnly.TryParse(element.Str(name), CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "—";
+
+    private static List<Proveedor> Proveedores(IEnumerable<JsonElement> accounts) =>
+        [.. accounts.Select(a => new Proveedor(a.GetProperty("supplierId").GetGuid(), a.Str("supplierName"))).Distinct().OrderBy(p => p.Nombre, StringComparer.CurrentCulture)];
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            _vencimientos = await Api.GetAsync<JsonElement>("api/v1/purchasing/payables/due");
+            _edades = await Api.GetAsync<JsonElement>("api/v1/purchasing/payables/aging");
+            _pagos = (await Api.GetAsync<JsonElement>("api/v1/purchasing/payments")).Items();
+            await CargarCuentasAsync();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task CargarCuentasAsync()
+    {
+        var supplier = _proveedor is { } id ? $"supplierId={id}&" : "";
+        var open = _soloAbiertas ? "true" : "false";
+        _cuentas = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/payables?{supplier}openOnly={open}")).Items();
+        if (_proveedor is null)
+        {
+            _proveedores = Proveedores(_cuentas);
+        }
+    }
+
+    private async Task FiltrarProveedorAsync(Guid? supplierId)
+    {
+        _proveedor = supplierId;
+        await RecargarCuentasAsync();
+    }
+
+    private async Task FiltrarAbiertasAsync(bool openOnly)
+    {
+        _soloAbiertas = openOnly;
+        await RecargarCuentasAsync();
+    }
+
+    private async Task RecargarCuentasAsync()
+    {
+        try
+        {
+            await CargarCuentasAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task NuevoPagoAsync(Guid? supplierId, Guid? accountId)
+    {
+        try
+        {
+            if (_medios.Count == 0)
+            {
+                _medios = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
+            }
+
+            _conSaldo = Proveedores((await Api.GetAsync<JsonElement>("api/v1/purchasing/payables?openOnly=true")).Items());
+            _medio = null;
+            _referencia = _notas = null;
+            _fecha = DateTime.Today;
+            _aplicaciones = [];
+            _pagoProveedor = null;
+            _pagando = true;
+            if (supplierId is not null)
+            {
+                await ElegirProveedorAsync(supplierId);
+                if (accountId is { } only)
+                {
+                    foreach (var item in _aplicaciones)
+                    {
+                        item.Incluir = item.AccountId == only;
+                    }
+                }
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task ElegirProveedorAsync(Guid? supplierId)
+    {
+        _pagoProveedor = supplierId;
+        _aplicaciones = [];
+        if (supplierId is not { } id)
+        {
+            return;
+        }
+
+        try
+        {
+            var accounts = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/payables?supplierId={id}&openOnly=true")).Items();
+            _aplicaciones = [.. accounts.OrderBy(a => a.Str("dueDate")).Select(a => new Aplicacion
+            {
+                AccountId = a.GetProperty("id").GetGuid(),
+                Documento = a.Str("documentNumber"),
+                Vence = Dia(a, "dueDate"),
+                Saldo = a.Dec("balance"),
+                Valor = a.Dec("balance"),
+                Incluir = true,
+            })];
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task PagarAsync()
+    {
+        if (_pagoProveedor is null || _medio is null)
+        {
+            Snackbar.Add("Seleccione el proveedor y el medio de pago.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var payment = await Api.PostAsync<JsonElement>("api/v1/purchasing/payments", new
+            {
+                supplierId = _pagoProveedor, paymentDate = DateOnly.FromDateTime(_fecha ?? DateTime.Today), paymentMethodId = _medio,
+                reference = string.IsNullOrWhiteSpace(_referencia) ? null : _referencia.Trim(), notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
+                allocations = _aplicaciones.Where(a => a.Incluir && a.Valor > 0).Select(a => new { accountId = a.AccountId, amount = a.Valor }).ToList(),
+                cashSessionId = (Guid?)null,
+            });
+            Snackbar.Add($"Pago {payment.Str("number")} registrado por {Format.Money(payment.Dec("amount"))}.", Severity.Success);
+            foreach (var warning in payment.Prop("warnings").Items())
+            {
+                Snackbar.Add(warning.Str("message"), Severity.Warning);
+            }
+
+            _pagando = false;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void PedirAnulacion(JsonElement payment)
+    {
+        _motivo = null;
+        _anular = payment;
+    }
+
+    private async Task AnularAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/purchasing/payments/{_anular.GetProperty("id").GetGuid()}/void", new { reason = (_motivo ?? "").Trim() });
+            Snackbar.Add($"Pago {_anular.Str("number")} anulado.", Severity.Success);
+            _anular = default;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private sealed record Proveedor(Guid Id, string Nombre);
+
+    private sealed class Aplicacion
+    {
+        public Guid AccountId { get; init; }
+
+        public string Documento { get; init; } = "";
+
+        public string Vence { get; init; } = "";
+
+        public decimal Saldo { get; init; }
+
+        public bool Incluir { get; set; }
+
+        public decimal Valor { get; set; }
+    }
+}

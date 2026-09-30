@@ -41,7 +41,7 @@
    (búsqueda) solo en la red privada.
 2. En cada **caja**: el instalador con **Caja**. Busca solo el servidor y propone su dirección y la **huella del certificado**. Compárela con
    la que muestra la administración del servidor. Si no lo encuentra, escríbalas a mano.
-3. El emparejamiento de cada caja se hace con el código que genera la administración del servidor (la pantalla llega en la Fase 15).
+3. Empareje cada caja con el código que genera la administración del servidor: **Administración → Cajas e impresoras → Generar código de emparejamiento**; en la caja, escríbalo en "Emparejar este equipo".
 
 ### Recuperar en un computador nuevo
 En el instalador (modo Todo en uno o Servidor) elija el archivo `.posbak` y escriba el código de recuperación. La instalación crea la base
@@ -52,7 +52,7 @@ de datos, restaura el backup y verifica la auditoría. Después active de nuevo 
 - El servicio **PosSupermercado-Updater** revisa cada 6 horas si hay una versión nueva, la descarga y la verifica (firma y huella).
 - La instala a las **02:00** si no hay jornadas abiertas. Antes hace un **backup obligatorio**.
 - Si algo falla, vuelve solo a la versión anterior y, si hace falta, a la base de datos del backup previo. Queda en la auditoría.
-- Para instalar ya, sin esperar: `POST /api/v1/system/updates/install-now` (desde la administración en la Fase 15). Úselo con las cajas cerradas.
+- Para instalar ya, sin esperar: **Administración → Actualizaciones → Instalar ahora**. Úselo con las cajas cerradas.
 - Las cajas se actualizan desde el servidor de la tienda, sin Internet.
 
 ## 5. Desinstalar

@@ -1,0 +1,497 @@
+@page "/admin/conteos"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Conteos · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Conteos físicos" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("inventory.count.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevoAsync">Nuevo conteo</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudSelect T="string" Value="_estado" ValueChanged="@(v => FiltrarAsync(v))" Label="Estado" Class="mb-3" Style="max-width: 280px">
+            <MudSelectItem T="string" Value="@("")">Todos</MudSelectItem>
+            <MudSelectItem T="string" Value="@("DRAFT")">Borrador</MudSelectItem>
+            <MudSelectItem T="string" Value="@("IN_PROGRESS")">En curso</MudSelectItem>
+            <MudSelectItem T="string" Value="@("IN_REVIEW")">En revisión</MudSelectItem>
+            <MudSelectItem T="string" Value="@("POSTED")">Aprobado</MudSelectItem>
+            <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
+        </MudSelect>
+        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Bodega</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Str("number")</MudTd>
+                <MudTd>@Format.Date(context.Date("createdAt"))</MudTd>
+                <MudTd>@Bodega(context.Str("warehouseId"))</MudTd>
+                <MudTd>@Estado(context.Str("status"))</MudTd>
+                <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context.GetProperty("id").GetGuid()))">Ver</MudButton></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No hay conteos.</MudText></NoRecordsContent>
+        </MudTable>
+    </ChildContent>
+</Pagina>
+
+@if (_nuevo)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Nuevo conteo</h2>
+            <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
+                @foreach (var warehouse in Elegibles)
+                {
+                    <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" @bind-Value="_tipo" Label="Alcance">
+                <MudSelectItem T="string" Value="@("Full")">Completo (todos los productos inventariables)</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Partial")">Parcial (categorías o productos)</MudSelectItem>
+            </MudSelect>
+            @if (_tipo == "Partial")
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudSelect T="Guid?" @bind-Value="_categoria" Label="Categoría">
+                        @foreach (var category in _categorias)
+                        {
+                            <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" OnClick="AgregarCategoria">Agregar</MudButton>
+                </MudStack>
+                <MudTextField T="string" @bind-Value="_buscar" Label="Buscar producto (nombre, SKU o código; Enter busca)" Immediate="true"
+                              OnKeyDown="BuscarTeclaAsync" Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
+                @if (_resultados.Count > 0)
+                {
+                    <MudSimpleTable Dense="true" Class="my-2">
+                        <tbody>
+                            @foreach (var product in _resultados)
+                            {
+                                <tr>
+                                    <td>@product.Str("sku")</td>
+                                    <td>@product.Str("name")</td>
+                                    <td><MudButton Size="Size.Small" OnClick="@(() => AgregarProducto(product))">Agregar</MudButton></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+                <div class="my-2">
+                    @foreach (var (id, nombre) in _alcanceCategorias)
+                    {
+                        <MudChip T="string" Size="Size.Small" OnClose="@(_ => _alcanceCategorias.Remove(id))">Categoría: @nombre</MudChip>
+                    }
+                    @foreach (var (id, nombre) in _alcanceProductos)
+                    {
+                        <MudChip T="string" Size="Size.Small" OnClose="@(_ => _alcanceProductos.Remove(id))">@nombre</MudChip>
+                    }
+                </div>
+            }
+            <MudCheckBox T="bool" @bind-Value="_ciego" Label="Conteo ciego (quien cuenta no ve el teórico)" />
+            <MudTextField T="string" @bind-Value="_notas" Label="Observación (opcional)" Immediate="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CrearAsync">Crear</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_conteo.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(1000px, 96vw)">
+            <h2>Conteo @_conteo.Str("number") · @Estado(Status)</h2>
+            <MudText Typo="Typo.body2">
+                Bodega @Bodega(_conteo.Str("warehouseId")) · @(_conteo.Str("countType") == "FULL" ? "Completo" : "Parcial") ·
+                @(_conteo.Bool("isBlind") ? "Ciego" : "Con teórico visible") · Contados @_conteo.Dec("countedProducts") de @_conteo.Dec("productCount") producto(s)
+                @if (_conteo.Date("startedAt") is { } started)
+                {
+                    <span> · Iniciado @Format.Date(started)</span>
+                }
+            </MudText>
+            @if (Status == "DRAFT")
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="my-2">Al iniciar se congela el teórico de cada producto; la tienda puede seguir vendiendo durante el conteo.</MudAlert>
+            }
+            @if (Status is "IN_PROGRESS" or "IN_REVIEW" && Session.Has("inventory.count.register"))
+            {
+                @if (Status == "IN_REVIEW")
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="my-2">El conteo está en revisión: lo que registre ahora es un reconteo y reemplaza la primera captura del producto.</MudAlert>
+                }
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="my-2">
+                    <MudTextField @ref="_escaner" T="string" @bind-Value="_codigo" Label="Código de barras o SKU (cantidad*código; Enter registra)" Variant="Variant.Outlined"
+                                  Immediate="true" OnKeyDown="EscanerTeclaAsync" AutoFocus="true" />
+                    <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Variant="Variant.Outlined" Style="max-width: 140px" />
+                    <MudTextField T="string" @bind-Value="_ubicacion" Label="Ubicación (opcional)" Variant="Variant.Outlined" Immediate="true" Style="max-width: 200px" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RegistrarAsync">Registrar</MudButton>
+                </MudStack>
+                @if (_ultimo is not null)
+                {
+                    <MudText Typo="Typo.caption">@_ultimo</MudText>
+                }
+            }
+            <MudSelect T="string" @bind-Value="_filtro" Label="Mostrar" Class="my-2" Style="max-width: 280px">
+                <MudSelectItem T="string" Value="@("")">Todos los productos</MudSelectItem>
+                <MudSelectItem T="string" Value="@("PENDIENTES")">Sin contar</MudSelectItem>
+                <MudSelectItem T="string" Value="@("DIFERENCIAS")">Con diferencia</MudSelectItem>
+                <MudSelectItem T="string" Value="@("RECONTAR")">Por recontar</MudSelectItem>
+            </MudSelect>
+            <MudTable Items="LineasFiltradas" Dense="true" Hover="true" Striped="true" RowsPerPage="50">
+                <HeaderContent>
+                    <MudTh>SKU</MudTh><MudTh>Producto</MudTh><MudTh Class="num">Teórico</MudTh><MudTh Class="num">Esperado</MudTh>
+                    <MudTh Class="num">Contado</MudTh><MudTh Class="num">Diferencia</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Str("sku")</MudTd>
+                    <MudTd>@context.Str("productName")</MudTd>
+                    <MudTd Class="num">@Cantidad(context, "systemQuantity")</MudTd>
+                    <MudTd Class="num">@Cantidad(context, "expectedQuantity")</MudTd>
+                    <MudTd Class="num">@Cantidad(context, "countedQuantity")</MudTd>
+                    <MudTd Class="num">
+                        <MudText Typo="Typo.body2" Color="@(context.Dec("difference") < 0 ? Color.Error : context.Dec("difference") > 0 ? Color.Success : Color.Default)">
+                            @Cantidad(context, "difference")
+                        </MudText>
+                    </MudTd>
+                    <MudTd>
+                        @if (context.Bool("needsRecount"))
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">Recontar</MudChip>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>No hay productos para mostrar.</MudText></NoRecordsContent>
+                <PagerContent><MudTablePager RowsPerPageString="Filas por página:" InfoFormat="{first_item}-{last_item} de {all_items}" /></PagerContent>
+            </MudTable>
+            @if (Status == "IN_REVIEW")
+            {
+                <MudText Typo="Typo.caption" Class="d-block mt-2">
+                    Diferencia = contado − esperado (teórico congelado + movimientos posteriores). Al aprobar, las diferencias se llevan al kardex como ajuste de conteo.
+                </MudText>
+            }
+            <div class="acciones">
+                <MudButton OnClick="Cerrar">Cerrar</MudButton>
+                @if (Status is "DRAFT" or "IN_PROGRESS" or "IN_REVIEW" && Session.Has("inventory.count.manage"))
+                {
+                    <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => AccionAsync("cancel", "Conteo anulado."))">
+                        @(_confirmar == "cancel" ? "Confirmar anulación" : "Anular")
+                    </MudButton>
+                }
+                @if (Status == "DRAFT" && Session.Has("inventory.count.manage"))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("start", "Conteo iniciado: el teórico quedó congelado."))">Iniciar</MudButton>
+                }
+                @if (Status == "IN_PROGRESS" && Session.Has("inventory.count.manage"))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("review", "Conteo en revisión: revise las diferencias."))">Pasar a revisión</MudButton>
+                }
+                @if (Status == "IN_REVIEW" && Session.Has("inventory.count.approve"))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("approve", "Conteo aprobado: las diferencias quedaron en el kardex."))">
+                        @(_confirmar == "approve" ? "Confirmar aprobación" : "Aprobar y ajustar")
+                    </MudButton>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _items = [];
+    private List<JsonElement> _bodegas = [];
+    private List<JsonElement> _categorias = [];
+    private List<JsonElement> _resultados = [];
+    private readonly Dictionary<Guid, string> _alcanceCategorias = [];
+    private readonly Dictionary<Guid, string> _alcanceProductos = [];
+    private MudTextField<string>? _escaner;
+    private JsonElement _conteo;
+    private string _estado = "", _tipo = "Full", _filtro = "";
+    private string? _error, _notas, _buscar, _codigo, _ubicacion, _ultimo, _confirmar;
+    private Guid? _bodega, _categoria;
+    private decimal _cantidad = 1;
+    private bool _loading = true, _busy, _nuevo, _ciego = true;
+
+    private string Status => _conteo.Str("status");
+
+    private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
+
+    private IEnumerable<JsonElement> LineasFiltradas
+    {
+        get
+        {
+            var lines = _conteo.Prop("lines").Items();
+            return _filtro switch
+            {
+                "PENDIENTES" => lines.Where(l => !l.Bool("counted")),
+                "DIFERENCIAS" => lines.Where(l => l.Dec("difference") != 0m),
+                "RECONTAR" => lines.Where(l => l.Bool("needsRecount")),
+                _ => lines,
+            };
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarBodegasAsync();
+        await CargarAsync();
+    }
+
+    private async Task CargarBodegasAsync()
+    {
+        if (Session.Me is not { } me)
+        {
+            return;
+        }
+
+        try
+        {
+            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            _items = (await Api.GetAsync<JsonElement>($"api/v1/inventory/counts{(string.IsNullOrEmpty(_estado) ? "" : "?status=" + Uri.EscapeDataString(_estado))}")).Items();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task FiltrarAsync(string? estado)
+    {
+        _estado = estado ?? "";
+        await CargarAsync();
+    }
+
+    private string Bodega(string id)
+    {
+        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
+        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
+    }
+
+    private static string Estado(string status) => status switch
+    {
+        "DRAFT" => "Borrador",
+        "IN_PROGRESS" => "En curso",
+        "IN_REVIEW" => "En revisión",
+        "POSTED" => "Aprobado",
+        "CANCELLED" => "Anulado",
+        _ => status,
+    };
+
+    private static string Cantidad(JsonElement line, string name) =>
+        line.Prop(name).ValueKind == JsonValueKind.Number ? Format.Quantity(line.Dec(name)) : "—";
+
+    private async Task NuevoAsync()
+    {
+        _bodega = Elegibles.Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
+        _tipo = "Full";
+        _ciego = true;
+        _notas = _buscar = null;
+        _categoria = null;
+        _resultados = [];
+        _alcanceCategorias.Clear();
+        _alcanceProductos.Clear();
+        try
+        {
+            _categorias = (await Api.GetAsync<JsonElement>("api/v1/catalog/categories")).Items();
+        }
+        catch (ApiException ex)
+        {
+            _categorias = [];
+            Snackbar.Add($"No se pudieron cargar las categorías: {ex.Message}", Severity.Warning);
+        }
+
+        _nuevo = true;
+    }
+
+    private void AgregarCategoria()
+    {
+        if (_categoria is not { } id)
+        {
+            return;
+        }
+
+        _alcanceCategorias[id] = _categorias.FirstOrDefault(c => c.Prop("id").TryGetGuid(out var categoryId) && categoryId == id).Str("path");
+        _categoria = null;
+    }
+
+    private async Task BuscarTeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await BuscarAsync();
+        }
+    }
+
+    private async Task BuscarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_buscar))
+        {
+            _resultados = [];
+            return;
+        }
+
+        try
+        {
+            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            if (_resultados.Count == 0)
+            {
+                Snackbar.Add("No hay productos que coincidan.", Severity.Info);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void AgregarProducto(JsonElement product)
+    {
+        _alcanceProductos[product.GetProperty("id").GetGuid()] = $"{product.Str("sku")} · {product.Str("name")}";
+        _resultados = [];
+        _buscar = null;
+    }
+
+    private async Task CrearAsync()
+    {
+        _busy = true;
+        try
+        {
+            var parcial = _tipo == "Partial";
+            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/counts", new
+            {
+                warehouseId = _bodega,
+                type = _tipo,
+                isBlind = _ciego,
+                categoryIds = parcial ? _alcanceCategorias.Keys.ToList() : [],
+                productIds = parcial ? _alcanceProductos.Keys.ToList() : [],
+                notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
+            });
+            Snackbar.Add("Conteo creado. Inícielo cuando vaya a empezar a contar.", Severity.Success);
+            _nuevo = false;
+            await CargarAsync();
+            await VerAsync(created.GetProperty("id").GetGuid());
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task VerAsync(Guid id)
+    {
+        try
+        {
+            _conteo = await Api.GetAsync<JsonElement>($"api/v1/inventory/counts/{id}");
+            _filtro = "";
+            _codigo = _ultimo = _confirmar = null;
+            _cantidad = 1;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void Cerrar()
+    {
+        _conteo = default;
+        _confirmar = null;
+    }
+
+    private async Task EscanerTeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await RegistrarAsync();
+        }
+    }
+
+    private async Task RegistrarAsync()
+    {
+        var texto = (_codigo ?? "").Trim();
+        if (texto.Length == 0 || _busy)
+        {
+            return;
+        }
+
+        var cantidad = _cantidad;
+        var codigo = texto;
+        var asterisco = texto.IndexOf('*', StringComparison.Ordinal);
+        if (asterisco > 0 && decimal.TryParse(texto[..asterisco].Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+        {
+            cantidad = parsed;
+            codigo = texto[(asterisco + 1)..].Trim();
+        }
+
+        _busy = true;
+        try
+        {
+            var id = _conteo.GetProperty("id").GetGuid();
+            _conteo = await Api.PostAsync<JsonElement>($"api/v1/inventory/counts/{id}/entries", new[]
+            {
+                new { productId = (Guid?)null, code = codigo, quantity = cantidad, location = string.IsNullOrWhiteSpace(_ubicacion) ? null : _ubicacion.Trim() },
+            });
+            var line = _conteo.Prop("lines").Items().FirstOrDefault(l => l.Str("sku") == codigo);
+            _ultimo = $"Registrado: {Format.Quantity(cantidad)} de {(line.ValueKind == JsonValueKind.Object ? line.Str("productName") : codigo)}.";
+            _codigo = null;
+            _cantidad = 1;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+        if (_escaner is not null)
+        {
+            await _escaner.FocusAsync();
+        }
+    }
+
+    private async Task AccionAsync(string action, string message)
+    {
+        if (action is "approve" or "cancel" && _confirmar != action)
+        {
+            _confirmar = action;
+            return;
+        }
+
+        _busy = true;
+        var id = _conteo.GetProperty("id").GetGuid();
+        try
+        {
+            await Api.PostAsync($"api/v1/inventory/counts/{id}/{action}");
+            Snackbar.Add(message, Severity.Success);
+            await CargarAsync();
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _confirmar = null;
+        _busy = false;
+    }
+}
