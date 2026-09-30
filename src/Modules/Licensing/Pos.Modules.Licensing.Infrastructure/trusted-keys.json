@@ -1,3 +1,5 @@
 {
-  "keys": []
+  "keys": [
+    { "kid": "ed25519-c971c36ad6e7", "kty": "OKP", "crv": "Ed25519", "x": "yZdvshOlKbke1FawZ_wyUC3e3tge-XSIgSvak5eqf3M", "status": "ACTIVE" }
+  ]
 }
