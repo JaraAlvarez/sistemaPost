@@ -10,6 +10,7 @@ using Pos.Infrastructure.Persistence;
 using Pos.Infrastructure.Security;
 using Pos.Modules.Inventory.Infrastructure;
 using Pos.Server.Migrations;
+using Pos.Server.Migrator;
 
 // Uso:
 //   Pos.Server.Migrator create-database --superuser "<cadena>" [--database pos]
@@ -24,9 +25,17 @@ using Pos.Server.Migrations;
 //   Pos.Server.Migrator verify-stock [--connection "<cadena>"]   (saldos de inventario contra el kardex)
 //   Pos.Server.Migrator rebuild-stock --warehouse <id> --product <id> --reason "<motivo>" [--connection "<cadena pos_migrator>"]
 //                       Reconstruye un saldo desde su kardex; auditado como crítico.
+//   Pos.Server.Migrator backup [--kind MANUAL] [--backup-connection "<cadena pos_backup>"] [--data-root D] [--output carpeta] [--pg-bin carpeta]
+//                       Backup cifrado y verificado (Fase 11). migrate hace uno PRE_UPDATE antes de aplicar migraciones (--no-backup lo omite).
+//   Pos.Server.Migrator verify-backup --file F.posbak [--recovery-code XXXX-…] [--data-root D]
+//   Pos.Server.Migrator restore --file F.posbak --superuser "<cadena>" [--recovery-code XXXX-…] [--database pos_rAAAAMMDDhhmm]
+//                       [--migrator-connection "<cadena>"] [--data-root D] --yes
+//                       Restaura en una BD nueva, verifica y cambia la BD activa en server.json (detenga antes el servicio).
 // Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION.
+// La carpeta de datos (--data-root) por defecto es POS_DATA_ROOT o %ProgramData%\PosSupermercado.
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
-//                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex.
+//                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex,
+//                    6 = falló el backup previo obligatorio.
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole(o => o.SingleLine = true));
 var logger = loggerFactory.CreateLogger<DatabaseMigrator>();
@@ -35,7 +44,7 @@ var appVersion = Assembly.GetExecutingAssembly()
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock");
+    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore");
     return 2;
 }
 
@@ -58,6 +67,27 @@ try
             return 0;
 
         case "migrate":
+            // RN-BAK-03: backup obligatorio antes de aplicar migraciones pendientes (--no-backup solo en desarrollo).
+            bool hasSchema;
+            await using (var probe = new NpgsqlConnection(Connection(options)))
+            {
+                await probe.OpenAsync();
+                hasSchema = await DatabaseMigrator.GetDatabaseVersionAsync(probe) is not null;
+            }
+
+            if (!options.ContainsKey("no-backup") && hasSchema && !(await migrator.GetStatusAsync(Connection(options))).IsUpToDate)
+            {
+                try
+                {
+                    await BackupCommands.BackupAsync(options, "PRE_UPDATE", appVersion, Connection(options), CancellationToken.None);
+                }
+                catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or NpgsqlException)
+                {
+                    Console.Error.WriteLine($"No se migró: falló el backup previo obligatorio ({ex.Message}).");
+                    return BackupCommands.ExitBackupFailed;
+                }
+            }
+
             var report = await migrator.MigrateAsync(Connection(options), appVersion);
             Console.WriteLine($"Versión de esquema: {report.SchemaVersion} ({report.AppliedScripts.Count} scripts aplicados).");
             return 0;
@@ -143,6 +173,17 @@ try
             return reset.Succeeded ? 0 : 1;
         }
 
+        case "backup":
+            await BackupCommands.BackupAsync(options, options.GetValueOrDefault("kind", "MANUAL"), appVersion,
+                options.GetValueOrDefault("connection") ?? Environment.GetEnvironmentVariable("POS_MIGRATOR_CONNECTION"), CancellationToken.None);
+            return 0;
+
+        case "verify-backup":
+            return await BackupCommands.VerifyAsync(options, CancellationToken.None);
+
+        case "restore":
+            return await BackupCommands.RestoreAsync(options, appVersion, migrator, CancellationToken.None);
+
         case "verify-stock":
             await using (var dataSource = NpgsqlDataSource.Create(Connection(options)))
             await using (var connection = await dataSource.OpenConnectionAsync())
@@ -198,6 +239,11 @@ catch (MigrationException ex)
     Console.Error.WriteLine(ex.Message);
     return ex.Code == MigrationException.PendingMigrations ? 3 : 1;
 }
+catch (Pos.Infrastructure.Backup.BackupPackageException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return 1;
+}
 catch (ArgumentException ex)
 {
     Console.Error.WriteLine(ex.Message);
@@ -209,12 +255,13 @@ static Dictionary<string, string> ParseOptions(string[] arguments)
     var result = new Dictionary<string, string>(StringComparer.Ordinal);
     for (var i = 0; i < arguments.Length; i++)
     {
-        if (!arguments[i].StartsWith("--", StringComparison.Ordinal) || i + 1 >= arguments.Length)
+        if (!arguments[i].StartsWith("--", StringComparison.Ordinal))
         {
             throw new ArgumentException(string.Create(CultureInfo.InvariantCulture, $"Opción inválida: {arguments[i]}"));
         }
 
-        result[arguments[i][2..]] = arguments[++i];
+        // Una opción sin valor (--yes, --no-backup) es una marca.
+        result[arguments[i][2..]] = i + 1 < arguments.Length && !arguments[i + 1].StartsWith("--", StringComparison.Ordinal) ? arguments[++i] : "true";
     }
 
     return result;

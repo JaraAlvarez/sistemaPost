@@ -86,6 +86,27 @@ services:
       db-init:
         condition: service_completed_successfully
 
+  # Fase 11 · Nube de backups de las tiendas (compatible S3). Opcional: se activa con `docker compose --profile backups up -d`.
+  # Guarda archivos .posbak ya cifrados en cada tienda: ni el VPS ni el portal pueden leerlos (ver docs/despliegue-nube.md §14).
+  # MinIO server es AGPL-3.0: se usa sin modificar como servicio aparte (no se distribuye con el POS).
+  minio:
+    image: minio/minio:latest
+    profiles: [backups]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-posadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-cambie-esta-clave-larga}
+      TZ: America/Bogota
+    volumes:
+      - minio_data:/data
+    networks: [frontend]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -120,3 +141,4 @@ volumes:
   dataprotection:
   caddy_data:
   caddy_config:
+  minio_data:

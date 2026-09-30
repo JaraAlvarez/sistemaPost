@@ -1,5 +1,6 @@
 using Pos.Api.Abstractions;
 using Pos.Modules.Audit.Api;
+using Pos.Modules.Backup.Api;
 using Pos.Modules.Billing.Api;
 using Pos.Modules.Cash.Api;
 using Pos.Modules.Catalog.Api;
@@ -41,5 +42,6 @@ internal static class ModuleCatalog
         new SalesModule(),
         new CustomersModule(),
         new ReportingModule(),
+        new BackupModule(),
     ];
 }

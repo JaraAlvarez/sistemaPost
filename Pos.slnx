@@ -80,6 +80,10 @@
     <Project Path="src/Modules/Reporting/Pos.Modules.Reporting.Application/Pos.Modules.Reporting.Application.csproj" />
     <Project Path="src/Modules/Reporting/Pos.Modules.Reporting.Infrastructure/Pos.Modules.Reporting.Infrastructure.csproj" />
     <Project Path="src/Modules/Reporting/Pos.Modules.Reporting.Api/Pos.Modules.Reporting.Api.csproj" />
+    <Project Path="src/Modules/Backup/Pos.Modules.Backup.Contracts/Pos.Modules.Backup.Contracts.csproj" />
+    <Project Path="src/Modules/Backup/Pos.Modules.Backup.Application/Pos.Modules.Backup.Application.csproj" />
+    <Project Path="src/Modules/Backup/Pos.Modules.Backup.Infrastructure/Pos.Modules.Backup.Infrastructure.csproj" />
+    <Project Path="src/Modules/Backup/Pos.Modules.Backup.Api/Pos.Modules.Backup.Api.csproj" />
   </Folder>
   <Folder Name="/src/Server/">
     <Project Path="src/Server/Pos.Server.Host/Pos.Server.Host.csproj" />

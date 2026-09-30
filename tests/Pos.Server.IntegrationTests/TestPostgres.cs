@@ -56,4 +56,20 @@ public static class TestPostgres
         var database = new NpgsqlConnectionStringBuilder(appConnectionString).Database;
         return new NpgsqlConnectionStringBuilder(container.GetConnectionString()) { Database = database }.ConnectionString;
     }
+
+    /// <summary>Contenedor compartido (Fase 11: las pruebas de backup ejecutan pg_dump y pg_restore dentro de él).</summary>
+    public static Task<PostgreSqlContainer> ContainerAsync() => Container.Value;
+
+    /// <summary>Cadena de un rol de la instalación de pruebas sobre la BD de <paramref name="appConnectionString"/>.</summary>
+    public static string RoleConnectionString(string appConnectionString, string role) =>
+        new NpgsqlConnectionStringBuilder(appConnectionString)
+        {
+            Username = role,
+            Password = role switch
+            {
+                DatabaseCreator.MigratorRole => "migrator-test-password",
+                DatabaseCreator.BackupRole => "backup-test-password",
+                _ => AppPassword,
+            },
+        }.ConnectionString;
 }

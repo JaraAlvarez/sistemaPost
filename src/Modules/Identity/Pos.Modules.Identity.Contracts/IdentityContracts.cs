@@ -109,7 +109,8 @@ public sealed record MeDto(
     Guid? PosTerminalId,
     bool MustChangePassword,
     IReadOnlyList<string> Permissions,
-    int OpenIntegrityIncidents = 0);
+    int OpenIntegrityIncidents = 0,
+    int BackupAlerts = 0);
 
 public sealed record LoginResultDto(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeDto User);
 

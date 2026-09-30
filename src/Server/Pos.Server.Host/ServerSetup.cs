@@ -22,6 +22,7 @@ using Pos.Server.Host.SystemInfo;
 using Pos.SharedKernel.Time;
 using Scalar.AspNetCore;
 using Serilog;
+using Pos.Infrastructure.Security;
 
 namespace Pos.Server.Host;
 
@@ -89,6 +90,13 @@ internal static class ServerSetup
         builder.Services.AddSingleton<IServerIdentity>(sp => sp.GetRequiredService<ServerCertificate>());
         AddRateLimits(builder.Services);
         builder.Services.AddHostedService<DatabaseStartup>();
+        builder.Services.AddSingleton(sp => new Infrastructure.Backup.BackupEnvironment(
+            paths.DataRoot,
+            paths.ServerConfigFile,
+            ProductInfo.Version,
+            ProtectedSecret.Reveal(sp.GetRequiredService<IOptions<DatabaseOptions>>().Value.BackupConnectionString)));
+        builder.Services.AddSingleton<Infrastructure.Backup.IPgTools>(sp => new Infrastructure.Backup.PgClientTools(
+            sp.GetRequiredService<IConfiguration>()[$"{Infrastructure.Backup.BackupToolsOptions.SectionName}:{nameof(Infrastructure.Backup.BackupToolsOptions.PgBinPath)}"]));
         builder.Services.Configure<Infrastructure.Auditing.AuditSealingOptions>(
             builder.Configuration.GetSection(Infrastructure.Auditing.AuditSealingOptions.SectionName));
         builder.Services.AddPosPersistence(sp =>

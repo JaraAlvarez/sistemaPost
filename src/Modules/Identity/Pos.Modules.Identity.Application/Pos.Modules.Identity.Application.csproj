@@ -21,6 +21,7 @@
     <ProjectReference Include="../Pos.Modules.Identity.Contracts/Pos.Modules.Identity.Contracts.csproj" />
     <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
     <ProjectReference Include="../../Audit/Pos.Modules.Audit.Contracts/Pos.Modules.Audit.Contracts.csproj" />
+    <ProjectReference Include="../../Backup/Pos.Modules.Backup.Contracts/Pos.Modules.Backup.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

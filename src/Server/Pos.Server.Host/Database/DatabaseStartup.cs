@@ -3,6 +3,7 @@ using Npgsql;
 using Pos.Application.Abstractions.Installation;
 using Pos.Infrastructure.Persistence;
 using Pos.Server.Migrations;
+using Pos.Infrastructure.Security;
 
 namespace Pos.Server.Host.Database;
 
