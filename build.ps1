@@ -76,7 +76,9 @@ if ($SkipTests) {
 }
 
 if (Test-Path $artifacts) { Remove-Item $artifacts -Recurse -Force }
-$testProjects = Get-ChildItem (Join-Path $root 'tests') -Recurse -Filter '*.csproj'
+# Bibliotecas de apoyo bajo tests/ (p. ej. el Factus simulado) declaran IsTestProject=false y no se ejecutan.
+$testProjects = Get-ChildItem (Join-Path $root 'tests') -Recurse -Filter '*.csproj' |
+    Where-Object { -not (Select-String -Path $_.FullName -Pattern '<IsTestProject>false</IsTestProject>' -Quiet) }
 
 foreach ($project in $testProjects) {
     $resultsDir = Join-Path $artifacts "test-results/$($project.BaseName)"
