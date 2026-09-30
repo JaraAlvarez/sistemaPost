@@ -26,8 +26,8 @@ public static class CloudCommands
 {
     private static readonly string[] Commands =
     [
-        "setup-database", "migrate", "status", "create-superadmin", "recover-user", "generate-signing-key", "register-standby-key",
-        "revoke-signing-key", "verify-audit", "healthcheck", "help",
+        "setup-database", "migrate", "status", "create-superadmin", "recover-user", "generate-signing-key", "generate-sync-key",
+        "register-standby-key", "revoke-signing-key", "verify-audit", "healthcheck", "help",
     ];
 
     public static bool IsCommand(string argument) => Commands.Contains(argument, StringComparer.Ordinal);
