@@ -27,6 +27,8 @@ public class ArchitectureTests
             "Pos.Modules.Purchasing.Infrastructure",
             "Pos.Modules.Reference.Api", "Pos.Modules.Reference.Application", "Pos.Modules.Reference.Contracts",
             "Pos.Modules.Reference.Infrastructure",
+            "Pos.Modules.Reporting.Api", "Pos.Modules.Reporting.Application", "Pos.Modules.Reporting.Contracts",
+            "Pos.Modules.Reporting.Infrastructure",
             "Pos.Modules.Customers.Api", "Pos.Modules.Customers.Application", "Pos.Modules.Customers.Contracts", "Pos.Modules.Customers.Domain",
             "Pos.Modules.Customers.Infrastructure",
             "Pos.Modules.Sales.Api", "Pos.Modules.Sales.Application", "Pos.Modules.Sales.Contracts", "Pos.Modules.Sales.Domain",

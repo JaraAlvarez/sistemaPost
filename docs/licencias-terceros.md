@@ -22,7 +22,8 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** 
 | System.IO.Ports *(desde la Fase 7)* | 10.0.12 | MIT | Agente de caja: impresora por puerto serie / USB virtual (`COMx`) |
 | NSec.Cryptography *(desde la Fase 3)* | 26.4.0 | MIT | Argon2id para contraseñas y PIN |
 | libsodium (binario nativo incluido en NSec) | 1.0.22 | ISC | Implementación criptográfica de Argon2id |
-| MiniExcel *(desde la Fase 4)* | 1.46.0 | Apache-2.0 | Leer archivos Excel (.xlsx) en las importaciones |
+| MiniExcel *(desde la Fase 4)* | 1.46.0 | Apache-2.0 | Leer archivos Excel (.xlsx) en las importaciones y exportar reportes (Fase 9) |
+| PDFsharp-MigraDoc *(desde la Fase 9)* | 6.2.4 | MIT | Exportar reportes a PDF (tabla con encabezado de la empresa); QuestPDF se descartó por su licencia comercial |
 | MudBlazor *(desde la Fase 12-A, solo la nube)* | 9.11.0 | MIT | Componentes del portal web de licencias (Blazor) |
 | QRCoder *(desde la Fase 12-A, solo la nube)* | 1.8.0 | MIT | Código QR del enrolamiento del doble factor (TOTP) |
 | Datos DIVIPOLA (DANE, datos.gov.co) | 2026-09-28 | Datos abiertos del Gobierno de Colombia | Catálogo de departamentos y municipios |

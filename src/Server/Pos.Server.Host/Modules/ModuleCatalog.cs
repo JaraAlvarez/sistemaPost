@@ -12,6 +12,7 @@ using Pos.Modules.Parties.Api;
 using Pos.Modules.Promotions.Api;
 using Pos.Modules.Purchasing.Api;
 using Pos.Modules.Reference.Api;
+using Pos.Modules.Reporting.Api;
 using Pos.Modules.Sales.Api;
 
 namespace Pos.Server.Host.Modules;
@@ -39,5 +40,6 @@ internal static class ModuleCatalog
         new BillingModule(),
         new SalesModule(),
         new CustomersModule(),
+        new ReportingModule(),
     ];
 }

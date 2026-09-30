@@ -20,6 +20,8 @@
     <!-- Fase 12-A (nube): componentes del portal web y código QR para el doble factor. -->
     <PackageVersion Include="MudBlazor" Version="9.11.0" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <!-- Fase 9 (reportes): exportación a PDF (MIT). -->
+    <PackageVersion Include="PDFsharp-MigraDoc" Version="6.2.4" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="NSec.Cryptography" Version="26.4.0" />
     <PackageVersion Include="QRCoder" Version="1.8.0" />

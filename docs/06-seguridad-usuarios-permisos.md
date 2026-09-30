@@ -33,7 +33,7 @@ Permiso efectivo(usuario, permiso, sucursal) =
 | cash | `cash.session.open`, `cash.session.close`, `cash.session.review`, `cash.movement.cash_in`, `cash.movement.withdrawal`, `cash.drawer.open_no_sale`, `cash.session.view_expected` (ver esperado en arqueo ciego) |
 | expenses | `expenses.expense.create`, `expenses.expense.void` |
 | billing | `billing.document.view`, `billing.document.retry`, `billing.range.manage` |
-| reporting | `reporting.sales.basic`, `reporting.sales.advanced`, `reporting.profit.view`, `reporting.inventory.view`, `reporting.antifraud.view`, `reporting.export` |
+| reporting | `reporting.sales.basic`, `reporting.sales.advanced`, `reporting.profit.view` (sensible), `reporting.taxes.view`, `reporting.inventory.view`, `reporting.purchases.view`, `reporting.cash.view`, `reporting.antifraud.view` (sensible), `reporting.report.export` (sensible; el formato de permisos exige tres partes) — Fase 9, roles en docs/fases/fase-09-propuesta.md §8 |
 | audit | `audit.log.view` |
 | settings | `settings.manage` |
 | backup | `backup.run`, `backup.restore`, `backup.configure` |

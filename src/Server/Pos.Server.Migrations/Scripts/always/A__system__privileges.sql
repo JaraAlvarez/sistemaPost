@@ -7,8 +7,8 @@
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
-GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
-    TO pos_app, pos_backup;
+GRANT USAGE ON SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers,
+    reporting TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
 REVOKE ALL ON ALL TABLES IN SCHEMA system, ref, org, identity, audit, catalog, inventory, parties, cash, purchasing, expenses, promotions, sales, billing, customers
@@ -46,6 +46,10 @@ REVOKE UPDATE, DELETE, TRUNCATE ON billing.fiscal_document_events FROM pos_app;
 
 -- Autorizaciones de tratamiento de datos: la prueba ante la SIC no se modifica (D8-06).
 REVOKE UPDATE, DELETE, TRUNCATE ON customers.customer_consents FROM pos_app;
+
+-- Reportes (D9-01/D9-02): solo lectura de las vistas del esquema reporting.
+REVOKE ALL ON ALL TABLES IN SCHEMA reporting FROM pos_app;
+GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO pos_app;
 
 -- Auditoría: solo agregar y leer
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;

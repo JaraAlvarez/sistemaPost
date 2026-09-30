@@ -13,6 +13,7 @@
     <ProjectReference Include="../../Expenses/Pos.Modules.Expenses.Contracts/Pos.Modules.Expenses.Contracts.csproj" />
     <ProjectReference Include="../../Sales/Pos.Modules.Sales.Contracts/Pos.Modules.Sales.Contracts.csproj" />
     <ProjectReference Include="../../Customers/Pos.Modules.Customers.Contracts/Pos.Modules.Customers.Contracts.csproj" />
+    <ProjectReference Include="../../Reporting/Pos.Modules.Reporting.Contracts/Pos.Modules.Reporting.Contracts.csproj" />
     <ProjectReference Include="../../Promotions/Pos.Modules.Promotions.Contracts/Pos.Modules.Promotions.Contracts.csproj" />
     <ProjectReference Include="../../Billing/Pos.Modules.Billing.Contracts/Pos.Modules.Billing.Contracts.csproj" />
     <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />

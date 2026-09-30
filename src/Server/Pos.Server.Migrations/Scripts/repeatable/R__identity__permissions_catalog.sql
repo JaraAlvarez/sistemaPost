@@ -80,6 +80,15 @@ INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUE
     ('customers.history.view',            'customers',    'Ver el historial y el resumen de compras de un cliente',                          false),
     ('customers.pricing.assign',          'customers',    'Asignar el grupo y la lista de precio de un cliente',                             true),
     ('customers.privacy.manage',          'customers',    'Política de datos, solicitudes de titulares, exportación y supresión de datos',   true),
+    ('reporting.antifraud.view',          'reporting',    'Ver el panel antifraude por cajero y el detalle de sus eventos',                  true),
+    ('reporting.cash.view',               'reporting',    'Ver reportes de cierres, retiros e ingresos de caja',                             false),
+    ('reporting.report.export',           'reporting',    'Exportar reportes a Excel, CSV o PDF (queda en la auditoría)',                    true),
+    ('reporting.inventory.view',          'reporting',    'Ver reportes de inventario: valorizado, bajo mínimo, sin rotación, vencimientos y ajustes', false),
+    ('reporting.profit.view',             'reporting',    'Ver utilidad, costos y márgenes de las ventas',                                   true),
+    ('reporting.purchases.view',          'reporting',    'Ver reportes de compras, devoluciones, cartera por pagar y gastos',               false),
+    ('reporting.sales.advanced',          'reporting',    'Ver ventas por producto, categoría, marca, cliente, lista, descuentos y promociones', false),
+    ('reporting.sales.basic',             'reporting',    'Ver ventas por día, hora, medio de pago, cajero y caja, y el tablero del día',     false),
+    ('reporting.taxes.view',              'reporting',    'Ver impuestos de ventas y compras y el libro de ventas diario',                   false),
     ('settings.setting.manage',       'settings',     'Modificar la configuración general',                                            true),
     ('settings.setting.view',         'settings',     'Consultar la configuración general',                                            false)
 ON CONFLICT (code) DO UPDATE SET module = EXCLUDED.module, description = EXCLUDED.description,
@@ -102,4 +111,6 @@ WHERE code NOT IN (
     'purchasing.return.manage', 'purchasing.supplier.manage', 'purchasing.supplier.bank_manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',
     'cash.session.close_any', 'cash.session.operate', 'cash.session.review', 'expenses.expense.manage', 'expenses.expense.view',
     'billing.document.manage', 'billing.document.view', 'inventory.adjustment.quick', 'promotions.promotion.manage', 'promotions.promotion.view', 'sales.discount.apply', 'sales.exchange.create', 'sales.expired.sell', 'sales.line.void', 'sales.price.override', 'sales.refund.warranty', 'sales.sale.cancel', 'sales.sale.create', 'sales.sale.reprint', 'sales.sale.view', 'sales.sale.void',
-    'customers.customer.manage', 'customers.customer.quick_create', 'customers.customer.view', 'customers.group.manage', 'customers.history.view', 'customers.pricing.assign', 'customers.privacy.manage');
+    'customers.customer.manage', 'customers.customer.quick_create', 'customers.customer.view', 'customers.group.manage', 'customers.history.view', 'customers.pricing.assign', 'customers.privacy.manage',
+    'reporting.antifraud.view', 'reporting.cash.view', 'reporting.report.export', 'reporting.inventory.view', 'reporting.profit.view',
+    'reporting.purchases.view', 'reporting.sales.advanced', 'reporting.sales.basic', 'reporting.taxes.view');
