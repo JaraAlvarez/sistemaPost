@@ -121,4 +121,54 @@ public class ArchitectureTests
 
         offenders.ShouldBeEmpty();
     }
+
+    /// <summary>
+    /// RN-AUD-02 (Fase 10, D10-01): toda entidad <c>[Audited]</c> y todo código de acción escrito con <c>new AuditEntry("modulo", "CODIGO"…)</c>
+    /// está en el catálogo de acciones (nombre en español y severidad). Se revisa el código fuente para los códigos literales.
+    /// </summary>
+    [Fact]
+    public void R9_Toda_accion_de_auditoria_esta_en_el_catalogo()
+    {
+        var contracts = ProductionAssemblies.All.Single(a => a.GetName().Name == "Pos.Modules.Audit.Contracts");
+        var catalog = contracts.GetType("Pos.Modules.Audit.Contracts.AuditActions", throwOnError: true)!;
+        var codes = ((System.Collections.IEnumerable)catalog.GetProperty("All")!.GetValue(null)!)
+            .Cast<object>()
+            .Select(a => (string)a.GetType().GetProperty("Code")!.GetValue(a)!)
+            .ToHashSet(StringComparer.Ordinal);
+        var entities = ((System.Collections.IDictionary)catalog.GetProperty("Entities")!.GetValue(null)!).Keys.Cast<string>().ToHashSet(StringComparer.Ordinal);
+
+        var audited = ProductionAssemblies.All
+            .SelectMany(a => a.GetTypes())
+            .Where(t => t.GetCustomAttributes(inherit: false).Any(x => x.GetType().Name == "AuditedAttribute"))
+            .Select(t => t.Name)
+            .Where(name => !entities.Contains(name))
+            .Select(name => $"La entidad auditada {name} no está en AuditActions.Entities.");
+
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Pos.slnx")))
+        {
+            root = root.Parent;
+        }
+
+        root.ShouldNotBeNull("No se encontró la raíz del repositorio.");
+        // Códigos literales dentro de los argumentos de new AuditEntry(...) (incluye switch y ternarios) y de los ayudantes AuditAsync(usuario, "CODIGO"…).
+        var entry = new System.Text.RegularExpressions.Regex(@"new AuditEntry\(");
+        var code = new System.Text.RegularExpressions.Regex(@"""([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)""");
+        var helper = new System.Text.RegularExpressions.Regex(@"AuditAsync\(\s*\w+\s*,\s*""([A-Z][A-Z0-9_]+)""");
+        var literals = Directory.EnumerateFiles(Path.Combine(root.FullName, "src"), "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}Cloud{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .SelectMany(f =>
+            {
+                var text = File.ReadAllText(f);
+                var inEntries = entry.Matches(text).SelectMany(m => code.Matches(text.Substring(m.Index, Math.Min(400, text.Length - m.Index))).Select(c => c.Groups[1].Value));
+                var inHelpers = helper.Matches(text).Select(m => m.Groups[1].Value);
+                return inEntries.Concat(inHelpers).Select(c => (File: Path.GetRelativePath(root.FullName, f), Code: c));
+            })
+            .Where(x => !codes.Contains(x.Code))
+            .Distinct()
+            .Select(x => $"{x.File}: la acción {x.Code} no está en el catálogo AuditActions.");
+
+        audited.Concat(literals).ToList().ShouldBeEmpty();
+    }
 }

@@ -32,6 +32,12 @@ public sealed record AuditVerificationReport(
     long UnsealedRows,
     string? LastSealHash)
 {
+    /// <summary>Último sello de cada nodo al momento de verificar (punto de partida de la siguiente verificación incremental).</summary>
+    public IReadOnlyDictionary<Guid, long> LastSealNoByNode { get; init; } = new Dictionary<Guid, long>();
+
+    /// <summary>Sello del nodo local más reciente verificado (número).</summary>
+    public long? LastSealNo { get; init; }
+
     public bool IsValid => Findings.Count == 0;
 
     /// <summary>Código corto del último sello (el que se imprime en el reporte Z).</summary>
@@ -52,7 +58,7 @@ public sealed class AuditVerifier(NpgsqlDataSource dataSource)
 
     /// <summary>
     /// ¿El código impreso (reporte Z) corresponde al sello <paramref name="sealNo"/> del nodo? Devuelve la fecha del sello
-    /// o <c>null</c> si el sello no existe. La integridad de la cadena la da <see cref="VerifyAsync"/>.
+    /// o <c>null</c> si el sello no existe. La integridad de la cadena la da <see cref="VerifyAsync(CancellationToken)"/>.
     /// </summary>
     public async Task<(bool Matches, DateTimeOffset SealedAt)?> CheckSealCodeAsync(Guid nodeId, long sealNo, string code, CancellationToken cancellationToken = default)
     {
@@ -70,17 +76,35 @@ public sealed class AuditVerifier(NpgsqlDataSource dataSource)
         return (AuditHasher.ShortCode(reader.GetString(0)) == normalized, reader.GetFieldValue<DateTimeOffset>(1));
     }
 
-    public async Task<AuditVerificationReport> VerifyAsync(CancellationToken cancellationToken = default)
+    /// <summary>Verificación completa: recalcula todas las filas, sellos y la cadena.</summary>
+    public Task<AuditVerificationReport> VerifyAsync(CancellationToken cancellationToken = default) => VerifyAsync(null, cancellationToken);
+
+    /// <summary>
+    /// Verifica la bitácora. Con <paramref name="rowsVerifiedUpToSeal"/> (verificación incremental, D10-04) la cadena y el hash de TODOS
+    /// los sellos se revisan igual (es barato), pero las filas solo se recalculan en los sellos posteriores al indicado por nodo y en
+    /// las filas aún sin sellar. La verificación completa recalcula todo.
+    /// </summary>
+    public async Task<AuditVerificationReport> VerifyAsync(
+        IReadOnlyDictionary<Guid, long>? rowsVerifiedUpToSeal, CancellationToken cancellationToken)
     {
         var findings = new List<AuditFinding>();
         var sealsChecked = 0;
         long rowsChecked = 0;
         long unsealed = 0;
         string? lastSealHash = null;
+        var lastSealNos = new Dictionary<Guid, long>();
 
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         // Lectura consistente de toda la bitácora.
         await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+
+        // Solo lectura y sin el límite de 30 s de las transacciones de pos_app: la verificación completa de años de bitácora puede tardar
+        // varios minutos (D10-04). No bloquea a nadie: es una lectura con foto consistente.
+        await using (var set = new NpgsqlCommand(
+            "SET TRANSACTION READ ONLY; SET LOCAL transaction_timeout = '30min'; SET LOCAL statement_timeout = '30min'", connection, transaction))
+        {
+            await set.ExecuteNonQueryAsync(cancellationToken);
+        }
 
         var nodes = await ReadListAsync(connection, transaction,
             "SELECT DISTINCT node_id FROM audit.audit_log UNION SELECT DISTINCT node_id FROM audit.audit_seals", r => r.GetGuid(0), cancellationToken);
@@ -88,6 +112,7 @@ public sealed class AuditVerifier(NpgsqlDataSource dataSource)
         foreach (var nodeId in nodes)
         {
             var seals = await ReadSealsAsync(connection, transaction, nodeId, cancellationToken);
+            var skipRowsUpTo = rowsVerifiedUpToSeal?.GetValueOrDefault(nodeId) ?? 0;
             var previousHash = AuditHasher.GenesisHash;
             long previousSeqTo = 0;
             long expectedSealNo = 1;
@@ -109,6 +134,15 @@ public sealed class AuditVerifier(NpgsqlDataSource dataSource)
                         $"El sello {seal.SealNo} fue modificado: su hash no corresponde a su contenido."));
                 }
 
+                if (seal.SealNo <= skipRowsUpTo)
+                {
+                    previousHash = seal.SealHash;
+                    previousSeqTo = seal.SeqTo;
+                    expectedSealNo = seal.SealNo + 1;
+                    lastSealHash = seal.SealHash;
+                    continue;
+                }
+
                 var rows = await ReadRowsAsync(connection, transaction, nodeId, seal.SeqFrom, seal.SeqTo, cancellationToken);
                 rowsChecked += rows.Count;
                 CheckRows(rows, nodeId, seal.SealNo, findings);
@@ -128,6 +162,11 @@ public sealed class AuditVerifier(NpgsqlDataSource dataSource)
                 lastSealHash = seal.SealHash;
             }
 
+            if (seals.Count > 0)
+            {
+                lastSealNos[nodeId] = seals[^1].SealNo;
+            }
+
             var tail = await ReadRowsAsync(connection, transaction, nodeId, previousSeqTo + 1, long.MaxValue, cancellationToken);
             rowsChecked += tail.Count;
             unsealed += tail.Count;
@@ -135,7 +174,10 @@ public sealed class AuditVerifier(NpgsqlDataSource dataSource)
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return new AuditVerificationReport(findings, nodes.Count, sealsChecked, rowsChecked, unsealed, lastSealHash);
+        return new AuditVerificationReport(findings, nodes.Count, sealsChecked, rowsChecked, unsealed, lastSealHash)
+        {
+            LastSealNoByNode = lastSealNos,
+        };
     }
 
     private static void CheckRows(List<AuditLogRecord> rows, Guid nodeId, long? sealNo, List<AuditFinding> findings)

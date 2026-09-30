@@ -852,6 +852,13 @@ INDEX (entity_type, entity_id, occurred_at) · (user_id, occurred_at) · (module
 
 ### Estrategia de auditoría (resumen técnico — detalle en doc 06)
 
+> **Actualización Fase 10 (implementada, ADR-0047 a 0049).** La cadena fila a fila de este resumen fue reemplazada en la Fase 2 por
+> sellos por lotes por nodo (ADR-0012). Tablas nuevas en `audit` (V028): `action_types` (catálogo de acciones con nombre en español,
+> sincronizado desde el código por `R__audit__action_types.sql`), `verification_runs`, `integrity_incidents` e
+> `integrity_incident_acknowledgements` (las tres de solo inserción). Vistas `reporting.audit_log`, `reporting.audit_verifications` y
+> `reporting.integrity_incidents` para los reportes. Los datos personales (correo, teléfono, dirección, notas) se guardan enmascarados en
+> los antes/después; la bitácora nunca se borra en la tienda (mínimo 10 años; archivo con el backup en la Fase 11).
+
 1. **Automática por entidad**: un interceptor de EF Core detecta cambios en entidades marcadas `[Audited]` y registra solo los campos modificados (antes/después) en la **misma transacción**.
 2. **Explícita por evento de negocio**: acciones que no son "cambios de fila" (login fallido, reimpresión, apertura de cajón, anulación, autorización) se registran con `IAuditWriter` desde el caso de uso.
 3. **Inmutabilidad**: el rol de BD de la aplicación solo tiene `INSERT`/`SELECT` sobre `audit.audit_log`; cada fila guarda `hash = SHA-256(prev_hash + contenido)`; un verificador detecta cualquier alteración.

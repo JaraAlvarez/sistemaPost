@@ -48,4 +48,12 @@ public static class TestPostgres
         builder.MaxPoolSize = 40;
         return builder.ConnectionString;
     }
+
+    /// <summary>Cadena de superusuario de la misma BD (solo pruebas de manipulación de la bitácora, Fase 10).</summary>
+    public static async Task<string> SuperuserConnectionStringAsync(string appConnectionString)
+    {
+        var container = await Container.Value;
+        var database = new NpgsqlConnectionStringBuilder(appConnectionString).Database;
+        return new NpgsqlConnectionStringBuilder(container.GetConnectionString()) { Database = database }.ConnectionString;
+    }
 }

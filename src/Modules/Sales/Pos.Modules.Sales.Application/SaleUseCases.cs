@@ -199,7 +199,8 @@ internal sealed class ChangeQuantityHandler(SaleEditor editor, StockGuard stock)
 /// <summary>Elimina una línea: queda VOIDED con quién y cuándo (RN-SAL-06).</summary>
 public sealed record VoidLineCommand(Guid SaleId, Guid LineId) : ICommand<SaleDto>;
 
-internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IClock clock) : ICommandHandler<VoidLineCommand, SaleDto>
+internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IClock clock, IAuditWriter audit, IAuthorizationScope authorization)
+    : ICommandHandler<VoidLineCommand, SaleDto>
 {
     public async Task<Result<SaleDto>> Handle(VoidLineCommand request, CancellationToken cancellationToken)
     {
@@ -216,6 +217,12 @@ internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IC
             return voided.Error;
         }
 
+        // Fase 10 (§5.1): la línea eliminada también queda en la bitácora, con quién autorizó si fue un supervisor.
+        var line = sale.Lines.First(l => l.Id == request.LineId);
+        await audit.WriteAsync(
+            new AuditEntry("sales", "SALE_LINE_VOIDED", nameof(Sale), sale.Id, sale.AuditLabel,
+                $"Línea eliminada: {line.Quantity:0.####} × {line.Name} ({line.Gross:N2}).", AuthorizedBy: authorization.Current?.AuthorizedBy),
+            cancellationToken);
         await editor.RecalculateAsync(sale, cancellationToken);
         return sale.ToDto();
     }

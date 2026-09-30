@@ -35,7 +35,20 @@ public static class ReportingSettings
         "reporting.dashboard_expiring_days", 15, SettingScope.Company, "Días hacia adelante de la alerta de lotes por vencer del tablero.",
         v => v is >= 1 and <= 120 ? null : "Entre 1 y 120.");
 
-    public static IEnumerable<SettingDefinition> All => [MaxRangeDays, MaxRows, StatementTimeoutSeconds, AntifraudThresholdFactor, DashboardExpiringDays];
+    /// <summary>Horario "fuera de horario" del reporte de auditoría (Fase 10, pregunta 6): desde esta hora…</summary>
+    public static readonly SettingDefinition<int> AfterHoursStart = new(
+        "reporting.after_hours_start", 22, SettingScope.Company | SettingScope.Branch,
+        "Hora local desde la que la actividad se considera fuera de horario (reporte AUDIT_AFTER_HOURS).",
+        v => v is >= 0 and <= 23 ? null : "Entre 0 y 23.");
+
+    /// <summary>…hasta esta hora (sin incluirla).</summary>
+    public static readonly SettingDefinition<int> AfterHoursEnd = new(
+        "reporting.after_hours_end", 6, SettingScope.Company | SettingScope.Branch,
+        "Hora local hasta la que la actividad se considera fuera de horario (sin incluirla).",
+        v => v is >= 0 and <= 23 ? null : "Entre 0 y 23.");
+
+    public static IEnumerable<SettingDefinition> All =>
+        [MaxRangeDays, MaxRows, StatementTimeoutSeconds, AntifraudThresholdFactor, DashboardExpiringDays, AfterHoursStart, AfterHoursEnd];
 }
 
 public sealed class ReportingSettingsProvider : ISettingDefinitionProvider
@@ -190,12 +203,16 @@ public sealed class ReportEngine(
         var maxRows = await settings.GetAsync(ReportingSettings.MaxRows, context, cancellationToken);
         var timeout = await settings.GetAsync(ReportingSettings.StatementTimeoutSeconds, context, cancellationToken);
         var factor = await settings.GetAsync(ReportingSettings.AntifraudThresholdFactor, context, cancellationToken);
+        var afterHoursStart = await settings.GetAsync(ReportingSettings.AfterHoursStart, context, cancellationToken);
+        var afterHoursEnd = await settings.GetAsync(ReportingSettings.AfterHoursEnd, context, cancellationToken);
         List<SqlArgument> all =
         [
             new("company_id", SqlArgumentType.Uuid, companyId),
             new("branch_id", SqlArgumentType.Uuid, branchId),
             new("today", SqlArgumentType.Date, today),
             new("threshold_factor", SqlArgumentType.Numeric, factor),
+            new("after_hours_start", SqlArgumentType.WholeNumber, afterHoursStart),
+            new("after_hours_end", SqlArgumentType.WholeNumber, afterHoursEnd),
             .. sqlArguments,
         ];
 

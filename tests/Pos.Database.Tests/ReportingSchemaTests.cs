@@ -11,7 +11,7 @@ public class ReportingSchemaTests(PostgresFixture postgres)
         var db = await postgres.CreateDatabaseAsync(migrate: true);
 
         var views = await db.ListAsync<string>("SELECT viewname::text FROM pg_views WHERE schemaname = 'reporting' ORDER BY 1");
-        views.Count.ShouldBe(31);
+        views.Count.ShouldBe(36);
         (await db.ScalarAsync<long>("SELECT count(*) FROM pg_tables WHERE schemaname = 'reporting'")).ShouldBe(0);
 
         foreach (var view in views)

@@ -8,6 +8,11 @@
 --   · Ventas netas (D9-05): completadas − créditos de cambios − reintegros por garantía; las anuladas se muestran aparte.
 -- =====================================================================================================
 
+DROP VIEW IF EXISTS reporting.integrity_incidents CASCADE;
+DROP VIEW IF EXISTS reporting.audit_verifications CASCADE;
+DROP VIEW IF EXISTS reporting.audit_log CASCADE;
+DROP VIEW IF EXISTS reporting.price_lists CASCADE;
+DROP VIEW IF EXISTS reporting.taxes CASCADE;
 DROP VIEW IF EXISTS reporting.antifraud_events CASCADE;
 DROP VIEW IF EXISTS reporting.supplier_products CASCADE;
 DROP VIEW IF EXISTS reporting.users CASCADE;
@@ -146,6 +151,14 @@ CREATE VIEW reporting.brands AS
 SELECT b.id AS brand_id, b.company_id, b.name AS brand_name
 FROM catalog.brands b;
 
+CREATE VIEW reporting.taxes AS
+SELECT t.id AS tax_id, t.company_id, t.code AS tax_code, t.name AS tax_name, t.kind AS tax_kind
+FROM catalog.taxes t;
+
+CREATE VIEW reporting.price_lists AS
+SELECT pl.id AS price_list_id, pl.company_id, pl.code AS price_list_code, pl.name AS price_list_name
+FROM catalog.price_lists pl;
+
 CREATE VIEW reporting.products AS
 SELECT p.id AS product_id, p.company_id, p.sku, p.name AS product_name, p.category_id, c.name AS category_name, c.path AS category_path,
        p.brand_id, b.name AS brand_name, p.base_unit_code, p.product_type, p.tracks_expiry, p.status, (p.deleted_at IS NOT NULL) AS is_deleted
@@ -197,7 +210,7 @@ GROUP BY o.company_id, o.branch_id, o.warehouse_id, ol.product_id;
 -- Compras, cuentas por pagar y gastos
 -- -----------------------------------------------------------------------------------------------------
 CREATE VIEW reporting.supplier_products AS
-SELECT spr.company_id, spr.supplier_id, sp.code AS supplier_code,
+SELECT spr.id AS supplier_product_id, spr.company_id, spr.supplier_id, sp.code AS supplier_code,
        COALESCE(NULLIF(pa.trade_name, ''), pa.legal_name, btrim(concat_ws(' ', pa.first_names, pa.last_names))) AS supplier_name,
        spr.product_id, spr.last_cost, spr.lead_time_days, spr.is_preferred
 FROM purchasing.supplier_products spr
@@ -336,3 +349,30 @@ SELECT 'CASH_DIFFERENCE', cs.company_id, cs.branch_id, cs.business_date, cs.cash
        cs.id, NULL, abs(cs.difference), cs.reviewed_by
 FROM cash.cash_sessions cs
 WHERE cs.status = 'CLOSED' AND COALESCE(cs.difference, 0) <> 0;
+
+-- -----------------------------------------------------------------------------------------------------
+-- Auditoría (Fase 10, D10-06): bitácora con el nombre de la acción, verificaciones e incidentes de integridad.
+-- La bitácora es por nodo: se filtra por empresa (las filas del sistema no tienen empresa) y por fecha local.
+-- -----------------------------------------------------------------------------------------------------
+CREATE VIEW reporting.audit_log AS
+SELECT l.id AS audit_id, l.occurred_at, (l.occurred_at AT TIME ZONE 'America/Bogota') AS occurred_local, l.node_id, l.seq, l.company_id,
+       l.branch_id, l.pos_terminal_id, l.user_id, l.user_display_name, l.module, l.action, COALESCE(t.name, l.action) AS action_name,
+       l.entity_type, l.entity_id, l.entity_label, l.old_values, l.new_values, l.summary, l.authorized_by, ua.display_name AS authorized_by_name,
+       l.severity, host(l.ip_address) AS ip_address
+FROM audit.audit_log l
+LEFT JOIN audit.action_types t ON t.code = l.action
+LEFT JOIN identity.users ua ON ua.id = l.authorized_by;
+
+CREATE VIEW reporting.audit_verifications AS
+SELECT r.id AS run_id, r.node_id, r.company_id, r.kind, r.started_at, (r.started_at AT TIME ZONE 'America/Bogota') AS started_local, r.finished_at,
+       r.from_seal_no, r.last_seal_no, r.last_seal_code, r.seals_checked, r.rows_checked, r.unsealed_rows, r.is_valid, r.findings_count,
+       i.id AS incident_id, i.summary AS incident_summary, a.acknowledged_at, u.display_name AS acknowledged_by_name, a.note AS acknowledgement_note
+FROM audit.verification_runs r
+LEFT JOIN audit.integrity_incidents i ON i.verification_run_id = r.id
+LEFT JOIN audit.integrity_incident_acknowledgements a ON a.incident_id = i.id
+LEFT JOIN identity.users u ON u.id = a.acknowledged_by;
+
+CREATE VIEW reporting.integrity_incidents AS
+SELECT i.id AS incident_id, i.node_id, i.company_id, i.detected_at, i.findings_count, i.summary, (a.id IS NULL) AS is_open
+FROM audit.integrity_incidents i
+LEFT JOIN audit.integrity_incident_acknowledgements a ON a.incident_id = i.id;

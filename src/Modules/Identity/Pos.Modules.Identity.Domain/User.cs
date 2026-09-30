@@ -104,6 +104,7 @@ public sealed class User : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, I
 
     public string DisplayName { get; private set; }
 
+    [PersonalData(PersonalDataKind.Email)]
     public string? Email { get; private set; }
 
     public UserKind Kind { get; private set; }

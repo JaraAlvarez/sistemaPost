@@ -54,6 +54,8 @@ GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO pos_app;
 -- Auditoría: solo agregar y leer
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;
 GRANT EXECUTE ON FUNCTION audit.ensure_partitions(integer) TO pos_app;
+-- Catálogo de acciones: solo lectura (lo llena la migración, D10-01).
+REVOKE INSERT ON audit.action_types FROM pos_app;
 
 -- Secuencias de identidad (inserción y lectura de last_value por el sellador de auditoría)
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA system, org, identity, audit, catalog, inventory TO pos_app;

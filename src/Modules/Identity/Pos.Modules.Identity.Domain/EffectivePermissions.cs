@@ -54,8 +54,10 @@ public sealed class Employee : SharedKernel.Domain.AggregateRoot<Guid>,
 
     public string LastName { get; private set; } = string.Empty;
 
+    [SharedKernel.Domain.PersonalData(SharedKernel.Domain.PersonalDataKind.Phone)]
     public string? Phone { get; private set; }
 
+    [SharedKernel.Domain.PersonalData(SharedKernel.Domain.PersonalDataKind.Email)]
     public string? Email { get; private set; }
 
     public EmployeeStatus Status { get; private set; } = EmployeeStatus.Active;

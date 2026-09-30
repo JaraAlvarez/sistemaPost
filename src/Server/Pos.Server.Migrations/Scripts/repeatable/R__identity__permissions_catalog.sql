@@ -7,6 +7,7 @@
 
 INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUES
     ('audit.log.verify',              'audit',        'Verificar la integridad de la bitácora de auditoría',                           true),
+    ('audit.incident.acknowledge',        'audit',        'Reconocer un incidente de integridad de la bitácora (solo el propietario)',       true),
     ('audit.log.view',                'audit',        'Consultar la bitácora de auditoría',                                            true),
     ('cash.drawer.open',              'cash',         'Abrir el cajón sin venta (admite autorización de supervisor)',                  true),
     ('cash.movement.withdraw',        'cash',         'Retirar efectivo de la caja (admite autorización de supervisor)',               true),
@@ -97,7 +98,7 @@ ON CONFLICT (code) DO UPDATE SET module = EXCLUDED.module, description = EXCLUDE
 -- Los permisos que ya no están en el código quedan obsoletos (no se borran).
 UPDATE identity.permissions SET is_deprecated = true
 WHERE code NOT IN (
-    'audit.log.verify', 'audit.log.view', 'catalog.import.run', 'catalog.master.manage', 'catalog.price.manage',
+    'audit.incident.acknowledge', 'audit.log.verify', 'audit.log.view', 'catalog.import.run', 'catalog.master.manage', 'catalog.price.manage',
     'catalog.product.manage', 'catalog.product.view', 'catalog.tax.manage', 'identity.permission.view',
     'identity.role.manage', 'identity.session.revoke', 'identity.user.manage', 'identity.user.view',
     'inventory.adjustment.approve', 'inventory.adjustment.manage', 'inventory.cost.view', 'inventory.count.approve',

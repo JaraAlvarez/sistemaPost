@@ -223,6 +223,7 @@ public sealed class DataRequest : AggregateRoot<Guid>, ICompanyOwned, IHasAuditL
 
     public ConsentChannel Channel { get; private set; }
 
+    [PersonalData(PersonalDataKind.FreeText)]
     public string Detail { get; private set; } = string.Empty;
 
     public DateOnly ReceivedOn { get; private set; }

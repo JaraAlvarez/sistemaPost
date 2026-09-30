@@ -329,12 +329,36 @@ internal sealed class PosSaveChangesInterceptor(
 
             var column = property.Metadata.GetColumnName(StoreObjectIdentifier.Table(entry.Metadata.GetTableName()!, entry.Metadata.GetSchema()))
                 ?? property.Metadata.Name;
+            var raw = current ? property.CurrentValue : property.OriginalValue;
             values[column] = member?.GetCustomAttribute<SensitiveAttribute>() is not null
                 ? Masked
-                : AuditValue(current ? property.CurrentValue : property.OriginalValue);
+                : member?.GetCustomAttribute<PersonalDataAttribute>() is { } personal
+                    ? JsonValue.Create(MaskPersonal(raw as string, personal.Kind))
+                    : AuditValue(raw);
         }
 
         return values;
+    }
+
+    /// <summary>Enmascarado de datos personales en la bitácora (D10-07): nunca se guarda el dato completo.</summary>
+    internal static string? MaskPersonal(string? value, PersonalDataKind kind)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        switch (kind)
+        {
+            case PersonalDataKind.Email:
+                var at = value.IndexOf('@', StringComparison.Ordinal);
+                return at > 0 ? $"{value[0]}***{value[at..]}" : "***";
+            case PersonalDataKind.Phone:
+                var digits = new string([.. value.Where(char.IsAsciiDigit)]);
+                return digits.Length > 4 ? $"***{digits[^4..]}" : "***";
+            default:
+                return "(registrado)";
+        }
     }
 
     private static bool IsLocalOnly(PropertyEntry property) =>
