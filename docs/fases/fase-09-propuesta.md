@@ -1,6 +1,6 @@
 # Fase 9 · Reportes — Propuesta
 
-> Estado: **PROPUESTA — pendiente de aprobación** · 2026-09-29
+> Estado: **APROBADA** (con las recomendaciones de la §14) · 2026-09-29
 > Requisitos previos: Fases 4 a 8 implementadas (inventario, compras, caja, ventas con promociones y cambios, clientes y proveedores).
 > Base: plan [12 §S, fase 9](../12-plan-riesgos-decisiones.md), docs [01 §1–3](../01-analisis-producto.md), [02 §13](../02-modulos.md),
 > [06 permisos `reporting.*`](../06-seguridad-usuarios-permisos.md), [07 kardex](../07-inventario-kardex.md), ADR-0015 (sin planes por
@@ -216,3 +216,7 @@ http/fase-09.http
    tarifa, totales) (**recomendado**, validándolo con tu contador), o tu contador ya tiene un formato que debamos seguir?
 6. **Varias sucursales:** ¿cada tienda ve sus reportes y la **consolidación** llega con la nube (**recomendado**), o necesitas ya un
    reporte que junte sucursales exportando e importando archivos?
+
+**Resolución (aprobación del propietario):** se adoptan las seis recomendaciones: reportes en vivo con límites; PDF de tabla sencilla
+con el encabezado de la empresa; antifraude como panel con umbrales, sin notificaciones; el contador ve utilidad y costos; libro de
+ventas diario con el formato estándar (a validar con el contador); cada tienda ve sus reportes y la consolidación llega con la nube.
