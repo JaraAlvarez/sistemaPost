@@ -8,6 +8,7 @@
 --   · Ventas netas (D9-05): completadas − créditos de cambios − reintegros por garantía; las anuladas se muestran aparte.
 -- =====================================================================================================
 
+DROP VIEW IF EXISTS reporting.fiscal_documents CASCADE;
 DROP VIEW IF EXISTS reporting.integrity_incidents CASCADE;
 DROP VIEW IF EXISTS reporting.audit_verifications CASCADE;
 DROP VIEW IF EXISTS reporting.audit_log CASCADE;
@@ -376,3 +377,12 @@ CREATE VIEW reporting.integrity_incidents AS
 SELECT i.id AS incident_id, i.node_id, i.company_id, i.detected_at, i.findings_count, i.summary, (a.id IS NULL) AS is_open
 FROM audit.integrity_incidents i
 LEFT JOIN audit.integrity_incident_acknowledgements a ON a.incident_id = i.id;
+
+-- -----------------------------------------------------------------------------------------------------
+-- Facturación electrónica (Fase 11-B, §6 flujo 6): documentos fiscales por origen para la conciliación ventas vs. documentos.
+-- -----------------------------------------------------------------------------------------------------
+CREATE VIEW reporting.fiscal_documents AS
+SELECT f.id AS fiscal_document_id, f.company_id, f.branch_id, f.pos_terminal_id, f.source, f.source_id, f.source_number, f.document_type,
+       f.status, f.provider, f.fiscal_number, f.attempts, f.business_date, f.subtotal, f.tax_total, f.total, f.issued_at, f.validated_at,
+       f.related_document_id
+FROM billing.fiscal_documents f;

@@ -112,18 +112,125 @@ public sealed class SaleInventory(IInventoryPosting posting, IWarehouseDirectory
     }
 }
 
-/// <summary>Tiquete de una venta con el encabezado de la empresa.</summary>
-public sealed class SaleReceipts(ISalesReadModel readModel, IBillingService billing)
+/// <summary>
+/// Tiquetes de ventas y reintegros con el encabezado de la empresa y los datos fiscales que haya (D11B-03). Los casos de uso arman el
+/// tiquete dentro de su transacción (el documento fiscal aún está PENDING); DESPUÉS de confirmarla, el endpoint llama a
+/// <see cref="AwaitFiscalDataAsync(SaleReceiptDto, CancellationToken)"/>, que espera hasta ⚙️ <c>billing.ticket_wait_seconds</c> a que la
+/// cola obtenga el número, el CUFE y el QR y vuelve a armar el tiquete (la cola solo ve lo confirmado).
+/// </summary>
+public sealed class SaleReceipts(ISalesStore store, ISalesReadModel readModel, IBillingService billing)
 {
     public async Task<SaleReceiptDto> BuildAsync(Sale sale, bool copy, bool openDrawer, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sale);
-        var header = await readModel.GetTicketHeaderAsync(sale.PosTerminalId, sale.CashierId, cancellationToken)
-            ?? new TicketHeader(string.Empty, string.Empty, string.Empty, null, null, string.Empty, null, string.Empty, string.Empty);
-        var document = await billing.GetForSourceAsync(sale.Id, cancellationToken);
-        var ticket = SaleTicketBuilder.Build(sale, header, copy, openDrawer, document?.DocumentType);
-        return new SaleReceiptDto(sale.ToDto(), ticket, TicketLayout.ToText(ticket, TicketLayout.Columns80Mm), openDrawer, document?.DocumentType, document?.Status);
+        var (document, creditNote) = await FiscalAsync(sale, cancellationToken);
+        return await BuildAsync(sale, copy, openDrawer, document, creditNote, cancellationToken);
     }
+
+    private async Task<SaleReceiptDto> BuildAsync(
+        Sale sale, bool copy, bool openDrawer, FiscalDocumentInfo? document, FiscalDocumentInfo? creditNote, CancellationToken cancellationToken)
+    {
+        var header = await HeaderAsync(sale.PosTerminalId, sale.CashierId, cancellationToken);
+        var ticket = SaleTicketBuilder.Build(sale, header, copy, openDrawer, document, creditNote);
+
+        // El documento que respalda el tiquete: en una venta anulada, su nota crédito electrónica si la hay.
+        var main = sale.Status == SaleStatus.Voided && SaleTicketBuilder.IsElectronic(creditNote) ? creditNote : document;
+        return new SaleReceiptDto(
+            sale.ToDto(), ticket, TicketLayout.ToText(ticket, TicketLayout.Columns80Mm), openDrawer, main?.DocumentType, main?.Status, main?.Id, main?.FiscalNumber,
+            main?.Cufe);
+    }
+
+    public async Task<RefundReceiptDto> BuildRefundAsync(CustomerReturn refund, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(refund);
+        return await BuildRefundAsync(refund, await billing.GetBySourceAsync(refund.Id, "CUSTOMER_RETURN", cancellationToken), cancellationToken);
+    }
+
+    private async Task<RefundReceiptDto> BuildRefundAsync(CustomerReturn refund, FiscalDocumentInfo? creditNote, CancellationToken cancellationToken)
+    {
+        var header = await HeaderAsync(refund.PosTerminalId, refund.ReceivedBy, cancellationToken);
+        var ticket = SaleTicketBuilder.BuildReturn(refund, header, openDrawer: true, creditNote);
+        return new RefundReceiptDto(
+            refund.ToDto(), ticket, TicketLayout.ToText(ticket, TicketLayout.Columns80Mm), OpenDrawer: true, creditNote?.DocumentType, creditNote?.Status,
+            creditNote?.Id, creditNote?.FiscalNumber, creditNote?.Cufe);
+    }
+
+    /// <summary>
+    /// Después de confirmar la transacción: si el tiquete lleva un documento electrónico sin número aún, espera hasta ⚙️
+    /// <c>billing.ticket_wait_seconds</c> y lo vuelve a armar con lo que haya llegado. En modo OFF no hace nada (el tiquete queda igual).
+    /// </summary>
+    public async Task<SaleReceiptDto> AwaitFiscalDataAsync(SaleReceiptDto receipt, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (receipt.DocumentType is null or "INTERNAL_RECEIPT" && receipt.Sale.ExchangeId is null)
+        {
+            return receipt;
+        }
+
+        var sale = await store.GetSaleAsync(receipt.Sale.Id, cancellationToken);
+        if (sale is null)
+        {
+            return receipt;
+        }
+
+        var (document, creditNote) = await FiscalAsync(sale, cancellationToken);
+        var awaited = sale.Status == SaleStatus.Voided ? creditNote : document;
+        if (!SaleTicketBuilder.IsInFlight(awaited))
+        {
+            awaited = SaleTicketBuilder.IsInFlight(creditNote) ? creditNote : SaleTicketBuilder.IsInFlight(document) ? document : null;
+        }
+
+        if (awaited is null)
+        {
+            return receipt;
+        }
+
+        // Se arma con lo que devuelve la espera (lecturas confirmadas): el documento que este caso de uso guardó sigue en memoria como PENDING.
+        // El otro documento (p. ej. la nota crédito de un cambio, que la cola envía antes) se relee sin esperar.
+        document = await RefreshAsync(document, awaited, cancellationToken);
+        creditNote = await RefreshAsync(creditNote, awaited, cancellationToken);
+        return await BuildAsync(sale, copy: false, receipt.OpenDrawer, document, creditNote, cancellationToken);
+    }
+
+    private async Task<FiscalDocumentInfo?> RefreshAsync(FiscalDocumentInfo? document, FiscalDocumentInfo awaited, CancellationToken cancellationToken)
+    {
+        if (document is null || !SaleTicketBuilder.IsInFlight(document))
+        {
+            return document;
+        }
+
+        var wait = document.Id == awaited.Id ? (TimeSpan?)null : TimeSpan.Zero;
+        return await billing.WaitForFiscalDataAsync(document.Id, wait, cancellationToken) ?? document;
+    }
+
+    /// <summary>Igual para el reintegro por garantía y su nota crédito.</summary>
+    public async Task<RefundReceiptDto> AwaitFiscalDataAsync(RefundReceiptDto receipt, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        if (receipt.FiscalDocumentId is not { } documentId || receipt.FiscalNumber is not null || receipt.DocumentType is null or "INTERNAL_RECEIPT"
+            || receipt.DocumentStatus is not ("PENDING" or "SUBMITTING" or "ERROR" or "CONTINGENCY"))
+        {
+            return receipt;
+        }
+
+        var arrived = await billing.WaitForFiscalDataAsync(documentId, cancellationToken: cancellationToken);
+        return arrived is not null && await store.GetReturnAsync(receipt.Refund.Id, cancellationToken) is { } refund
+            ? await BuildRefundAsync(refund, arrived, cancellationToken)
+            : receipt;
+    }
+
+    private async Task<(FiscalDocumentInfo? Document, FiscalDocumentInfo? CreditNote)> FiscalAsync(Sale sale, CancellationToken cancellationToken)
+    {
+        var document = await billing.GetForSourceAsync(sale.Id, cancellationToken);
+        var creditNote = sale.Status == SaleStatus.Voided
+            ? await billing.GetBySourceAsync(sale.Id, "SALE_VOID", cancellationToken)
+            : sale.ExchangeId is { } exchangeId ? await billing.GetBySourceAsync(exchangeId, "CUSTOMER_RETURN", cancellationToken) : null;
+        return (document, creditNote);
+    }
+
+    private async Task<TicketHeader> HeaderAsync(Guid posTerminalId, Guid userId, CancellationToken cancellationToken) =>
+        await readModel.GetTicketHeaderAsync(posTerminalId, userId, cancellationToken)
+        ?? new TicketHeader(string.Empty, string.Empty, string.Empty, null, null, string.Empty, null, string.Empty, string.Empty);
 }
 
 public sealed record PaymentRequest(Guid PaymentMethodId, decimal Amount, string? Reference = null, string? CardFranchise = null, string? CardLast4 = null);

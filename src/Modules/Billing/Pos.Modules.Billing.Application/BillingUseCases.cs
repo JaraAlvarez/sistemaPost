@@ -361,6 +361,9 @@ public sealed class BillingService(
     public async Task<FiscalDocumentInfo?> GetForSourceAsync(Guid sourceId, CancellationToken cancellationToken = default) =>
         (await store.GetBySourceAsync(sourceId, "SALE", cancellationToken))?.ToInfo();
 
+    public async Task<FiscalDocumentInfo?> GetBySourceAsync(Guid sourceId, string source, CancellationToken cancellationToken = default) =>
+        (await store.GetBySourceAsync(sourceId, source, cancellationToken))?.ToInfo();
+
     public async Task<FiscalDocumentInfo?> WaitForFiscalDataAsync(Guid documentId, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         var wait = timeout ?? TimeSpan.FromSeconds(installation.CompanyId is { } company

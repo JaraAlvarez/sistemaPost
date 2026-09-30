@@ -24,8 +24,20 @@ internal static class ExchangeMapping
 
 public sealed record ExchangeStartedDto(ExchangeDto Exchange, SaleDto Sale);
 
-/// <summary>Reintegro por garantía: el documento y su tiquete (el cajón se abre para entregar el dinero).</summary>
-public sealed record RefundReceiptDto(ExchangeDto Refund, TicketDocument Ticket, string TicketText, bool OpenDrawer);
+/// <summary>
+/// Reintegro por garantía: el documento y su tiquete (el cajón se abre para entregar el dinero). Con la facturación electrónica, la
+/// nota crédito del reintegro (D11B-07) con su número y CUDE si la DIAN ya la validó.
+/// </summary>
+public sealed record RefundReceiptDto(
+    ExchangeDto Refund,
+    TicketDocument Ticket,
+    string TicketText,
+    bool OpenDrawer,
+    string? DocumentType = null,
+    string? DocumentStatus = null,
+    Guid? FiscalDocumentId = null,
+    string? FiscalNumber = null,
+    string? Cufe = null);
 
 /// <summary>
 /// Registra lo recibido de la venta original (con la venta bloqueada: dos cambios no toman las mismas unidades), el kardex de
@@ -189,7 +201,7 @@ internal sealed class WarrantyRefundHandler(
     ISalesStore store,
     TerminalResolver terminals,
     ExchangeCompletion completion,
-    ISalesReadModel readModel,
+    SaleReceipts receipts,
     IPaymentMethodDirectory methods,
     ICashRegister cash,
     ISettingsReader settings,
@@ -255,10 +267,7 @@ internal sealed class WarrantyRefundHandler(
             new AuditEntry("sales", "WARRANTY_REFUND", nameof(CustomerReturn), refund.Value.Id, refund.Value.AuditLabel,
                 $"Reintegro por garantía de {refund.Value.CreditTotal:N2} en efectivo (venta {original.Number}): {refund.Value.Reason}", Severity: AuditSeverity.Critical),
             cancellationToken);
-        var header = await readModel.GetTicketHeaderAsync(scope.Value.PosTerminalId, scope.Value.UserId, cancellationToken)
-            ?? new TicketHeader(string.Empty, string.Empty, string.Empty, null, null, string.Empty, null, string.Empty, string.Empty);
-        var ticket = SaleTicketBuilder.BuildReturn(refund.Value, header, openDrawer: true);
-        return new RefundReceiptDto(refund.Value.ToDto(), ticket, TicketLayout.ToText(ticket, TicketLayout.Columns80Mm), OpenDrawer: true);
+        return await receipts.BuildRefundAsync(refund.Value, cancellationToken);
     }
 }
 

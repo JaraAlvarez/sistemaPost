@@ -1,0 +1,751 @@
+@page "/admin/facturacion"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Facturación electrónica · POS Supermercado</PageTitle>
+
+@* Fase 11-B: configuración (modo, ambiente y credenciales de solo escritura), rangos de numeración, documentos (reintentar y corregir el
+   comprador), alertas y conciliación. Los permisos los aplica también el servidor: aquí solo se ocultan las acciones no permitidas. *@
+<Pagina Titulo="Facturación electrónica" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (_alerts.ValueKind == JsonValueKind.Object)
+        {
+            <MudChip T="string" Size="Size.Small" Color="@ColorModo(_alerts.Str("mode"))">Modo: @NombreModo(_alerts.Str("mode"))</MudChip>
+        }
+    </Acciones>
+    <ChildContent>
+        @if (_alerts.ValueKind == JsonValueKind.Object && _alerts.Dec("count") > 0)
+        {
+            <MudAlert Severity="@(_alerts.Dec("rejected") > 0 || _alerts.Dec("withoutRange") > 0 ? Severity.Error : Severity.Warning)" Dense="true" Class="mb-3">
+                Hay @_alerts.Dec("count").ToString("0") alerta(s) de facturación electrónica. Revise la pestaña «Alertas y conciliación».
+            </MudAlert>
+        }
+        <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Outlined="true" TabPanelsClass="pa-3">
+            @if (PuedeConfigurar)
+            {
+                <MudTabPanel Text="Configuración">
+                    @if (_settings.ValueKind == JsonValueKind.Object)
+                    {
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" md="6">
+                                <MudText Typo="Typo.h6" Class="mb-2">Modo de emisión y ambiente</MudText>
+                                <MudSelect T="string" @bind-Value="_modo" Label="Modo de emisión">
+                                    <MudSelectItem T="string" Value="@("OFF")">Apagada: comprobante interno (como hoy)</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("ON_REQUEST")">Solo cuando el cliente pide factura (transición)</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("EVERY_SALE")">Factura electrónica en cada venta</MudSelectItem>
+                                </MudSelect>
+                                <MudSelect T="string" @bind-Value="_ambiente" Label="Ambiente del proveedor" Class="mt-2">
+                                    <MudSelectItem T="string" Value="@("SANDBOX")">Pruebas (sandbox)</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("PRODUCTION")">Producción (documentos reales ante la DIAN)</MudSelectItem>
+                                </MudSelect>
+                                @if (_modo == "EVERY_SALE")
+                                {
+                                    <MudAlert Severity="Severity.Warning" Class="mt-3">
+                                        <b>Factura en cada venta:</b> se emite una factura electrónica por CADA venta (una tienda con 2.000 ventas diarias emite
+                                        unas 60.000 al mes) y Factus cobra por paquete de documentos. Antes de activarlo pida a Factus la <b>cotización por
+                                        volumen</b> y obtenga el <b>visto bueno de su contador</b> (modo, impuestos y contingencia).
+                                    </MudAlert>
+                                    <MudCheckBox T="bool" @bind-Value="_confirmado" Color="Color.Warning"
+                                                 Label="Tengo la cotización de Factus por volumen y el visto bueno de mi contador" />
+                                }
+                                else if (_modo == "ON_REQUEST")
+                                {
+                                    <MudAlert Severity="Severity.Info" Class="mt-3">
+                                        Solo para la transición: las ventas sin factura siguen con comprobante interno, que NO cumple la obligación del POS
+                                        electrónico. Confírmelo con su contador.
+                                    </MudAlert>
+                                }
+                                @if (_ambiente == "PRODUCTION" && _modo != "OFF")
+                                {
+                                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">En producción cada documento es real ante la DIAN y consume su paquete de Factus.</MudAlert>
+                                }
+                                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || (_modo == "EVERY_SALE" && !_confirmado && _settings.Str("mode") != "EVERY_SALE"))"
+                                           OnClick="GuardarModoAsync">Guardar modo y ambiente</MudButton>
+                                <MudText Typo="Typo.caption" Class="d-block mt-2">
+                                    Proveedor: @_settings.Str("provider") · adaptador activo: @_settings.Str("activeAdapter") · última sincronización de rangos:
+                                    @Format.Date(_settings.Date("lastSyncAt"))
+                                </MudText>
+                                @if (_settings.Str("lastSyncError").Length > 0)
+                                {
+                                    <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">Última sincronización: @_settings.Str("lastSyncError")</MudAlert>
+                                }
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudText Typo="Typo.h6" Class="mb-2">Credenciales de Factus</MudText>
+                                @if (_settings.Bool("hasCredentials"))
+                                {
+                                    <MudAlert Severity="Severity.Success" Dense="true" Class="mb-2">
+                                        Configuradas el @Format.Date(_settings.Date("credentialsUpdatedAt")). Por seguridad nunca se muestran; escriba todas de nuevo para cambiarlas.
+                                    </MudAlert>
+                                }
+                                else
+                                {
+                                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">Sin credenciales: la facturación electrónica no se puede encender.</MudAlert>
+                                }
+                                <MudTextField @bind-Value="_usuario" Label="Usuario (correo de Factus)" Immediate="true" />
+                                <MudTextField @bind-Value="_clave" Label="Contraseña" InputType="InputType.Password" Immediate="true" />
+                                <MudTextField @bind-Value="_clientId" Label="Client ID" Immediate="true" />
+                                <MudTextField @bind-Value="_clientSecret" Label="Client secret" InputType="InputType.Password" Immediate="true" />
+                                <MudText Typo="Typo.caption" Class="d-block mt-1">Se guardan cifradas en el servidor de la tienda; no se devuelven ni quedan en la auditoría.</MudText>
+                                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarCredencialesAsync">Guardar credenciales</MudButton>
+                            </MudItem>
+                        </MudGrid>
+                    }
+                </MudTabPanel>
+            }
+            @if (PuedeVer)
+            {
+                <MudTabPanel Text="Rangos de numeración">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Wrap="Wrap.Wrap">
+                        @if (PuedeConfigurar)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Sync" Disabled="_busy" OnClick="SincronizarAsync">Sincronizar desde Factus</MudButton>
+                        }
+                        <MudText Typo="Typo.caption">Asigne a cada sucursal (y si quiere a cada caja) un rango vigente por tipo de documento; sin rango el documento queda pendiente.</MudText>
+                    </MudStack>
+                    @foreach (var alert in _alerts.Prop("ranges").Items())
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@alert.Str("prefix") (@NombreTipo(alert.Str("documentType"))): @alert.Str("message")</MudAlert>
+                    }
+                    <MudTable Items="_ranges" Dense="true" Hover="true" Striped="true">
+                        <HeaderContent>
+                            <MudTh>Prefijo</MudTh><MudTh>Tipo</MudTh><MudTh Class="num">Desde</MudTh><MudTh Class="num">Hasta</MudTh><MudTh Class="num">Actual</MudTh>
+                            <MudTh Class="num">Disponibles</MudTh><MudTh Class="num">Uso</MudTh><MudTh>Resolución</MudTh><MudTh>Vigencia</MudTh><MudTh>Asignado a</MudTh>
+                            <MudTh>Estado</MudTh><MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.Str("prefix")</MudTd>
+                            <MudTd>@NombreTipo(context.Str("documentType"))</MudTd>
+                            <MudTd Class="num">@context.Str("from")</MudTd>
+                            <MudTd Class="num">@context.Str("to")</MudTd>
+                            <MudTd Class="num">@context.Str("current")</MudTd>
+                            <MudTd Class="num">@Format.Quantity(context.Dec("remaining"))</MudTd>
+                            <MudTd Class="num">@context.Dec("usagePercent").ToString("0.#", Format.Colombia) %</MudTd>
+                            <MudTd>@context.Str("resolutionNumber")</MudTd>
+                            <MudTd>@Fecha(context.Str("validFrom")) – @Fecha(context.Str("validTo"))</MudTd>
+                            <MudTd>@Asignacion(context)</MudTd>
+                            <MudTd>
+                                @if (!context.Bool("isActive"))
+                                {
+                                    <MudChip T="string" Size="Size.Small">Inactivo</MudChip>
+                                }
+                                else if (!context.Bool("isUsable"))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error">No utilizable</MudChip>
+                                }
+                                else if (context.Bool("needsAlert"))
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Por agotarse o vencer</MudChip>
+                                }
+                                else
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Vigente</MudChip>
+                                }
+                            </MudTd>
+                            <MudTd>
+                                @if (PuedeConfigurar)
+                                {
+                                    <MudButton Size="Size.Small" OnClick="@(() => Asignar(context))">Asignar</MudButton>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent><MudText>No hay rangos. Configure las credenciales y sincronice desde Factus.</MudText></NoRecordsContent>
+                    </MudTable>
+                </MudTabPanel>
+                <MudTabPanel Text="Documentos">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3">
+                        <MudDatePicker @bind-Date="_desde" Label="Desde" DateFormat="dd/MM/yyyy" Style="max-width: 160px" />
+                        <MudDatePicker @bind-Date="_hasta" Label="Hasta" DateFormat="dd/MM/yyyy" Style="max-width: 160px" />
+                        <MudSelect T="string" @bind-Value="_fEstado" Label="Estado" Style="max-width: 190px" Clearable="true">
+                            @foreach (var (codigo, nombre) in Estados)
+                            {
+                                <MudSelectItem T="string" Value="@codigo">@nombre</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect T="string" @bind-Value="_fTipo" Label="Tipo" Style="max-width: 210px" Clearable="true">
+                            @foreach (var (codigo, nombre) in Tipos)
+                            {
+                                <MudSelectItem T="string" Value="@codigo">@nombre</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect T="string" @bind-Value="_fOrigen" Label="Origen" Style="max-width: 190px" Clearable="true">
+                            @foreach (var (codigo, nombre) in Origenes)
+                            {
+                                <MudSelectItem T="string" Value="@codigo">@nombre</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudTextField @bind-Value="_fTexto" Label="Número, número fiscal o identificación" Immediate="true" Style="max-width: 280px" OnKeyUp="@(e => e.Key == "Enter" ? BuscarAsync() : Task.CompletedTask)" />
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="BuscarAsync">Consultar</MudButton>
+                    </MudStack>
+                    <MudTable Items="_documents" Dense="true" Hover="true" Striped="true">
+                        <HeaderContent>
+                            <MudTh>Fecha</MudTh><MudTh>Origen</MudTh><MudTh>Número interno</MudTh><MudTh>Tipo</MudTh><MudTh>Estado</MudTh><MudTh>Número fiscal</MudTh>
+                            <MudTh>Adquirente</MudTh><MudTh Class="num">Total</MudTh><MudTh Class="num">Intentos</MudTh><MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@Fecha(context.Str("businessDate"))</MudTd>
+                            <MudTd>@NombreOrigen(context.Str("source"))</MudTd>
+                            <MudTd>@context.Str("sourceNumber")</MudTd>
+                            <MudTd>@NombreTipo(context.Str("documentType"))</MudTd>
+                            <MudTd><MudChip T="string" Size="Size.Small" Color="@ColorEstado(context.Str("status"))">@NombreEstado(context.Str("status"))</MudChip></MudTd>
+                            <MudTd>@context.Str("fiscalNumber")</MudTd>
+                            <MudTd>@context.Str("buyerName") · @context.Str("buyerIdentification")</MudTd>
+                            <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
+                            <MudTd Class="num">@context.Dec("attempts").ToString("0")</MudTd>
+                            <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context))">Ver</MudButton></MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent><MudText>No hay documentos con esos filtros.</MudText></NoRecordsContent>
+                    </MudTable>
+                    <MudText Typo="Typo.caption" Class="mt-2 d-block">@_documents.Count documento(s) · se muestran hasta 300.</MudText>
+                </MudTabPanel>
+                <MudTabPanel Text="Alertas y conciliación">
+                    @if (_alerts.ValueKind == JsonValueKind.Object)
+                    {
+                        <MudGrid Class="mb-4">
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Pendientes antiguos" Valor="@_alerts.Dec("pendingOverdue").ToString("0")" Detalle="@($"El más antiguo: {Format.Date(_alerts.Date("oldestPendingAt"))}")" /></MudItem>
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Rechazados sin atender" Valor="@_alerts.Dec("rejected").ToString("0")" Detalle="Corrija el adquirente o reintente" /></MudItem>
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Sin rango de numeración" Valor="@_alerts.Dec("withoutRange").ToString("0")" Detalle="Asigne un rango a la sucursal" /></MudItem>
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Rangos por agotarse o vencer" Valor="@_alerts.Prop("ranges").Items().Count.ToString(Format.Colombia)" /></MudItem>
+                        </MudGrid>
+                    }
+                    <MudText Typo="Typo.h6" Class="mb-2">Conciliación diaria</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3">
+                        <MudDatePicker @bind-Date="_cDesde" Label="Desde" DateFormat="dd/MM/yyyy" Style="max-width: 160px" />
+                        <MudDatePicker @bind-Date="_cHasta" Label="Hasta" DateFormat="dd/MM/yyyy" Style="max-width: 160px" />
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="ConciliarAsync">Consultar</MudButton>
+                        @if (Session.Has("reporting.taxes.view"))
+                        {
+                            <MudLink Href="/admin/reportes">Reporte «Conciliación de facturación electrónica» (Excel, CSV y PDF)</MudLink>
+                        }
+                    </MudStack>
+                    <div style="overflow-x: auto;">
+                        <MudSimpleTable Dense="true" Outlined="true" Striped="true">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th><th class="num">Ventas</th><th class="num">Anuladas</th><th class="num">Valor vendido</th><th class="num">Comprobante interno</th>
+                                    <th class="num">Aceptadas</th><th class="num">Valor aceptado</th><th class="num">Pendientes</th><th class="num">Contingencia</th>
+                                    <th class="num">Rechazadas</th><th class="num">Con error</th><th class="num">Canceladas</th><th class="num">Notas crédito</th><th class="num">Sin documento</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var day in _days)
+                                {
+                                    <tr>
+                                        <td>@Fecha(day.Str("businessDate"))</td>
+                                        <td class="num">@day.Dec("salesCompleted").ToString("0")</td>
+                                        <td class="num">@day.Dec("salesVoided").ToString("0")</td>
+                                        <td class="num">@Format.Money(day.Dec("salesTotal"))</td>
+                                        <td class="num">@day.Dec("internalReceipts").ToString("0")</td>
+                                        <td class="num">@day.Dec("accepted").ToString("0")</td>
+                                        <td class="num">@Format.Money(day.Dec("acceptedTotal"))</td>
+                                        <td class="num">@day.Dec("pending").ToString("0")</td>
+                                        <td class="num">@day.Dec("contingency").ToString("0")</td>
+                                        <td class="num">@day.Dec("rejected").ToString("0")</td>
+                                        <td class="num">@day.Dec("error").ToString("0")</td>
+                                        <td class="num">@day.Dec("cancelled").ToString("0")</td>
+                                        <td class="num">@day.Dec("creditNotes").ToString("0")</td>
+                                        <td class="num">@day.Dec("salesWithoutDocument").ToString("0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="mt-2 d-block">Máximo 92 días. Una venta queda conciliada cuando su factura está aceptada por la DIAN.</MudText>
+                </MudTabPanel>
+            }
+        </MudTabs>
+    </ChildContent>
+</Pagina>
+
+@if (_asignar.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Asignar el rango @_asignar.Str("prefix") (@NombreTipo(_asignar.Str("documentType")))</h2>
+            <MudSelect T="Guid?" @bind-Value="_aSucursal" Label="Sucursal">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Sin asignar (desasignar)</MudSelectItem>
+                @foreach (var branch in _branches)
+                {
+                    <MudSelectItem T="Guid?" Value="@branch.GetProperty("id").GetGuid()">@branch.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_aSucursal is { } sucursal)
+            {
+                <MudSelect T="Guid?" @bind-Value="_aCaja" Label="Caja (opcional)" Class="mt-2">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Toda la sucursal</MudSelectItem>
+                    @foreach (var terminal in _terminals.Where(t => t.Str("branchId") == sucursal.ToString()))
+                    {
+                        <MudSelectItem T="Guid?" Value="@terminal.GetProperty("id").GetGuid()">@terminal.Str("code") · @terminal.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudText Typo="Typo.caption" Class="d-block mt-2">Solo puede haber un rango vigente por sucursal (o caja) y tipo de documento.</MudText>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _asignar = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AsignarAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_detalle.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(760px, 96vw);">
+            <h2>@NombreTipo(_detalle.Str("documentType")) · @_detalle.Str("sourceNumber")</h2>
+            <MudSimpleTable Dense="true" Outlined="true" Class="mb-3">
+                <tbody>
+                    <tr><td>Estado</td><td><MudChip T="string" Size="Size.Small" Color="@ColorEstado(_detalle.Str("status"))">@NombreEstado(_detalle.Str("status"))</MudChip> @_detalle.Str("providerStatus")</td></tr>
+                    <tr><td>Origen</td><td>@NombreOrigen(_detalle.Str("source")) @_detalle.Str("sourceNumber") · fecha @Fecha(_detalle.Str("businessDate"))</td></tr>
+                    <tr><td>Número fiscal</td><td>@(_detalle.Str("fiscalNumber").Length > 0 ? _detalle.Str("fiscalNumber") : "—")</td></tr>
+                    <tr><td>CUFE / CUDE</td><td style="white-space: normal; word-break: break-all;">@(_detalle.Str("cufe").Length > 0 ? _detalle.Str("cufe") : "—")</td></tr>
+                    <tr><td>Adquirente</td><td>@_detalle.Str("buyerName") · @_detalle.Str("buyerIdentificationType") @_detalle.Str("buyerIdentification") @_detalle.Str("buyerEmail")</td></tr>
+                    <tr><td>Valores</td><td>Base @Format.Money(_detalle.Dec("subtotal")) · impuestos @Format.Money(_detalle.Dec("taxTotal")) · total <b>@Format.Money(_detalle.Dec("total"))</b></td></tr>
+                    <tr><td>Envíos</td><td>@_detalle.Dec("attempts").ToString("0") intento(s) · próximo @Format.Date(_detalle.Date("nextAttemptAt")) · validado @Format.Date(_detalle.Date("validatedAt"))</td></tr>
+                    <tr><td>Proveedor</td><td>@_detalle.Str("provider") @_detalle.Str("providerDocumentId") · referencia @_detalle.Str("referenceCode")</td></tr>
+                    @if (_detalle.Str("pdfUrl").Length > 0)
+                    {
+                        <tr><td>Representación gráfica</td><td><MudLink Href="@_detalle.Str("pdfUrl")" Target="_blank">Abrir el PDF</MudLink></td></tr>
+                    }
+                    @if (_detalle.Str("qrData").StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <tr><td>Consulta DIAN</td><td><MudLink Href="@_detalle.Str("qrData")" Target="_blank">Ver en la DIAN</MudLink></td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (_detalle.Str("rejectionMessage").Length > 0)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3">Rechazo: @_detalle.Str("rejectionMessage")</MudAlert>
+            }
+            <MudText Typo="Typo.subtitle2" Class="mb-1">Eventos</MudText>
+            <MudSimpleTable Dense="true" Outlined="true" Striped="true">
+                <thead><tr><th>Fecha</th><th>Evento</th><th>Código</th><th>Detalle</th></tr></thead>
+                <tbody>
+                    @foreach (var ev in _detalle.Prop("events").Items())
+                    {
+                        <tr><td>@Format.Date(ev.Date("occurredAt"))</td><td>@ev.Str("eventType")</td><td>@ev.Str("providerCode")</td><td style="white-space: normal;">@ev.Str("detail")</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (_corregir)
+            {
+                <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Corregir los datos del adquirente (la venta no cambia; el documento se reenvía)</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="8"><MudTextField @bind-Value="_bNombre" Label="Nombre o razón social" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudSelect T="string" @bind-Value="_bPersona" Label="Tipo de persona">
+                            <MudSelectItem T="string" Value="@("NATURAL")">Persona natural</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("LEGAL")">Persona jurídica</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="3">
+                        <MudSelect T="string" @bind-Value="_bTipoId" Label="Tipo de identificación">
+                            @foreach (var type in new[] { "CC", "NIT", "CE", "PP", "TI", "RC", "NUIP", "PEP", "PPT", "DIE" })
+                            {
+                                <MudSelectItem T="string" Value="@type">@type</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6"><MudTextField @bind-Value="_bNumero" Label="Número" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="3"><MudTextField @bind-Value="_bDv" Label="DV (NIT)" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudTextField @bind-Value="_bCorreo" Label="Correo (recibe la factura)" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudTextField @bind-Value="_bRegimen" Label="Régimen tributario (código, p. ej. 48 o 49)" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudTextField @bind-Value="_bResponsabilidades" Label="Responsabilidades fiscales (códigos separados por coma)" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudTextField @bind-Value="_bMunicipio" Label="Municipio (código DANE)" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="8"><MudTextField @bind-Value="_bDireccion" Label="Dirección" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="4"><MudTextField @bind-Value="_bTelefono" Label="Teléfono" Immediate="true" /></MudItem>
+                </MudGrid>
+            }
+            <div class="acciones">
+                <MudButton OnClick="Cerrar">Cerrar</MudButton>
+                @if (PuedeGestionar && Reintentable(_detalle))
+                {
+                    @if (_corregir)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CorregirAsync">Guardar y reenviar</MudButton>
+                    }
+                    else
+                    {
+                        @if (_detalle.Str("status") != "SUBMITTING")
+                        {
+                            <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="AbrirCorreccion">Corregir comprador</MudButton>
+                        }
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ReintentarAsync">Reintentar envío</MudButton>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly (string Code, string Name)[] Estados =
+    [
+        ("PENDING", "Pendiente"), ("SUBMITTING", "Enviando"), ("ACCEPTED", "Aceptado"), ("REJECTED", "Rechazado"), ("CONTINGENCY", "En contingencia"),
+        ("ERROR", "Con error"), ("CANCELLED", "Cancelado"), ("NOT_REQUIRED", "No requerido"), ("VOIDED", "Anulado"),
+    ];
+
+    private static readonly (string Code, string Name)[] Tipos =
+    [
+        ("INVOICE_ELECTRONIC", "Factura electrónica"), ("CREDIT_NOTE", "Nota crédito"), ("SUPPORT_DOCUMENT", "Documento soporte"),
+        ("INTERNAL_RECEIPT", "Comprobante interno"), ("POS_ELECTRONIC", "Documento equivalente POS"),
+    ];
+
+    private static readonly (string Code, string Name)[] Origenes =
+    [
+        ("SALE", "Venta"), ("SALE_VOID", "Anulación"), ("CUSTOMER_RETURN", "Cambio o garantía"), ("PURCHASE", "Compra"),
+    ];
+
+    private List<JsonElement> _ranges = [];
+    private List<JsonElement> _documents = [];
+    private List<JsonElement> _days = [];
+    private List<JsonElement> _branches = [];
+    private List<JsonElement> _terminals = [];
+    private JsonElement _settings, _alerts, _asignar, _detalle;
+    private bool _loading = true, _busy, _confirmado, _corregir;
+    private int _tab;
+    private string? _error, _modo, _ambiente, _usuario, _clave, _clientId, _clientSecret, _fEstado, _fTipo, _fOrigen, _fTexto;
+    private string? _bNombre, _bPersona, _bTipoId, _bNumero, _bDv, _bCorreo, _bRegimen, _bResponsabilidades, _bMunicipio, _bDireccion, _bTelefono;
+    private DateTime? _desde = DateTime.Today.AddDays(-6), _hasta = DateTime.Today, _cDesde = DateTime.Today.AddDays(-6), _cHasta = DateTime.Today;
+    private Guid? _aSucursal, _aCaja;
+
+    private bool PuedeConfigurar => Session.Has("billing.settings.manage");
+
+    private bool PuedeVer => Session.Has("billing.document.view");
+
+    private bool PuedeGestionar => Session.Has("billing.document.manage");
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PuedeConfigurar && !PuedeVer)
+        {
+            _error = "Su usuario no tiene permiso para la facturación electrónica.";
+            _loading = false;
+            return;
+        }
+
+        try
+        {
+            if (PuedeConfigurar)
+            {
+                await CargarConfiguracionAsync();
+                try
+                {
+                    _branches = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
+                    _terminals = (await Api.GetAsync<JsonElement>("api/v1/organization/terminals")).Items();
+                }
+                catch (ApiException)
+                {
+                    // Sin permiso para ver sucursales: la asignación muestra los identificadores.
+                }
+            }
+
+            if (PuedeVer)
+            {
+                await CargarRangosAsync();
+                await BuscarAsync();
+                await ConciliarAsync();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task CargarConfiguracionAsync()
+    {
+        _settings = await Api.GetAsync<JsonElement>("api/v1/billing/settings");
+        _modo = _settings.Str("mode");
+        _ambiente = _settings.Str("environment");
+        _confirmado = _modo == "EVERY_SALE";
+    }
+
+    private async Task CargarRangosAsync()
+    {
+        _ranges = (await Api.GetAsync<JsonElement>("api/v1/billing/ranges")).Items();
+        _alerts = await Api.GetAsync<JsonElement>("api/v1/billing/alerts");
+    }
+
+    private async Task GuardarModoAsync()
+    {
+        _busy = true;
+        try
+        {
+            _settings = await Api.PutAsync<JsonElement>("api/v1/billing/settings", new { mode = _modo, environment = _ambiente });
+            Snackbar.Add($"Facturación electrónica: {NombreModo(_settings.Str("mode"))} ({(_settings.Str("environment") == "PRODUCTION" ? "producción" : "pruebas")}).", Severity.Success);
+            if (PuedeVer)
+            {
+                await CargarRangosAsync();
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task GuardarCredencialesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_usuario) || string.IsNullOrWhiteSpace(_clave) || string.IsNullOrWhiteSpace(_clientId) || string.IsNullOrWhiteSpace(_clientSecret))
+        {
+            Snackbar.Add("Escriba el usuario, la contraseña, el client ID y el client secret.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _settings = await Api.PutAsync<JsonElement>("api/v1/billing/settings/credentials", new
+            {
+                username = _usuario.Trim(), password = _clave, clientId = _clientId.Trim(), clientSecret = _clientSecret,
+            });
+            _usuario = _clave = _clientId = _clientSecret = null;
+            Snackbar.Add("Credenciales guardadas y cifradas.", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task SincronizarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var ranges = (await Api.PostAsync<JsonElement>("api/v1/billing/ranges/sync")).Items();
+            Snackbar.Add($"{ranges.Count} rango(s) sincronizado(s) desde el proveedor.", Severity.Success);
+            await CargarRangosAsync();
+            await CargarConfiguracionAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void Asignar(JsonElement range)
+    {
+        _asignar = range;
+        _aSucursal = Guid.TryParse(range.Str("branchId"), out var branch) ? branch : null;
+        _aCaja = Guid.TryParse(range.Str("posTerminalId"), out var terminal) ? terminal : null;
+    }
+
+    private async Task AsignarAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PutAsync<JsonElement>($"api/v1/billing/ranges/{_asignar.GetProperty("id").GetGuid()}/assignment",
+                new { branchId = _aSucursal, posTerminalId = _aSucursal is null ? null : _aCaja });
+            Snackbar.Add(_aSucursal is null ? "Rango desasignado." : "Rango asignado.", Severity.Success);
+            _asignar = default;
+            await CargarRangosAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task BuscarAsync()
+    {
+        try
+        {
+            var query = new List<string> { "limit=300" };
+            if (_desde is { } desde)
+            {
+                query.Add("from=" + desde.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            }
+
+            if (_hasta is { } hasta)
+            {
+                query.Add("to=" + hasta.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            }
+
+            if (!string.IsNullOrEmpty(_fEstado))
+            {
+                query.Add("status=" + _fEstado);
+            }
+
+            if (!string.IsNullOrEmpty(_fTipo))
+            {
+                query.Add("type=" + _fTipo);
+            }
+
+            if (!string.IsNullOrEmpty(_fOrigen))
+            {
+                query.Add("source=" + _fOrigen);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_fTexto))
+            {
+                query.Add("search=" + Uri.EscapeDataString(_fTexto.Trim()));
+            }
+
+            _documents = (await Api.GetAsync<JsonElement>($"api/v1/billing/documents?{string.Join("&", query)}")).Items();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task ConciliarAsync()
+    {
+        try
+        {
+            var from = (_cDesde ?? DateTime.Today.AddDays(-6)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var to = (_cHasta ?? DateTime.Today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            _days = (await Api.GetAsync<JsonElement>($"api/v1/billing/reconciliation?from={from}&to={to}")).Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task VerAsync(JsonElement document)
+    {
+        try
+        {
+            _detalle = await Api.GetAsync<JsonElement>($"api/v1/billing/documents/{document.GetProperty("id").GetGuid()}");
+            _corregir = false;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void Cerrar()
+    {
+        _detalle = default;
+        _corregir = false;
+    }
+
+    private async Task ReintentarAsync()
+    {
+        _busy = true;
+        try
+        {
+            _detalle = await Api.PostAsync<JsonElement>($"api/v1/billing/documents/{_detalle.GetProperty("id").GetGuid()}/retry");
+            Snackbar.Add("El documento se volverá a enviar en segundo plano.", Severity.Success);
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void AbrirCorreccion()
+    {
+        var identification = _detalle.Str("buyerIdentification");
+        var dash = identification.IndexOf('-', StringComparison.Ordinal);
+        _bNombre = _detalle.Str("buyerName");
+        _bTipoId = _detalle.Str("buyerIdentificationType");
+        _bNumero = dash > 0 ? identification[..dash] : identification;
+        _bDv = dash > 0 ? identification[(dash + 1)..] : null;
+        _bCorreo = _detalle.Str("buyerEmail");
+        _bPersona = _bTipoId == "NIT" ? "LEGAL" : "NATURAL";
+        _bRegimen = _bResponsabilidades = _bMunicipio = _bDireccion = _bTelefono = null;
+        _corregir = true;
+    }
+
+    private async Task CorregirAsync()
+    {
+        _busy = true;
+        try
+        {
+            _detalle = await Api.PutAsync<JsonElement>($"api/v1/billing/documents/{_detalle.GetProperty("id").GetGuid()}/buyer", new
+            {
+                name = _bNombre?.Trim(),
+                identificationType = _bTipoId,
+                identificationNumber = _bNumero?.Trim(),
+                checkDigit = Nulo(_bDv),
+                email = Nulo(_bCorreo),
+                personType = _bPersona,
+                taxRegime = _bRegimen?.Trim(),
+                responsibilities = (_bResponsabilidades ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                address = Nulo(_bDireccion),
+                municipalityCode = Nulo(_bMunicipio),
+                phone = Nulo(_bTelefono),
+            });
+            _corregir = false;
+            Snackbar.Add("Datos del adquirente corregidos: el documento se reenviará.", Severity.Success);
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private string Asignacion(JsonElement range)
+    {
+        var branchId = range.Str("branchId");
+        if (branchId.Length == 0)
+        {
+            return "Sin asignar";
+        }
+
+        var branch = _branches.FirstOrDefault(b => b.Str("id") == branchId).Str("name");
+        var terminalId = range.Str("posTerminalId");
+        var terminal = terminalId.Length == 0 ? "" : " · caja " + (_terminals.FirstOrDefault(t => t.Str("id") == terminalId).Str("code") is { Length: > 0 } code ? code : terminalId);
+        return (branch.Length > 0 ? branch : branchId) + terminal;
+    }
+
+    private static bool Reintentable(JsonElement document) =>
+        document.Str("documentType") != "INTERNAL_RECEIPT" && document.Str("status") is "PENDING" or "ERROR" or "CONTINGENCY" or "REJECTED";
+
+    private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string Fecha(string value) =>
+        DateOnly.TryParse(value, CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : value;
+
+    private static string NombreEstado(string code) => Estados.FirstOrDefault(e => e.Code == code).Name ?? code;
+
+    private static string NombreTipo(string code) => Tipos.FirstOrDefault(e => e.Code == code).Name ?? code;
+
+    private static string NombreOrigen(string code) => Origenes.FirstOrDefault(e => e.Code == code).Name ?? code;
+
+    private static string NombreModo(string mode) => mode switch
+    {
+        "EVERY_SALE" => "factura en cada venta",
+        "ON_REQUEST" => "solo a pedido del cliente",
+        _ => "apagada",
+    };
+
+    private static Color ColorModo(string mode) => mode switch
+    {
+        "EVERY_SALE" => Color.Success,
+        "ON_REQUEST" => Color.Info,
+        _ => Color.Default,
+    };
+
+    private static Color ColorEstado(string status) => status switch
+    {
+        "ACCEPTED" => Color.Success,
+        "REJECTED" or "ERROR" => Color.Error,
+        "CONTINGENCY" or "PENDING" or "SUBMITTING" => Color.Warning,
+        _ => Color.Default,
+    };
+}

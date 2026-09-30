@@ -119,9 +119,19 @@ public sealed record SaleDto(
 
 /// <summary>
 /// Resultado de cobrar, anular o reimprimir: la venta, el tiquete en el modelo neutro (lo imprime el agente de caja) y si hay
-/// que abrir el cajón (hubo efectivo).
+/// que abrir el cajón (hubo efectivo). El documento fiscal es el que respalda el tiquete (Fase 11-B, D11B-03): la factura de la venta
+/// o, en una venta anulada, su nota crédito si la hay; <c>FiscalNumber</c> y <c>Cufe</c> llegan si la DIAN ya lo validó.
 /// </summary>
-public sealed record SaleReceiptDto(SaleDto Sale, TicketDocument Ticket, string TicketText, bool OpenDrawer, string? DocumentType, string? DocumentStatus);
+public sealed record SaleReceiptDto(
+    SaleDto Sale,
+    TicketDocument Ticket,
+    string TicketText,
+    bool OpenDrawer,
+    string? DocumentType,
+    string? DocumentStatus,
+    Guid? FiscalDocumentId = null,
+    string? FiscalNumber = null,
+    string? Cufe = null);
 
 public sealed record SaleSummaryDto(
     Guid Id, string? Number, string Status, string ReturnStatus, DateOnly BusinessDate, string TerminalCode, string CashierName, string CustomerName, decimal Total,

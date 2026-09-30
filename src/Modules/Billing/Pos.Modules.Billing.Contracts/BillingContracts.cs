@@ -71,6 +71,12 @@ public interface IBillingService
     Task<FiscalDocumentInfo?> GetForSourceAsync(Guid sourceId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Documento de un origen distinto de la venta (para el tiquete): <c>SALE_VOID</c> (nota crédito de la anulación, con el id de la venta)
+    /// o <c>CUSTOMER_RETURN</c> (nota crédito del cambio o del reintegro, con el id del cambio).
+    /// </summary>
+    Task<FiscalDocumentInfo?> GetBySourceAsync(Guid sourceId, string source, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Para el tiquete (D11B-03): despierta la cola y espera hasta <paramref name="timeout"/> (⚙️ <c>billing.ticket_wait_seconds</c>, 3 s,
     /// si es nulo) a que el documento tenga número fiscal, CUFE y QR, o quede en un estado final. Devuelve el documento como esté al
     /// terminar la espera. Debe llamarse DESPUÉS de confirmar la transacción de la venta (la cola solo ve lo confirmado).

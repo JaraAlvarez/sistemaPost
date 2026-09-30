@@ -1,4 +1,5 @@
 using Pos.Application.Abstractions.Security;
+using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Customers.Contracts;
@@ -229,12 +230,29 @@ public static class SaleViews
 
 /// <summary>
 /// Tiquete de venta en el modelo neutro (D7-14): encabezado de la empresa, líneas con su promoción, totales, impuestos por
-/// tarifa, pagos, cambio y el número en código de barras (para buscar la venta en un cambio). Hoy es un comprobante interno,
-/// no una factura electrónica (Fase 7, pregunta 1).
+/// tarifa, pagos, cambio y el número en código de barras (para buscar la venta en un cambio). Con la facturación apagada es un
+/// comprobante interno (Fase 7); con la electrónica (Fase 11-B, D11B-03) lleva el número fiscal, el CUFE y el QR de la DIAN si
+/// llegaron a tiempo, o la leyenda "en proceso" con el número interno.
 /// </summary>
 public static class SaleTicketBuilder
 {
-    public static TicketDocument Build(Sale sale, TicketHeader header, bool copy, bool openDrawer, string? documentType)
+    public const string InvoiceTitle = "Factura electrónica de venta";
+    public const string CreditNoteTitle = "Nota crédito electrónica";
+    public const string InProcessLegend = "Factura electrónica en proceso — se enviará a su correo / reimpresión en caja";
+    public const string CreditNoteInProcessLegend = "Nota crédito electrónica en proceso — se enviará a su correo / reimpresión en caja";
+
+    /// <summary>Estados en los que el documento electrónico aún puede recibir número y CUFE (la caja puede esperarlo).</summary>
+    public static bool IsInFlight(FiscalDocumentInfo? document) =>
+        document is { FiscalNumber: null } && IsElectronic(document) && document.Status is "PENDING" or "SUBMITTING" or "ERROR" or "CONTINGENCY";
+
+    public static bool IsElectronic(FiscalDocumentInfo? document) => document is not null && document.DocumentType != "INTERNAL_RECEIPT";
+
+    /// <summary>
+    /// Tiquete de la venta. <paramref name="document"/>: el comprobante o la factura de la venta; <paramref name="creditNote"/>: la nota
+    /// crédito de su anulación o del cambio de mercancía que la originó (solo se imprime si es electrónica).
+    /// </summary>
+    public static TicketDocument Build(
+        Sale sale, TicketHeader header, bool copy, bool openDrawer, FiscalDocumentInfo? document, FiscalDocumentInfo? creditNote = null)
     {
         ArgumentNullException.ThrowIfNull(sale);
         ArgumentNullException.ThrowIfNull(header);
@@ -317,8 +335,22 @@ public static class SaleTicketBuilder
 
         e.Add(new ColumnsLine("Unidades", TicketLayout.Quantity(sale.ActiveLines.Sum(l => l.Quantity))));
         e.Add(new SeparatorLine());
-        e.Add(new TextLine(documentType is null or "INTERNAL_RECEIPT" ? "Comprobante de venta. No es factura electrónica." : "Documento equivalente electrónico POS.",
-            TicketAlign.Center));
+        if (IsElectronic(document))
+        {
+            AddFiscal(e, document!, sale.Number, null);
+        }
+        else
+        {
+            e.Add(new TextLine("Comprobante de venta. No es factura electrónica.", TicketAlign.Center));
+        }
+
+        if (IsElectronic(creditNote))
+        {
+            e.Add(new SeparatorLine());
+            AddFiscal(e, creditNote!, sale.Number, sale.Status == SaleStatus.Voided ? "Anulación de la venta" : "Cambio de mercancía");
+            e.Add(new SeparatorLine());
+        }
+
         e.Add(new TextLine("Cambios dentro del plazo con este tiquete.", TicketAlign.Center));
         if (sale.CustomerId is not null && sale.CustomerFiscal?.ConsentPolicyVersion is { } policy)
         {
@@ -338,7 +370,7 @@ public static class SaleTicketBuilder
         return new TicketDocument($"Venta {sale.Number}", e, Cut: true, OpenDrawer: openDrawer);
     }
 
-    public static TicketDocument BuildReturn(CustomerReturn customerReturn, TicketHeader header, bool openDrawer)
+    public static TicketDocument BuildReturn(CustomerReturn customerReturn, TicketHeader header, bool openDrawer, FiscalDocumentInfo? creditNote = null)
     {
         ArgumentNullException.ThrowIfNull(customerReturn);
         ArgumentNullException.ThrowIfNull(header);
@@ -358,6 +390,12 @@ public static class SaleTicketBuilder
         e.Add(new SeparatorLine());
         e.Add(new ColumnsLine(customerReturn.Kind == ReturnKind.Exchange ? "Crédito aplicado" : "Reintegrado en efectivo", TicketLayout.Money(customerReturn.CreditTotal), Bold: true));
         e.Add(new TextLine($"Motivo: {customerReturn.Reason}"));
+        if (IsElectronic(creditNote))
+        {
+            e.Add(new SeparatorLine());
+            AddFiscal(e, creditNote!, customerReturn.Number, $"Venta {customerReturn.OriginalSaleNumber}");
+        }
+
         if (customerReturn.Kind == ReturnKind.WarrantyRefund)
         {
             e.Add(new FeedElement(2));
@@ -365,6 +403,49 @@ public static class SaleTicketBuilder
         }
 
         return new TicketDocument($"Cambio {customerReturn.Number}", e, Cut: true, OpenDrawer: openDrawer);
+    }
+
+    /// <summary>
+    /// Bloque fiscal (D11B-03): título del documento; si la DIAN ya lo validó, número, CUFE (CUDE en la nota crédito) y el QR con el
+    /// enlace de consulta de la DIAN; si no, la leyenda "en proceso" con el número interno (la reimpresión trae los datos al llegar).
+    /// </summary>
+    private static void AddFiscal(List<TicketElement> e, FiscalDocumentInfo document, string? internalNumber, string? reference)
+    {
+        var creditNote = document.DocumentType == "CREDIT_NOTE";
+        e.Add(new TextLine(
+            creditNote ? CreditNoteTitle : document.DocumentType == "POS_ELECTRONIC" ? "Documento equivalente electrónico POS" : InvoiceTitle,
+            TicketAlign.Center, Bold: true));
+        if (reference is not null)
+        {
+            e.Add(new TextLine(reference, TicketAlign.Center));
+        }
+
+        if (document is { FiscalNumber: { } number, Cufe: { } cufe })
+        {
+            e.Add(new ColumnsLine(creditNote ? "No. nota crédito" : "No. factura", number, Bold: true));
+            e.Add(new TextLine(creditNote ? "CUDE:" : "CUFE:"));
+            e.Add(new TextLine(cufe));
+            if (!string.IsNullOrWhiteSpace(document.QrData))
+            {
+                e.Add(new QrElement(document.QrData));
+            }
+
+            return;
+        }
+
+        if (document.Status == "CANCELLED")
+        {
+            e.Add(new TextLine("Anulada antes de su envío a la DIAN.", TicketAlign.Center));
+        }
+        else
+        {
+            e.Add(new TextLine(creditNote ? CreditNoteInProcessLegend : InProcessLegend, TicketAlign.Center));
+        }
+
+        if (internalNumber is not null)
+        {
+            e.Add(new ColumnsLine("No. interno", internalNumber));
+        }
     }
 
     private static void AddHeader(List<TicketElement> e, TicketHeader header)

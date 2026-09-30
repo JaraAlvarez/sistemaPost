@@ -56,9 +56,14 @@ internal static class ElectronicBilling
             username = "tienda@correo.co", password = Password, clientId = "cliente-9", clientSecret = ClientSecret,
         });
 
-    /// <summary>Credenciales, modo, sincronización de rangos y asignación de todos a la sucursal.</summary>
-    public static async Task<List<FiscalRangeDto>> EnableAsync(SalesScenario shop, string mode = "EVERY_SALE")
+    /// <summary>
+    /// Credenciales, modo, sincronización de rangos y asignación de todos a la sucursal. La espera del tiquete (⚙️
+    /// <c>billing.ticket_wait_seconds</c>) queda en 0 salvo que se pida otra: sin el proceso en segundo plano nadie enviaría el documento
+    /// y cada cobro esperaría en vano.
+    /// </summary>
+    public static async Task<List<FiscalRangeDto>> EnableAsync(SalesScenario shop, string mode = "EVERY_SALE", int ticketWaitSeconds = 0)
     {
+        await TicketWaitAsync(shop, ticketWaitSeconds);
         await CredentialsAsync(shop.Owner);
         (await SendAsync<BillingSettingsDto>(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode, environment = "SANDBOX" })).Mode.ShouldBe(mode);
         var ranges = await PostAsync<List<FiscalRangeDto>>(shop.Owner, "/api/v1/billing/ranges/sync");
@@ -70,6 +75,10 @@ internal static class ElectronicBilling
 
         return assigned;
     }
+
+    public static async Task TicketWaitAsync(SalesScenario shop, int seconds) =>
+        (await shop.Owner.PutAsJsonAsync("/api/v1/settings/billing.ticket_wait_seconds", new { scope = "Company", value = seconds }, Json, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
     public static Task<FiscalRangeDto> AssignAsync(SalesScenario shop, Guid rangeId, Guid? branchId, Guid? terminalId = null) =>
         SendAsync<FiscalRangeDto>(shop.Owner, HttpMethod.Put, $"/api/v1/billing/ranges/{rangeId}/assignment", new { branchId, posTerminalId = terminalId });

@@ -33,6 +33,7 @@ public sealed class SalesModule : IModule
         services.AddScoped<SaleEditor>();
         services.AddScoped<SaleInventory>();
         services.AddScoped<SaleReceipts>();
+        services.AddScoped<FiscalTicketWait>();
         services.AddScoped<ExchangeCompletion>();
         services.AddScoped<IPriceSimulator, PriceSimulator>();
     }
@@ -103,18 +104,19 @@ public sealed class SalesModule : IModule
             .WithSummary("Cancela una venta en curso o suspendida (con motivo, sin número)");
 
         group.MapPost("/{saleId:guid}/complete", async (
-                    Guid saleId, CompleteRequest r, [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new CompleteSaleCommand(saleId, r.Payments, idempotencyKey), ct)).ToHttpResult())
+                    Guid saleId, CompleteRequest r, [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, IDispatcher d, FiscalTicketWait fiscal,
+                    CancellationToken ct) =>
+                (await fiscal.SaleAsync(await d.Send(new CompleteSaleCommand(saleId, r.Payments, idempotencyKey), ct), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCreate)
-            .WithSummary("Cobra y completa en una transacción (idempotente con Idempotency-Key): número, kardex, caja, comprobante y tiquete");
-        group.MapPost("/{saleId:guid}/void", async (Guid saleId, ReasonRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new VoidSaleCommand(saleId, r.Reason), ct)).ToHttpResult())
+            .WithSummary("Cobra y completa en una transacción (idempotente con Idempotency-Key): número, kardex, caja, comprobante y tiquete; con la facturación electrónica espera ⚙️ hasta 3 s los datos fiscales");
+        group.MapPost("/{saleId:guid}/void", async (Guid saleId, ReasonRequest r, IDispatcher d, FiscalTicketWait fiscal, CancellationToken ct) =>
+                (await fiscal.SaleAsync(await d.Send(new VoidSaleCommand(saleId, r.Reason), ct), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleVoid, allowSupervisor: true)
             .WithSummary("Anula una venta hecha por error: solo con su jornada de caja abierta (D7-10)");
         group.MapPost("/{saleId:guid}/reprint", async (Guid saleId, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new ReprintSaleCommand(saleId), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleReprint)
-            .WithSummary("Tiquete marcado COPIA (auditado)");
+            .WithSummary("Tiquete marcado COPIA (auditado), con los datos fiscales si ya llegaron");
 
         var exchanges = api.MapGroup("/exchanges").WithTags("Ventas");
         exchanges.MapPost("/", async (StartExchangeCommand command, IDispatcher d, CancellationToken ct) =>
@@ -124,8 +126,8 @@ public sealed class SalesModule : IModule
         exchanges.MapGet("/{exchangeId:guid}", async (Guid exchangeId, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new GetExchangeQuery(exchangeId), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleView);
-        exchanges.MapPost("/warranty-refund", async (WarrantyRefundCommand command, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(command, ct)).ToHttpResult())
+        exchanges.MapPost("/warranty-refund", async (WarrantyRefundCommand command, IDispatcher d, FiscalTicketWait fiscal, CancellationToken ct) =>
+                (await fiscal.RefundAsync(await d.Send(command, ct), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.WarrantyRefund)
             .WithSummary("Reintegro en efectivo por garantía (Ley 1480): solo el propietario, auditado como crítico");
     }

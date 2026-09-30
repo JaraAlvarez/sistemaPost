@@ -15,7 +15,7 @@ public class InterfaceTests
         await using var factory = new PosServerFactory();
         var client = factory.CreateClient();
 
-        foreach (var route in new[] { "/", "/caja", "/admin/reportes", "/admin/compras", "/admin/importar", "/admin/sincronizacion" })
+        foreach (var route in new[] { "/", "/caja", "/admin/reportes", "/admin/compras", "/admin/importar", "/admin/sincronizacion", "/admin/facturacion" })
         {
             var page = await client.GetAsync(route, Ct);
             page.StatusCode.ShouldBe(HttpStatusCode.OK, route);

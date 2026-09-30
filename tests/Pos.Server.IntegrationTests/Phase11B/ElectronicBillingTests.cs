@@ -482,7 +482,7 @@ public class ElectronicBillingTests
         await using var factory = new WorkerBillingServerFactory();
         var shop = await SalesScenario.CreateAsync(factory);
         await shop.OpenSessionAsync();
-        await EnableAsync(shop);
+        await EnableAsync(shop, ticketWaitSeconds: 3);
 
         var receipt = await SellAsync(shop);
         var documentId = (await ForSourceAsync(shop, receipt.Sale.Id)).Id;

@@ -27,12 +27,13 @@ else
         <MudDrawer @bind-Open="_drawer" Elevation="1" ClipMode="DrawerClipMode.Always">
             <MudNavMenu>
                 <MudNavLink Href="/admin" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Tablero</MudNavLink>
-                @if (Session.Has("cash.report.view") || Session.Has("expenses.expense.view") || Session.Me!.Permissions.Any(p => p.StartsWith("reporting.", StringComparison.Ordinal)))
+                @if (Session.Has("cash.report.view") || Session.Has("expenses.expense.view") || Session.Has("billing.document.view") || Session.Has("billing.settings.manage") || Session.Me!.Permissions.Any(p => p.StartsWith("reporting.", StringComparison.Ordinal)))
                 {
                     <MudNavGroup Title="Ventas y caja" Icon="@Icons.Material.Filled.PointOfSale" Expanded="false">
                         @if (Session.Has("cash.report.view")) { <MudNavLink Href="/admin/jornadas" Icon="@Icons.Material.Filled.EventNote">Jornadas de caja</MudNavLink> }
                         @if (Session.Has("expenses.expense.view")) { <MudNavLink Href="/admin/gastos" Icon="@Icons.Material.Filled.Payments">Gastos</MudNavLink> }
                         @if (Session.Me!.Permissions.Any(p => p.StartsWith("reporting.", StringComparison.Ordinal))) { <MudNavLink Href="/admin/reportes" Icon="@Icons.Material.Filled.Assessment">Reportes</MudNavLink> }
+                        @if (Session.Has("billing.document.view") || Session.Has("billing.settings.manage")) { <MudNavLink Href="/admin/facturacion" Icon="@Icons.Material.Filled.ReceiptLong">Facturación electrónica</MudNavLink> }
                     </MudNavGroup>
                 }
                 @if (Session.Has("catalog.product.view") || Session.Has("inventory.stock.view") || Session.Has("inventory.count.register") || Session.Has("catalog.import.run") || Session.Has("inventory.adjustment.manage"))

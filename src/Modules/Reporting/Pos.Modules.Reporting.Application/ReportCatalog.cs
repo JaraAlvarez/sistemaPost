@@ -407,6 +407,76 @@ public static class ReportCatalog
             """,
             "Formato estándar a validar con el contador. El rango de consecutivos incluye las anuladas (se cuentan aparte)."),
 
+        new("FISCAL_RECONCILIATION", "Conciliación de facturación electrónica", Taxes,
+            "Por día y sucursal (Fase 11-B): ventas contra facturas aceptadas por la DIAN, pendientes, en contingencia, rechazadas, sin documento, "
+            + "canceladas y notas crédito, con el valor sin factura aceptada y la diferencia de valores.",
+            ReportingPermissions.TaxesView, DateRange,
+            [
+                new("business_date", "Fecha", T.Date),
+                new("branch_name", "Sucursal", T.Text),
+                new("sales", "Ventas", T.Count, Total: true),
+                new("sales_total", "Valor vendido", T.Money, Total: true),
+                new("internal_receipts", "Con comprobante interno", T.Count, Total: true),
+                new("accepted", "Facturas aceptadas", T.Count, Total: true),
+                new("accepted_total", "Valor facturado aceptado", T.Money, Total: true),
+                new("pending", "Pendientes", T.Count, Total: true),
+                new("contingency", "En contingencia", T.Count, Total: true),
+                new("rejected", "Rechazadas", T.Count, Total: true),
+                new("without_document", "Sin documento", T.Count, Total: true),
+                new("unreconciled", "Ventas sin factura aceptada", T.Count, Total: true),
+                new("unreconciled_total", "Valor sin factura aceptada", T.Money, Total: true),
+                new("amount_difference", "Diferencia venta − factura", T.Money, Total: true),
+                new("voided", "Anuladas", T.Count, Total: true),
+                new("cancelled", "Facturas canceladas antes de enviar", T.Count, Total: true),
+                new("credit_notes", "Notas crédito aceptadas", T.Count, Total: true),
+                new("credit_notes_open", "Notas crédito por aceptar", T.Count, Total: true),
+            ],
+            $"""
+            WITH x AS (
+                SELECT s.business_date, s.branch_id, s.status, s.total, f.document_type, f.status AS fiscal_status, f.total AS fiscal_total,
+                       (s.status = 'COMPLETED' AND f.document_type IS DISTINCT FROM 'INTERNAL_RECEIPT' AND f.status IS DISTINCT FROM 'ACCEPTED') AS open_sale
+                FROM reporting.sales s
+                LEFT JOIN reporting.fiscal_documents f ON f.source = 'SALE' AND f.source_id = s.sale_id
+                WHERE {SalesInRange} AND s.status IN ('COMPLETED', 'VOIDED')),
+            d AS (
+                SELECT x.business_date, x.branch_id,
+                       count(*) FILTER (WHERE x.status = 'COMPLETED') AS sales,
+                       COALESCE(sum(x.total) FILTER (WHERE x.status = 'COMPLETED'), 0) AS sales_total,
+                       count(*) FILTER (WHERE x.status = 'COMPLETED' AND x.document_type = 'INTERNAL_RECEIPT') AS internal_receipts,
+                       count(*) FILTER (WHERE x.status = 'COMPLETED' AND x.fiscal_status = 'ACCEPTED') AS accepted,
+                       COALESCE(sum(x.fiscal_total) FILTER (WHERE x.status = 'COMPLETED' AND x.fiscal_status = 'ACCEPTED'), 0) AS accepted_total,
+                       count(*) FILTER (WHERE x.status = 'COMPLETED' AND x.fiscal_status IN ('PENDING', 'SUBMITTING', 'ERROR')) AS pending,
+                       count(*) FILTER (WHERE x.status = 'COMPLETED' AND x.fiscal_status = 'CONTINGENCY') AS contingency,
+                       count(*) FILTER (WHERE x.status = 'COMPLETED' AND x.fiscal_status = 'REJECTED') AS rejected,
+                       count(*) FILTER (WHERE x.status = 'COMPLETED' AND x.document_type IS NULL) AS without_document,
+                       count(*) FILTER (WHERE x.open_sale) AS unreconciled,
+                       COALESCE(sum(x.total) FILTER (WHERE x.open_sale), 0) AS unreconciled_total,
+                       COALESCE(sum(x.total - x.fiscal_total) FILTER (WHERE x.status = 'COMPLETED' AND x.fiscal_status = 'ACCEPTED'), 0) AS amount_difference,
+                       count(*) FILTER (WHERE x.status = 'VOIDED') AS voided,
+                       count(*) FILTER (WHERE x.fiscal_status = 'CANCELLED') AS cancelled
+                FROM x
+                GROUP BY x.business_date, x.branch_id),
+            n AS (
+                SELECT f.business_date, f.branch_id, count(*) FILTER (WHERE f.status = 'ACCEPTED') AS credit_notes,
+                       count(*) FILTER (WHERE f.status <> 'ACCEPTED') AS credit_notes_open
+                FROM reporting.fiscal_documents f
+                WHERE f.company_id = @company_id AND f.branch_id = @branch_id AND f.business_date BETWEEN @from AND @to
+                  AND f.document_type = 'CREDIT_NOTE'
+                GROUP BY f.business_date, f.branch_id)
+            SELECT business_date, b.branch_name, COALESCE(d.sales, 0) AS sales, COALESCE(d.sales_total, 0) AS sales_total,
+                   COALESCE(d.internal_receipts, 0) AS internal_receipts, COALESCE(d.accepted, 0) AS accepted,
+                   COALESCE(d.accepted_total, 0) AS accepted_total, COALESCE(d.pending, 0) AS pending, COALESCE(d.contingency, 0) AS contingency,
+                   COALESCE(d.rejected, 0) AS rejected, COALESCE(d.without_document, 0) AS without_document,
+                   COALESCE(d.unreconciled, 0) AS unreconciled, COALESCE(d.unreconciled_total, 0) AS unreconciled_total,
+                   COALESCE(d.amount_difference, 0) AS amount_difference, COALESCE(d.voided, 0) AS voided, COALESCE(d.cancelled, 0) AS cancelled,
+                   COALESCE(n.credit_notes, 0) AS credit_notes, COALESCE(n.credit_notes_open, 0) AS credit_notes_open
+            FROM d FULL JOIN n USING (business_date, branch_id)
+            JOIN reporting.branches b ON b.branch_id = COALESCE(d.branch_id, n.branch_id)
+            ORDER BY business_date, b.branch_name
+            """,
+            "Con la facturación apagada todas las ventas llevan comprobante interno. Una venta queda conciliada con su factura aceptada; "
+            + "la diferencia de valores debe ser cero (redondeos a revisar con el contador)."),
+
         // ------------------------------------------------------------------------------------------------ Inventario
         new("INVENTORY_VALUATION", "Inventario valorizado", Inventory,
             "Existencias y valor por bodega y producto, hoy (saldos en línea) o a una fecha (saldo del último movimiento del kardex).",
