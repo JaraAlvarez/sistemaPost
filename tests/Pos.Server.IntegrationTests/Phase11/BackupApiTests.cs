@@ -104,6 +104,8 @@ public sealed class BackupServerFactory : PosServerFactory
 /// Verificación de coherencia de la Fase 11 (entregable del plan): un backup de una tienda con ventas se restaura en OTRA BD solo con el
 /// archivo y el código de recuperación (como en otro equipo), y la auditoría, el sello y los conteos coinciden.
 /// </summary>
+/// <remarks>Corre sin paralelismo: el sellado de auditoría usa un horizonte corto y, con la máquina cargada, la verificación fallaba.</remarks>
+[Collection(SequentialPerformance.Name)]
 public class BackupApiTests
 {
     [Fact]
