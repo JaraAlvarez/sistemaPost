@@ -32,7 +32,7 @@
 | 9 · Reportes | [propuesta](fases/fase-09-propuesta.md) · [informe](fases/fase-09-informe.md) | Implementada — pendiente de tu validación |
 | 10 · Auditoría | [propuesta](fases/fase-10-propuesta.md) · [informe](fases/fase-10-informe.md) | Implementada — pendiente de tu validación |
 | 11 · Backups | [propuesta](fases/fase-11-propuesta.md) · [informe](fases/fase-11-informe.md) · [guía de recuperación](guia-recuperacion.md) | Implementada — pendiente de tu validación |
-| 11-B · Facturación electrónica (Factus) | [propuesta](fases/fase-11b-propuesta.md) | Aprobada — en implementación (rama `fase-11b-factus`) |
+| 11-B · Facturación electrónica (Factus) | [propuesta](fases/fase-11b-propuesta.md) · [informe](fases/fase-11b-informe.md) · [guía Factus](guia-factus.md) | Implementada (apagada) — pendiente de la prueba en el sandbox de Factus |
 | 12-A · Servidor y portal web de licencias | [propuesta](fases/fase-12a-propuesta.md) · [informe](fases/fase-12a-informe.md) · [despliegue](despliegue-nube.md) | Implementada — pendiente de validación |
 | 12-B · Licencia dentro del POS | [propuesta](fases/fase-12b-propuesta.md) · [informe](fases/fase-12b-informe.md) | Implementada — pendiente de tu validación |
 | 13 · Instalador y actualizaciones | [propuesta](fases/fase-13-propuesta.md) · [informe](fases/fase-13-informe.md) · [guía de instalación](guia-instalacion.md) | Implementada — pendiente de tu validación (compilar el instalador) |

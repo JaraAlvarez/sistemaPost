@@ -63,3 +63,6 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0056](0056-versiones-lado-a-lado-y-actualizador-firmado.md) | Versiones lado a lado y actualizador con manifiesto firmado | Aceptada | 2026-09-30 |
 | [0057](0057-subida-a-la-nube-por-cursores-con-acuse.md) | Subida tienda → nube por cursores con acuse, autenticada con la licencia | Aceptada | 2026-09-30 |
 | [0058](0058-paquete-possync-y-portal-del-cliente.md) | Paquete `.possync` cifrado para la nube y portal del cliente | Aceptada | 2026-09-30 |
+| [0059](0059-modo-de-emision-y-factura-electronica-por-venta-con-factus.md) | Modo de emisión (OFF / ON_REQUEST / EVERY_SALE) y factura electrónica por venta con Factus | Aceptada | 2026-09-30 |
+| [0060](0060-emision-asincrona-idempotente-y-contingencia.md) | Emisión asíncrona, idempotencia por `reference_code` y contingencia sin Internet | Aceptada | 2026-09-30 |
+| [0061](0061-mapeo-fiscal-desde-la-venta-guardada.md) | Mapeo fiscal desde la venta guardada (modelo neutro, pesables, notas y documento soporte) | Aceptada | 2026-09-30 |

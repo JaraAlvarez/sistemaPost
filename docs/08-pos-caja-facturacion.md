@@ -184,6 +184,48 @@ Buscar compra → seleccionar líneas (≤ comprado − devuelto) → `POSTED`: 
 > **comprobante interno** (`INTERNAL_RECEIPT`, `NOT_REQUIRED`) en la transacción de la venta y el tiquete dice "No es factura". El
 > documento electrónico con Factus se enciende en la Fase 11-B (`billing.electronic_enabled`) sin cambiar ventas.
 
+### Notas de implementación de la Fase 11-B (facturación electrónica con Factus)
+
+> [Informe](fases/fase-11b-informe.md) · [guía de activación](guia-factus.md) · ADR [0059](adr/0059-modo-de-emision-y-factura-electronica-por-venta-con-factus.md),
+> [0060](adr/0060-emision-asincrona-idempotente-y-contingencia.md), [0061](adr/0061-mapeo-fiscal-desde-la-venta-guardada.md) ·
+> `http/fase-11b.http`. **Construida y apagada** (modo `OFF`) hasta la prueba en el sandbox de Factus y el visto bueno del contador.
+
+- **Modo de emisión** por empresa (`billing.provider_settings`, migración `V2026.10.032`): `OFF` (comprobante interno, como en la Fase 7),
+  `ON_REQUEST` (factura solo si la venta está marcada "pide factura"; transición, no cumple la norma) y `EVERY_SALE` (factura en cada
+  venta, consumidor final si no hay cliente). Factus **no emite DEE POS**: cada venta es una **factura electrónica de venta**
+  (`INVOICE_ELECTRONIC`); `POS_ELECTRONIC` queda reservado para otro adaptador. Adaptador por configuración del servidor
+  (`Pos:Billing:Provider` = `NONE` | `FACTUS` | `FAKE`), ambiente `SANDBOX`/`PRODUCTION` y credenciales cifradas con DPAPI por empresa.
+- **Interfaz neutra ampliada.** `IFiscalProvider` recibe **borradores del modelo fiscal neutro** (`FiscalModel.cs`) y la conexión (ambiente
+  + credenciales descifradas solo para la llamada), y devuelve `FiscalProviderResult` (`Accepted`, `Rejected`, `Unavailable`, `Failed`,
+  `NotConfigured`, `NotFound`, con `RetryAfter`). Métodos: factura, nota crédito, documento soporte, nota de ajuste, estado por
+  `reference_code` y rangos. Adaptadores: `NullFiscalProvider`, `FakeFiscalProvider` (pruebas) y `FactusFiscalProvider` (API v2:
+  `FactusApiClient` con token OAuth2 en memoria renovado, `FactusDraftMapper` puro, `FactusResponseReader`).
+- **Estados del documento:** `NOT_REQUIRED`, `PENDING`, `SUBMITTING`, `ACCEPTED`, `REJECTED`, `CONTINGENCY`, `ERROR`, `VOIDED` (interno) y
+  `CANCELLED` (electrónico anulado antes de enviarse). Tipos nuevos: `SUPPORT_DOCUMENT` (origen `PURCHASE`) y `ADJUSTMENT_NOTE` (origen
+  `PURCHASE_VOID`). `reference_code` ÚNICO (idempotencia): id del origen, `NCA…`, `NCD…`, `DS…`, `NAS…`.
+- **Cola** (`FiscalQueueRunner`/`FiscalQueueWorker`): el documento nace `PENDING` en la transacción de la venta y un mensaje LOCAL del outbox
+  despierta la cola (o cada ⚙️ 5 s). Orden de llegada, reclamo con consulta de estado si un envío quedó a medias, contingencia sin red
+  (la pasada se detiene), espera creciente, ⚙️ 60 envíos/min y **pausa global** ante un 429. Rechazo → `REJECTED` + auditoría crítica;
+  corrección del comprador (`buyer_fiscal`) o reintento; en el reenvío el adaptador **borra en Factus el rechazado** con el mismo código.
+- **Rangos** (`billing.fiscal_numbering_ranges`): sincronizados desde Factus (manual y cada ⚙️ 24 h), asignados por sucursal/caja y tipo;
+  sin rango vigente el documento queda pendiente con alerta crítica. Alertas al ⚙️ 90 % y a ⚙️ 30 días.
+- **Mapeo** desde la venta guardada: bolsa como ítem, impuestos por tarifa (los no admitidos se suman a la base), base exacta, pesables sin
+  redondear cantidades (tal cual → unidad menor → precio al centavo superior → "por valor" con la cantidad en la nota), redondeo del
+  efectivo y centavos del IVA en `cash_rounding_amount`; la nota crédito ajusta sus medios de pago al total de Factus.
+- **Notas crédito:** anulación (concepto 2, total) y cambio o garantía (concepto 1, parcial); esperan a que su factura esté aceptada. Anular
+  una venta con la factura aún no aceptada la **cancela**.
+- **Compras:** al contabilizar una compra a un proveedor que no factura (`requires_support_document`) con la facturación encendida nace el
+  **documento soporte**; al anularla, se cancela si no fue aceptado o se emite una **nota de ajuste** si ya lo fue.
+- **Tiquete** (`FiscalTicketWait`, Sales): **después** de confirmar la venta, la anulación o el reintegro, la caja espera ⚙️ hasta 3 s
+  (`billing.ticket_wait_seconds`); con datos imprime "Factura electrónica de venta" (o "Nota crédito electrónica") con número, CUFE y QR;
+  sin ellos, la leyenda "en proceso" y el número interno; la reimpresión trae los datos. La espera nunca vuelve un error la venta.
+- **Conciliación y alertas:** `GET /billing/reconciliation`, reporte `FISCAL_RECONCILIATION` (catálogo de la Fase 9, `reporting.taxes.view`)
+  y `GET /billing/alerts`. Pantalla **Administración → Facturación** (`/admin/facturacion`): configuración, rangos, documentos (reintentar,
+  corregir comprador) y alertas/conciliación.
+- **Permisos:** `billing.settings.manage` (nuevo, sensible: OWNER, ADMIN); `billing.document.view`/`.manage` también para CASH_SUPERVISOR.
+- La nota de la Fase 2 (más abajo) sobre numerar en contingencia no aplica con Factus: sin conexión no hay número ni CUFE; la venta sale con
+  su número interno y el documento se transmite al volver la conexión (tratamiento legal a validar con el contador).
+
 ### Separación de conceptos
 
 | Concepto | Entidad | Pregunta que responde |

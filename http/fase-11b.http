@@ -1,0 +1,174 @@
+# Fase 11-B · Facturación electrónica con Factus (modo, credenciales, rangos, documentos, rechazos, conciliación, alertas, cola)
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client). Guía para el dueño: docs/guia-factus.md.
+# Antes: dev-db.ps1 (aplica la migración V2026.10.032) y `dotnet run --project src/Server/Pos.Server.Host`.
+# El adaptador lo fija la configuración del servidor (Pos:Billing:Provider): NONE (por defecto, sin proveedor), FACTUS (Factus API v2)
+# o FAKE (simulado, solo fuera de producción). Para probar sin Factus: variable de entorno Pos__Billing__Provider=FAKE.
+# Permisos: billing.settings.manage (OWNER, ADMIN) para configuración y rangos; billing.document.view / .manage (también CASH_SUPERVISOR)
+# para documentos, reintentos, corrección del comprador, conciliación, alertas y la cola.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+@from = 2026-09-01
+@to = 2026-09-30
+
+### 1. Propietario
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{login.response.body.token}}
+
+### 2. Configuración: proveedor, adaptador activo, modo, ambiente, si hay credenciales (nunca se devuelven) y última sincronización
+GET {{api}}/billing/settings
+Authorization: Bearer {{ownerToken}}
+
+### 3. Credenciales de Factus (sandbox): se cifran con DPAPI en el servidor; no se devuelven ni quedan en la auditoría
+PUT {{api}}/billing/settings/credentials
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "username": "correo-del-sandbox@tienda.com",
+  "password": "CLAVE-DEL-SANDBOX",
+  "clientId": "CLIENT-ID-DEL-SANDBOX",
+  "clientSecret": "CLIENT-SECRET-DEL-SANDBOX"
+}
+
+### 4. Modo y ambiente. Modo: OFF | ON_REQUEST | EVERY_SALE; ambiente: SANDBOX | PRODUCTION.
+###    Encender sin credenciales → 422 (BILLING.CREDENTIALS_REQUIRED). Empiece en SANDBOX.
+PUT {{api}}/billing/settings
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "mode": "EVERY_SALE", "environment": "SANDBOX" }
+
+### 4.1 Apagar (vuelve el comprobante interno; lo ya enviado no cambia)
+PUT {{api}}/billing/settings
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "mode": "OFF", "environment": "SANDBOX" }
+
+### 5. Sincronizar los rangos de numeración desde el proveedor (también automático cada 24 h con la facturación encendida)
+POST {{api}}/billing/ranges/sync
+Authorization: Bearer {{ownerToken}}
+
+### 6. Rangos con uso, disponibles, vigencia y asignación
+# @name ranges
+GET {{api}}/billing/ranges
+Authorization: Bearer {{ownerToken}}
+
+@rangeId = {{ranges.response.body.$[0].id}}
+
+###
+# @name branches
+GET {{api}}/organization/branches
+Authorization: Bearer {{ownerToken}}
+
+@branchId = {{branches.response.body.$[0].id}}
+
+### 7. Asignar el rango a la sucursal (posTerminalId opcional: rango propio de una caja). Uno activo por sucursal/caja y tipo.
+PUT {{api}}/billing/ranges/{{rangeId}}/assignment
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "branchId": "{{branchId}}", "posTerminalId": null }
+
+### 7.1 Desasignar (branchId null)
+PUT {{api}}/billing/ranges/{{rangeId}}/assignment
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "branchId": null, "posTerminalId": null }
+
+### 8. Vender como siempre (http/fase-07.http). En ON_REQUEST, marcar que el cliente pide factura en la venta en curso:
+###    PUT {{api}}/sales/{saleId}/customer  { "partyId": "ID-DEL-CLIENTE", "invoiceRequested": true }
+###    Al completar (POST /sales/{saleId}/complete) la caja espera ⚙️ hasta 3 s (billing.ticket_wait_seconds) los datos fiscales:
+###    el tiquete trae "Factura electrónica de venta" con número, CUFE y QR, o la leyenda "en proceso".
+
+### 9. Documentos de la sucursal. Filtros: from, to, status (PENDING, SUBMITTING, ACCEPTED, REJECTED, CONTINGENCY, ERROR, CANCELLED,
+###    VOIDED, NOT_REQUIRED), type (INTERNAL_RECEIPT, INVOICE_ELECTRONIC, CREDIT_NOTE, SUPPORT_DOCUMENT, ADJUSTMENT_NOTE),
+###    source (SALE, SALE_VOID, CUSTOMER_RETURN, PURCHASE, PURCHASE_VOID), search (número de origen, número fiscal o identificación), limit
+# @name documents
+GET {{api}}/billing/documents?from={{from}}&to={{to}}&type=INVOICE_ELECTRONIC&limit=50
+Authorization: Bearer {{ownerToken}}
+
+@documentId = {{documents.response.body.$[0].id}}
+
+### 9.1 Rechazados sin atender
+# @name rejected
+GET {{api}}/billing/documents?status=REJECTED
+Authorization: Bearer {{ownerToken}}
+
+### 10. Detalle con sus eventos (ISSUED, ATTEMPT, RETRY_REQUESTED, BUYER_CORRECTED, CANCELLED…)
+GET {{api}}/billing/documents/{{documentId}}
+Authorization: Bearer {{ownerToken}}
+
+### 11. Reintentar un documento PENDING, ERROR, CONTINGENCY o REJECTED (otro estado → 422 BILLING.NOT_RETRYABLE).
+###     Si estaba rechazado en Factus, el adaptador lo borra allá (mismo reference_code) y lo reenvía.
+POST {{api}}/billing/documents/{{documentId}}/retry
+Authorization: Bearer {{ownerToken}}
+
+### 12. Corregir el comprador de un documento aún no aceptado (tras un rechazo por NIT, DV, nombre, régimen…). La venta no cambia.
+###     identificationType: código interno (CC, NIT, CE…); personType: NATURAL | LEGAL; taxRegime: código DIAN ("48" responsable de IVA,
+###     "49" no responsable); responsibilities: códigos DIAN (R-99-PN, O-13…); municipalityCode: DIVIPOLA.
+PUT {{api}}/billing/documents/{{documentId}}/buyer
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{
+  "name": "Distribuidora La Esquina S.A.S.",
+  "identificationType": "NIT",
+  "identificationNumber": "900123456",
+  "checkDigit": "7",
+  "email": "facturas@laesquina.com",
+  "personType": "LEGAL",
+  "taxRegime": "48",
+  "responsibilities": [ "O-13" ],
+  "address": "Cra 10 # 20-30",
+  "municipalityCode": "11001",
+  "phone": "6011234567"
+}
+
+### 13. Documento soporte: al contabilizar una compra a un proveedor que NO factura (requiresSupportDocument) con la facturación
+###     encendida nace el documento SUPPORT_DOCUMENT; al anularla, si ya fue aceptado, la nota de ajuste ADJUSTMENT_NOTE (http/fase-05.http)
+GET {{api}}/purchasing/purchases?requiresSupportDocument=true
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/billing/documents?source=PURCHASE
+Authorization: Bearer {{ownerToken}}
+
+###
+POST {{api}}/purchasing/purchases/ID-DE-LA-COMPRA/void
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "reason": "Compra registrada por error" }
+
+###
+GET {{api}}/billing/documents?source=PURCHASE_VOID
+Authorization: Bearer {{ownerToken}}
+
+### 14. Conciliación por día: ventas vs. aceptadas, pendientes, en contingencia, rechazadas, canceladas y notas crédito
+GET {{api}}/billing/reconciliation?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 14.1 La misma conciliación como reporte del catálogo (reporting.taxes.view), exportable
+GET {{api}}/reports/FISCAL_RECONCILIATION?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/FISCAL_RECONCILIATION?from={{from}}&to={{to}}&format=xlsx
+Authorization: Bearer {{ownerToken}}
+
+### 15. Alertas: pendientes de más de ⚙️ 24 h, rechazos, documentos sin rango y rangos al ⚙️ 90 % o a ⚙️ 30 días de vencer
+GET {{api}}/billing/alerts
+Authorization: Bearer {{ownerToken}}
+
+### 16. Enviar ya la cola (lo mismo que el proceso en segundo plano, hasta 500 documentos). Responde lo procesado, enviado y aceptado,
+###     y el motivo si se detuvo: BUSY, SETUP_REQUIRED, NOT_CONFIGURED (sin credenciales), RATE_LIMIT (60/min o pausa por 429) o CONTINGENCY
+POST {{api}}/billing/queue/process
+Authorization: Bearer {{ownerToken}}
