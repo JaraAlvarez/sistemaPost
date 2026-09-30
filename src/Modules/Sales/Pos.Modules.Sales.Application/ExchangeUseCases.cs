@@ -102,6 +102,7 @@ internal sealed class StartExchangeHandler(
     IAuthorizationScope authorization,
     IActorContext actor,
     IAuditWriter audit,
+    CustomerResolver customers,
     IIdGenerator ids,
     IClock clock) : ICommandHandler<StartExchangeCommand, ExchangeStartedDto>
 {
@@ -148,8 +149,22 @@ internal sealed class StartExchangeHandler(
         var sale = Sale.Start(
             ids.NewId(), scope.Value.CompanyId, scope.Value.BranchId, scope.Value.PosTerminalId, scope.Value.WarehouseId, session.Id, scope.Value.UserId,
             session.BusinessDate, now,
-            new CustomerSnapshot(original.CustomerId, original.CustomerName, original.CustomerIdentificationType, original.CustomerIdentification, original.CustomerEmail),
+            new CustomerSnapshot(original.CustomerId, original.CustomerName, original.CustomerIdentificationType, original.CustomerIdentification, original.CustomerEmail,
+                original.CustomerFiscal),
             exchange.Value.Id, exchange.Value.CreditTotal);
+
+        // La venta nueva usa la lista de precio del cliente de la venta original (D8-09).
+        if (original.CustomerId is { } customerId)
+        {
+            var customer = await customers.ResolveAsync(customerId, original.BranchId, cancellationToken);
+            if (customer.IsFailure)
+            {
+                return customer.Error;
+            }
+
+            sale.SetCustomer(customer.Value.Snapshot, customer.Value.Pricing, invoiceRequested: original.InvoiceRequested);
+        }
+
         exchange.Value.LinkReplacementSale(sale.Id);
         store.Add(exchange.Value);
         store.Add(sale);

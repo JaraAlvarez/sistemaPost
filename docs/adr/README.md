@@ -44,3 +44,7 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0037](0037-nube-separada-en-el-mismo-repositorio.md) | Nube separada del POS en el mismo repositorio (`src/Cloud`, BD propia) | Aceptada | 2026-09-29 |
 | [0038](0038-token-ed25519-con-rotacion-por-kid.md) | Token de licencia JWS EdDSA/Ed25519 con rotación por `kid` | Aceptada | 2026-09-29 |
 | [0039](0039-modelo-por-edicion-y-licencia-por-nit.md) | Modelo de licencias por edición y una licencia por NIT | Aceptada | 2026-09-29 |
+| [0040](0040-modulo-customers-y-rol-con-la-clave-del-tercero.md) | Módulo Customers y rol de cliente con la clave del tercero | Aceptada | 2026-09-29 |
+| [0041](0041-precio-por-cliente-y-promociones.md) | Precio por cliente (listas fijas y derivadas) y promociones | Aceptada | 2026-09-29 |
+| [0042](0042-autorizacion-de-datos-y-derechos-del-titular.md) | Autorización de tratamiento de datos y derechos del titular | Aceptada | 2026-09-29 |
+| [0043](0043-credito-y-puntos-reservados.md) | Crédito (fiado) y puntos reservados para la Fase 8-B | Aceptada | 2026-09-29 |

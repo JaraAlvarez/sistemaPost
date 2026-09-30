@@ -31,7 +31,42 @@ public sealed partial class PriceList : AggregateRoot<Guid>, ICompanyOwned, ISof
 
     public MasterStatus Status { get; private set; } = MasterStatus.Active;
 
+    /// <summary>Lista derivada (Fase 8, D8-11): % sobre la general (p. ej. −5); null = lista de precios fijos.</summary>
+    public decimal? AdjustmentPercent { get; private set; }
+
+    /// <summary>Múltiplo al que se redondea el precio derivado (p. ej. $50); 0 = al centavo.</summary>
+    public decimal RoundingIncrement { get; private set; } = 50m;
+
+    /// <summary>Las promociones aplican sobre el precio de esta lista (D8-10); si no, la lista ya es el precio final.</summary>
+    public bool AllowsPromotions { get; private set; } = true;
+
     public string AuditLabel => $"Lista de precios {Code} · {Name}";
+
+    /// <summary>Reglas de la lista (D8-11): la general no tiene porcentaje; porcentaje entre −90 y +100; redondeo de 0 a 1.000.</summary>
+    public Result ConfigureRules(decimal? adjustmentPercent, decimal roundingIncrement, bool allowsPromotions)
+    {
+        if ((IsDefault && adjustmentPercent is not null) || adjustmentPercent is < -90m or > 100m or 0m
+            || (adjustmentPercent is { } p && decimal.Round(p, 2) != p) || roundingIncrement is < 0m or > 1_000m)
+        {
+            return Error.Validation(
+                "CATALOG.INVALID_PRICE_LIST_RULES",
+                "Reglas inválidas: la lista general no tiene porcentaje; el porcentaje va de −90 a +100 (distinto de 0) y el redondeo de 0 a 1.000.");
+        }
+
+        AdjustmentPercent = adjustmentPercent;
+        RoundingIncrement = roundingIncrement;
+        AllowsPromotions = allowsPromotions;
+        return Result.Success();
+    }
+
+    /// <summary>Precio derivado de la general con el porcentaje y el redondeo de la lista (al más cercano).</summary>
+    public decimal Derive(decimal generalPrice)
+    {
+        var raw = generalPrice * (1m + ((AdjustmentPercent ?? 0m) / 100m));
+        return RoundingIncrement > 0m
+            ? new Pos.SharedKernel.Finance.RoundingPolicy(2, RoundingIncrement).RoundToCash(raw)
+            : decimal.Round(raw, 2, MidpointRounding.AwayFromZero);
+    }
 
     public static Result<PriceList> Create(Guid id, Guid companyId, string code, string name, bool pricesIncludeTax, bool isDefault)
     {

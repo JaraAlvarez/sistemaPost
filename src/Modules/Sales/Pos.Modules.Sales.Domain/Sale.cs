@@ -57,10 +57,51 @@ public sealed record SaleLineInput(
     bool AllowsDecimalQuantity,
     bool AllowsOpenPrice,
     IReadOnlyList<PricingTax> Taxes,
-    Guid? ExpiredAuthorizedBy = null);
+    Guid? ExpiredAuthorizedBy = null,
+    Guid? PriceListId = null,
+    string PriceSource = PriceSources.Default);
+
+/// <summary>De dónde salió el precio de una línea (Fase 8, D8-12): "¿por qué se cobró este precio?".</summary>
+public static class PriceSources
+{
+    /// <summary>Precio propio de la lista del cliente.</summary>
+    public const string List = "LIST";
+
+    /// <summary>% sobre la lista general con el redondeo de la lista.</summary>
+    public const string Derived = "DERIVED";
+
+    /// <summary>Lista general.</summary>
+    public const string Default = "DEFAULT";
+
+    /// <summary>Precio abierto fijado en la caja.</summary>
+    public const string Open = "OPEN";
+
+    /// <summary>Precio modificado autorizado.</summary>
+    public const string Override = "OVERRIDE";
+
+    /// <summary>Etiqueta de báscula por precio: el valor viene impreso.</summary>
+    public const string ScaleLabel = "SCALE_LABEL";
+
+    /// <summary>Precios que un cambio de cliente no toca (RN-PRL-02).</summary>
+    public static bool IsFixed(string source) => source is Open or Override or ScaleLabel;
+}
+
+/// <summary>
+/// Datos fiscales completos del comprador al momento de la venta (Fase 8, D8-05): la factura electrónica (11-B) se emite con
+/// ellos aunque el tercero cambie después. <c>ConsentPolicyVersion</c>: versión de la política que autorizó (aviso del tiquete).
+/// </summary>
+public sealed record CustomerFiscal(
+    string PersonType, string? CheckDigit, string TaxRegime, IReadOnlyList<string> Responsibilities, string? Address, string? MunicipalityCode, string? Phone,
+    int? ConsentPolicyVersion);
 
 /// <summary>Cliente de la venta (null = Consumidor final).</summary>
-public sealed record CustomerSnapshot(Guid? PartyId, string Name, string IdentificationType, string IdentificationNumber, string? Email);
+public sealed record CustomerSnapshot(Guid? PartyId, string Name, string IdentificationType, string IdentificationNumber, string? Email, CustomerFiscal? Fiscal = null);
+
+/// <summary>Lista de precio que aplica a la venta (D8-09) y si admite promociones (D8-10); null = la general.</summary>
+public sealed record SalePricing(Guid? PriceListId, string? PriceListCode, string? GroupCode, bool AllowsPromotions)
+{
+    public static readonly SalePricing General = new(null, null, null, true);
+}
 
 /// <summary>Impuesto de una línea: la tarifa se fija al escanear; base y valor se recalculan con la venta.</summary>
 public sealed class SaleLineTax : Entity<Guid>
@@ -117,6 +158,11 @@ public sealed class SaleLine : Entity<Guid>
     public string? ScannedCode { get; private set; }
 
     public string Source { get; private set; } = string.Empty;
+
+    /// <summary>Lista de la que salió el precio (null = la general) y su origen (D8-12).</summary>
+    public Guid? PriceListId { get; private set; }
+
+    public string PriceSource { get; private set; } = PriceSources.Default;
 
     public string BaseUnitCode { get; private set; } = string.Empty;
 
@@ -200,6 +246,8 @@ public sealed class SaleLine : Entity<Guid>
             Name = input.Name,
             ScannedCode = input.ScannedCode,
             Source = input.Source,
+            PriceListId = input.PriceListId,
+            PriceSource = input.PriceSource,
             BaseUnitCode = input.BaseUnitCode,
             PackagingId = input.PackagingId,
             PackagingName = input.PackagingName,
@@ -230,8 +278,25 @@ public sealed class SaleLine : Entity<Guid>
         BaseQuantity = decimal.Round(quantity * Factor, 4, MidpointRounding.AwayFromZero);
     }
 
+    /// <summary>Nuevo precio por cambio de lista del cliente (RN-PRL-02); los precios fijos no se tocan.</summary>
+    internal bool Reprice(decimal unitPrice, bool includesTax, Guid? priceListId, string source)
+    {
+        if (PriceOverridden || PriceSources.IsFixed(PriceSource))
+        {
+            return false;
+        }
+
+        var changed = unitPrice != UnitPrice;
+        UnitPrice = unitPrice;
+        PriceIncludesTax = includesTax;
+        PriceListId = priceListId;
+        PriceSource = source;
+        return changed;
+    }
+
     internal void OverridePrice(decimal price, Guid? authorizedBy)
     {
+        PriceSource = PriceSources.Open;
         OriginalUnitPrice ??= UnitPrice;
         UnitPrice = price;
         PriceOverridden = true;
@@ -245,9 +310,9 @@ public sealed class SaleLine : Entity<Guid>
         VoidedAt = now;
     }
 
-    internal PricingLine ToPricing(ManualDiscount? discount) =>
+    internal PricingLine ToPricing(ManualDiscount? discount, bool listAllowsPromotions) =>
         new(Id, ProductId, PackagingId, CategoryId, BrandId, Quantity, Factor, UnitPrice, PriceIncludesTax, [.. _taxes.Select(t => t.ToPricing())], discount,
-            PromotionsAllowed: !PriceOverridden);
+            PromotionsAllowed: !PriceOverridden && listAllowsPromotions);
 
     internal void Apply(PricedLine? priced)
     {
@@ -427,6 +492,22 @@ public sealed class Sale : AggregateRoot<Guid>, ICompanyOwned, IHasAuditLabel
     public string CustomerIdentification { get; private set; } = string.Empty;
 
     public string? CustomerEmail { get; private set; }
+
+    /// <summary>Snapshot fiscal completo del comprador (D8-05); null = Consumidor final.</summary>
+    public CustomerFiscal? CustomerFiscal { get; private set; }
+
+    /// <summary>El cliente pide factura electrónica: exige sus datos fiscales completos antes de cobrar (RN-SAL-13).</summary>
+    public bool InvoiceRequested { get; private set; }
+
+    /// <summary>Lista de precio de la venta (la del cliente o su grupo; null = general) y su código (D8-09, D8-12).</summary>
+    public Guid? PriceListId { get; private set; }
+
+    public string? PriceListCode { get; private set; }
+
+    public string? CustomerGroupCode { get; private set; }
+
+    /// <summary>La lista admite promociones (D8-10).</summary>
+    public bool ListAllowsPromotions { get; private set; } = true;
 
     public DateTimeOffset OpenedAt { get; private set; }
 
@@ -641,17 +722,47 @@ public sealed class Sale : AggregateRoot<Guid>, ICompanyOwned, IHasAuditLabel
         return Result.Success();
     }
 
-    public Result SetCustomer(CustomerSnapshot customer)
+    /// <summary>
+    /// Cliente, lista de precio y "pide factura" (Fase 8). Las líneas las re-precia el caso de uso con <see cref="RepriceLine"/>
+    /// porque el precio de la nueva lista lo da el catálogo.
+    /// </summary>
+    public Result SetCustomer(CustomerSnapshot customer, SalePricing pricing, bool invoiceRequested)
     {
         ArgumentNullException.ThrowIfNull(customer);
+        ArgumentNullException.ThrowIfNull(pricing);
         if (Status != SaleStatus.Open)
         {
             return SalesErrors.NotOpen;
         }
 
+        if (invoiceRequested && customer.PartyId is null)
+        {
+            return SalesErrors.InvoiceRequiresCustomer;
+        }
+
         ApplyCustomer(customer);
+        PriceListId = pricing.PriceListId;
+        PriceListCode = pricing.PriceListCode;
+        CustomerGroupCode = pricing.GroupCode;
+        ListAllowsPromotions = pricing.AllowsPromotions;
+        InvoiceRequested = invoiceRequested;
         return Result.Success();
     }
+
+    /// <summary>Actualiza el snapshot del comprador al cobrar (RN-SAL-19: los datos del momento de la venta).</summary>
+    public void RefreshCustomer(CustomerSnapshot customer)
+    {
+        ArgumentNullException.ThrowIfNull(customer);
+        if (Status == SaleStatus.Open)
+        {
+            ApplyCustomer(customer);
+        }
+    }
+
+    /// <summary>Precio de una línea con la lista del cliente; devuelve si cambió.</summary>
+    public bool RepriceLine(Guid lineId, decimal unitPrice, bool includesTax, Guid? priceListId, string source) =>
+        Status == SaleStatus.Open && _lines.FirstOrDefault(l => l.Id == lineId && l.IsActive) is { } line
+        && line.Reprice(unitPrice, includesTax, priceListId, source);
 
     public Result Hold(string? label, DateTimeOffset now)
     {
@@ -711,7 +822,8 @@ public sealed class Sale : AggregateRoot<Guid>, ICompanyOwned, IHasAuditLabel
         var lineDiscounts = _discounts.Where(d => d.Status == DiscountStatus.Active && d.Scope == DiscountScope.Line)
             .ToDictionary(d => d.SaleLineId!.Value, d => d.ToManual());
         var global = _discounts.FirstOrDefault(d => d.Status == DiscountStatus.Active && d.Scope == DiscountScope.Global)?.ToManual();
-        var priced = SaleCalculator.Calculate([.. ActiveLines.Select(l => l.ToPricing(lineDiscounts.GetValueOrDefault(l.Id)))], promotions, global);
+        var priced = SaleCalculator.Calculate(
+            [.. ActiveLines.Select(l => l.ToPricing(lineDiscounts.GetValueOrDefault(l.Id), ListAllowsPromotions))], promotions, global);
         var byKey = priced.Lines.ToDictionary(l => l.Key);
         foreach (var line in _lines)
         {
@@ -843,5 +955,6 @@ public sealed class Sale : AggregateRoot<Guid>, ICompanyOwned, IHasAuditLabel
         CustomerIdentificationType = customer.IdentificationType;
         CustomerIdentification = customer.IdentificationNumber;
         CustomerEmail = customer.Email;
+        CustomerFiscal = customer.Fiscal;
     }
 }

@@ -83,8 +83,27 @@ internal static class PurchaseMapping
 }
 
 /// <summary>Arma las líneas y retenciones del dominio desde la petición (productos, factores, impuestos y lo pendiente de la orden).</summary>
-public sealed class PurchaseInputBuilder(PurchaseLineResolver resolver, ICatalogReader catalog)
+public sealed class PurchaseInputBuilder(PurchaseLineResolver resolver, ICatalogReader catalog, IPurchasingStore store)
 {
+    /// <summary>Retenciones sugeridas del proveedor calculadas sobre las líneas (Fase 8, RN-PUR-10).</summary>
+    public async Task<IReadOnlyList<WithholdingInput>> SuggestWithholdingsAsync(
+        Guid supplierId, PurchaseRequest request, IReadOnlyList<PurchaseLineInput> lines, bool vatDeductible, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(lines);
+        var defaults = await store.GetWithholdingDefaultsAsync(supplierId, cancellationToken);
+        if (defaults.Count == 0 || lines.Count == 0)
+        {
+            return [];
+        }
+
+        var costing = PurchaseCosting.Calculate(
+            [.. lines.Select(l => new CostingLine(l.Quantity, l.Factor, l.UnitCost, l.Discount, l.Taxes, l.ManualCharges))],
+            request.ChargesTotal, request.Proration, vatDeductible);
+        var (taxableBase, vatBase) = WithholdingSuggestion.BasesOf(costing);
+        return WithholdingSuggestion.Suggest(defaults, taxableBase, vatBase);
+    }
+
     public async Task<Result<(IReadOnlyList<PurchaseLineInput> Lines, IReadOnlyList<WithholdingInput> Withholdings)>> BuildAsync(
         Guid supplierId, PurchaseOrder? order, PurchaseRequest request, CancellationToken cancellationToken)
     {
@@ -209,10 +228,18 @@ internal sealed class CreatePurchaseHandler(
         }
 
         var vatDeductible = await settings.GetAsync(PurchasingSettings.VatDeductible, new SettingContext(local.Value.CompanyId), cancellationToken);
+        var withholdings = inputs.Value.Withholdings;
+        if (request.Withholdings is null)
+        {
+            // Fase 8 (RN-PUR-10): sin retenciones en la petición, se pre-llenan las sugeridas del proveedor. El borrador sigue
+            // editable y solo se contabilizan cuando el usuario confirma la compra (D5-11).
+            withholdings = await builder.SuggestWithholdingsAsync(supplier.Value.Id, request, inputs.Value.Lines, vatDeductible, cancellationToken);
+        }
+
         var number = await numbers.NextForBranchAsync("PURCHASE", local.Value.BranchId, cancellationToken);
         var purchase = Purchase.Create(
             ids.NewId(), local.Value.CompanyId, local.Value.BranchId, request.WarehouseId, supplier.Value, order?.Id, number.Number, Header(request, clock),
-            inputs.Value.Lines, inputs.Value.Withholdings, vatDeductible, ids.NewId);
+            inputs.Value.Lines, withholdings, vatDeductible, ids.NewId);
         if (purchase.IsFailure)
         {
             return purchase.Error;

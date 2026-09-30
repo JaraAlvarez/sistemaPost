@@ -66,6 +66,11 @@
     <Project Path="src/Modules/Billing/Pos.Modules.Billing.Application/Pos.Modules.Billing.Application.csproj" />
     <Project Path="src/Modules/Billing/Pos.Modules.Billing.Infrastructure/Pos.Modules.Billing.Infrastructure.csproj" />
     <Project Path="src/Modules/Billing/Pos.Modules.Billing.Api/Pos.Modules.Billing.Api.csproj" />
+    <Project Path="src/Modules/Customers/Pos.Modules.Customers.Domain/Pos.Modules.Customers.Domain.csproj" />
+    <Project Path="src/Modules/Customers/Pos.Modules.Customers.Contracts/Pos.Modules.Customers.Contracts.csproj" />
+    <Project Path="src/Modules/Customers/Pos.Modules.Customers.Application/Pos.Modules.Customers.Application.csproj" />
+    <Project Path="src/Modules/Customers/Pos.Modules.Customers.Infrastructure/Pos.Modules.Customers.Infrastructure.csproj" />
+    <Project Path="src/Modules/Customers/Pos.Modules.Customers.Api/Pos.Modules.Customers.Api.csproj" />
     <Project Path="src/Modules/Sales/Pos.Modules.Sales.Domain/Pos.Modules.Sales.Domain.csproj" />
     <Project Path="src/Modules/Sales/Pos.Modules.Sales.Contracts/Pos.Modules.Sales.Contracts.csproj" />
     <Project Path="src/Modules/Sales/Pos.Modules.Sales.Application/Pos.Modules.Sales.Application.csproj" />
@@ -110,6 +115,7 @@
     <Project Path="tests/Pos.Infrastructure.UnitTests/Pos.Infrastructure.UnitTests.csproj" />
     <Project Path="tests/Pos.Licensing.Contracts.UnitTests/Pos.Licensing.Contracts.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Catalog.UnitTests/Pos.Modules.Catalog.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Customers.UnitTests/Pos.Modules.Customers.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Expenses.UnitTests/Pos.Modules.Expenses.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Identity.UnitTests/Pos.Modules.Identity.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Inventory.UnitTests/Pos.Modules.Inventory.UnitTests.csproj" />

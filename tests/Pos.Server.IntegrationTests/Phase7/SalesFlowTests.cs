@@ -37,7 +37,7 @@ public class SalesFlowTests
         sale.Lines.Single().Quantity.ShouldBe(51m);
 
         // Lote vencido: el yogurt del lote L-A venció ayer; venderlo exige autorización (RN-SAL-18) y queda registrada.
-        await shop.Catalog.ExecuteAsync("UPDATE inventory.inventory_lots SET expiry_date = current_date - 1 WHERE lot_number = 'L-A'");
+        await shop.Catalog.ExecuteAsync("UPDATE inventory.inventory_lots SET expiry_date = current_date - 3 WHERE lot_number = 'L-A'");
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { productId = shop.Yogurt, quantity = 1 })
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.EXPIRED_LOT_REQUIRES_AUTHORIZATION");
         sale = await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines/expired", new { productId = shop.Yogurt, quantity = 1 });

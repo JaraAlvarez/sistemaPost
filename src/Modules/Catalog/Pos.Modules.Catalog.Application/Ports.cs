@@ -128,6 +128,10 @@ public interface ICatalogQueries
     Task<(decimal Price, bool IncludesTax)?> GetEffectivePriceAsync(
         Guid productId, Guid? packagingId, Guid? branchId, DateTimeOffset at, CancellationToken cancellationToken);
 
+    /// <summary>Precio vigente en una lista concreta (la de la sucursal gana a la de todas); null si la lista no tiene precio.</summary>
+    Task<(decimal Price, bool IncludesTax)?> GetListPriceAsync(
+        Guid priceListId, Guid productId, Guid? packagingId, Guid? branchId, DateTimeOffset at, CancellationToken cancellationToken);
+
     /// <summary>Impuestos del producto con la tarifa vigente en la fecha.</summary>
     Task<IReadOnlyList<(TaxLineDto Line, bool IsVat)>> GetTaxLinesAsync(Guid productId, DateOnly date, CancellationToken cancellationToken);
 

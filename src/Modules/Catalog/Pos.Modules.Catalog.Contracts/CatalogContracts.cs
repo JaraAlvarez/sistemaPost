@@ -91,7 +91,13 @@ public sealed record TaxDto(
     TaxRateDto? CurrentRate,
     IReadOnlyList<TaxRateDto> Rates);
 
-public sealed record PriceListDto(Guid Id, string Code, string Name, bool IsDefault, bool PricesIncludeTax, string Status);
+public sealed record PriceListDto(
+    Guid Id, string Code, string Name, bool IsDefault, bool PricesIncludeTax, string Status, decimal? AdjustmentPercent = null, decimal RoundingIncrement = 50m,
+    bool AllowsPromotions = true);
+
+/// <summary>Lista de precio vista por clientes y ventas (Fase 8).</summary>
+public sealed record PriceListInfo(Guid Id, string Code, string Name, bool IsDefault, decimal? AdjustmentPercent, decimal RoundingIncrement, bool AllowsPromotions,
+    bool IsActive);
 
 public sealed record BarcodeRuleDto(
     Guid Id, string Prefix, string Content, int PluStart, int PluLength, int ValueStart, int ValueLength, int ValueDecimals, string Status);
@@ -227,16 +233,25 @@ public sealed record CatalogSaleItem(
     bool AllowsDecimalQuantity,
     bool AllowsOpenPrice,
     bool IsSellable,
-    IReadOnlyList<string> NotSellableReasons);
+    IReadOnlyList<string> NotSellableReasons,
+    Guid? PriceListId = null,
+    string PriceSource = "DEFAULT",
+    bool AllowsPromotions = true);
 
 /// <summary>El catálogo visto por la caja y por las promociones.</summary>
 public interface ICatalogSaleItems
 {
-    /// <summary>Código leído en la caja (barras, báscula o SKU); null si no existe.</summary>
-    Task<CatalogSaleItem?> FindByCodeAsync(string code, Guid? branchId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Código leído en la caja (barras, báscula o SKU); null si no existe. Con <paramref name="priceListId"/> (lista del cliente,
+    /// Fase 8, D8-09) el precio sale de esa lista: precio propio (LIST), % sobre la general (DERIVED) o la general (DEFAULT).
+    /// </summary>
+    Task<CatalogSaleItem?> FindByCodeAsync(string code, Guid? branchId, Guid? priceListId = null, CancellationToken cancellationToken = default);
 
     /// <summary>Producto elegido por búsqueda (con presentación opcional); null si no existe.</summary>
-    Task<CatalogSaleItem?> GetAsync(Guid productId, Guid? packagingId, Guid? branchId, CancellationToken cancellationToken = default);
+    Task<CatalogSaleItem?> GetAsync(Guid productId, Guid? packagingId, Guid? branchId, Guid? priceListId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Lista de precio (null si no existe o está borrada).</summary>
+    Task<PriceListInfo?> GetPriceListAsync(Guid priceListId, CancellationToken cancellationToken = default);
 
     /// <summary>Cada categoría con todas sus subcategorías (incluida ella misma).</summary>
     Task<IReadOnlyDictionary<Guid, IReadOnlySet<Guid>>> GetCategorySubtreesAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken = default);

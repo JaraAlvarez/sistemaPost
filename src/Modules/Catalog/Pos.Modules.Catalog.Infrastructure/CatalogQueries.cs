@@ -134,6 +134,25 @@ internal sealed class CatalogQueries(PosDbContext context) : ICatalogQueries
         return price is { } value ? (value, list.PricesIncludeTax) : null;
     }
 
+    public async Task<(decimal Price, bool IncludesTax)?> GetListPriceAsync(
+        Guid priceListId, Guid productId, Guid? packagingId, Guid? branchId, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        var list = await context.Set<PriceList>().AsNoTracking().Where(l => l.Id == priceListId).Select(l => new { l.Id, l.PricesIncludeTax })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (list is null)
+        {
+            return null;
+        }
+
+        var price = await context.Set<ProductPrice>().AsNoTracking()
+            .Where(p => p.PriceListId == list.Id && p.ProductId == productId && p.PackagingId == packagingId
+                && (p.BranchId == null || p.BranchId == branchId) && p.ValidFrom <= at && (p.ValidTo == null || p.ValidTo > at))
+            .OrderBy(p => p.BranchId == null ? 1 : 0)
+            .Select(p => (decimal?)p.Price)
+            .FirstOrDefaultAsync(cancellationToken);
+        return price is { } value ? (value, list.PricesIncludeTax) : null;
+    }
+
     public async Task<IReadOnlyList<(TaxLineDto Line, bool IsVat)>> GetTaxLinesAsync(Guid productId, DateOnly date, CancellationToken cancellationToken)
     {
         var rows = await (from pt in context.Set<ProductTax>().AsNoTracking()

@@ -141,6 +141,11 @@ internal sealed class CreatePaymentMethodHandler(IInstallationContext installati
             return Task.FromResult<Result<PaymentMethodDto>>(CashErrors.ExchangeCreditReserved);
         }
 
+        if (request.Kind is PaymentMethodKind.CustomerCredit or PaymentMethodKind.LoyaltyPoints)
+        {
+            return Task.FromResult<Result<PaymentMethodDto>>(CashErrors.PaymentKindNotAvailable);
+        }
+
         var method = PaymentMethod.Create(ids.NewId(), companyId, request.Code, request.Name, request.Kind, request.DianCode, request.RequiresReference, request.SortOrder);
         if (method.IsFailure)
         {

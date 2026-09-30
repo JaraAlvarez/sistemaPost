@@ -56,6 +56,7 @@ INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUE
     ('purchasing.purchase.void',      'purchasing',   'Anular compras contabilizadas',                                                 true),
     ('purchasing.return.manage',      'purchasing',   'Registrar, contabilizar y liquidar devoluciones a proveedor',                   true),
     ('purchasing.supplier.manage',    'purchasing',   'Crear y modificar proveedores y los productos que suministran',                 false),
+    ('purchasing.supplier.bank_manage', 'purchasing', 'Registrar, modificar y verificar cuentas bancarias de proveedores (admite autorización de supervisor)', true),
     ('billing.document.manage',       'billing',      'Reintentar el envío de documentos electrónicos',                                  true),
     ('billing.document.view',         'billing',      'Consultar comprobantes y documentos fiscales con sus eventos',                    false),
     ('inventory.adjustment.quick',    'inventory',    'Ajuste rápido de un producto desde la caja cuando el sistema no tiene existencias (admite autorización de supervisor)', true),
@@ -72,6 +73,13 @@ INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUE
     ('sales.sale.reprint',            'sales',        'Reimprimir el tiquete de una venta (marcado COPIA)',                              false),
     ('sales.sale.view',               'sales',        'Consultar ventas, cambios y reportes de ventas',                                  false),
     ('sales.sale.void',               'sales',        'Anular una venta completada con su jornada abierta (admite autorización de supervisor)', true),
+    ('customers.customer.manage',         'customers',    'Corregir los datos de un cliente y bloquearlo',                                   false),
+    ('customers.customer.quick_create',   'customers',    'Crear clientes desde la caja, completar datos vacíos y registrar su autorización de datos', false),
+    ('customers.customer.view',           'customers',    'Buscar clientes y ver su ficha básica',                                           false),
+    ('customers.group.manage',            'customers',    'Crear y modificar grupos de clientes',                                            false),
+    ('customers.history.view',            'customers',    'Ver el historial y el resumen de compras de un cliente',                          false),
+    ('customers.pricing.assign',          'customers',    'Asignar el grupo y la lista de precio de un cliente',                             true),
+    ('customers.privacy.manage',          'customers',    'Política de datos, solicitudes de titulares, exportación y supresión de datos',   true),
     ('settings.setting.manage',       'settings',     'Modificar la configuración general',                                            true),
     ('settings.setting.view',         'settings',     'Consultar la configuración general',                                            false)
 ON CONFLICT (code) DO UPDATE SET module = EXCLUDED.module, description = EXCLUDED.description,
@@ -91,6 +99,7 @@ WHERE code NOT IN (
     'settings.setting.view', 'cash.payment_method.manage', 'parties.party.manage', 'parties.party.view',
     'purchasing.order.approve', 'purchasing.order.manage', 'purchasing.payable.pay', 'purchasing.payable.view',
     'purchasing.purchase.manage', 'purchasing.purchase.post', 'purchasing.purchase.view', 'purchasing.purchase.void',
-    'purchasing.return.manage', 'purchasing.supplier.manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',
+    'purchasing.return.manage', 'purchasing.supplier.manage', 'purchasing.supplier.bank_manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',
     'cash.session.close_any', 'cash.session.operate', 'cash.session.review', 'expenses.expense.manage', 'expenses.expense.view',
-    'billing.document.manage', 'billing.document.view', 'inventory.adjustment.quick', 'promotions.promotion.manage', 'promotions.promotion.view', 'sales.discount.apply', 'sales.exchange.create', 'sales.expired.sell', 'sales.line.void', 'sales.price.override', 'sales.refund.warranty', 'sales.sale.cancel', 'sales.sale.create', 'sales.sale.reprint', 'sales.sale.view', 'sales.sale.void');
+    'billing.document.manage', 'billing.document.view', 'inventory.adjustment.quick', 'promotions.promotion.manage', 'promotions.promotion.view', 'sales.discount.apply', 'sales.exchange.create', 'sales.expired.sell', 'sales.line.void', 'sales.price.override', 'sales.refund.warranty', 'sales.sale.cancel', 'sales.sale.create', 'sales.sale.reprint', 'sales.sale.view', 'sales.sale.void',
+    'customers.customer.manage', 'customers.customer.quick_create', 'customers.customer.view', 'customers.group.manage', 'customers.history.view', 'customers.pricing.assign', 'customers.privacy.manage');

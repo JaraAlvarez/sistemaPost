@@ -439,6 +439,6 @@ public class SupplierTests
         PurchasingSettings.InvoiceTotalTolerance.DefaultValue.ShouldBe(0m);
         PurchasingSettings.ReceiptTolerancePercent.DefaultValue.ShouldBe(0m);
         PurchasingSettings.CostVariationAlertPercent.DefaultValue.ShouldBe(20m);
-        new PurchasingPermissionCatalog().GetPermissions().Count().ShouldBe(10);
+        new PurchasingPermissionCatalog().GetPermissions().Count().ShouldBe(11); // Fase 8: purchasing.supplier.bank_manage
     }
 }

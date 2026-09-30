@@ -3,6 +3,7 @@ using Pos.Modules.Audit.Api;
 using Pos.Modules.Billing.Api;
 using Pos.Modules.Cash.Api;
 using Pos.Modules.Catalog.Api;
+using Pos.Modules.Customers.Api;
 using Pos.Modules.Expenses.Api;
 using Pos.Modules.Identity.Api;
 using Pos.Modules.Inventory.Api;
@@ -37,5 +38,6 @@ internal static class ModuleCatalog
         new PromotionsModule(),
         new BillingModule(),
         new SalesModule(),
+        new CustomersModule(),
     ];
 }

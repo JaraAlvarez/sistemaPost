@@ -1,5 +1,7 @@
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Cash.Contracts;
+using Pos.Modules.Catalog.Contracts;
+using Pos.Modules.Customers.Contracts;
 using Pos.Modules.Inventory.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Parties.Contracts;
@@ -104,21 +106,101 @@ public sealed class StockGuard(IInventoryQueries inventory, IClock clock)
 }
 
 /// <summary>Cliente de la venta: el tercero elegido o el Consumidor final.</summary>
-public sealed class CustomerResolver(IPartyDirectory parties)
+/// <summary>Cliente resuelto para la venta: snapshot del comprador, lista de precio y si siempre pide factura.</summary>
+public sealed record ResolvedCustomer(CustomerSnapshot Snapshot, SalePricing Pricing, bool AlwaysRequestsInvoice);
+
+/// <summary>
+/// Cliente de la venta (Fase 8): el tercero con sus datos fiscales completos (D8-05), su rol de cliente (se crea la primera vez que
+/// compra, D8-02; bloqueado = rechazo) y su lista de precio efectiva (propia → grupo → general, D8-09).
+/// </summary>
+public sealed class CustomerResolver(IPartyDirectory parties, IPartyRegistry registry, ICustomerDirectory customers, ICatalogSaleItems catalog)
 {
-    public async Task<Result<CustomerSnapshot>> ResolveAsync(Guid? partyId, CancellationToken cancellationToken)
+    public async Task<CustomerSnapshot> FinalConsumerAsync(CancellationToken cancellationToken) =>
+        await parties.GetFinalConsumerAsync(cancellationToken) is { } consumer
+            ? new CustomerSnapshot(null, consumer.DisplayName, consumer.IdentificationType, consumer.IdentificationNumber, null)
+            : new CustomerSnapshot(null, "Consumidor final", "CC", "222222222222", null);
+
+    public async Task<Result<ResolvedCustomer>> ResolveAsync(Guid? partyId, Guid branchId, CancellationToken cancellationToken)
     {
         if (partyId is not { } id)
         {
-            return await parties.GetFinalConsumerAsync(cancellationToken) is { } consumer
-                ? new CustomerSnapshot(null, consumer.DisplayName, consumer.IdentificationType, consumer.IdentificationNumber, null)
-                : new CustomerSnapshot(null, "Consumidor final", "CC", "222222222222", null);
+            return new ResolvedCustomer(await FinalConsumerAsync(cancellationToken), SalePricing.General, false);
         }
 
-        return (await parties.GetAsync([id], cancellationToken)).GetValueOrDefault(id) is { Status: "ACTIVE" } party
-            ? new CustomerSnapshot(party.IsSystem ? null : party.Id, party.DisplayName, party.IdentificationType,
-                party.CheckDigit is null ? party.IdentificationNumber : $"{party.IdentificationNumber}-{party.CheckDigit}", party.Email)
-            : SalesErrors.CustomerNotFound;
+        if ((await registry.GetProfilesAsync([id], cancellationToken)).GetValueOrDefault(id) is not { Status: "ACTIVE" } party)
+        {
+            return SalesErrors.CustomerNotFound;
+        }
+
+        if (party.IsSystem)
+        {
+            return new ResolvedCustomer(await FinalConsumerAsync(cancellationToken), SalePricing.General, false);
+        }
+
+        var profile = await customers.ResolveForSaleAsync(id, branchId, cancellationToken);
+        if (profile.IsFailure)
+        {
+            return profile.Error;
+        }
+
+        var pricing = new SalePricing(null, null, profile.Value.GroupCode, true);
+        if (profile.Value.PriceListId is { } listId && await catalog.GetPriceListAsync(listId, cancellationToken) is { IsActive: true, IsDefault: false } list)
+        {
+            pricing = new SalePricing(list.Id, list.Code, profile.Value.GroupCode, list.AllowsPromotions);
+        }
+
+        return new ResolvedCustomer(
+            Snapshot(party, profile.Value.ServiceConsent ? profile.Value.ConsentPolicyVersion : null), pricing, profile.Value.AlwaysRequestsInvoice);
+    }
+
+    /// <summary>Datos fiscales vigentes del comprador (se toman de nuevo al cobrar, RN-SAL-19).</summary>
+    public async Task<PartyProfile?> ProfileAsync(Guid partyId, CancellationToken cancellationToken) =>
+        (await registry.GetProfilesAsync([partyId], cancellationToken)).GetValueOrDefault(partyId);
+
+    public static CustomerSnapshot Snapshot(PartyProfile party, int? consentPolicyVersion)
+    {
+        ArgumentNullException.ThrowIfNull(party);
+        return new CustomerSnapshot(
+            party.Id, party.DisplayName, party.IdentificationType,
+            party.CheckDigit is null ? party.IdentificationNumber : $"{party.IdentificationNumber}-{party.CheckDigit}", party.Email,
+            new CustomerFiscal(party.PersonType, party.CheckDigit, party.TaxRegime, party.FiscalResponsibilities, party.Address, party.MunicipalityCode, party.Phone,
+                consentPolicyVersion));
+    }
+
+    /// <summary>
+    /// Datos que faltan para la factura electrónica (RN-SAL-13): correo, régimen y responsabilidades; la persona jurídica además
+    /// dirección y municipio.
+    /// </summary>
+    public static IReadOnlyList<string> MissingInvoiceData(PartyProfile party)
+    {
+        ArgumentNullException.ThrowIfNull(party);
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(party.Email))
+        {
+            missing.Add("correo electrónico");
+        }
+
+        if (string.IsNullOrWhiteSpace(party.TaxRegime))
+        {
+            missing.Add("régimen");
+        }
+
+        if (party.FiscalResponsibilities.Count == 0)
+        {
+            missing.Add("responsabilidades fiscales");
+        }
+
+        if (party.PersonType == "LEGAL" && string.IsNullOrWhiteSpace(party.Address))
+        {
+            missing.Add("dirección");
+        }
+
+        if (party.PersonType == "LEGAL" && string.IsNullOrWhiteSpace(party.MunicipalityCode))
+        {
+            missing.Add("municipio");
+        }
+
+        return missing;
     }
 }
 
@@ -137,11 +219,11 @@ public static class SaleViews
                 l.Id, l.LineNo, l.ProductId, l.Sku, l.Name, l.ScannedCode, l.Source, l.BaseUnitCode, l.PackagingId, l.PackagingName, l.Factor, l.Quantity, l.UnitPrice,
                 l.PriceOverridden, l.Gross, l.PromotionId, l.PromotionName, l.PromotionDiscount, l.LineDiscount, l.GlobalDiscountShare, l.TaxBase, l.TaxTotal, l.Total,
                 l.Status.Db(), l.ExpiredAuthorizedBy is not null, l.ReturnedQuantity,
-                [.. l.Taxes.Select(t => new SaleLineTaxDto(t.Code, t.Kind, t.Rate, t.FixedAmount, t.TaxBase, t.Amount))]))],
+                [.. l.Taxes.Select(t => new SaleLineTaxDto(t.Code, t.Kind, t.Rate, t.FixedAmount, t.TaxBase, t.Amount))], l.PriceListId, l.PriceSource))],
             [.. sale.Payments.OrderBy(p => p.LineNo).Select(p => new SalePaymentDto(
                 p.Id, p.PaymentMethodId, p.MethodCode, p.MethodKind, p.Tendered, p.Applied, p.Change, p.Reference, p.CardFranchise, p.CardLast4))],
             [.. sale.Discounts.Select(d => new SaleDiscountDto(d.Id, d.Scope.Db(), d.SaleLineId, d.Percent, d.Amount, d.Reason, d.AuthorizedBy, d.Status.Db()))],
-            warnings ?? []);
+            warnings ?? [], sale.PriceListId, sale.PriceListCode, sale.CustomerGroupCode, sale.InvoiceRequested);
     }
 }
 
@@ -171,6 +253,10 @@ public static class SaleTicketBuilder
         if (sale.CustomerId is not null)
         {
             e.Add(new ColumnsLine("Identificación", sale.CustomerIdentification));
+            if (sale.PriceListCode is { } list)
+            {
+                e.Add(new ColumnsLine("Lista de precios", list));
+            }
         }
 
         e.Add(new SeparatorLine());
@@ -234,6 +320,15 @@ public static class SaleTicketBuilder
         e.Add(new TextLine(documentType is null or "INTERNAL_RECEIPT" ? "Comprobante de venta. No es factura electrónica." : "Documento equivalente electrónico POS.",
             TicketAlign.Center));
         e.Add(new TextLine("Cambios dentro del plazo con este tiquete.", TicketAlign.Center));
+        if (sale.CustomerId is not null && sale.CustomerFiscal?.ConsentPolicyVersion is { } policy)
+        {
+            e.Add(new TextLine($"Autorizó el tratamiento de datos (política v{policy}).", TicketAlign.Center));
+        }
+
+        if (sale.InvoiceRequested)
+        {
+            e.Add(new TextLine("El cliente solicitó factura electrónica.", TicketAlign.Center));
+        }
         if (sale.Number is { } number)
         {
             e.Add(new BarcodeElement(number));

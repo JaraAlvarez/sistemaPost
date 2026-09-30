@@ -80,6 +80,15 @@ public static class SalesErrors
     public static readonly Error CustomerRequired = Error.BusinessRule(
         "SALES.CUSTOMER_REQUIRED", "El total supera el tope para Consumidor final: identifique al cliente (RN-SAL-13).");
 
+    public static readonly Error InvoiceRequiresCustomer = Error.Validation(
+        "SALES.INVOICE_REQUIRES_CUSTOMER", "Para pedir factura electrónica identifique al cliente (no aplica a Consumidor final).");
+
+    public static readonly Error CustomerFiscalDataIncomplete = Error.BusinessRule(
+        "SALES.CUSTOMER_FISCAL_DATA_INCOMPLETE", "El cliente pide factura electrónica y le faltan datos fiscales (RN-SAL-13).");
+
+    public static readonly Error PaymentKindNotAvailable = Error.BusinessRule(
+        "SALES.PAYMENT_KIND_NOT_AVAILABLE", "El crédito y los puntos aún no están activos (Fase 8-B).");
+
     public static readonly Error ExchangeNotFound = Error.NotFound("SALES.EXCHANGE_NOT_FOUND", "El cambio de mercancía no existe.");
 
     public static readonly Error ExchangeNotAllowed = Error.BusinessRule(

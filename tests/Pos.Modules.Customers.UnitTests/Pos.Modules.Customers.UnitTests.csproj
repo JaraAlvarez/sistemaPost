@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reglas de clientes: grupos, rol, autorizaciones de datos, solicitudes de titulares y calendario de días hábiles. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Customers\Pos.Modules.Customers.Domain\Pos.Modules.Customers.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Customers\Pos.Modules.Customers.Application\Pos.Modules.Customers.Application.csproj" />
+  </ItemGroup>
+</Project>
