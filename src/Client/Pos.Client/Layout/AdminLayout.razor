@@ -1,7 +1,10 @@
+@* Diseño de la administración (docs/guia-diseno.md §5): menú lateral agrupado y colapsable (Services/Navegacion.cs), encabezado con la
+   sucursal, el acceso a la caja, el modo claro/oscuro y el menú del usuario; avisos permanentes arriba del contenido. *@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject SessionState Session
 @inject ApiClient Api
+@inject Tema Tema
 @inject NavigationManager Navigation
 
 <Providers />
@@ -16,87 +19,194 @@ else if (Session.IsTerminal)
 }
 else
 {
-    <MudLayout>
-        <MudAppBar Elevation="1" Dense="true">
-            <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@(() => _drawer = !_drawer)" />
-            <MudText Typo="Typo.h6" Class="ml-2">BusinessPost</MudText>
+    <a class="saltar-contenido" href="@(Navigation.ToBaseRelativePath(Navigation.Uri).Split('#')[0])#contenido">Saltar al contenido</a>
+    <MudLayout Class="bp-admin">
+        <MudAppBar Elevation="0" Class="bp-appbar" Fixed="true">
+            <MudTooltip Text="@(_compacto ? "Expandir el menú" : "Contraer el menú")">
+                <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="AlternarMenuAsync"
+                               aria-label="@(_compacto ? "Expandir el menú" : "Contraer el menú")" aria-expanded="@((!_compacto).ToString().ToLowerInvariant())" />
+            </MudTooltip>
+            <div class="bp-appbar-contexto">
+                <MudIcon Icon="@Icons.Material.Outlined.Storefront" Size="Size.Small" aria-hidden="true" />
+                <span class="bp-appbar-sucursal">@(_sucursal ?? "Sucursal")</span>
+                @if (_empresa is not null)
+                {
+                    <span class="bp-appbar-empresa">· @_empresa</span>
+                }
+            </div>
             <MudSpacer />
-            <MudText Typo="Typo.body2" Class="mr-3">@Session.Me!.DisplayName</MudText>
-            <MudButton Variant="Variant.Text" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout" OnClick="SalirAsync">Salir</MudButton>
+            @if (Session.Has("sales.sale.create"))
+            {
+                <MudButton Href="/caja" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PointOfSale" Class="bp-ir-caja mr-2">Ir a la caja</MudButton>
+            }
+            <MudTooltip Text="@(Tema.EsOscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro")">
+                <MudIconButton Icon="@(Tema.EsOscuro ? Icons.Material.Outlined.LightMode : Icons.Material.Outlined.DarkMode)" Color="Color.Inherit"
+                               OnClick="Tema.AlternarAsync" aria-label="@(Tema.EsOscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro")" />
+            </MudTooltip>
+            <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Class="ml-1" aria-label="Menú del usuario">
+                <ActivatorContent>
+                    <div class="bp-usuario" title="@Session.Me!.DisplayName">
+                        <span class="bp-avatar" aria-hidden="true">@Iniciales(Session.Me!.DisplayName)</span>
+                        <span class="bp-usuario-nombre">@Session.Me!.DisplayName</span>
+                        <MudIcon Icon="@Icons.Material.Filled.ArrowDropDown" Size="Size.Small" aria-hidden="true" />
+                    </div>
+                </ActivatorContent>
+                <ChildContent>
+                    <div class="bp-menu-usuario-cabeza">
+                        <b>@Session.Me!.DisplayName</b>
+                        <span>@Session.Me!.Username</span>
+                    </div>
+                    <MudDivider />
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Password" Href="/cambiar-clave">Cambiar contraseña</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.LightMode" OnClick="@(() => Tema.ElegirAsync(Tema.Claro))">Modo claro @(Tema.Preferencia == Tema.Claro ? "✓" : null)</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.DarkMode" OnClick="@(() => Tema.ElegirAsync(Tema.Oscuro))">Modo oscuro @(Tema.Preferencia == Tema.Oscuro ? "✓" : null)</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.SettingsBrightness" OnClick="@(() => Tema.ElegirAsync(Tema.Sistema))">Como el sistema @(Tema.Preferencia == Tema.Sistema ? "✓" : null)</MudMenuItem>
+                    <MudDivider />
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Logout" OnClick="SalirAsync">Salir</MudMenuItem>
+                </ChildContent>
+            </MudMenu>
         </MudAppBar>
-        <MudDrawer @bind-Open="_drawer" Elevation="1" ClipMode="DrawerClipMode.Always">
-            <MudNavMenu>
-                <MudNavLink Href="/admin" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Tablero</MudNavLink>
-                @if (Session.Has("cash.report.view") || Session.Has("expenses.expense.view") || Session.Has("billing.document.view") || Session.Has("billing.settings.manage") || Session.Me!.Permissions.Any(p => p.StartsWith("reporting.", StringComparison.Ordinal)))
+
+        <MudDrawer Open="@(!_compacto)" Variant="DrawerVariant.Mini" MiniWidth="68px" Elevation="0" ClipMode="DrawerClipMode.Never" Class="@($"bp-drawer {(_compacto ? "bp-drawer-compacto" : null)}")"
+                   OpenMiniOnHover="false" Width="264px" Fixed="true" aria-label="Menú principal">
+            <div class="bp-drawer-marca">
+                <a href="/admin" aria-label="BusinessPost · ir al tablero"><Logo Tamano="34" ConNombre="@(!_compacto)" SobreOscuro="true" /></a>
+            </div>
+            <nav class="bp-nav" aria-label="Secciones">
+                @if (_compacto)
                 {
-                    <MudNavGroup Title="Ventas y caja" Icon="@Icons.Material.Filled.PointOfSale" Expanded="false">
-                        @if (Session.Has("cash.report.view")) { <MudNavLink Href="/admin/jornadas" Icon="@Icons.Material.Filled.EventNote">Jornadas de caja</MudNavLink> }
-                        @if (Session.Has("expenses.expense.view")) { <MudNavLink Href="/admin/gastos" Icon="@Icons.Material.Filled.Payments">Gastos</MudNavLink> }
-                        @if (Session.Me!.Permissions.Any(p => p.StartsWith("reporting.", StringComparison.Ordinal))) { <MudNavLink Href="/admin/reportes" Icon="@Icons.Material.Filled.Assessment">Reportes</MudNavLink> }
-                        @if (Session.Has("billing.document.view") || Session.Has("billing.settings.manage")) { <MudNavLink Href="/admin/facturacion" Icon="@Icons.Material.Filled.ReceiptLong">Facturación electrónica</MudNavLink> }
-                    </MudNavGroup>
+                    <MudTooltip Text="Tablero" Placement="Placement.Right">
+                        <a class="bp-nav-icono @(EsActual("/admin") ? "activo" : null)" href="/admin" aria-label="Tablero" aria-current="@(EsActual("/admin") ? "page" : null)">
+                            <MudIcon Icon="@Icons.Material.Outlined.SpaceDashboard" />
+                        </a>
+                    </MudTooltip>
+                    @foreach (var grupo in Navegacion.Grupos.Where(g => g.Visibles(Session).Any()))
+                    {
+                        <div class="bp-nav-separador" role="separator" aria-label="@grupo.Titulo"></div>
+                        @foreach (var opcion in grupo.Visibles(Session))
+                        {
+                            <MudTooltip Text="@opcion.Titulo" Placement="Placement.Right">
+                                <a class="bp-nav-icono @(EsActual(opcion.Ruta) ? "activo" : null)" href="@opcion.Ruta" aria-label="@opcion.Titulo" aria-current="@(EsActual(opcion.Ruta) ? "page" : null)">
+                                    <MudIcon Icon="@opcion.Icono" />
+                                </a>
+                            </MudTooltip>
+                        }
+                    }
                 }
-                @if (Session.Has("catalog.product.view") || Session.Has("inventory.stock.view") || Session.Has("inventory.count.register") || Session.Has("catalog.import.run") || Session.Has("inventory.adjustment.manage"))
+                else
                 {
-                    <MudNavGroup Title="Inventario" Icon="@Icons.Material.Filled.Warehouse" Expanded="false">
-                        @if (Session.Has("catalog.product.view")) { <MudNavLink Href="/admin/productos" Icon="@Icons.Material.Filled.Inventory2">Productos y precios</MudNavLink> }
-                        @if (Session.Has("inventory.stock.view")) { <MudNavLink Href="/admin/existencias" Icon="@Icons.Material.Filled.Warehouse">Existencias</MudNavLink> }
-                        @if (Session.Has("inventory.count.register")) { <MudNavLink Href="/admin/conteos" Icon="@Icons.Material.Filled.FactCheck">Conteos</MudNavLink> }
-                        @if (Session.Has("inventory.stock.view")) { <MudNavLink Href="/admin/traslados" Icon="@Icons.Material.Filled.LocalShipping">Traslados</MudNavLink> }
-                        @if (Session.Has("inventory.stock.view")) { <MudNavLink Href="/admin/ajustes" Icon="@Icons.Material.Filled.Tune">Ajustes</MudNavLink> }
-                        @if (Session.Has("catalog.import.run") || Session.Has("inventory.adjustment.manage")) { <MudNavLink Href="/admin/importar" Icon="@Icons.Material.Filled.UploadFile">Importar desde Excel</MudNavLink> }
-                    </MudNavGroup>
+                    <MudNavMenu Class="bp-navmenu" Dense="false">
+                        <MudNavLink Href="/admin" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.SpaceDashboard">Tablero</MudNavLink>
+                        @foreach (var grupo in Navegacion.Grupos.Where(g => g.Visibles(Session).Any()))
+                        {
+                            <MudNavGroup Title="@grupo.Titulo" Icon="@grupo.Icono" Expanded="@Expandido(grupo)" ExpandedChanged="@(v => _expandidos[grupo.Titulo] = v)">
+                                @foreach (var opcion in grupo.Visibles(Session))
+                                {
+                                    <MudNavLink Href="@opcion.Ruta" Match="NavLinkMatch.Prefix" Icon="@opcion.Icono">@opcion.Titulo</MudNavLink>
+                                }
+                            </MudNavGroup>
+                        }
+                    </MudNavMenu>
                 }
-                @if (Session.Has("purchasing.purchase.view") || Session.Has("purchasing.supplier.manage") || Session.Has("purchasing.purchase.view") || Session.Has("purchasing.payable.view"))
+            </nav>
+            <div class="bp-drawer-pie">
+                @if (!_compacto)
                 {
-                    <MudNavGroup Title="Compras y proveedores" Icon="@Icons.Material.Filled.ShoppingCart" Expanded="false">
-                        @if (Session.Has("purchasing.purchase.view")) { <MudNavLink Href="/admin/compras" Icon="@Icons.Material.Filled.ShoppingCart">Compras</MudNavLink> }
-                        @if (Session.Has("purchasing.purchase.view")) { <MudNavLink Href="/admin/proveedores" Icon="@Icons.Material.Filled.LocalShipping">Proveedores</MudNavLink> }
-                        @if (Session.Has("purchasing.payable.view")) { <MudNavLink Href="/admin/cuentas-por-pagar" Icon="@Icons.Material.Filled.AccountBalance">Cuentas por pagar</MudNavLink> }
-                    </MudNavGroup>
+                    <span>BusinessPost @_version</span>
                 }
-                @if (Session.Has("customers.customer.view") || Session.Has("promotions.promotion.view"))
-                {
-                    <MudNavGroup Title="Clientes y promociones" Icon="@Icons.Material.Filled.Groups" Expanded="false">
-                        @if (Session.Has("customers.customer.view")) { <MudNavLink Href="/admin/clientes" Icon="@Icons.Material.Filled.Groups">Clientes</MudNavLink> }
-                        @if (Session.Has("promotions.promotion.view")) { <MudNavLink Href="/admin/promociones" Icon="@Icons.Material.Filled.LocalOffer">Promociones</MudNavLink> }
-                    </MudNavGroup>
-                }
-                @if (Session.Has("identity.user.view") || Session.Has("organization.company.view") || Session.Has("organization.branch.view") || Session.Has("settings.setting.view") || Session.Has("organization.branch.view") || Session.Has("audit.log.view") || Session.Has("licensing.license.view") || Session.Has("sync.sync.view") || Session.Has("backup.backup.view") || Session.Has("system.update.view"))
-                {
-                    <MudNavGroup Title="Administración" Icon="@Icons.Material.Filled.AdminPanelSettings" Expanded="false">
-                        @if (Session.Has("identity.user.view")) { <MudNavLink Href="/admin/usuarios" Icon="@Icons.Material.Filled.People">Usuarios</MudNavLink> }
-                        @if (Session.Has("organization.company.view") || Session.Has("organization.branch.view") || Session.Has("settings.setting.view")) { <MudNavLink Href="/admin/configuracion" Icon="@Icons.Material.Filled.Settings">Configuración</MudNavLink> }
-                        @if (Session.Has("organization.branch.view")) { <MudNavLink Href="/admin/cajas" Icon="@Icons.Material.Filled.Print">Cajas e impresoras</MudNavLink> }
-                        @if (Session.Has("audit.log.view")) { <MudNavLink Href="/admin/auditoria" Icon="@Icons.Material.Filled.Policy">Auditoría</MudNavLink> }
-                        @if (Session.Has("licensing.license.view")) { <MudNavLink Href="/admin/licencia" Icon="@Icons.Material.Filled.VerifiedUser">Licencia</MudNavLink> }
-                        @if (Session.Has("sync.sync.view")) { <MudNavLink Href="/admin/sincronizacion" Icon="@Icons.Material.Filled.CloudSync">Sincronización</MudNavLink> }
-                        @if (Session.Has("backup.backup.view")) { <MudNavLink Href="/admin/backups" Icon="@Icons.Material.Filled.Backup">Backups</MudNavLink> }
-                        @if (Session.Has("system.update.view")) { <MudNavLink Href="/admin/actualizaciones" Icon="@Icons.Material.Filled.SystemUpdate">Actualizaciones</MudNavLink> }
-                    </MudNavGroup>
-                }
-                <MudDivider Class="my-2" />
-                @if (Session.Has("sales.sale.create")) { <MudNavLink Href="/caja" Icon="@Icons.Material.Filled.PointOfSale">Ir a la caja</MudNavLink> }
-            </MudNavMenu>
+            </div>
         </MudDrawer>
-        <MudMainContent>
-            <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4">
+
+        <MudMainContent Class="bp-main">
+            <main id="contenido" class="bp-contenido" tabindex="-1">
                 <AvisoActualizacion />
                 <Avisos />
                 @Body
-            </MudContainer>
+            </main>
         </MudMainContent>
     </MudLayout>
 }
 
 @code {
-    private bool _drawer = true;
+    private readonly Dictionary<string, bool> _expandidos = [];
+    private readonly string _version = typeof(App).Assembly.GetName().Version is { } v ? $"v{v.Major}.{v.Minor}.{v.Build}" : "";
+    private bool _compacto;
+    private string? _sucursal, _empresa;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        Session.Changed += StateHasChanged;
+        Session.Changed += Refrescar;
+        Tema.Changed += Refrescar;
         Api.Unauthorized += OnUnauthorized;
+        Navigation.LocationChanged += CambioDeRuta;
+        _compacto = Tema.MenuCompacto;
+
+        if (Session.IsSignedIn && !Session.IsTerminal)
+        {
+            await CargarContextoAsync();
+        }
     }
+
+    /// <summary>Nombre de la sucursal y de la empresa para el encabezado (solo si el usuario puede verlos).</summary>
+    private async Task CargarContextoAsync()
+    {
+        try
+        {
+            if (Session.Has("organization.branch.view"))
+            {
+                var detalle = await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{Session.Me!.BranchId}");
+                _sucursal = detalle.Prop("branch").Str("name") is { Length: > 0 } name ? name : null;
+            }
+
+            if (Session.Has("organization.company.view"))
+            {
+                var empresa = await Api.GetAsync<JsonElement>("api/v1/organization/company");
+                _empresa = empresa.Str("tradeName") is { Length: > 0 } comercial ? comercial : empresa.Str("legalName") is { Length: > 0 } legal ? legal : null;
+            }
+        }
+        catch (ApiException)
+        {
+            // El encabezado se queda con "Sucursal".
+        }
+        catch (HttpRequestException)
+        {
+            // Sin conexión: la pantalla informará el error.
+        }
+    }
+
+    private bool EsActual(string ruta)
+    {
+        var actual = "/" + Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].TrimEnd('/');
+        return ruta == "/admin" ? actual == "/admin" : actual.StartsWith(ruta, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool Expandido(GrupoMenu grupo) =>
+        _expandidos.TryGetValue(grupo.Titulo, out var abierto) ? abierto : grupo.Opciones.Any(o => EsActual(o.Ruta));
+
+    private static string Iniciales(string nombre)
+    {
+        var partes = nombre.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return partes.Length switch
+        {
+            0 => "?",
+            1 => partes[0][..1].ToUpperInvariant(),
+            _ => (partes[0][..1] + partes[^1][..1]).ToUpperInvariant(),
+        };
+    }
+
+    private async Task AlternarMenuAsync()
+    {
+        _compacto = !_compacto;
+        await Tema.CompactarMenuAsync(_compacto);
+    }
+
+    private void Refrescar()
+    {
+        _compacto = Tema.MenuCompacto;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void CambioDeRuta(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
     private void OnUnauthorized()
     {
@@ -121,7 +231,9 @@ else
 
     public void Dispose()
     {
-        Session.Changed -= StateHasChanged;
+        Session.Changed -= Refrescar;
+        Tema.Changed -= Refrescar;
         Api.Unauthorized -= OnUnauthorized;
+        Navigation.LocationChanged -= CambioDeRuta;
     }
 }

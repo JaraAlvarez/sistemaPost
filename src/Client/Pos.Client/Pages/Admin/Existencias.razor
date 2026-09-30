@@ -8,7 +8,7 @@
         <MudTextField T="string" @bind-Value="_search" Label="Buscar producto" Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => CargarAsync())" />
         <MudCheckBox T="bool" Value="_below" ValueChanged="@(v => FiltrarAsync(v))" Label="Solo bajo el mínimo" />
     </MudStack>
-    <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+    <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
         <HeaderContent>
             <MudTh>Bodega</MudTh><MudTh>SKU</MudTh><MudTh>Producto</MudTh><MudTh Class="num">Cantidad</MudTh><MudTh Class="num">Mínimo</MudTh>
             <MudTh Class="num">Costo promedio</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Último movimiento</MudTh>
@@ -29,7 +29,8 @@
             <MudTd Class="num">@(context.Str("totalValue") == "" ? "—" : Format.Money(context.Dec("totalValue")))</MudTd>
             <MudTd>@Format.Date(context.Date("lastMovementAt"))</MudTd>
         </RowTemplate>
-        <NoRecordsContent><MudText>Sin existencias que coincidan.</MudText></NoRecordsContent>
+        <NoRecordsContent><EstadoVacio Mensaje="Sin existencias que coincidan." /></NoRecordsContent>
+        <PagerContent><Paginador /></PagerContent>
     </MudTable>
 </Pagina>
 
@@ -57,7 +58,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;

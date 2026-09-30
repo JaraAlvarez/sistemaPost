@@ -1,0 +1,29 @@
+@* Esqueleto de carga: silueta de una barra de filtros y una tabla mientras llegan los datos (docs/guia-diseno.md §6). *@
+<div class="esqueleto" aria-hidden="true">
+    @if (Tarjetas > 0)
+    {
+        <div class="esqueleto-tarjetas">
+            @for (var i = 0; i < Tarjetas; i++)
+            {
+                <div class="bp-tarjeta"><MudSkeleton Width="45%" /><MudSkeleton Height="36px" Width="70%" /><MudSkeleton Width="55%" /></div>
+            }
+        </div>
+    }
+    <div class="bp-tarjeta">
+        <MudSkeleton Width="280px" Height="40px" Class="mb-3" />
+        @for (var i = 0; i < Filas; i++)
+        {
+            <div class="esqueleto-fila">
+                <MudSkeleton Width="14%" /><MudSkeleton Width="32%" /><MudSkeleton Width="18%" /><MudSkeleton Width="12%" />
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int Filas { get; set; } = 6;
+
+    [Parameter]
+    public int Tarjetas { get; set; }
+}

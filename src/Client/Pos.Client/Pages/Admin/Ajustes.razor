@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Ajustes · BusinessPost</PageTitle>
 
@@ -24,7 +25,7 @@
             <MudSelectItem T="string" Value="@("POSTED")">Publicado</MudSelectItem>
             <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
         </MudSelect>
-        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Bodega</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
             </HeaderContent>
@@ -35,7 +36,8 @@
                 <MudTd>@Estado(context.Str("status"))</MudTd>
                 <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context.GetProperty("id").GetGuid()))">Ver</MudButton></MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>No hay ajustes.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay ajustes." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
     </ChildContent>
 </Pagina>
@@ -43,7 +45,7 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(900px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(900px, 96vw)">
             <h2>Nuevo ajuste</h2>
             <MudStack Row="true">
                 <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
@@ -128,7 +130,7 @@
 @if (_rapido)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Ajuste rápido</h2>
             <MudText Typo="Typo.body2">Entrada inmediata al costo promedio para un producto que está físicamente pero el sistema no tiene. Queda en la auditoría y en el reporte de ajustes.</MudText>
             <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
@@ -177,7 +179,7 @@
 @if (_ajuste.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(900px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(900px, 96vw)">
             <h2>Ajuste @_ajuste.Str("number") · @Estado(Status)</h2>
             <MudText Typo="Typo.body2">
                 Bodega @Bodega(_ajuste.Str("warehouseId")) · Motivo: @NombreMotivo(_ajuste.Str("reasonId"), _ajuste.Str("reasonCode")) · Fecha contable @Fecha(_ajuste.Str("businessDate"))
@@ -232,19 +234,19 @@
                 @if (Status is "DRAFT" or "PENDING_APPROVAL" && Session.Has("inventory.adjustment.manage"))
                 {
                     <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => AccionAsync("cancel"))">
-                        @(_confirmar == "cancel" ? "Confirmar anulación" : "Anular")
+                        Anular
                     </MudButton>
                 }
                 @if (Status == "DRAFT" && Session.Has("inventory.adjustment.manage"))
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("post"))">
-                        @(_confirmar == "post" ? "Confirmar publicación" : "Publicar")
+                        Publicar
                     </MudButton>
                 }
                 @if (Status == "PENDING_APPROVAL" && Session.Has("inventory.adjustment.approve"))
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("approve"))">
-                        @(_confirmar == "approve" ? "Confirmar aprobación" : "Aprobar y publicar")
+                        Aprobar y publicar
                     </MudButton>
                 }
             </div>
@@ -260,7 +262,7 @@
     private readonly List<Linea> _lineas = [];
     private JsonElement _ajuste, _producto;
     private string _estado = "";
-    private string? _error, _notas, _buscar, _lote, _confirmar;
+    private string? _error, _notas, _buscar, _lote;
     private Guid? _bodega, _motivo;
     private decimal _cantidad = 1;
     private decimal? _costo;
@@ -296,7 +298,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Message}", Severity.Warning);
+            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
         }
     }
 
@@ -311,7 +313,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -410,7 +412,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -474,7 +476,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
             await CargarAsync();
         }
 
@@ -509,7 +511,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -520,25 +522,23 @@
         try
         {
             _ajuste = await Api.GetAsync<JsonElement>($"api/v1/inventory/adjustments/{id}");
-            _confirmar = null;
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
     private void Cerrar()
     {
         _ajuste = default;
-        _confirmar = null;
     }
 
     private async Task AccionAsync(string action)
     {
-        if (_confirmar != action)
+        if (Confirmaciones.TryGetValue(action, out var confirmacion)
+            && !await Dialogs.ConfirmarAsync(confirmacion.Titulo, confirmacion.Mensaje, confirmacion.Accion, action == "cancel"))
         {
-            _confirmar = action;
             return;
         }
 
@@ -562,12 +562,19 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
-        _confirmar = null;
         _busy = false;
     }
 
     private sealed record Linea(Guid ProductId, string Sku, string Nombre, string Unidad, decimal Cantidad, decimal? Costo, string? Lote, DateOnly? Vence);
+
+    /// <summary>Acciones que se confirman con el diálogo uniforme: título, mensaje y texto del botón.</summary>
+    private static readonly Dictionary<string, (string Titulo, string Mensaje, string Accion)> Confirmaciones = new()
+    {
+        ["cancel"] = ("Anular ajuste", "El ajuste quedará anulado y no moverá el inventario.", "Anular"),
+        ["post"] = ("Publicar ajuste", "Las cantidades del ajuste se aplicarán al inventario (o quedará por aprobar si lo exige la política).", "Publicar"),
+        ["approve"] = ("Aprobar y publicar", "Las cantidades del ajuste se aplicarán al inventario.", "Aprobar y publicar"),
+    };
 }

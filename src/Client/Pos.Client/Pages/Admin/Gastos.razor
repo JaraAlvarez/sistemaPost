@@ -34,7 +34,7 @@
                     </MudSelect>
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="BuscarAsync">Consultar</MudButton>
                 </MudStack>
-                <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+                <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Fecha</MudTh><MudTh>Categoría</MudTh><MudTh>Descripción</MudTh><MudTh>Medio de pago</MudTh><MudTh>Referencia</MudTh>
                         <MudTh>De la caja</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">IVA</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
@@ -66,14 +66,15 @@
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay gastos en el periodo.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay gastos en el periodo." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
                 <MudText Typo="Typo.body2" Class="mt-2">
                     @_items.Count gasto(s) · Total registrado (sin anulados): <b>@Format.Money(_items.Where(e => e.Str("status") != "VOIDED").Sum(e => e.Dec("amount")))</b>
                 </MudText>
             </MudTabPanel>
             <MudTabPanel Text="Categorías">
-                <MudTable Items="_categories" Dense="true" Hover="true" Striped="true" Class="mt-3">
+                <MudTable RowsPerPage="25" Items="_categories" Dense="true" Hover="true" Striped="true" Class="mt-3">
                     <HeaderContent>
                         <MudTh>Categoría</MudTh><MudTh Class="num">Orden</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
@@ -88,7 +89,8 @@
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay categorías de gasto.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay categorías de gasto." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
         </MudTabs>
@@ -98,7 +100,7 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Registrar gasto</h2>
             <MudSelect T="Guid?" @bind-Value="_categoria" Label="Categoría">
                 @foreach (var category in _categories.Where(c => c.Str("status") == "ACTIVE"))
@@ -143,7 +145,7 @@
 @if (_anular.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Anular gasto @_anular.Str("number")</h2>
             <MudText Typo="Typo.body2">
                 @_anular.Str("description") por @Format.Money(_anular.Dec("amount")).
@@ -164,7 +166,7 @@
 @if (_categoriaForm)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>@(_categoriaId is null ? "Nueva categoría de gasto" : "Editar categoría")</h2>
             <MudTextField @bind-Value="_categoriaNombre" Label="Nombre" Immediate="true" />
             @if (_categoriaId is null)
@@ -212,7 +214,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         await BuscarAsync();
@@ -244,7 +246,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -258,7 +260,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
     }
 
@@ -332,7 +334,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -356,7 +358,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -402,7 +404,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

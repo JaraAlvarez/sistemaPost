@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Proveedores · BusinessPost</PageTitle>
 
@@ -18,7 +19,7 @@
                           Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => CargarAsync())" />
             <MudCheckBox T="bool" Value="_inactivos" ValueChanged="@(v => FiltrarAsync(v))" Label="Incluir inactivos" />
         </MudStack>
-        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Identificación</MudTh><MudTh Class="num">Plazo</MudTh><MudTh>Factura electrónica</MudTh>
                 <MudTh>Estado</MudTh><MudTh Class="num">Saldo por pagar</MudTh><MudTh></MudTh>
@@ -42,7 +43,7 @@
                         @if (context.Str("status") == "ACTIVE")
                         {
                             <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => EstadoAsync(context, "Blocked", "Proveedor bloqueado: no admite órdenes ni compras nuevas."))">Bloquear</MudButton>
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => EstadoAsync(context, "Inactive", "Proveedor inactivado."))">Inactivar</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar proveedor", $"{context.Str("name")} quedará inactivo: no podrá usarse en compras nuevas.", "Inactivar", true)) { await EstadoAsync(context, "Inactive", "Proveedor inactivado."); } })">Inactivar</MudButton>
                         }
                         else
                         {
@@ -51,7 +52,8 @@
                     }
                 </MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>No hay proveedores que coincidan.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay proveedores que coincidan." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
     </ChildContent>
 </Pagina>
@@ -59,7 +61,7 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Nuevo proveedor</h2>
             <MudText Typo="Typo.body2" Class="mb-2">Si el tercero ya existe con esa identificación, se usa el existente y solo se le agrega el rol de proveedor.</MudText>
             <MudSelect T="string" @bind-Value="_personType" Label="Tipo de persona">
@@ -105,7 +107,7 @@
 @if (_editando.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Editar @_editando.Str("name")</h2>
             <MudText Typo="Typo.body2" Class="mb-2">@_editando.Str("identification")</MudText>
             @if (_party.ValueKind == JsonValueKind.Object)
@@ -138,7 +140,7 @@
 @if (_cuenta.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width:min(960px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width:min(960px, 96vw)">
             <h2>Estado de cuenta · @_cuenta.Str("supplierName")</h2>
             @if (_resumen.ValueKind == JsonValueKind.Object)
             {
@@ -165,7 +167,7 @@
                     <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
                     <MudTd>@EstadoCuenta(context)</MudTd>
                 </RowTemplate>
-                <NoRecordsContent><MudText>Sin facturas.</MudText></NoRecordsContent>
+                <NoRecordsContent><EstadoVacio Mensaje="Sin facturas." Compacto="true" /></NoRecordsContent>
             </MudTable>
             <MudText Typo="Typo.h6" Class="mb-1">Pagos</MudText>
             <MudTable Items="Pagos" Dense="true" Striped="true">
@@ -179,7 +181,7 @@
                     <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
                     <MudTd>@(context.Str("status") == "VOIDED" ? "Anulado" : "Registrado")</MudTd>
                 </RowTemplate>
-                <NoRecordsContent><MudText>Sin pagos.</MudText></NoRecordsContent>
+                <NoRecordsContent><EstadoVacio Mensaje="Sin pagos." Compacto="true" /></NoRecordsContent>
             </MudTable>
             <div class="acciones">
                 <MudButton Variant="Variant.Filled" OnClick="@(() => _cuenta = default)">Cerrar</MudButton>
@@ -244,7 +246,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -283,7 +285,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -330,7 +332,7 @@
             }
             catch (ApiException ex)
             {
-                Snackbar.Add(ex.Message, Severity.Warning);
+                Snackbar.Add(ex.Texto, Severity.Warning);
             }
         }
 
@@ -381,7 +383,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -397,7 +399,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -411,7 +413,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 }

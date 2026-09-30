@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Cajas y equipos · BusinessPost</PageTitle>
 
@@ -19,7 +20,7 @@
         }
     </Acciones>
     <ChildContent>
-        <MudTable Items="_cajas" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_cajas" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>Sucursal</MudTh><MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Bodega</MudTh><MudTh>Equipo</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
             </HeaderContent>
@@ -37,8 +38,8 @@
                         <MudButton Size="Size.Small" OnClick="@(() => AbrirImpresoraAsync(context))">Impresora</MudButton>
                         @if (Activa(context))
                         {
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => CambiarEstadoAsync(context, "Inactive"))">Inactivar</MudButton>
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => CambiarEstadoAsync(context, "Blocked"))">Bloquear</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar caja", $"La caja {context.Str("code")} dejará de poder abrir jornadas hasta que la active de nuevo.", "Inactivar", true)) { await CambiarEstadoAsync(context, "Inactive"); } })">Inactivar</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Bloquear caja", $"La caja {context.Str("code")} quedará bloqueada: no podrá vender hasta que la desbloquee.", "Bloquear", true)) { await CambiarEstadoAsync(context, "Blocked"); } })">Bloquear</MudButton>
                         }
                         else
                         {
@@ -51,7 +52,8 @@
                     }
                 </MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>No hay cajas.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay cajas." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
         @if (!Session.IsMulti)
         {
@@ -61,7 +63,7 @@
         @if (Session.Has("organization.device.manage"))
         {
             <MudText Typo="Typo.h6" Class="mt-5 mb-2">Equipos emparejados</MudText>
-            <MudTable Items="_equipos" Dense="true" Hover="true" Striped="true">
+            <MudTable RowsPerPage="25" Items="_equipos" Dense="true" Hover="true" Striped="true">
                 <HeaderContent>
                     <MudTh>Equipo</MudTh><MudTh>Tipo</MudTh><MudTh>Caja</MudTh><MudTh>Estado</MudTh><MudTh>Emparejado</MudTh><MudTh>Último contacto</MudTh><MudTh>Versión</MudTh><MudTh></MudTh>
                 </HeaderContent>
@@ -80,7 +82,8 @@
                         }
                     </MudTd>
                 </RowTemplate>
-                <NoRecordsContent><MudText>No hay equipos emparejados.</MudText></NoRecordsContent>
+                <NoRecordsContent><EstadoVacio Mensaje="No hay equipos emparejados." /></NoRecordsContent>
+                <PagerContent><Paginador /></PagerContent>
             </MudTable>
         }
     </ChildContent>
@@ -89,7 +92,7 @@
 @if (_panelCaja)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>@(_cajaId is null ? "Nueva caja" : "Editar caja")</h2>
             @if (_cajaId is null)
             {
@@ -119,7 +122,7 @@
 @if (_impresoraDe.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Impresora de tiquetes · caja @_impresoraDe.Str("code")</h2>
             @if (!_impresoraConfigurada)
             {
@@ -160,7 +163,7 @@
 @if (_codigo.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Código de emparejamiento @(_codigoCaja is null ? "· PC administrativo" : $"· caja {_codigoCaja}")</h2>
             <div class="cifra my-3" style="font-size: 56px; letter-spacing: 10px; text-align: center;">@_codigo.Str("code")</div>
             <MudText Typo="Typo.body2" Class="mb-2">Vence: @Format.Date(_codigo.Date("expiresAt")). Sirve una sola vez.</MudText>
@@ -179,7 +182,7 @@
 @if (_revocar.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Revocar el equipo @_revocar.Str("hostname")</h2>
             <MudText Typo="Typo.body2">
                 Su credencial deja de valer y sus sesiones se cierran de inmediato. Para volver a usarlo hay que emparejarlo de nuevo con un código.
@@ -239,7 +242,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -318,7 +321,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -334,7 +337,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -363,7 +366,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -387,7 +390,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -408,7 +411,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -433,7 +436,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

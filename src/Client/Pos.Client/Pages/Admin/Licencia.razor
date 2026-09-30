@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Licencia · BusinessPost</PageTitle>
 
@@ -39,7 +40,7 @@
                 }
                 @if (Session.Has("licensing.license.manage") && _status.Str("licenseKeyPrefix") != "")
                 {
-                    <MudButton Class="mt-2 ml-2" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="LiberarAsync">Liberar este equipo</MudButton>
+                    <MudButton Class="mt-2 ml-2" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Liberar este equipo", "La licencia deja de estar activada en este equipo para que pueda activarla en otro.", "Liberar", true)) { await LiberarAsync(); } })">Liberar este equipo</MudButton>
                 }
             </MudItem>
         </MudGrid>
@@ -90,11 +91,11 @@
         {
             if (message is null)
             {
-                _error = ex.Message;
+                _error = ex.Texto;
             }
             else
             {
-                Snackbar.Add(ex.Message, Severity.Error);
+                Snackbar.Add(ex.Texto, Severity.Error);
             }
         }
 

@@ -2,6 +2,11 @@
 
 Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** (ISC agregada el 2026-09-28 por decisión del propietario, Fase 3: es equivalente a MIT/BSD-2). **Solo para fuentes tipográficas** se acepta además la **SIL Open Font License 1.1** (2026-09-30, rediseño de la interfaz): permite incluir la fuente en un producto comercial siempre que se distribuya con su `OFL.txt` y no se venda la fuente por separado. Toda dependencia nueva se registra aquí **antes** de agregarse a `Directory.Packages.props`.
 
+**Fuentes tipográficas:** se admite además la **SIL Open Font License 1.1 (OFL-1.1)**, la licencia estándar de las fuentes abiertas: permite
+usar, empaquetar y distribuir la fuente dentro de software comercial sin costo; solo prohíbe vender la fuente sola y exige distribuir el aviso
+de copyright y la licencia junto con ella (`src/Client/Pos.Client/wwwroot/fonts/OFL.txt`). Ver [guía de diseño](guia-diseno.md) §3.
+*Pendiente de tu confirmación: agregar OFL-1.1 (solo fuentes) a la lista de ADR-0006.*
+
 ## Se distribuyen con el producto
 
 | Componente | Versión | Licencia | Uso |
@@ -29,7 +34,8 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** 
 | MiniExcel *(desde la Fase 4)* | 1.46.0 | Apache-2.0 | Leer archivos Excel (.xlsx) en las importaciones y exportar reportes (Fase 9) |
 | PostgreSQL 18 · `pg_dump` / `pg_restore` *(desde la Fase 11)* | 18 | PostgreSQL | Volcado y restauración de los backups (binarios que instala el instalador, Fase 13) |
 | PDFsharp-MigraDoc *(desde la Fase 9)* | 6.2.4 | MIT | Exportar reportes a PDF (tabla con encabezado de la empresa); QuestPDF se descartó por su licencia comercial |
-| MudBlazor *(desde la Fase 12-A, solo la nube)* | 9.11.0 | MIT | Componentes del portal web de licencias (Blazor) |
+| MudBlazor *(desde la Fase 12-A en la nube; Fase 15 en la interfaz de la tienda)* | 9.11.0 | MIT | Componentes del portal web de licencias y de la interfaz de caja y administración (Blazor) |
+| Inter (fuente tipográfica, variable, subconjuntos latin y latin-ext) *(desde la guía de diseño)* | variable 100–900 (paquete Fontsource) | SIL OFL 1.1 · © 2016 The Inter Project Authors | Tipografía de la interfaz; empaquetada en `wwwroot/fonts` (sin CDN, funciona sin Internet) con su `OFL.txt` |
 | QRCoder *(desde la Fase 12-A, solo la nube)* | 1.8.0 | MIT | Código QR del enrolamiento del doble factor (TOTP) |
 | Microsoft.AspNetCore.Authentication.Google *(desde la Fase 12-A, solo la nube)* | 10.0.12 | MIT | Ingreso al portal con Google (OAuth 2.0 / OpenID Connect; ADR-0062) |
 | Fuente Inter *(portal de la nube, `wwwroot/fonts`)* | 4.x (variable, subconjuntos latin y latin-ext en WOFF2) | SIL Open Font License 1.1 (licencia de fuentes; la pidió el propietario para la identidad visual, 2026-09-30) | Tipografía del portal; se sirve desde el propio servidor (sin CDN) con su `OFL.txt` al lado |

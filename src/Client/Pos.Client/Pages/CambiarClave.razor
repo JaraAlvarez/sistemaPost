@@ -6,27 +6,49 @@
 
 <PageTitle>Cambiar contraseña · BusinessPost</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Small" Class="mt-12">
-    <MudPaper Class="pa-6" Elevation="3">
-        <MudText Typo="Typo.h5" Class="mb-2">Cambie su contraseña</MudText>
-        <MudText Typo="Typo.body2" Class="mb-4">Su contraseña es temporal. Escriba una nueva de al menos 10 caracteres.</MudText>
-        <EditForm Model="this" OnSubmit="CambiarAsync">
-            <MudTextField @bind-Value="_current" Label="Contraseña actual" InputType="InputType.Password" Immediate="true" />
-            <MudTextField @bind-Value="_new" Label="Nueva contraseña" InputType="InputType.Password" Immediate="true" />
-            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Class="mt-4">Cambiar</MudButton>
-        </EditForm>
-        @if (_error is not null)
+<PantallaAcceso Titulo="Cambie su contraseña"
+                Ayuda="@(Session.Me?.MustChangePassword == true ? "Su contraseña es temporal. Escriba una nueva de al menos 10 caracteres." : "Escriba su contraseña actual y la nueva, de al menos 10 caracteres.")">
+    @if (!Session.IsSignedIn)
+    {
+        <Redirigir A="/ingresar" />
+    }
+    <EditForm Model="this" OnSubmit="CambiarAsync">
+        <MudTextField @bind-Value="_current" Label="Contraseña actual" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" AutoFocus="true"
+                      autocomplete="current-password" Class="mt-2" />
+        <MudTextField @bind-Value="_new" Label="Nueva contraseña" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" Class="mt-3"
+                      autocomplete="new-password" HelperText="@Ayuda()" Error="@(_new is { Length: > 0 and < 10 })" />
+        <MudTextField @bind-Value="_repeat" Label="Repita la nueva contraseña" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" Class="mt-3"
+                      autocomplete="new-password" Error="@(_repeat is { Length: > 0 } && _repeat != _new)" ErrorText="No coincide con la nueva contraseña." />
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true" Class="mt-5"
+                   Disabled="@(_busy || string.IsNullOrEmpty(_current) || (_new?.Length ?? 0) < 10 || _repeat != _new)" StartIcon="@Icons.Material.Outlined.Password">
+            Cambiar contraseña
+        </MudButton>
+        @if (Session.Me?.MustChangePassword != true)
         {
-            <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
+            <MudButton Variant="Variant.Text" FullWidth="true" Class="mt-2" Href="/admin">Volver</MudButton>
         }
-    </MudPaper>
-</MudContainer>
+    </EditForm>
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-4" role="alert">@_error</MudAlert>
+    }
+</PantallaAcceso>
 
 @code {
-    private string? _current, _new, _error;
+    private string? _current, _new, _repeat, _error;
+    private bool _busy;
+
+    private string Ayuda() => (_new?.Length ?? 0) switch
+    {
+        0 => "Mínimo 10 caracteres. Use una frase fácil de recordar.",
+        < 10 => $"Faltan {10 - _new!.Length} caracteres.",
+        _ => "Longitud suficiente.",
+    };
 
     private async Task CambiarAsync()
     {
+        _busy = true;
+        _error = null;
         try
         {
             await Api.PostAsync("api/v1/auth/change-password", new { currentPassword = _current, newPassword = _new });
@@ -35,7 +57,11 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 }

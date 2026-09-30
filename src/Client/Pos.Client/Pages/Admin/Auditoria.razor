@@ -31,7 +31,7 @@
                 <MudSelectItem T="string" Value="@("CRITICAL")">Crítica</MudSelectItem>
             </MudSelect>
         </MudStack>
-        <MudTable Items="_logs" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_logs" Dense="true" Hover="true" Striped="true">
             <HeaderContent><MudTh>Fecha</MudTh><MudTh>Acción</MudTh><MudTh>Usuario</MudTh><MudTh>Registro</MudTh><MudTh>Resumen</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>@Format.Date(context.Date("occurredAt"))</MudTd>
@@ -44,6 +44,8 @@
                 <MudTd>@context.Str("entityLabel")</MudTd>
                 <MudTd>@context.Str("summary")</MudTd>
             </RowTemplate>
+            <PagerContent><Paginador /></PagerContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay eventos de auditoría con esos filtros." Detalle="Cambie el texto o la severidad para ver más." /></NoRecordsContent>
         </MudTable>
     </ChildContent>
 </Pagina>
@@ -67,7 +69,7 @@
         _loading = true;
         try
         {
-            _logs = (await Api.GetAsync<JsonElement>($"api/v1/audit/logs?pageSize=100&q={Uri.EscapeDataString(_q ?? "")}&severity={_severity}")).Items();
+            _logs = (await Api.GetAsync<JsonElement>($"api/v1/audit/logs?pageSize=100&q={Uri.EscapeDataString(_q ?? "")}{(string.IsNullOrEmpty(_severity) ? "" : "&severity=" + _severity)}")).Items();
             if (Session.Has("audit.log.verify"))
             {
                 _incidents = (await Api.GetAsync<JsonElement>("api/v1/audit/incidents")).Items();
@@ -75,7 +77,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -93,7 +95,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -108,7 +110,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 }

@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Traslados · BusinessPost</PageTitle>
 
@@ -21,7 +22,7 @@
             <MudSelectItem T="string" Value="@("RECEIVED_WITH_DIFFERENCES")">Recibido con diferencias</MudSelectItem>
             <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
         </MudSelect>
-        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Origen</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
             </HeaderContent>
@@ -32,7 +33,8 @@
                 <MudTd>@Estado(context.Str("status"))</MudTd>
                 <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context.GetProperty("id").GetGuid()))">Ver</MudButton></MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>No hay traslados.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay traslados." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
     </ChildContent>
 </Pagina>
@@ -40,7 +42,7 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(760px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(760px, 96vw)">
             <h2>Nuevo traslado</h2>
             <MudStack Row="true">
                 <MudSelect T="Guid?" @bind-Value="_origen" Label="Bodega de origen">
@@ -109,7 +111,7 @@
 @if (_traslado.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(860px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(860px, 96vw)">
             <h2>Traslado @_traslado.Str("number") · @Estado(Status)</h2>
             <MudText Typo="Typo.body2">
                 De @Bodega(_traslado.Str("originWarehouseId")) a @Bodega(_traslado.Str("destinationWarehouseId"))
@@ -181,10 +183,10 @@
                         @if (Status == "DRAFT")
                         {
                             <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => AccionAsync("cancel", "Traslado anulado."))">
-                                @(_confirmar == "cancel" ? "Confirmar anulación" : "Anular")
+                                Anular
                             </MudButton>
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("dispatch", "Traslado despachado: la mercancía quedó en tránsito."))">
-                                @(_confirmar == "dispatch" ? "Confirmar despacho" : "Despachar")
+                                Despachar
                             </MudButton>
                         }
                         @if (Status == "IN_TRANSIT")
@@ -206,7 +208,7 @@
     private readonly Dictionary<Guid, decimal> _recibido = [];
     private JsonElement _traslado;
     private string _estado = "";
-    private string? _error, _notas, _buscar, _confirmar;
+    private string? _error, _notas, _buscar;
     private Guid? _origen, _destino;
     private decimal _cantidad = 1;
     private bool _loading = true, _busy, _nuevo, _recibiendo;
@@ -236,7 +238,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Message}", Severity.Warning);
+            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
         }
     }
 
@@ -250,7 +252,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -318,7 +320,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -366,7 +368,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
             await CargarAsync();
         }
 
@@ -379,11 +381,10 @@
         {
             _traslado = await Api.GetAsync<JsonElement>($"api/v1/inventory/transfers/{id}");
             _recibiendo = false;
-            _confirmar = null;
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -391,7 +392,6 @@
     {
         _traslado = default;
         _recibiendo = false;
-        _confirmar = null;
     }
 
     private void IniciarRecepcion()
@@ -421,7 +421,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -429,9 +429,9 @@
 
     private async Task AccionAsync(string action, string message)
     {
-        if (_confirmar != action)
+        if (Confirmaciones.TryGetValue(action, out var confirmacion)
+            && !await Dialogs.ConfirmarAsync(confirmacion.Titulo, confirmacion.Mensaje, confirmacion.Accion, action == "cancel"))
         {
-            _confirmar = action;
             return;
         }
 
@@ -446,12 +446,18 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
-        _confirmar = null;
         _busy = false;
     }
 
     private sealed record Linea(Guid ProductId, string Sku, string Nombre, string Unidad, decimal Cantidad);
+
+    /// <summary>Acciones que se confirman con el diálogo uniforme: título, mensaje y texto del botón.</summary>
+    private static readonly Dictionary<string, (string Titulo, string Mensaje, string Accion)> Confirmaciones = new()
+    {
+        ["cancel"] = ("Anular traslado", "El traslado quedará anulado.", "Anular"),
+        ["dispatch"] = ("Despachar traslado", "La mercancía sale de la bodega de origen y queda en tránsito hasta que la reciban.", "Despachar"),
+    };
 }

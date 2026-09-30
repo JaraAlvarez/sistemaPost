@@ -1,0 +1,40 @@
+@* Diálogo de confirmación uniforme (docs/guia-diseno.md §6). Se abre con DialogService.ConfirmarAsync(...) (Services/Dialogos.cs).
+   Enter no confirma por accidente: el foco empieza en "Cancelar"; Esc cierra. *@
+<MudDialog Class="confirmacion">
+    <TitleContent>
+        <div class="confirmacion-titulo">
+            <span class="confirmacion-icono bp-tono-@(Peligro ? "error" : "primario")" aria-hidden="true">
+                <MudIcon Icon="@(Peligro ? Icons.Material.Outlined.WarningAmber : Icons.Material.Outlined.HelpOutline)" />
+            </span>
+            <MudText Typo="Typo.h6" HtmlTag="h2">@Titulo</MudText>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body1">@Mensaje</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancelar" autofocus>Cancelar</MudButton>
+        <MudButton Variant="Variant.Filled" Color="@(Peligro ? Color.Error : Color.Primary)" OnClick="Aceptar">@Accion</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance? Dialogo { get; set; }
+
+    [Parameter]
+    public string Titulo { get; set; } = "";
+
+    [Parameter]
+    public string Mensaje { get; set; } = "";
+
+    [Parameter]
+    public string Accion { get; set; } = "Aceptar";
+
+    [Parameter]
+    public bool Peligro { get; set; }
+
+    private void Aceptar() => Dialogo?.Close(DialogResult.Ok(true));
+
+    private void Cancelar() => Dialogo?.Cancel();
+}

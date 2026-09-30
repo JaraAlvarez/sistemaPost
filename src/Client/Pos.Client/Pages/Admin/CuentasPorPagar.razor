@@ -43,7 +43,7 @@
                     </MudSelect>
                     <MudCheckBox T="bool" Value="_soloAbiertas" ValueChanged="@(v => FiltrarAbiertasAsync(v))" Label="Solo con saldo" />
                 </MudStack>
-                <MudTable Items="_cuentas" Dense="true" Hover="true" Striped="true">
+                <MudTable RowsPerPage="25" Items="_cuentas" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Emisión</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">Saldo</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
@@ -62,12 +62,13 @@
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay cuentas por pagar.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay cuentas por pagar." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
             <MudTabPanel Text="Cartera por edades">
                 <MudText Typo="Typo.body2" Class="my-3">Saldos vencidos por días al @Dia(_edades, "asOf").</MudText>
-                <MudTable Items="Edades" Dense="true" Hover="true" Striped="true">
+                <MudTable RowsPerPage="25" Items="Edades" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Proveedor</MudTh><MudTh Class="num">Corriente</MudTh><MudTh Class="num">1 a 30</MudTh><MudTh Class="num">31 a 60</MudTh><MudTh Class="num">61 a 90</MudTh>
                         <MudTh Class="num">Más de 90</MudTh><MudTh Class="num">Total</MudTh>
@@ -90,12 +91,13 @@
                         <MudTd Class="num"><b>@Format.Money(Totales.Dec("over90"))</b></MudTd>
                         <MudTd Class="num"><b>@Format.Money(Totales.Dec("total"))</b></MudTd>
                     </FooterContent>
-                    <NoRecordsContent><MudText>No hay saldos por pagar.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay saldos por pagar." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
             <MudTabPanel Text="Vencimientos">
                 <MudText Typo="Typo.h6" Class="mt-3 mb-1">Vencidas</MudText>
-                <MudTable Items="Vencidas" Dense="true" Striped="true" Class="mb-3">
+                <MudTable RowsPerPage="25" Items="Vencidas" Dense="true" Striped="true" Class="mb-3">
                     <HeaderContent>
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Venció</MudTh><MudTh Class="num">Días vencida</MudTh><MudTh Class="num">Saldo</MudTh>
                     </HeaderContent>
@@ -106,10 +108,11 @@
                         <MudTd Class="num">@context.Dec("daysOverdue")</MudTd>
                         <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay facturas vencidas.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay facturas vencidas." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
                 <MudText Typo="Typo.h6" Class="mb-1">Por vencer en los próximos @_vencimientos.Dec("days") días</MudText>
-                <MudTable Items="PorVencer" Dense="true" Striped="true">
+                <MudTable RowsPerPage="25" Items="PorVencer" Dense="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Saldo</MudTh>
                     </HeaderContent>
@@ -119,11 +122,12 @@
                         <MudTd>@Dia(context, "dueDate")</MudTd>
                         <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>Nada vence en esos días.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="Nada vence en esos días." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
             <MudTabPanel Text="Pagos">
-                <MudTable Items="_pagos" Dense="true" Hover="true" Striped="true" Class="mt-3">
+                <MudTable RowsPerPage="25" Items="_pagos" Dense="true" Hover="true" Striped="true" Class="mt-3">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Fecha</MudTh><MudTh>Referencia</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
@@ -141,7 +145,8 @@
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay pagos registrados.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay pagos registrados." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
         </MudTabs>
@@ -151,7 +156,7 @@
 @if (_pagando)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width:min(760px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width:min(760px, 96vw)">
             <h2>Registrar pago a proveedor</h2>
             <MudSelect T="Guid?" Value="_pagoProveedor" ValueChanged="@(v => ElegirProveedorAsync(v))" Label="Proveedor">
                 @foreach (var supplier in _conSaldo)
@@ -202,7 +207,7 @@
 @if (_anular.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Anular el pago @_anular.Str("number")</h2>
             <MudText Typo="Typo.body2">@_anular.Str("supplierName") · @Format.Money(_anular.Dec("total")). Los saldos de las facturas vuelven a quedar pendientes.</MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo (5 a 300 caracteres)" Immediate="true" AutoFocus="true" Lines="2" />
@@ -268,7 +273,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -305,7 +310,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -339,7 +344,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -367,7 +372,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -400,7 +405,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -424,7 +429,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

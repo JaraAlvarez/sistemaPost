@@ -15,7 +15,7 @@
     <ChildContent>
         <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                       Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarAsync())" Class="mb-3" />
-        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>SKU</MudTh><MudTh>Nombre</MudTh><MudTh>Categoría</MudTh><MudTh>Código de barras</MudTh><MudTh Class="num">Precio</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
             </HeaderContent>
@@ -33,7 +33,8 @@
                     }
                 </MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>No hay productos que coincidan.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay productos que coincidan." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
         <MudText Typo="Typo.caption">@_total producto(s). Se muestran los primeros 100.</MudText>
     </ChildContent>
@@ -42,7 +43,7 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Nuevo producto</h2>
             <MudTextField @bind-Value="_sku" Label="SKU (código interno)" Immediate="true" />
             <MudTextField @bind-Value="_name" Label="Nombre" Immediate="true" />
@@ -69,7 +70,7 @@
 @if (_precioDe.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Precio de @_precioDe.Str("name")</h2>
             <MudText Typo="Typo.body2">Precio actual: @Format.Money(_precioDe.Dec("price")). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
             <MudNumericField T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
@@ -108,7 +109,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -149,7 +150,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -178,7 +179,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

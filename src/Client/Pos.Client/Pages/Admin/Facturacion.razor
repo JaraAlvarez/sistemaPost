@@ -108,7 +108,7 @@
                     {
                         <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@alert.Str("prefix") (@NombreTipo(alert.Str("documentType"))): @alert.Str("message")</MudAlert>
                     }
-                    <MudTable Items="_ranges" Dense="true" Hover="true" Striped="true">
+                    <MudTable RowsPerPage="25" Items="_ranges" Dense="true" Hover="true" Striped="true">
                         <HeaderContent>
                             <MudTh>Prefijo</MudTh><MudTh>Tipo</MudTh><MudTh Class="num">Desde</MudTh><MudTh Class="num">Hasta</MudTh><MudTh Class="num">Actual</MudTh>
                             <MudTh Class="num">Disponibles</MudTh><MudTh Class="num">Uso</MudTh><MudTh>Resolución</MudTh><MudTh>Vigencia</MudTh><MudTh>Asignado a</MudTh>
@@ -150,7 +150,8 @@
                                 }
                             </MudTd>
                         </RowTemplate>
-                        <NoRecordsContent><MudText>No hay rangos. Configure las credenciales y sincronice desde Factus.</MudText></NoRecordsContent>
+                        <NoRecordsContent><EstadoVacio Mensaje="No hay rangos. Configure las credenciales y sincronice desde Factus." /></NoRecordsContent>
+                        <PagerContent><Paginador /></PagerContent>
                     </MudTable>
                 </MudTabPanel>
                 <MudTabPanel Text="Documentos">
@@ -178,7 +179,7 @@
                         <MudTextField @bind-Value="_fTexto" Label="Número, número fiscal o identificación" Immediate="true" Style="max-width: 280px" OnKeyUp="@(e => e.Key == "Enter" ? BuscarAsync() : Task.CompletedTask)" />
                         <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="BuscarAsync">Consultar</MudButton>
                     </MudStack>
-                    <MudTable Items="_documents" Dense="true" Hover="true" Striped="true">
+                    <MudTable RowsPerPage="25" Items="_documents" Dense="true" Hover="true" Striped="true">
                         <HeaderContent>
                             <MudTh>Fecha</MudTh><MudTh>Origen</MudTh><MudTh>Número interno</MudTh><MudTh>Tipo</MudTh><MudTh>Estado</MudTh><MudTh>Número fiscal</MudTh>
                             <MudTh>Adquirente</MudTh><MudTh Class="num">Total</MudTh><MudTh Class="num">Intentos</MudTh><MudTh></MudTh>
@@ -195,7 +196,8 @@
                             <MudTd Class="num">@context.Dec("attempts").ToString("0")</MudTd>
                             <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context))">Ver</MudButton></MudTd>
                         </RowTemplate>
-                        <NoRecordsContent><MudText>No hay documentos con esos filtros.</MudText></NoRecordsContent>
+                        <NoRecordsContent><EstadoVacio Mensaje="No hay documentos con esos filtros." /></NoRecordsContent>
+                        <PagerContent><Paginador /></PagerContent>
                     </MudTable>
                     <MudText Typo="Typo.caption" Class="mt-2 d-block">@_documents.Count documento(s) · se muestran hasta 300.</MudText>
                 </MudTabPanel>
@@ -261,7 +263,7 @@
 @if (_asignar.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Asignar el rango @_asignar.Str("prefix") (@NombreTipo(_asignar.Str("documentType")))</h2>
             <MudSelect T="Guid?" @bind-Value="_aSucursal" Label="Sucursal">
                 <MudSelectItem T="Guid?" Value="@((Guid?)null)">Sin asignar (desasignar)</MudSelectItem>
@@ -292,7 +294,7 @@
 @if (_detalle.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(760px, 96vw);">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(760px, 96vw);">
             <h2>@NombreTipo(_detalle.Str("documentType")) · @_detalle.Str("sourceNumber")</h2>
             <MudSimpleTable Dense="true" Outlined="true" Class="mb-3">
                 <tbody>
@@ -450,7 +452,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -484,7 +486,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -510,7 +512,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -528,7 +530,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -554,7 +556,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -600,7 +602,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
     }
 
@@ -614,7 +616,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -627,7 +629,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -648,7 +650,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -693,7 +695,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

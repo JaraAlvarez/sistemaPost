@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="BusinessPost">
+  <defs>
+    <linearGradient id="bp" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4353C9"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="10" fill="url(#bp)"/>
+  <path d="M15.5 15v-2.5a4.5 4.5 0 0 1 9 0V15" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M10.8 15h18.4l-1.35 15.1a2 2 0 0 1-2 1.9H14.15a2 2 0 0 1-2-1.9Z" fill="#fff"/>
+  <g fill="#3341B0">
+    <rect x="14.8" y="19.5" width="1.8" height="8.5" rx=".4"/>
+    <rect x="17.8" y="19.5" width="1" height="8.5"/>
+    <rect x="20" y="19.5" width="2.2" height="8.5" rx=".4"/>
+    <rect x="23.4" y="19.5" width="1" height="8.5"/>
+  </g>
+</svg>

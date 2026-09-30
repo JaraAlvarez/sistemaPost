@@ -29,7 +29,7 @@
                         <MudSelectItem T="string" Value="@("BLOCKED")">Bloqueados</MudSelectItem>
                     </MudSelect>
                 </MudStack>
-                <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+                <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Identificación</MudTh><MudTh>Nombre</MudTh><MudTh>Celular</MudTh><MudTh>Correo</MudTh><MudTh>Grupo</MudTh><MudTh>Estado</MudTh><MudTh>Autorizó datos</MudTh><MudTh></MudTh>
                     </HeaderContent>
@@ -57,12 +57,13 @@
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay clientes que coincidan.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay clientes que coincidan." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
                 <MudText Typo="Typo.caption">@_total cliente(s). Se muestran los primeros 100.</MudText>
             </MudTabPanel>
             <MudTabPanel Text="Grupos">
-                <MudTable Items="_groups" Dense="true" Hover="true" Striped="true" Class="mt-3">
+                <MudTable RowsPerPage="25" Items="_groups" Dense="true" Hover="true" Striped="true" Class="mt-3">
                     <HeaderContent>
                         <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Lista de precios</MudTh><MudTh>Por defecto</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
@@ -79,7 +80,8 @@
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay grupos de clientes.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay grupos de clientes." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
         </MudTabs>
@@ -89,7 +91,7 @@
 @if (_form)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>@(_editId is null ? "Nuevo cliente" : "Corregir datos del cliente")</h2>
             @if (_editId is not null && _namesUnknown)
             {
@@ -153,7 +155,7 @@
 @if (_bloquearDe.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Bloquear a @_bloquearDe.Str("displayName")</h2>
             <MudText Typo="Typo.body2">Un cliente bloqueado no se puede asignar a ventas nuevas.</MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo" Immediate="true" AutoFocus="true" />
@@ -168,7 +170,7 @@
 @if (_ficha.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(900px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(900px, 96vw)">
             <h2>@_ficha.Str("displayName")</h2>
             <MudText Typo="Typo.body2">@Identificacion(_ficha) · @NombreEstado(_ficha.Str("status"))@(_ficha.Str("blockReason") is { Length: > 0 } reason ? $" ({reason})" : "")</MudText>
             <MudText Typo="Typo.body2">Celular: @Texto(_ficha.Str("phone")) · Correo: @Texto(_ficha.Str("email")) · Dirección: @Texto(_ficha.Str("address"))</MudText>
@@ -257,7 +259,7 @@
 @if (_grupoForm)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>@(_grupoId is null ? "Nuevo grupo de clientes" : "Editar grupo")</h2>
             @if (_grupoId is null)
             {
@@ -328,7 +330,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -348,7 +350,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
     }
 
@@ -395,7 +397,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
             return;
         }
 
@@ -451,7 +453,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -490,7 +492,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -514,7 +516,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -530,7 +532,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -542,7 +544,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
             return;
         }
 
@@ -563,7 +565,7 @@
         }
         catch (ApiException ex)
         {
-            _fichaError = ex.Message;
+            _fichaError = ex.Texto;
         }
     }
 
@@ -585,7 +587,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -631,7 +633,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

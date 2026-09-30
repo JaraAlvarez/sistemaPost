@@ -1,0 +1,15 @@
+@* Paginador de las tablas de la administración, en español (docs/guia-diseno.md §6). Se oculta si todo cabe en una página. *@
+@if (Context?.Table is { } table && table.GetFilteredItemsCount() > Minimo)
+{
+    <MudTablePager PageSizeOptions="@Tamanos" RowsPerPageString="Filas por página:" InfoFormat="{first_item}–{last_item} de {all_items}" AllItemsText="Todas" />
+}
+
+@code {
+    private static readonly int[] Tamanos = [25, 50, 100];
+
+    [CascadingParameter]
+    public TableContext? Context { get; set; }
+
+    /// <summary>Filas desde las que aparece el paginador (el tamaño de página más pequeño).</summary>
+    private int Minimo => Context?.Table?.RowsPerPage is { } rows && rows < Tamanos[0] ? rows : Tamanos[0];
+}
