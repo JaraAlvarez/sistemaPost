@@ -11,6 +11,7 @@ using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Parties.Contracts;
 using Pos.Modules.Promotions.Contracts;
 using Pos.Modules.Purchasing.Contracts;
+using Pos.Modules.Reporting.Contracts;
 using Pos.Modules.Sales.Contracts;
 
 namespace Pos.Modules.Identity.Application;
@@ -43,7 +44,7 @@ public static class SystemRoles
              SalesPermissions.SaleCreate, SalesPermissions.LineVoid, SalesPermissions.DiscountApply, SalesPermissions.PriceOverride, SalesPermissions.SaleCancel,
              SalesPermissions.SaleVoid, SalesPermissions.ExpiredSell, SalesPermissions.ExchangeCreate, SalesPermissions.SaleReprint, SalesPermissions.SaleView,
              PromotionsPermissions.PromotionView, CustomersPermissions.CustomerView, CustomersPermissions.CustomerQuickCreate, CustomersPermissions.CustomerManage,
-             CustomersPermissions.HistoryView]),
+             CustomersPermissions.HistoryView, ReportingPermissions.SalesBasic, ReportingPermissions.CashView, ReportingPermissions.AntifraudView]),
         new(Cashier, "Cajero", "Vende y opera su caja.",
             [CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView,
              CashPermissions.SessionOperate, SalesPermissions.SaleCreate, SalesPermissions.LineVoid, SalesPermissions.SaleReprint, SalesPermissions.SaleView,
@@ -52,20 +53,23 @@ public static class SystemRoles
             [OrganizationPermissions.BranchView, CatalogPermissions.ProductView, CatalogPermissions.ProductManage, CatalogPermissions.MasterManage,
              CatalogPermissions.ImportRun, InventoryPermissions.StockView, InventoryPermissions.CostView, InventoryPermissions.AdjustmentManage,
              InventoryPermissions.CountManage, InventoryPermissions.CountRegister, InventoryPermissions.TransferManage, PartiesPermissions.PartyView,
-             PurchasingPermissions.PurchaseView, PurchasingPermissions.PurchaseManage, InventoryPermissions.AdjustmentQuick, PromotionsPermissions.PromotionView]),
+             PurchasingPermissions.PurchaseView, PurchasingPermissions.PurchaseManage, InventoryPermissions.AdjustmentQuick, PromotionsPermissions.PromotionView,
+             ReportingPermissions.InventoryView]),
         new(Purchasing, "Compras", "Gestiona proveedores y compras.",
             [OrganizationPermissions.BranchView, CatalogPermissions.ProductView, CatalogPermissions.ProductManage, InventoryPermissions.StockView,
              InventoryPermissions.CostView, PartiesPermissions.PartyView, PartiesPermissions.PartyManage, PurchasingPermissions.SupplierManage,
              PurchasingPermissions.OrderManage, PurchasingPermissions.PurchaseView, PurchasingPermissions.PurchaseManage, PurchasingPermissions.PayableView,
-             PurchasingPermissions.ReturnManage, CustomersPermissions.CustomerView]),
+             PurchasingPermissions.ReturnManage, CustomersPermissions.CustomerView, ReportingPermissions.InventoryView, ReportingPermissions.PurchasesView]),
         new(Accountant, "Contador", "Consulta información contable y de auditoría.",
             [OrganizationPermissions.CompanyView, OrganizationPermissions.BranchView, SettingsPermissions.SettingView,
              AuditPermissions.LogView, IdentityPermissions.PermissionView, CatalogPermissions.ProductView, InventoryPermissions.StockView,
              InventoryPermissions.CostView, PartiesPermissions.PartyView, PurchasingPermissions.PurchaseView, PurchasingPermissions.PayableView,
              CashPermissions.ReportView, ExpensesPermissions.ExpenseView, SalesPermissions.SaleView, BillingPermissions.DocumentView,
-             PromotionsPermissions.PromotionView, CustomersPermissions.CustomerView, CustomersPermissions.HistoryView]),
+             PromotionsPermissions.PromotionView, CustomersPermissions.CustomerView, CustomersPermissions.HistoryView,
+             ReportingPermissions.SalesBasic, ReportingPermissions.SalesAdvanced, ReportingPermissions.ProfitView, ReportingPermissions.TaxesView,
+             ReportingPermissions.InventoryView, ReportingPermissions.PurchasesView, ReportingPermissions.CashView, ReportingPermissions.Export]),
         new(PromotionsManager, "Encargado de promociones", "Crea, simula, activa y termina promociones; liquida los productos próximos a vencer.",
             [OrganizationPermissions.BranchView, CatalogPermissions.ProductView, InventoryPermissions.StockView, PromotionsPermissions.PromotionManage,
-             PromotionsPermissions.PromotionView, SalesPermissions.SaleView]),
+             PromotionsPermissions.PromotionView, SalesPermissions.SaleView, ReportingPermissions.SalesBasic, ReportingPermissions.SalesAdvanced]),
     ];
 }

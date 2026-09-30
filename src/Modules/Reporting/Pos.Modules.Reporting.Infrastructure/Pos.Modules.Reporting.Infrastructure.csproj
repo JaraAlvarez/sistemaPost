@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Reporting · Ejecución de consultas de solo lectura sobre las vistas reporting.* y exportadores (Excel, CSV, PDF). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Reporting.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Reporting.Application/Pos.Modules.Reporting.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PDFsharp-MigraDoc" />
+  </ItemGroup>
+</Project>

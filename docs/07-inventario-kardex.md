@@ -122,6 +122,9 @@ flowchart LR
 ## Alertas y reposición
 
 - `stock_policies` (mín/máx/punto de pedido por bodega) → reporte de bajo mínimo y **sugerido de compra** = máx − (saldo + pedido pendiente).
+- **Inventario a una fecha (Fase 9, D9-07):** el reporte `INVENTORY_VALUATION?asOf=AAAA-MM-DD` toma, por bodega y producto, el saldo
+  (cantidad y valor) que dejó el **último movimiento del kardex** con fecha de negocio ≤ la fecha pedida. No se guardan fotos diarias.
+  El pedido pendiente del sugerido son las órdenes de compra aprobadas, enviadas o recibidas parcialmente.
 
 ## Verificación de integridad
 

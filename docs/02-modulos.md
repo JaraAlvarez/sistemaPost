@@ -139,6 +139,11 @@ Módulos **transversales** (no son funcionalidades de negocio pero todos los usa
 - Caja: cierres, diferencias, retiros; **antifraude**: anulaciones, cancelaciones, descuentos, aperturas de cajón.
 - Exportación PDF/Excel/CSV; reportes gateados por plan.
 
+> **Implementado en la Fase 9** (ADR-0044 a 0046): módulo de solo lectura sobre las vistas del esquema `reporting` (contrato estable),
+> catálogo de 33 reportes en el código con un endpoint genérico `GET /api/v1/reports/{code}` (JSON paginado o archivo xlsx/csv/pdf
+> auditado) y tablero del día `GET /api/v1/reports/dashboard`. **Todos los reportes están en ambas ediciones** (ADR-0015): la línea
+> "reportes gateados por plan" quedó reemplazada. Cada tienda ve los datos de su nodo; la consolidación de sucursales llega con la nube.
+
 ### 14. Audit
 - Registro automático de cambios en entidades maestras (antes/después) y eventos de negocio sensibles.
 - Consulta por usuario, módulo, entidad, rango de fechas; historial de un registro.

@@ -1,0 +1,218 @@
+# Fase 9 · Reportes (sin UI): catálogo, reportes en JSON, exportación a Excel/CSV/PDF y tablero del día
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica la migración 027 y las vistas reporting.*) y `dotnet run --project src/Server/Pos.Server.Host`.
+# Se supone la tienda de http/fase-07.http y http/fase-08.http con algunas ventas, cambios, compras y un cierre de caja.
+# Fechas: from/to son fechas de NEGOCIO (jornada), formato AAAA-MM-DD; sin ellas el reporte es de hoy. Máximo 366 días.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+@from = 2026-09-01
+@to = 2026-09-30
+
+### 1. Propietario (ve todos los reportes y los costos)
+# @name owner
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{owner.response.body.token}}
+
+### 2. Catálogo: reportes que el usuario puede ver, con parámetros y columnas
+GET {{api}}/reports
+Authorization: Bearer {{ownerToken}}
+
+### 3. Tablero del día (ventas vs. el mismo día de la semana pasada, por hora, top 10 y alertas)
+GET {{api}}/reports/dashboard
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Ventas
+
+### 4. Resumen diario (neto = completadas − cambios − reintegros; anuladas aparte)
+GET {{api}}/reports/SALES_DAILY?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 5. Por hora (hora real del cobro)
+GET {{api}}/reports/SALES_BY_HOUR?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 6. Por medio de pago — debe cuadrar con el total del resumen diario y con el Z por medio
+GET {{api}}/reports/SALES_BY_PAYMENT?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 7. Por cajero y por caja
+GET {{api}}/reports/SALES_BY_CASHIER?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/SALES_BY_TERMINAL?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 8. Por producto (más vendidos primero; página 1 de 50 filas), categoría y marca
+GET {{api}}/reports/SALES_BY_PRODUCT?from={{from}}&to={{to}}&page=1&pageSize=50
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/SALES_BY_CATEGORY?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/SALES_BY_BRAND?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 9. Por cliente (solo se detallan clientes con autorización de datos) y por lista de precio
+GET {{api}}/reports/SALES_BY_CUSTOMER?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/SALES_BY_PRICE_LIST?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 10. Descuentos manuales (quién aplicó / autorizó) y promociones
+GET {{api}}/reports/DISCOUNTS_AND_PROMOTIONS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Utilidad (reporting.profit.view)
+
+### 11. Utilidad por día, producto, categoría y cajero (venta sin impuestos − costo del kardex, neto de devoluciones)
+GET {{api}}/reports/PROFIT_BY_DAY?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/PROFIT_BY_PRODUCT?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/PROFIT_BY_CATEGORY?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/PROFIT_BY_CASHIER?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Impuestos (revisar con el contador)
+
+### 12. Impuestos generados en ventas por tipo y tarifa
+GET {{api}}/reports/TAXES_SALES?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 13. Impuestos de compras (descontable vs. mayor valor del costo)
+GET {{api}}/reports/TAXES_PURCHASES?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 14. Libro de ventas diario (por día y caja) — en PDF para el contador
+GET {{api}}/reports/SALES_BOOK?from={{from}}&to={{to}}&format=pdf
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Inventario
+
+### 15. Inventario valorizado hoy (saldos en línea)…
+GET {{api}}/reports/INVENTORY_VALUATION
+Authorization: Bearer {{ownerToken}}
+
+### …y a una fecha (saldo del último movimiento del kardex ≤ la fecha). Debe coincidir con el kardex de esa fecha.
+GET {{api}}/reports/INVENTORY_VALUATION?asOf={{from}}
+Authorization: Bearer {{ownerToken}}
+
+### 16. Bajo mínimo con sugerido de compra y proveedor preferido
+GET {{api}}/reports/BELOW_MINIMUM
+Authorization: Bearer {{ownerToken}}
+
+### 17. Sin rotación (sin ventas en 30 días) y lotes por vencer en 30 días
+GET {{api}}/reports/NO_ROTATION?days=30
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/EXPIRING_LOTS?days=30
+Authorization: Bearer {{ownerToken}}
+
+### 18. Ajustes por motivo (incluye los rápidos de la caja)
+GET {{api}}/reports/ADJUSTMENTS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Compras y gastos
+
+### 19. Compras por proveedor, devoluciones, edades de cartera y gastos
+GET {{api}}/reports/PURCHASES_BY_SUPPLIER?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/SUPPLIER_RETURNS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/PAYABLES_AGING
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/EXPENSES_BY_CATEGORY?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Caja y antifraude
+
+### 20. Cierres por medio (esperado, contado, diferencia, revisado) y retiros/ingresos/aperturas sin venta
+GET {{api}}/reports/CASH_CLOSINGS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/CASH_WITHDRAWALS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 21. Antifraude por cajero (resalta a quien supera 2× el promedio de la tienda) y detalle de eventos
+GET {{api}}/reports/ANTIFRAUD_BY_CASHIER?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/ANTIFRAUD_EVENTS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Exportación (reporting.report.export, auditada)
+
+### 22. Excel, CSV (separador ; con coma decimal) y PDF. Cada descarga queda en la auditoría (REPORT_EXPORTED).
+GET {{api}}/reports/SALES_BY_PRODUCT?from={{from}}&to={{to}}&format=xlsx
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/SALES_DAILY?from={{from}}&to={{to}}&format=csv
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/PROFIT_BY_CATEGORY?from={{from}}&to={{to}}&format=pdf
+Authorization: Bearer {{ownerToken}}
+
+### 23. La auditoría registra la exportación
+GET {{api}}/audit/logs?module=reporting
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Permisos y validaciones
+
+### 24. La cajera no ve reportes (catálogo vacío y 403 al pedir uno)
+# @name cashier
+POST {{api}}/auth/pos-login
+Content-Type: application/json
+
+{ "posCode": "200", "pin": "5937" }
+
+###
+GET {{api}}/reports
+Authorization: Bearer {{cashier.response.body.token}}
+
+###
+GET {{api}}/reports/SALES_DAILY
+Authorization: Bearer {{cashier.response.body.token}}
+
+### 25. Rango mayor a 366 días → 400 REPORTING.RANGE_TOO_LARGE; reporte inexistente → 404; formato inválido → 400
+GET {{api}}/reports/SALES_DAILY?from=2025-01-01&to=2026-12-31
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/NO_EXISTE
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/SALES_DAILY?format=docx
+Authorization: Bearer {{ownerToken}}
+
+### 26. Umbral antifraude y límites: claves reporting.* en la configuración general (se cambian con PUT /settings/{key})
+GET {{api}}/settings
+Authorization: Bearer {{ownerToken}}

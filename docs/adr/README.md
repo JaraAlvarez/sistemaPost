@@ -48,3 +48,6 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0041](0041-precio-por-cliente-y-promociones.md) | Precio por cliente (listas fijas y derivadas) y promociones | Aceptada | 2026-09-29 |
 | [0042](0042-autorizacion-de-datos-y-derechos-del-titular.md) | Autorización de tratamiento de datos y derechos del titular | Aceptada | 2026-09-29 |
 | [0043](0043-credito-y-puntos-reservados.md) | Crédito (fiado) y puntos reservados para la Fase 8-B | Aceptada | 2026-09-29 |
+| [0044](0044-reportes-de-solo-lectura-sobre-vistas.md) | Módulo Reporting de solo lectura y vistas `reporting.*` como contrato | Aceptada | 2026-09-29 |
+| [0045](0045-catalogo-de-reportes-y-exportacion.md) | Catálogo de reportes en el código, endpoint genérico y exportación auditada | Aceptada | 2026-09-29 |
+| [0046](0046-ventas-netas-y-fecha-de-negocio-en-reportes.md) | Ventas netas, utilidad y fecha de negocio en los reportes | Aceptada | 2026-09-29 |

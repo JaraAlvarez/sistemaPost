@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Reporting · Catálogo de reportes, motor (parámetros, permisos, totales) y casos de uso. Solo lectura. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Reporting.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../Pos.Modules.Reporting.Contracts/Pos.Modules.Reporting.Contracts.csproj" />
+    <ProjectReference Include="../../Inventory/Pos.Modules.Inventory.Contracts/Pos.Modules.Inventory.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Modules.Reporting.UnitTests" />
+    <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
+  </ItemGroup>
+</Project>
