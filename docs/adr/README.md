@@ -51,3 +51,6 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0044](0044-reportes-de-solo-lectura-sobre-vistas.md) | Módulo Reporting de solo lectura y vistas `reporting.*` como contrato | Aceptada | 2026-09-29 |
 | [0045](0045-catalogo-de-reportes-y-exportacion.md) | Catálogo de reportes en el código, endpoint genérico y exportación auditada | Aceptada | 2026-09-29 |
 | [0046](0046-ventas-netas-y-fecha-de-negocio-en-reportes.md) | Ventas netas, utilidad y fecha de negocio en los reportes | Aceptada | 2026-09-29 |
+| [0047](0047-catalogo-de-acciones-de-auditoria.md) | Catálogo de acciones de auditoría en el código y en la BD | Aceptada | 2026-09-29 |
+| [0048](0048-verificacion-programada-e-incidentes-de-integridad.md) | Verificación programada e incidentes de integridad | Aceptada | 2026-09-29 |
+| [0049](0049-datos-personales-y-retencion-de-la-bitacora.md) | Datos personales enmascarados y retención de la bitácora | Aceptada | 2026-09-29 |

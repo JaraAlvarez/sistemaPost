@@ -18,6 +18,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Dapper" />
     <PackageReference Include="MiniExcel" />
+    <PackageReference Include="PDFsharp-MigraDoc" />
     <PackageReference Include="EFCore.NamingConventions" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="NSec.Cryptography" />

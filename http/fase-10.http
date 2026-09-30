@@ -1,0 +1,124 @@
+# Fase 10 · Auditoría (sin UI): consultas con diferencias, verificación, incidentes, constancia y reportes de auditoría
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 (aplica la migración 028 y el catálogo de acciones) y `dotnet run --project src/Server/Pos.Server.Host`.
+# Se supone la tienda de las fases anteriores con ventas, precios, usuarios y algún cierre de caja.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+@from = 2026-09-01
+@to = 2026-09-30
+
+### 1. Propietario
+# @name owner
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{owner.response.body.token}}
+
+### 2. Un ingreso fallido (debe quedar LOGIN_FAILED en la bitácora)
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "clave-equivocada" }
+
+### 3. Catálogo de acciones (código, módulo, nombre en español, severidad)
+GET {{api}}/audit/actions
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Consultas
+
+### 4. Bitácora: ingresos fallidos, eventos críticos, texto libre
+GET {{api}}/audit/logs?action=LOGIN_FAILED
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/audit/logs?severity=CRITICAL
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/audit/logs?q=arroz&pageSize=20
+Authorization: Bearer {{ownerToken}}
+
+### 5. Arranque del servidor y actualización de la BD (reinicie el servidor antes para verlos)
+GET {{api}}/audit/logs?module=system
+Authorization: Bearer {{ownerToken}}
+
+### 6. Historial de un registro (cambie el id por el de un producto o un tercero). Cada cambio trae "changes": campo · antes · después.
+#     En los terceros, el correo y el teléfono aparecen enmascarados (j***@dominio, ***1234).
+GET {{api}}/audit/entities/Product/00000000-0000-0000-0000-000000000000/history
+Authorization: Bearer {{ownerToken}}
+
+### 7. Actividad de un usuario (lo que hizo y lo que autorizó como supervisor). Use el userId de GET /identity/users
+GET {{api}}/audit/users/00000000-0000-0000-0000-000000000000/activity?from={{from}}T00:00:00-05:00&to={{to}}T23:59:59-05:00
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Integridad
+
+### 8. Verificación manual completa (queda en el historial; si hay hallazgos nuevos abre un incidente)
+POST {{api}}/audit/verify
+Authorization: Bearer {{ownerToken}}
+
+### 9. Historial de verificaciones (la automática corre a las 03:00; completa los domingos)
+GET {{api}}/audit/verifications
+Authorization: Bearer {{ownerToken}}
+
+### 10. Incidentes abiertos. Para provocar uno, en psql como superusuario:
+#     SET session_replication_role = replica; UPDATE audit.audit_log SET summary = 'alterado' WHERE seq = 1;
+#     y repita el paso 8. /auth/me mostrará openIntegrityIncidents = 1.
+GET {{api}}/audit/incidents?onlyOpen=true
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/auth/me
+Authorization: Bearer {{ownerToken}}
+
+### 11. El propietario reconoce el incidente con una nota (mínimo 10 caracteres). El administrador recibe 403.
+POST {{api}}/audit/incidents/00000000-0000-0000-0000-000000000000/acknowledge
+Authorization: Bearer {{ownerToken}}
+Content-Type: application/json
+
+{ "note": "Revisé el hallazgo: fue una prueba controlada de manipulación." }
+
+### 12. Constancia de integridad en PDF (guárdela fuera del equipo)
+GET {{api}}/audit/integrity-certificate
+Authorization: Bearer {{ownerToken}}
+
+### 13. Comprobar un sello impreso en un Z o en la constancia (número y código)
+GET {{api}}/audit/seals/1/check?code=XXXX-XXXX-XXXX-XXXX
+Authorization: Bearer {{ownerToken}}
+
+# ------------------------------------------------------------------------------------------------ Reportes de auditoría (audit.log.view)
+
+### 14. Cambios de precios, costos de proveedor e impuestos (antes, después, variación %)
+GET {{api}}/reports/AUDIT_PRICE_COST_CHANGES?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 15. Seguridad, eventos sensibles y actividad por usuario
+GET {{api}}/reports/AUDIT_SECURITY?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/AUDIT_SENSITIVE_EVENTS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/AUDIT_BY_USER?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 16. Actividad fuera de horario (por defecto 22:00–06:00; claves reporting.after_hours_start / reporting.after_hours_end)
+GET {{api}}/reports/AUDIT_AFTER_HOURS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+### 17. Exportaciones de información e integridad (en PDF)
+GET {{api}}/reports/AUDIT_EXPORTS?from={{from}}&to={{to}}
+Authorization: Bearer {{ownerToken}}
+
+###
+GET {{api}}/reports/AUDIT_INTEGRITY?from={{from}}&to={{to}}&format=pdf
+Authorization: Bearer {{ownerToken}}
+
+### 18. Tablero del día: incluye openIntegrityIncidents
+GET {{api}}/reports/dashboard
+Authorization: Bearer {{ownerToken}}

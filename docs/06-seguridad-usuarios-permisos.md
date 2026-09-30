@@ -125,3 +125,21 @@ Responde: **quién** (usuario + sesión + equipo + IP), **cuándo** (UTC, mostra
 - Se escribe en la **misma transacción** que el cambio: si el cambio se guarda, la auditoría también; si falla, ninguno.
 - Append-only por permisos de BD + triggers, con **sellado por lotes por nodo** y anclas externas (ADR-0012, reemplaza la cadena fila a fila): detecta filas alteradas, borradas o insertadas en rangos sellados.
 - Consultas: historial de una entidad, actividad de un usuario, acciones por tipo y fecha, reporte antifraude.
+
+### Implementación de la Fase 10 (ADR-0047 a 0049)
+
+- **Catálogo de acciones** (211) con nombre en español y severidad: código en `AuditActions` = tabla `audit.action_types`; una prueba de
+  arquitectura exige que todo código escrito esté en el catálogo.
+- **Eventos agregados**: ingreso fallido (`LOGIN_FAILED`), restablecimiento de contraseña y PIN por un administrador, línea eliminada de
+  una venta, arranque del servidor, actualización de la BD, reloj atrasado, verificación e incidentes de integridad, constancia emitida.
+  Los de backups y licencia quedan en el catálogo y se emiten en las Fases 11 y 12.
+- **Consultas**: `/audit/logs` (con severidad, caja, autorizador y texto), `/audit/entities/{tipo}/{id}/history`,
+  `/audit/users/{id}/activity`, `/audit/actions`; cada fila trae los cambios campo a campo en español.
+- **Verificación automática** diaria incremental (03:00) y completa los domingos; historial en `/audit/verifications`. Un hallazgo nuevo
+  abre un **incidente de integridad** CRÍTICO visible en `/auth/me` (`openIntegrityIncidents`) y en el tablero, hasta que el
+  **propietario** lo reconoce con una nota (`audit.incident.acknowledge`, excluido del Administrador). Nunca bloquea la venta.
+- **Constancia de integridad** en PDF (`/audit/integrity-certificate`): ancla externa manual además del sello del Z.
+- **Datos personales enmascarados** en la bitácora (`[PersonalData]`): correo `j***@dominio`, teléfono `***1234`, dirección, notas y
+  detalle de solicitudes como `(registrado)`.
+- **Reportes de auditoría** (grupo Auditoría del catálogo de reportes, permiso `audit.log.view`): cambios de precios/costos/impuestos,
+  seguridad, eventos sensibles, actividad por usuario, fuera de horario, exportaciones e integridad.

@@ -213,7 +213,8 @@ internal sealed class UnlockUserHandler(IIdentityStore store) : ICommandHandler<
 /// <summary>Contraseña temporal fijada por un administrador: el usuario debe cambiarla al entrar; sus sesiones se cierran.</summary>
 public sealed record ResetPasswordCommand(Guid UserId, string TemporaryPassword) : ICommand;
 
-internal sealed class ResetPasswordHandler(IIdentityStore store, CredentialPolicy policy, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current)
+internal sealed class ResetPasswordHandler(
+    IIdentityStore store, CredentialPolicy policy, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current, IAuditWriter audit)
     : ICommandHandler<ResetPasswordCommand>
 {
     public async Task<Result> Handle(ResetPasswordCommand request, CancellationToken cancellationToken)
@@ -234,6 +235,10 @@ internal sealed class ResetPasswordHandler(IIdentityStore store, CredentialPolic
         if (changed.IsSuccess)
         {
             await sessions.RevokeAllForUserAsync(user.Id, current.UserId, "PASSWORD_RESET", null, cancellationToken);
+            await audit.WriteAsync(
+                new AuditEntry("identity", "PASSWORD_RESET", nameof(User), user.Id, user.AuditLabel,
+                    $"{current.DisplayName} restableció la contraseña de {user.DisplayName} (temporal; deberá cambiarla).", Severity: AuditSeverity.Warning),
+                cancellationToken);
         }
 
         return changed;
@@ -242,12 +247,26 @@ internal sealed class ResetPasswordHandler(IIdentityStore store, CredentialPolic
 
 public sealed record ResetPinCommand(Guid UserId, string PosCode, string Pin) : ICommand;
 
-internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy policy) : ICommandHandler<ResetPinCommand>
+internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy policy, ICurrentUser current, IAuditWriter audit) : ICommandHandler<ResetPinCommand>
 {
     public async Task<Result> Handle(ResetPinCommand request, CancellationToken cancellationToken)
     {
         var user = await store.GetUserAsync(request.UserId, cancellationToken);
-        return user is not { IsHuman: true } ? IdentityErrors.UserNotFound : await policy.SetPinAsync(user, request.PosCode, request.Pin, cancellationToken);
+        if (user is not { IsHuman: true })
+        {
+            return IdentityErrors.UserNotFound;
+        }
+
+        var result = await policy.SetPinAsync(user, request.PosCode, request.Pin, cancellationToken);
+        if (result.IsSuccess)
+        {
+            await audit.WriteAsync(
+                new AuditEntry("identity", "PIN_RESET", nameof(User), user.Id, user.AuditLabel,
+                    $"{current.DisplayName} asignó o restableció el código de caja y el PIN de {user.DisplayName}.", Severity: AuditSeverity.Warning),
+                cancellationToken);
+        }
+
+        return result;
     }
 }
 

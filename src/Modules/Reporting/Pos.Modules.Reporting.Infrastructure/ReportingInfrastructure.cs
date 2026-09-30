@@ -225,6 +225,9 @@ internal sealed class ReportingReadModel(NpgsqlDataSource dataSource) : IReporti
                     WHERE b.company_id = @company_id AND b.branch_id = @branch_id AND b.quantity > 0 AND l.expiry_date <= @today + {request.ExpiringDays}
                     """,
                     connection, transaction, request, cancellationToken);
+                var incidents = await ScalarAsync<long>(
+                    "SELECT count(*) FROM reporting.integrity_incidents WHERE (company_id = @company_id OR company_id IS NULL) AND is_open",
+                    connection, transaction, request, cancellationToken);
                 var requests = await ScalarAsync<long>(
                     "SELECT count(*) FROM reporting.data_requests WHERE company_id = @company_id AND status = 'OPEN' AND due_on <= @today + 5",
                     connection, transaction, request, cancellationToken);
@@ -240,6 +243,7 @@ internal sealed class ReportingReadModel(NpgsqlDataSource dataSource) : IReporti
                     (int)belowMinimum,
                     (int)expiring,
                     (int)requests,
+                    (int)incidents,
                     default);
             }
             catch (PostgresException ex) when (ReadOnlySession.IsTimeout(ex))

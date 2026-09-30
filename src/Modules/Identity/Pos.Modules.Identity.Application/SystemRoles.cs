@@ -35,7 +35,9 @@ public static class SystemRoles
     [
         new(Owner, "Propietario", "Dueño del negocio: acceso total.", allPermissions),
         // El reintegro de dinero por garantía es una excepción legal que solo autoriza el propietario (Fase 7).
-        new(Administrator, "Administrador", "Administra la operación y la configuración.", [.. allPermissions.Where(p => p != SalesPermissions.WarrantyRefund)]),
+        // Reconocer un incidente de integridad también es solo del propietario (Fase 10, D10-10): la alteración pudo hacerla un administrador.
+        new(Administrator, "Administrador", "Administra la operación y la configuración.",
+            [.. allPermissions.Where(p => p != SalesPermissions.WarrantyRefund && p != AuditPermissions.IncidentAcknowledge)]),
         new(CashSupervisor, "Supervisor de caja", "Supervisa cajas, autoriza anulaciones y revisa cierres.",
             [OrganizationPermissions.BranchView, SettingsPermissions.SettingView, IdentityPermissions.UserView, IdentityPermissions.SessionRevoke,
              CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView,

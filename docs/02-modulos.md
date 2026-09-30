@@ -149,6 +149,9 @@ Módulos **transversales** (no son funcionalidades de negocio pero todos los usa
 - Consulta por usuario, módulo, entidad, rango de fechas; historial de un registro.
 - Inmutable y con evidencia de manipulación (hash encadenado).
 
+> **Implementado en las Fases 2 y 10** (ADR-0012, 0029, 0047–0049): sellos por lotes por nodo, verificación diaria/semanal con
+> incidentes de integridad, catálogo de acciones en español, historial con diferencias y reportes de auditoría.
+
 ### 15. Settings
 - Configuración tipada por alcance (empresa → sucursal → caja), con valores por defecto. Ej.: permitir stock negativo, redondeo, arqueo ciego, días de gracia de devolución, límite de descuento del cajero, tiempo de inactividad.
 

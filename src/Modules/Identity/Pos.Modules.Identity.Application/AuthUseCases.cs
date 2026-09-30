@@ -4,6 +4,7 @@ using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
+using Pos.Modules.Audit.Contracts;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
 using Pos.Modules.Organization.Contracts;
@@ -43,7 +44,8 @@ public sealed class AuthServices(
     IAuditWriter audit,
     IActorContext actor,
     IIdGenerator ids,
-    IClock clock)
+    IClock clock,
+    IIntegrityStatus integrity)
 {
     /// <summary>Hash válido de una contraseña que no existe: iguala el tiempo de respuesta cuando el usuario no existe.</summary>
     private static string? _dummyHash;
@@ -90,13 +92,16 @@ public sealed class AuthServices(
             _dummyHash ??= await hasher.HashAsync("contraseña-inexistente", SecretKind.Password, cancellationToken);
             await hasher.VerifyAsync(secret, _dummyHash, SecretKind.Password, cancellationToken);
             RecordAttempt(attemptKind, identifier, user, false, "UNKNOWN_OR_NO_CREDENTIAL");
+            await AuditFailureAsync(user, identifier, attemptKind, "usuario inexistente o sin credencial", cancellationToken);
             return IdentityErrors.InvalidCredentials;
         }
 
         var allowed = user.CanAuthenticate(now, withPin);
         if (allowed.IsFailure)
         {
-            RecordAttempt(attemptKind, identifier, user, false, allowed.Error.Code == IdentityErrors.UserLocked.Code ? "LOCKED" : "DISABLED");
+            var locked = allowed.Error.Code == IdentityErrors.UserLocked.Code;
+            RecordAttempt(attemptKind, identifier, user, false, locked ? "LOCKED" : "DISABLED");
+            await AuditFailureAsync(user, identifier, attemptKind, locked ? "usuario bloqueado" : "usuario inactivo", cancellationToken);
             return allowed.Error;
         }
 
@@ -107,6 +112,7 @@ public sealed class AuthServices(
             var lockMinutes = await SettingAsync(SecuritySettings.LockoutMinutes, null, cancellationToken);
             var locked = user.RecordFailure(now, max, lockMinutes, withPin);
             RecordAttempt(attemptKind, identifier, user, false, "BAD_SECRET");
+            await AuditFailureAsync(user, identifier, attemptKind, withPin ? "PIN incorrecto" : "contraseña incorrecta", cancellationToken);
             if (locked)
             {
                 await AuditAsync(user, "USER_LOCKED", $"{user.DisplayName} quedó bloqueado {lockMinutes} min por {max} intentos fallidos ({(withPin ? "PIN" : "contraseña")}).",
@@ -159,8 +165,20 @@ public sealed class AuthServices(
     public async Task<MeDto> BuildMeAsync(User user, Guid sessionId, bool terminal, Guid branchId, Guid? posTerminalId, CancellationToken cancellationToken)
     {
         var effective = await permissions.GetEffectiveAsync(user.Id, branchId, null, cancellationToken);
+        // Aviso persistente de integridad (D10-05) para quien puede verificar la bitácora.
+        var openIncidents = effective.Contains(AuditPermissions.LogVerify) ? await integrity.OpenIncidentsAsync(cancellationToken) : 0;
         return new MeDto(user.Id, user.Username, user.DisplayName, sessionId, terminal ? "TERMINAL" : "BACKOFFICE", branchId, posTerminalId,
-            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)]);
+            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents);
+    }
+
+    /// <summary>Ingreso fallido (Fase 10, §5.1): queda en la bitácora además de <c>identity.login_attempts</c>.</summary>
+    private Task AuditFailureAsync(User? user, string identifier, string attemptKind, string reason, CancellationToken cancellationToken)
+    {
+        var channel = attemptKind switch { "PIN" => "caja", "SUPERVISOR" => "autorización de supervisor", _ => "backoffice" };
+        return audit.WriteAsync(
+            new AuditEntry("identity", "LOGIN_FAILED", nameof(User), user?.Id, user?.AuditLabel ?? identifier,
+                $"Ingreso fallido ({channel}) con '{identifier}': {reason}."),
+            cancellationToken);
     }
 
     public Task AuditAsync(User user, string action, string summary, AuditSeverity severity, CancellationToken cancellationToken) =>

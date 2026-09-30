@@ -41,6 +41,29 @@ public sealed class AuditedAttribute(string module) : Attribute
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class SensitiveAttribute : Attribute;
 
+/// <summary>Cómo se enmascara un dato personal en la auditoría (Fase 10, D10-07).</summary>
+public enum PersonalDataKind
+{
+    /// <summary>Correo: se guarda la inicial y el dominio (<c>j***@gmail.com</c>).</summary>
+    Email,
+
+    /// <summary>Teléfono: se guardan los últimos 4 dígitos (<c>***4567</c>).</summary>
+    Phone,
+
+    /// <summary>Texto libre (dirección, notas): solo se registra que tiene valor (<c>(registrado)</c>).</summary>
+    FreeText,
+}
+
+/// <summary>
+/// Dato personal (Ley 1581): la bitácora, que no se puede borrar, guarda solo una versión enmascarada (D10-07). El dato completo vive
+/// en la entidad y se suprime con ella.
+/// </summary>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class PersonalDataAttribute(PersonalDataKind kind) : Attribute
+{
+    public PersonalDataKind Kind { get; } = kind;
+}
+
 /// <summary>Esta propiedad no se registra en la auditoría (p. ej. imágenes o datos derivados).</summary>
 [AttributeUsage(AttributeTargets.Property)]
 public sealed class NotAuditedAttribute : Attribute;

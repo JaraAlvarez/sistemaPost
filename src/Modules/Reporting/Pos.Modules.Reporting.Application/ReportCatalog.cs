@@ -1,3 +1,4 @@
+using Pos.Modules.Audit.Contracts;
 using Pos.Modules.Reporting.Contracts;
 using static Pos.Modules.Reporting.Application.ReportParameters;
 using T = Pos.Modules.Reporting.Contracts.ReportColumnType;
@@ -19,6 +20,10 @@ public static class ReportCatalog
     public const string Purchases = "Compras y gastos";
     public const string Cash = "Caja";
     public const string Antifraud = "Antifraude";
+    public const string AuditGroup = "Auditoría";
+
+    /// <summary>La bitácora es por nodo: filas de la empresa y del sistema (sin empresa).</summary>
+    private const string AuditCompany = "(a.company_id = @company_id OR a.company_id IS NULL)";
 
     private const string SalesInRange = "s.company_id = @company_id AND s.branch_id = @branch_id AND s.business_date BETWEEN @from AND @to";
     private const string LinesSold =
@@ -810,10 +815,147 @@ public static class ReportCatalog
             WHERE {N("e")} AND e.business_date BETWEEN @from AND @to AND (@cashier_id IS NULL OR e.cashier_id = @cashier_id)
             ORDER BY e.occurred_at
             """),
+
+        // ------------------------------------------------------------------------------------------------ Auditoría (Fase 10, audit.log.view)
+        new("AUDIT_PRICE_COST_CHANGES", "Cambios de precios, costos e impuestos", AuditGroup,
+            "Cada precio nuevo o modificado (antes, después y variación %), cambios del último costo de un proveedor e impuestos agregados o quitados a un producto, con quién y cuándo.",
+            AuditPermissions.LogView, DateRange,
+            [
+                new("occurred_at", "Fecha y hora", T.DateTime),
+                new("kind", "Tipo", T.Text),
+                new("sku", "SKU", T.Text),
+                new("product_name", "Producto", T.Text),
+                new("detail", "Detalle", T.Text),
+                new("before_value", "Antes", T.Money),
+                new("after_value", "Después", T.Money),
+                new("variation", "Variación %", T.Percent),
+                new("user_name", "Usuario", T.Text),
+            ],
+            $"""
+            WITH x AS (
+                SELECT a.occurred_at, a.occurred_local, CASE a.action WHEN 'PRODUCT_PRICE_SCHEDULED' THEN 'PRECIO PROGRAMADO' ELSE 'PRECIO' END AS kind,
+                       a.entity_id AS product_id, a.summary AS detail, (a.old_values ->> 'price')::numeric AS before_value,
+                       (a.new_values ->> 'price')::numeric AS after_value, a.user_display_name
+                FROM reporting.audit_log a
+                WHERE {AuditCompany} AND a.action IN ('PRODUCT_PRICE_CHANGED', 'PRODUCT_PRICE_SCHEDULED')
+                UNION ALL
+                SELECT a.occurred_at, a.occurred_local, 'COSTO PROVEEDOR', sp.product_id, 'Proveedor ' || sp.supplier_name,
+                       (a.old_values ->> 'last_cost')::numeric, (a.new_values ->> 'last_cost')::numeric, a.user_display_name
+                FROM reporting.audit_log a JOIN reporting.supplier_products sp ON sp.supplier_product_id = a.entity_id
+                WHERE {AuditCompany} AND a.action = 'SUPPLIER_PRODUCT_UPDATED' AND a.new_values ? 'last_cost'
+                UNION ALL
+                SELECT a.occurred_at, a.occurred_local, 'IMPUESTO',
+                       COALESCE(a.new_values ->> 'product_id', a.old_values ->> 'product_id')::uuid,
+                       CASE WHEN a.action = 'PRODUCT_TAX_CREATED' THEN 'Agregó ' ELSE 'Quitó ' END || COALESCE(t.tax_name, 'impuesto'),
+                       NULL::numeric, NULL::numeric, a.user_display_name
+                FROM reporting.audit_log a
+                LEFT JOIN reporting.taxes t ON t.tax_id = COALESCE(a.new_values ->> 'tax_id', a.old_values ->> 'tax_id')::uuid
+                WHERE {AuditCompany} AND a.action IN ('PRODUCT_TAX_CREATED', 'PRODUCT_TAX_DELETED'))
+            SELECT x.occurred_at, x.kind, p.sku, p.product_name, x.detail, x.before_value, x.after_value,
+                   round(100 * (x.after_value - x.before_value) / NULLIF(x.before_value, 0), 2) AS variation, x.user_display_name AS user_name
+            FROM x LEFT JOIN reporting.products p ON p.product_id = x.product_id
+            WHERE x.occurred_local::date BETWEEN @from AND @to
+            ORDER BY x.occurred_at
+            """,
+            "Fecha y hora local del cambio. El primer precio de un producto no tiene 'antes'; el detalle indica la lista y si quedó programado."),
+
+        new("AUDIT_SECURITY", "Seguridad: ingresos, bloqueos, contraseñas, roles y autorizaciones", AuditGroup,
+            "Ingresos correctos y fallidos, bloqueos, cambios y restablecimientos de contraseña o PIN, sesiones cerradas, cambios de usuarios, roles y permisos y autorizaciones de supervisor.",
+            AuditPermissions.LogView, DateRange, AuditDetailColumns(),
+            AuditDetailSql("a.module = 'identity' AND a.action <> 'LOGOUT'")),
+
+        new("AUDIT_SENSITIVE_EVENTS", "Eventos sensibles", AuditGroup,
+            "Eventos de severidad ADVERTENCIA o CRÍTICA de todos los módulos, con usuario, caja y quién autorizó.",
+            AuditPermissions.LogView, DateRange, AuditDetailColumns(),
+            AuditDetailSql("a.severity IN ('WARNING', 'CRITICAL')")),
+
+        new("AUDIT_BY_USER", "Actividad por usuario", AuditGroup, "Acciones por usuario y módulo en el período, con las advertencias y los críticos.",
+            AuditPermissions.LogView, DateRange,
+            [
+                new("user_name", "Usuario", T.Text),
+                new("module", "Módulo", T.Text),
+                new("events", "Acciones", T.Count, Total: true),
+                new("warnings", "Advertencias", T.Count, Total: true),
+                new("criticals", "Críticos", T.Count, Total: true),
+                new("first_at", "Primera", T.DateTime),
+                new("last_at", "Última", T.DateTime),
+            ],
+            $"""
+            SELECT COALESCE(a.user_display_name, '(sistema)') AS user_name, a.module, count(*) AS events,
+                   count(*) FILTER (WHERE a.severity = 'WARNING') AS warnings, count(*) FILTER (WHERE a.severity = 'CRITICAL') AS criticals,
+                   min(a.occurred_at) AS first_at, max(a.occurred_at) AS last_at
+            FROM reporting.audit_log a
+            WHERE {AuditCompany} AND a.occurred_local::date BETWEEN @from AND @to
+            GROUP BY 1, 2
+            ORDER BY 1, events DESC
+            """),
+
+        new("AUDIT_AFTER_HOURS", "Actividad fuera de horario", AuditGroup,
+            "Acciones de usuarios fuera del horario de la tienda (configurable: reporting.after_hours_start y reporting.after_hours_end; por defecto 22:00–06:00).",
+            AuditPermissions.LogView, DateRange, AuditDetailColumns(),
+            AuditDetailSql(
+                """
+                a.user_id IS NOT NULL AND CASE WHEN @after_hours_start > @after_hours_end
+                    THEN extract(hour FROM a.occurred_local) >= @after_hours_start OR extract(hour FROM a.occurred_local) < @after_hours_end
+                    ELSE extract(hour FROM a.occurred_local) >= @after_hours_start AND extract(hour FROM a.occurred_local) < @after_hours_end END
+                """)),
+
+        new("AUDIT_EXPORTS", "Exportaciones de información", AuditGroup,
+            "Reportes exportados, datos de clientes exportados y constancias de integridad emitidas.",
+            AuditPermissions.LogView, DateRange, AuditDetailColumns(),
+            AuditDetailSql("a.action IN ('REPORT_EXPORTED', 'CUSTOMER_DATA_EXPORTED', 'INTEGRITY_CERTIFICATE_ISSUED')")),
+
+        new("AUDIT_INTEGRITY", "Integridad de la bitácora", AuditGroup,
+            "Verificaciones (diarias, semanales y manuales), su resultado, el último sello verificado, los incidentes y su reconocimiento.",
+            AuditPermissions.LogView, DateRange,
+            [
+                new("started_at", "Fecha y hora", T.DateTime),
+                new("kind", "Tipo", T.Text),
+                new("is_valid", "Sin hallazgos", T.Boolean),
+                new("seals_checked", "Sellos", T.Count, Total: true),
+                new("rows_checked", "Filas recalculadas", T.Count, Total: true),
+                new("findings_count", "Hallazgos", T.Count, Total: true),
+                new("last_seal_no", "Último sello", T.Count),
+                new("last_seal_code", "Código del sello", T.Text),
+                new("incident_summary", "Incidente", T.Text),
+                new("acknowledged_by_name", "Reconocido por", T.Text),
+                new("acknowledgement_note", "Nota", T.Text),
+            ],
+            """
+            SELECT v.started_at, CASE v.kind WHEN 'INCREMENTAL' THEN 'Diaria incremental' WHEN 'FULL' THEN 'Semanal completa' ELSE 'Manual' END AS kind,
+                   v.is_valid, v.seals_checked, v.rows_checked, v.findings_count, v.last_seal_no, v.last_seal_code, v.incident_summary,
+                   v.acknowledged_by_name, v.acknowledgement_note
+            FROM reporting.audit_verifications v
+            WHERE (v.company_id = @company_id OR v.company_id IS NULL) AND v.started_local::date BETWEEN @from AND @to
+            ORDER BY v.started_at
+            """),
     ];
 
     public static ReportDefinition? Find(string code) =>
         All.FirstOrDefault(r => string.Equals(r.Code, code, StringComparison.OrdinalIgnoreCase));
+
+    private static ReportColumn[] AuditDetailColumns() =>
+    [
+        new("occurred_at", "Fecha y hora", T.DateTime),
+        new("severity", "Severidad", T.Text),
+        new("module", "Módulo", T.Text),
+        new("action_name", "Acción", T.Text),
+        new("user_name", "Usuario", T.Text),
+        new("entity_label", "Registro", T.Text),
+        new("summary", "Detalle", T.Text),
+        new("authorized_by_name", "Autorizó", T.Text),
+        new("ip_address", "IP", T.Text),
+    ];
+
+    /// <summary>Detalle de la bitácora con un filtro (Fase 10): fecha local del evento, empresa del nodo.</summary>
+    private static string AuditDetailSql(string filter) =>
+        $"""
+        SELECT a.occurred_at, CASE a.severity WHEN 'CRITICAL' THEN 'CRÍTICA' WHEN 'WARNING' THEN 'ADVERTENCIA' ELSE 'INFORMATIVA' END AS severity,
+               a.module, a.action_name, COALESCE(a.user_display_name, '(sistema)') AS user_name, a.entity_label, a.summary, a.authorized_by_name, a.ip_address
+        FROM reporting.audit_log a
+        WHERE {AuditCompany} AND a.occurred_local::date BETWEEN @from AND @to AND ({filter})
+        ORDER BY a.occurred_at, a.seq
+        """;
 
     /// <summary>Datos de este nodo (D9-13): empresa y sucursal de la sesión.</summary>
     private static string N(string alias) => $"{alias}.company_id = @company_id AND {alias}.branch_id = @branch_id";

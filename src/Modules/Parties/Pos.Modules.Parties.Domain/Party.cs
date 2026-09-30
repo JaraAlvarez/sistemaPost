@@ -66,8 +66,10 @@ public sealed class PartyContact : Entity<Guid>
 
     public string? Position { get; private set; }
 
+    [PersonalData(PersonalDataKind.Phone)]
     public string? Phone { get; private set; }
 
+    [PersonalData(PersonalDataKind.Email)]
     public string? Email { get; private set; }
 
     public bool IsPrimary { get; private set; }
@@ -135,14 +137,18 @@ public sealed partial class Party : AggregateRoot<Guid>, ICompanyOwned, ISoftDel
     /// <summary>Responsabilidades fiscales DIAN separadas por ";" (O-13;O-15…).</summary>
     public string FiscalResponsibilities { get; private set; } = DefaultResponsibility;
 
+    [PersonalData(PersonalDataKind.Email)]
     public string? Email { get; private set; }
 
+    [PersonalData(PersonalDataKind.Phone)]
     public string? Phone { get; private set; }
 
+    [PersonalData(PersonalDataKind.FreeText)]
     public string? Address { get; private set; }
 
     public string? MunicipalityCode { get; private set; }
 
+    [PersonalData(PersonalDataKind.FreeText)]
     public string? Notes { get; private set; }
 
     [NotAudited]
