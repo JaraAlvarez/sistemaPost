@@ -34,6 +34,9 @@
 | 11 · Backups | [propuesta](fases/fase-11-propuesta.md) · [informe](fases/fase-11-informe.md) · [guía de recuperación](guia-recuperacion.md) | Implementada — pendiente de tu validación |
 | 11-B · Facturación electrónica (Factus) | [propuesta](fases/fase-11b-propuesta.md) | Propuesta — pendiente de tu aprobación |
 | 12-A · Servidor y portal web de licencias | [propuesta](fases/fase-12a-propuesta.md) · [informe](fases/fase-12a-informe.md) · [despliegue](despliegue-nube.md) | Implementada — pendiente de validación |
+| 12-B · Licencia dentro del POS | [propuesta](fases/fase-12b-propuesta.md) | Propuesta — pendiente de tu aprobación |
+| 13 · Instalador y actualizaciones | [propuesta](fases/fase-13-propuesta.md) | Propuesta — pendiente de tu aprobación |
+| 14 · Endurecimiento y pruebas | [propuesta](fases/fase-14-propuesta.md) | Propuesta — pendiente de tu aprobación |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
 
