@@ -114,6 +114,8 @@ Resultados (Release): Purchasing unitarias 53/53; Database 69/69; integración `
 `Pos.Modules.Purchasing.Domain` (solo pruebas unitarias): 97,8 %. `EndpointProtectionTests` recorre las rutas nuevas
 automáticamente (401 sin sesión y 403 sin el permiso); no hizo falta modificarla.
 
+**No se ejecutó** `build.ps1` completo (se detuvo por instrucción del propietario) ni el resto de la batería de integración (fases 2–7 fuera de las clases citadas); queda para la integración de la fase.
+
 Archivos de pruebas existentes modificados: `PurchasingDomainTests.cs` (el catálogo de permisos de compras pasa de 10 a 11).
 
 ## 5. Pendiente para el informe de la fase
