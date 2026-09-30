@@ -31,7 +31,7 @@
 | 8 · Clientes y proveedores | [propuesta](fases/fase-08-propuesta.md) · [informe](fases/fase-08-informe.md) | Implementada — pendiente de tu validación |
 | 9 · Reportes | [propuesta](fases/fase-09-propuesta.md) · [informe](fases/fase-09-informe.md) | Implementada — pendiente de tu validación |
 | 10 · Auditoría | [propuesta](fases/fase-10-propuesta.md) · [informe](fases/fase-10-informe.md) | Implementada — pendiente de tu validación |
-| 11 · Backups | [propuesta](fases/fase-11-propuesta.md) | Propuesta — pendiente de tu aprobación |
+| 11 · Backups | [propuesta](fases/fase-11-propuesta.md) | Aprobada — en implementación (rama `fase-11-backups`) |
 | 12-A · Servidor y portal web de licencias | [propuesta](fases/fase-12a-propuesta.md) · [informe](fases/fase-12a-informe.md) · [despliegue](despliegue-nube.md) | Implementada — pendiente de validación |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)

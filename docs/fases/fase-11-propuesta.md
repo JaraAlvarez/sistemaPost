@@ -1,6 +1,6 @@
 # Fase 11 · Backups — Propuesta
 
-> Estado: **PROPUESTA** — pendiente de tu revisión y aprobación · 2026-09-29
+> Estado: **APROBADA** (con las recomendaciones de la §13) · 2026-09-29
 > Requisitos previos: Fases 2 a 10 implementadas. Ya existen el rol de BD `pos_backup` (lectura total, Fase 2), el contador de "vidas"
 > del nodo `org.nodes.incarnation` (se incrementa al restaurar, ADR-0014), las acciones reservadas `BACKUP_*` (Fase 10) y el sello de
 > auditoría como ancla externa (ADR-0012).
@@ -229,3 +229,8 @@ http/fase-11.http · docs/guia-recuperacion.md (paso a paso para el técnico)
 6. **Restaurar:** ¿solo desde la consola del servidor (**recomendado**), o también desde el navegador del backoffice?
 7. **Destino externo:** ¿la tienda tendrá un **disco USB** conectado al servidor, una **carpeta de red** (otro PC o NAS) o ambos? (Se
    dejan configurables los dos; me sirve para la guía.)
+
+**Resolución (aprobación del propietario):** se adoptan las recomendaciones: nube compatible S3 con **MinIO en el VPS** del propietario;
+backups cada 4 h entre 08:00 y 22:00 + nocturno 23:30 + al cerrar cada jornada; el código de recuperación **solo lo tiene el
+propietario**; restauración de prueba automática semanal; retención 7/4/12; restaurar **solo desde la consola del servidor**; destino
+externo configurable como **disco USB y carpeta de red** (ambos).
