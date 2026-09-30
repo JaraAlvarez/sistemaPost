@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Herramienta de publicación (Fase 13): genera la clave de firma de actualizaciones (distinta de la de licencias), firma el manifiesto
+       de una versión (huella y tamaño del paquete) y verifica un manifiesto publicado. La usa tools/scripts/build-installer.ps1. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Pos.Release</RootNamespace>
+    <AssemblyName>Pos.Release</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\Pos.Updates.Contracts\Pos.Updates.Contracts.csproj" />
+  </ItemGroup>
+</Project>

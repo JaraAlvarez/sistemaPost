@@ -21,4 +21,7 @@ public sealed class ServerOptions
 
     /// <summary>Puerto HTTPS en la LAN (solo edición Multicaja, solo equipos emparejados).</summary>
     public int LanHttpsPort { get; set; } = 5443;
+
+    /// <summary>Responder a la difusión UDP de las cajas en la LAN (Multicaja, Fase 13).</summary>
+    public bool LanDiscovery { get; set; } = true;
 }

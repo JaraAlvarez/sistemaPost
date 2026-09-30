@@ -31,7 +31,13 @@ using Pos.Server.Migrator;
 //   Pos.Server.Migrator restore --file F.posbak --superuser "<cadena>" [--recovery-code XXXX-…] [--database pos_rAAAAMMDDhhmm]
 //                       [--migrator-connection "<cadena>"] [--data-root D] --yes
 //                       Restaura en una BD nueva, verifica y cambia la BD activa en server.json (detenga antes el servicio).
-// Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION.
+//   Pos.Server.Migrator install --pg-bin <carpeta bin> [--data-root D] [--edition SINGLE|MULTI] [--pg-port 5488]
+//                       [--license-server URL] [--update-manifest URL] [--channel stable]
+//                       Instalación (Fase 13): PostgreSQL propio (initdb + servicio), BD, roles con contraseñas aleatorias, migraciones y
+//                       server.json con los secretos en DPAPI. Si ya está instalado, solo migra (reinstalar / reparar).
+//   Pos.Server.Migrator support-bundle [--data-root D] [--output carpeta]
+//                       Paquete de soporte (ZIP): registros, versiones, estado de las migraciones y configuración SIN secretos.
+// Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION y, si no, server.json de la instalación.
 // La carpeta de datos (--data-root) por defecto es POS_DATA_ROOT o %ProgramData%\PosSupermercado.
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
 //                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex,
@@ -44,7 +50,7 @@ var appVersion = Assembly.GetExecutingAssembly()
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore");
+    Console.Error.WriteLine("Comandos: install | create-database | migrate | status | verify | verify-audit | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");
     return 2;
 }
 
@@ -184,6 +190,10 @@ try
         case "restore":
             return await BackupCommands.RestoreAsync(options, appVersion, migrator, CancellationToken.None);
 
+        case "install":
+            return await InstallCommands.InstallAsync(options, migrator, appVersion, CancellationToken.None);
+        case "support-bundle":
+            return await InstallCommands.SupportBundleAsync(options, migrator, appVersion, CancellationToken.None);
         case "verify-stock":
             await using (var dataSource = NpgsqlDataSource.Create(Connection(options)))
             await using (var connection = await dataSource.OpenConnectionAsync())
@@ -276,4 +286,5 @@ static string Connection(Dictionary<string, string> options) =>
     options.TryGetValue("connection", out var value) && !string.IsNullOrWhiteSpace(value)
         ? value
         : Environment.GetEnvironmentVariable("POS_MIGRATOR_CONNECTION")
-          ?? throw new ArgumentException("Falta --connection (o la variable POS_MIGRATOR_CONNECTION).");
+          ?? BackupCommands.ConfigSecret(BackupCommands.DataRoot(options), "MigratorConnectionString")
+          ?? throw new ArgumentException("Falta --connection (o la variable POS_MIGRATOR_CONNECTION, o server.json de la instalación).");

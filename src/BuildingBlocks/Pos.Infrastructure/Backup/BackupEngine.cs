@@ -226,7 +226,7 @@ public sealed partial class BackupEngine(IPgTools tools)
     }
 
     /// <summary>La configuración viaja sin secretos: los valores DPAPI solo sirven en el equipo original y las contraseñas se ocultan.</summary>
-    internal static string Sanitize(string json)
+    public static string Sanitize(string json)
     {
         var node = JsonNode.Parse(json);
         Walk(node);

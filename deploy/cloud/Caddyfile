@@ -15,9 +15,17 @@ licencias.{$DOMINIO} {
 	# La aplicación agrega sus propias cabeceras de seguridad (CSP, HSTS, nosniff…); aquí solo se oculta el servidor.
 	header -Server
 
+	# Fase 13 · Actualizaciones del POS: manifiestos firmados y paquetes (carpeta ./updates del VPS, solo lectura).
+	handle_path /updates/* {
+		root * /srv/updates
+		file_server
+	}
+
 	# Blazor Server usa WebSockets: reverse_proxy los maneja sin configuración adicional.
 	# Caddy reemplaza los X-Forwarded-* que envíe el cliente por los suyos.
-	reverse_proxy app:8080
+	handle {
+		reverse_proxy app:8080
+	}
 
 	log {
 		output stdout

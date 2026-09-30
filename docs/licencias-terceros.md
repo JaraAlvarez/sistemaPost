@@ -21,6 +21,9 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** 
 | System.Security.Cryptography.ProtectedData | 10.0.12 | MIT | Secretos de la instalación con DPAPI |
 | System.IO.Ports *(desde la Fase 7)* | 10.0.12 | MIT | Agente de caja: impresora por puerto serie / USB virtual (`COMx`) |
 | System.Management *(desde la Fase 12-B)* | 10.0.12 | MIT | Huella del equipo para la licencia (WMI: placa y disco del sistema) |
+| System.ServiceProcess.ServiceController *(desde la Fase 13)* | 10.0.12 | MIT | Instalador y actualizador: arrancar y detener los servicios |
+| PostgreSQL 18 (binarios para Windows) *(desde la Fase 13)* | 18.x | PostgreSQL License (permisiva) | Se distribuye dentro del instalador, sin modificar |
+| Inno Setup 6 *(herramienta, desde la Fase 13)* | 6.x | Licencia de Inno Setup (gratuita, también para uso comercial; confirmar la vigente) | Solo compila el instalador; no se distribuye |
 | NSec.Cryptography *(desde la Fase 3)* | 26.4.0 | MIT | Argon2id para contraseñas y PIN |
 | libsodium (binario nativo incluido en NSec) | 1.0.22 | ISC | Implementación criptográfica de Argon2id |
 | MiniExcel *(desde la Fase 4)* | 1.46.0 | Apache-2.0 | Leer archivos Excel (.xlsx) en las importaciones y exportar reportes (Fase 9) |

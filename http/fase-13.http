@@ -1,0 +1,30 @@
+# Fase 13 · Actualizaciones (sin UI): estado, instalar ahora, paquete para las cajas
+# Uso: Visual Studio / Rider / VS Code (extensión REST Client).
+# Antes: dev-db.ps1 y `dotnet run --project src/Server/Pos.Server.Host`. El asistente inicial está en http://localhost:5480/instalacion.
+# El actualizador (servicio aparte) escribe {DataRoot}\updates\state.json y history.jsonl; sin él, el estado sale vacío.
+
+@host = http://localhost:5480
+@api = {{host}}/api/v1
+
+### 1. Propietario
+# @name owner
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "username": "dueno", "password": "Sup3rmercado-Seguro" }
+
+@ownerToken = {{owner.response.body.token}}
+
+### 2. Versión instalada, actualización descargada, próxima ventana (02:00) e historial
+GET {{api}}/system/updates
+Authorization: Bearer {{ownerToken}}
+
+### 3. Instalar ya la versión descargada (422 UPDATE.NOT_READY si no hay una lista). Úselo con las cajas cerradas.
+POST {{api}}/system/updates/install-now
+Authorization: Bearer {{ownerToken}}
+
+### 4. Lo que descargan las cajas (sin sesión; 404 hasta la primera actualización instalada por el actualizador)
+GET {{api}}/system/updates/manifest
+
+### 5. Asistente inicial mínimo (navegador)
+GET {{host}}/instalacion

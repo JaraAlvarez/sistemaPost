@@ -110,8 +110,11 @@ internal static class BackupCommands
         IReadOnlyDictionary<string, string> options, string appVersion, DatabaseMigrator migrator, CancellationToken cancellationToken)
     {
         var file = Required(options, "file");
-        var superuser = Required(options, "superuser");
         var dataRoot = DataRoot(options);
+        // El actualizador (Fase 13) restaura sin pasar secretos por la línea de comandos: la conexión del superusuario está en server.json (DPAPI).
+        var superuser = options.GetValueOrDefault("superuser") is { Length: > 0 } fromOption ? fromOption
+            : Environment.GetEnvironmentVariable("POS_SUPERUSER_CONNECTION") is { Length: > 0 } fromEnvironment ? fromEnvironment
+            : ConfigSecret(dataRoot, "SuperuserConnectionString") ?? throw new ArgumentException("Falta la opción --superuser.");
         var config = ReadConfig(dataRoot);
         var current = ProtectedSecret.Reveal(config?["Pos"]?["Database"]?["ConnectionString"]?.GetValue<string>());
         var migratorConnection = options.GetValueOrDefault("migrator-connection")
@@ -256,6 +259,10 @@ internal static class BackupCommands
             },
             cancellationToken: cancellationToken));
     }
+
+    /// <summary>Un valor de <c>Pos:Database</c> en server.json, descifrado si está protegido con DPAPI.</summary>
+    public static string? ConfigSecret(string dataRoot, string name) =>
+        ProtectedSecret.Reveal(ReadConfig(dataRoot)?["Pos"]?["Database"]?[name]?.GetValue<string>()) is { Length: > 0 } value ? value : null;
 
     private static JsonNode? ReadConfig(string dataRoot)
     {

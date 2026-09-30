@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuración inicial</title>
+<!-- Asistente inicial mínimo (Fase 13, D13-05). Lo abre el instalador; la Fase 15 lo reemplaza con el diseño definitivo. -->
+<style>
+:root { --bg:#f4f6f8; --card:#fff; --text:#1d2733; --muted:#6b7785; --line:#dde3e9; --accent:#1f6feb; --on:#fff; --err-bg:#fdecec; --err:#a4262c; --ok:#1a7f37; }
+@media (prefers-color-scheme: dark) { :root { --bg:#11161c; --card:#1a2129; --text:#e6edf3; --muted:#8b98a5; --line:#2d3742; --err-bg:#3a1d20; --err:#ff9a9f; --ok:#56d364; } }
+* { box-sizing: border-box; }
+body { margin:0; font:15px/1.45 system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
+h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:17px; margin:0 0 12px; }
+.steps { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; padding:0; list-style:none; }
+.steps li { font-size:13px; padding:3px 10px; border:1px solid var(--line); border-radius:12px; color:var(--muted); }
+.steps li.on { background:var(--accent); color:var(--on); border-color:var(--accent); }
+.steps li.done { color:var(--ok); border-color:var(--ok); }
+.card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:20px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:0 14px; }
+label { display:block; margin-bottom:12px; color:var(--muted); font-size:13px; }
+input, select { display:block; width:100%; padding:8px 10px; margin-top:4px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; }
+button { padding:9px 16px; border:0; border-radius:6px; background:var(--accent); color:var(--on); font:inherit; cursor:pointer; }
+button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+.actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+.hint { color:var(--muted); font-size:13px; }
+.error { background:var(--err-bg); color:var(--err); border-radius:6px; padding:10px 12px; margin:12px 0; }
+.code { font:600 22px/1.3 ui-monospace,Consolas,monospace; letter-spacing:.06em; padding:14px; border:2px dashed var(--accent); border-radius:8px; text-align:center; margin:12px 0; word-break:break-all; }
+.hidden { display:none !important; }
+.ok { color:var(--ok); font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Configuración inicial</h1>
+  <p class="hint">Complete estos pasos una sola vez. Puede cambiar los datos después desde la administración.</p>
+  <ol class="steps" id="steps">
+    <li data-step="empresa">1. Empresa</li><li data-step="licencia">2. Licencia</li><li data-step="recuperacion">3. Código de recuperación</li><li data-step="listo">4. Listo</li>
+  </ol>
+  <div id="error" class="error hidden" role="alert"></div>
+
+  <section id="empresa" class="card hidden">
+    <h2>Empresa, sucursal y propietario</h2>
+    <form id="form-empresa">
+      <div class="grid">
+        <label>Razón social<input name="legalName" required maxlength="200"></label>
+        <label>Nombre comercial<input name="tradeName" required maxlength="200"></label>
+        <label>Tipo de persona<select name="personType"><option value="Legal">Jurídica</option><option value="Natural">Natural</option></select></label>
+        <label>Documento<select name="identificationType" id="idTypes"></select></label>
+        <label>Número (sin dígito de verificación)<input name="identificationNumber" required pattern="[0-9]{5,15}"></label>
+        <label>Dígito de verificación<input name="checkDigit" maxlength="1" pattern="[0-9]"></label>
+        <label>Régimen<select name="taxRegime" id="regimes"></select></label>
+        <label>Municipio (escriba y elija)<input id="municipioBuscar" list="municipios" autocomplete="off" required></label>
+        <label>Dirección<input name="address" required maxlength="250"></label>
+        <label>Teléfono<input name="phone" maxlength="30"></label>
+        <label>Correo<input name="email" type="email" maxlength="120"></label>
+      </div>
+      <datalist id="municipios"></datalist>
+      <h2>Sucursal y caja</h2>
+      <div class="grid">
+        <label>Código de la sucursal<input name="branchCode" value="S01" required pattern="[A-Z0-9]{2,6}"></label>
+        <label>Nombre de la sucursal<input name="branchName" value="Principal" required></label>
+        <label>Código de la caja<input name="terminalCode" value="C01" required pattern="[A-Z0-9]{2,6}"></label>
+        <label>Nombre de la caja<input name="terminalName" value="Caja 1" required></label>
+      </div>
+      <h2>Propietario (acceso total)</h2>
+      <div class="grid">
+        <label>Usuario<input name="username" required maxlength="60" autocomplete="username"></label>
+        <label>Nombre<input name="displayName" required maxlength="120"></label>
+        <label>Contraseña (mínimo 10 caracteres)<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
+        <label>Código de caja (3 a 6 dígitos)<input name="posCode" pattern="[0-9]{3,6}"></label>
+        <label>PIN (4 a 6 dígitos)<input name="pin" type="password" pattern="[0-9]{4,6}"></label>
+      </div>
+      <div class="actions"><button type="submit">Guardar y continuar</button></div>
+    </form>
+  </section>
+
+  <section id="ingreso" class="card hidden">
+    <h2>Entrar como propietario</h2>
+    <p class="hint">La empresa ya está configurada. Entre para terminar la licencia y el código de recuperación.</p>
+    <form id="form-ingreso">
+      <label>Usuario<input name="username" required autocomplete="username"></label>
+      <label>Contraseña<input name="password" type="password" required autocomplete="current-password"></label>
+      <div class="actions"><button type="submit">Entrar</button></div>
+    </form>
+  </section>
+
+  <section id="licencia" class="card hidden">
+    <h2>Licencia</h2>
+    <p class="hint">Escriba la clave que le entregó su proveedor (requiere Internet). Si aún no la tiene, siga en <b>demostración</b> durante 30 días:
+      todo funciona y el tiquete dice "DEMOSTRACIÓN".</p>
+    <form id="form-licencia">
+      <label>Clave de licencia<input name="licenseKey" placeholder="POS-XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off"></label>
+      <div class="actions"><button type="submit">Activar</button><button type="button" class="secondary" id="demo">Seguir en demostración</button></div>
+    </form>
+    <p id="estadoLicencia" class="hint"></p>
+  </section>
+
+  <section id="recuperacion" class="card hidden">
+    <h2>Código de recuperación de los backups</h2>
+    <p class="hint">Con este código, y solo con él, se abren los backups en otro computador si este se daña o se lo roban. <b>Se muestra una sola vez:</b>
+      imprímalo o anótelo y guárdelo FUERA del local.</p>
+    <div class="actions"><button type="button" id="generar">Generar el código</button></div>
+    <div id="codigo" class="code hidden"></div>
+    <form id="form-confirmar" class="hidden">
+      <label>Escríbalo de nuevo para confirmar que lo guardó<input name="code" autocomplete="off" required></label>
+      <div class="actions"><button type="submit">Confirmar</button></div>
+    </form>
+  </section>
+
+  <section id="listo" class="card hidden">
+    <h2><span class="ok">✓</span> Todo listo</h2>
+    <p>La tienda quedó configurada. Los backups automáticos ya están activos en este equipo.</p>
+    <p class="hint">Recomendado: conecte un disco externo o configure la nube de backups desde la administración. Para agregar cajas (Multicaja),
+      instale el programa en cada caja con el modo <b>Caja</b> y use el código de emparejamiento que genera la administración.</p>
+  </section>
+</main>
+<script>
+"use strict";
+const api = "/api/v1";
+let token = sessionStorage.getItem("pos.setup.token");
+const $ = (id) => document.getElementById(id);
+
+function show(step) {
+  for (const s of ["empresa", "ingreso", "licencia", "recuperacion", "listo"]) $(s).classList.toggle("hidden", s !== step);
+  const order = ["empresa", "licencia", "recuperacion", "listo"];
+  const at = order.indexOf(step === "ingreso" ? "licencia" : step);
+  document.querySelectorAll("#steps li").forEach((li, i) => { li.classList.toggle("on", i === at); li.classList.toggle("done", i < at); });
+}
+
+function fail(message) { const e = $("error"); e.textContent = message; e.classList.toggle("hidden", !message); }
+
+async function call(method, path, body) {
+  fail("");
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = "Bearer " + token;
+  const response = await fetch(api + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    const fields = data && data.errors ? " " + Object.values(data.errors).flat().join(" ") : "";
+    throw new Error(((data && (data.detail || data.title)) || "Error " + response.status) + fields);
+  }
+  return data;
+}
+
+async function login(username, password) {
+  const result = await call("POST", "/auth/login", { username, password });
+  token = result.token;
+  sessionStorage.setItem("pos.setup.token", token);
+}
+
+async function loadCatalogs() {
+  const [types, regimes] = await Promise.all([call("GET", "/reference/identification-types"), call("GET", "/reference/tax-regimes")]);
+  $("idTypes").innerHTML = types.filter((t) => t.allowsLegal || t.allowsNatural).map((t) => `<option value="${t.code}">${t.name}</option>`).join("");
+  $("idTypes").value = "NIT";
+  $("regimes").innerHTML = regimes.map((r) => `<option value="${r.code}">${r.name}</option>`).join("");
+}
+
+let municipios = [];
+$("municipioBuscar").addEventListener("input", async (e) => {
+  const q = e.target.value.trim();
+  if (q.length < 3) return;
+  municipios = await call("GET", "/reference/municipalities?search=" + encodeURIComponent(q));
+  $("municipios").innerHTML = municipios.slice(0, 30).map((m) => `<option value="${m.name} (${m.code})"></option>`).join("");
+});
+
+$("form-empresa").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  const code = (/\((\d{5})\)$/.exec($("municipioBuscar").value) || [])[1];
+  if (!code) { fail("Elija el municipio de la lista."); return; }
+  try {
+    await call("POST", "/setup", {
+      company: { legalName: f.legalName, tradeName: f.tradeName, personType: f.personType, identificationType: f.identificationType,
+        identificationNumber: f.identificationNumber, checkDigit: f.checkDigit || null, taxRegime: f.taxRegime, fiscalResponsibilities: ["R-99-PN"],
+        municipalityCode: code, address: f.address, phone: f.phone || null, email: f.email || null },
+      branch: { code: f.branchCode, name: f.branchName, municipalityCode: code, address: f.address, phone: f.phone || null },
+      owner: { username: f.username, displayName: f.displayName, password: f.password, email: f.email || null, posCode: f.posCode || null, pin: f.pin || null },
+      terminal: { code: f.terminalCode, name: f.terminalName },
+    });
+    await login(f.username, f.password);
+    show("licencia");
+  } catch (err) { fail(err.message); }
+});
+
+$("form-ingreso").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  try { await login(f.username, f.password); show("licencia"); } catch (err) { fail(err.message); }
+});
+
+$("form-licencia").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const key = new FormData(e.target).get("licenseKey");
+  try {
+    const status = await call("POST", "/license/activate", { licenseKey: key });
+    $("estadoLicencia").textContent = `Licencia activada: ${status.organizationName ?? ""} · vigente hasta ${status.validUntil ? status.validUntil.substring(0, 10) : "—"}.`;
+    show("recuperacion");
+  } catch (err) { fail(err.message); }
+});
+$("demo").addEventListener("click", () => show("recuperacion"));
+
+$("generar").addEventListener("click", async () => {
+  try {
+    const result = await call("POST", "/backups/recovery-code");
+    $("codigo").textContent = result.code;
+    $("codigo").classList.remove("hidden");
+    $("form-confirmar").classList.remove("hidden");
+    $("generar").classList.add("hidden");
+  } catch (err) { fail(err.message); }
+});
+
+$("form-confirmar").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await call("POST", "/backups/recovery-code/confirm", { code: new FormData(e.target).get("code") });
+    sessionStorage.removeItem("pos.setup.token");
+    show("listo");
+  } catch (err) { fail(err.message); }
+});
+
+(async () => {
+  try {
+    const status = await call("GET", "/setup/status");
+    if (!status.isCompleted) { await loadCatalogs(); show("empresa"); }
+    else if (token) { show("licencia"); }
+    else { show("ingreso"); }
+  } catch (err) { fail("El servidor no responde todavía. Espere unos segundos y recargue la página. (" + err.message + ")"); }
+})();
+</script>
+</body>
+</html>

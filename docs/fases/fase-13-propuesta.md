@@ -1,6 +1,6 @@
 # Fase 13 · Instalador y actualizaciones — Propuesta
 
-> Estado: **PROPUESTA — pendiente de tu aprobación** · 2026-09-29
+> Estado: **APROBADA** (con las recomendaciones de la §11) · 2026-09-29 · [informe](fase-13-informe.md)
 > Requisitos previos:
 > - El servidor ya corre como **Servicio de Windows** (Fase 1).
 > - Los secretos `dpapi:` se leen desde la configuración (Fase 2).

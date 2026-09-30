@@ -46,6 +46,8 @@ public class PosServerFactory : WebApplicationFactory<Program>
             ["Pos:Database:Edition"] = Edition,
             ["Pos:Security:LoginPermitsPerMinute"] = "10000",
             ["Pos:Security:PairingPermitsPer15Minutes"] = "10000",
+            // Sin descubrimiento UDP en las pruebas: evita el aviso del firewall de Windows y choques de puerto entre servidores de prueba.
+            ["Pos:Server:LanDiscovery"] = "false",
         }).AddInMemoryCollection(ExtraSettings));
         builder.ConfigureServices(services => services.AddSingleton<IStartupFilter, SimulatedNetworkStartupFilter>());
     }
