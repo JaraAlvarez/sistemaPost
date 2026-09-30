@@ -33,6 +33,7 @@ public class ArchitectureTests
             "Pos.Modules.Backup.Infrastructure",
             "Pos.Modules.Licensing.Api", "Pos.Modules.Licensing.Application", "Pos.Modules.Licensing.Contracts",
             "Pos.Modules.Licensing.Infrastructure", "Pos.Licensing.Contracts", "Pos.Updates.Contracts", "Pos.Client",
+            "Pos.Modules.Sync.Api", "Pos.Modules.Sync.Application", "Pos.Modules.Sync.Contracts", "Pos.Modules.Sync.Infrastructure", "Pos.Sync.Contracts",
             "Pos.Modules.Customers.Api", "Pos.Modules.Customers.Application", "Pos.Modules.Customers.Contracts", "Pos.Modules.Customers.Domain",
             "Pos.Modules.Customers.Infrastructure",
             "Pos.Modules.Sales.Api", "Pos.Modules.Sales.Application", "Pos.Modules.Sales.Contracts", "Pos.Modules.Sales.Domain",

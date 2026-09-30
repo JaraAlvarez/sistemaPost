@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Sync · Fuentes con cursor, lotes y paquete .possync (tienda → nube). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Sync.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../../../Shared/Pos.Sync.Contracts/Pos.Sync.Contracts.csproj" />
+    <ProjectReference Include="../../Licensing/Pos.Modules.Licensing.Contracts/Pos.Modules.Licensing.Contracts.csproj" />
+    <ProjectReference Include="../Pos.Modules.Sync.Contracts/Pos.Modules.Sync.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
+  </ItemGroup>
+</Project>

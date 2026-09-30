@@ -7,14 +7,14 @@
 
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO pos_app, pos_backup;
-GRANT USAGE ON SCHEMA system, audit, portal, licensing TO pos_app, pos_backup;
+GRANT USAGE ON SCHEMA system, audit, portal, licensing, sync TO pos_app, pos_backup;
 
 -- Por defecto nada; luego se otorga explícitamente.
-REVOKE ALL ON ALL TABLES IN SCHEMA system, audit, portal, licensing FROM pos_app;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, audit, portal, licensing FROM pos_app;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, audit, portal, licensing FROM PUBLIC;
+REVOKE ALL ON ALL TABLES IN SCHEMA system, audit, portal, licensing, sync FROM pos_app;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA system, audit, portal, licensing, sync FROM pos_app;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA system, audit, portal, licensing, sync FROM PUBLIC;
 
-GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA portal, licensing TO pos_app;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA portal, licensing, sync TO pos_app;
 GRANT SELECT ON system.schema_migrations, system.cloud_node TO pos_app;
 
 -- Historial de suscripciones y check-ins: solo agregar y leer (además tienen disparadores).

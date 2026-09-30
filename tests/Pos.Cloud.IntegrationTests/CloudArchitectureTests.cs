@@ -25,6 +25,7 @@ public class CloudArchitectureTests
     private static readonly HashSet<string> AllowedPosBlocks =
     [
         "Pos.SharedKernel", "Pos.Application.Abstractions", "Pos.Api.Abstractions", "Pos.Infrastructure", "Pos.Server.Migrations",
+        "Pos.Sync.Contracts",
     ];
 
     private static readonly Lazy<IReadOnlyList<Assembly>> Assemblies = new(() =>
@@ -136,7 +137,7 @@ public class CloudArchitectureTests
 
         // La API del POS es anónima por diseño (la autentican la clave o el token) y siempre con límite de peticiones.
         var pos = endpoints.Where(e => e.RoutePattern.RawText?.StartsWith("/v1", StringComparison.Ordinal) == true).ToList();
-        pos.Count.ShouldBe(4);
+        pos.Count.ShouldBe(5); // activación, check-in, liberación, claves públicas y lotes de sincronización (Fase 16)
         pos.ShouldAllBe(e => e.Metadata.GetMetadata<Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute>() != null);
     }
 }

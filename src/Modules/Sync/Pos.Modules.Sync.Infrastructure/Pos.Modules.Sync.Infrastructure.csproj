@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Sync · Lectura de las tablas por cursor, cliente de la nube y envío periódico. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Sync.Infrastructure</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
+    <ProjectReference Include="../Pos.Modules.Sync.Application/Pos.Modules.Sync.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="sync-key.json" LogicalName="Pos.Sync.CloudKey.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
+  </ItemGroup>
+</Project>

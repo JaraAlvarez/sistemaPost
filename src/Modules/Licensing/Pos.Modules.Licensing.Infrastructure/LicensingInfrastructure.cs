@@ -304,6 +304,15 @@ internal sealed partial class LicenseWorker(
     private static partial void LogFailed(ILogger logger, Exception exception);
 }
 
+/// <summary>Token guardado y huella del equipo para identificar la tienda ante la nube (D16-03).</summary>
+internal sealed class LicenseCredentialsProvider(LicenseStateStore store, IDeviceIdentity device) : ILicenseCredentials
+{
+    public async Task<LicenseCredentials?> GetAsync(CancellationToken cancellationToken) =>
+        await store.GetAsync(cancellationToken) is { Token: { } token } && device.Fingerprint is { } fingerprint
+            ? new LicenseCredentials(token, fingerprint.ToString())
+            : null;
+}
+
 public static class LicensingInfrastructureRegistration
 {
     public static void Register(IServiceCollection services)
@@ -326,6 +335,7 @@ public static class LicensingInfrastructureRegistration
         services.AddScoped<LicenseStateStore>();
         services.AddScoped<ILicenseStateStore>(sp => sp.GetRequiredService<LicenseStateStore>());
         services.AddScoped<LicenseService>();
+        services.AddScoped<ILicenseCredentials, LicenseCredentialsProvider>();
         services.AddSingleton<LicenseWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<LicenseWorker>());
     }

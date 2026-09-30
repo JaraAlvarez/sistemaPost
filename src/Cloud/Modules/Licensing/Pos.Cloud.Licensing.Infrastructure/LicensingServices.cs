@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Pos.Cloud.Abstractions;
 using Pos.Cloud.Infrastructure.Persistence;
 using Pos.Cloud.Licensing.Application;
 using Pos.Cloud.Licensing.Domain;
@@ -140,6 +141,7 @@ public static class LicensingInfrastructureRegistration
         services.AddSingleton<ICloudModelContributor, LicensingModelContributor>();
         services.AddSingleton<IConstraintErrorProvider, LicensingConstraintErrors>();
         services.AddScoped<ILicensingStore, LicensingStore>();
+        services.AddScoped<IPosInstallationAuthenticator, PosInstallationAuthenticator>();
         services.AddScoped<ILicensingReadModel, LicensingReadModel>();
         services.AddScoped<PortalChange>();
         services.AddScoped<LicenseTokenFactory>();

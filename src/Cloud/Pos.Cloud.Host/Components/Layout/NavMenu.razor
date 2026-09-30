@@ -12,6 +12,10 @@
                 <MudNavLink Href="/suscripciones" Icon="@Icons.Material.Filled.EventRepeat">Suscripciones</MudNavLink>
                 <MudNavLink Href="/instalaciones" Icon="@Icons.Material.Filled.Computer">Instalaciones y equipos</MudNavLink>
             }
+            @if (context.User.HasPortalPermission(CloudPermissions.SyncDataView))
+            {
+                <MudNavLink Href="/tiendas" Icon="@Icons.Material.Filled.QueryStats">Datos de las tiendas</MudNavLink>
+            }
             @if (context.User.HasPortalPermission(CloudPermissions.AuditView))
             {
                 <MudNavLink Href="/auditoria" Icon="@Icons.Material.Filled.Policy">Auditoría</MudNavLink>

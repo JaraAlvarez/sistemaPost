@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Sincronización · Documentos recibidos (PostgreSQL, JSON), clave privada de los paquetes y acceso por cuenta del cliente. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Sync.Infrastructure</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Pos.Cloud.Infrastructure\Pos.Cloud.Infrastructure.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.Sync.Application\Pos.Cloud.Sync.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Cloud.IntegrationTests" />
+  </ItemGroup>
+</Project>

@@ -98,6 +98,7 @@ public static class PortalRoleCodes
     {
         PortalRole.Superadmin => PortalRoles.Superadmin,
         PortalRole.Support => PortalRoles.Support,
+        PortalRole.Customer => PortalRoles.Customer,
         _ => PortalRoles.Reseller,
     };
 
@@ -108,6 +109,7 @@ public static class PortalRoleCodes
             PortalRoles.Superadmin => PortalRole.Superadmin,
             PortalRoles.Support => PortalRole.Support,
             PortalRoles.Reseller => PortalRole.Reseller,
+            PortalRoles.Customer => PortalRole.Customer,
             _ => (PortalRole)(-1),
         };
         return Enum.IsDefined(role);
@@ -117,6 +119,7 @@ public static class PortalRoleCodes
     {
         PortalRoles.Superadmin => "Superadministrador",
         PortalRoles.Support => "Soporte",
+        PortalRoles.Customer => "Cliente",
         _ => "Distribuidor",
     };
 }

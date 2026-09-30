@@ -79,3 +79,12 @@ public interface ILicenseStatus
 {
     LicenseSummaryDto Summary { get; }
 }
+
+/// <summary>Token de licencia y huella del equipo con los que la tienda se identifica ante la nube (sincronización, Fase 16, D16-03).</summary>
+public sealed record LicenseCredentials(string Token, string Fingerprint);
+
+/// <summary>Credenciales de la tienda ante la nube; <c>null</c> si la licencia no está activada o no hay huella.</summary>
+public interface ILicenseCredentials
+{
+    Task<LicenseCredentials?> GetAsync(CancellationToken cancellationToken);
+}

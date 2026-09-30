@@ -61,3 +61,5 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0054](0054-licencia-local-token-en-la-bd-y-reloj-confiable.md) | Licencia local: token en la BD, estado calculado, claves embebidas y reloj confiable | Aceptada | 2026-09-29 |
 | [0055](0055-instalador-inno-setup-y-postgresql-empaquetado.md) | Instalador con Inno Setup y PostgreSQL empaquetado | Aceptada | 2026-09-30 |
 | [0056](0056-versiones-lado-a-lado-y-actualizador-firmado.md) | Versiones lado a lado y actualizador con manifiesto firmado | Aceptada | 2026-09-30 |
+| [0057](0057-subida-a-la-nube-por-cursores-con-acuse.md) | Subida tienda → nube por cursores con acuse, autenticada con la licencia | Aceptada | 2026-09-30 |
+| [0058](0058-paquete-possync-y-portal-del-cliente.md) | Paquete `.possync` cifrado para la nube y portal del cliente | Aceptada | 2026-09-30 |

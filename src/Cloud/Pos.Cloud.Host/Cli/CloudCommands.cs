@@ -56,6 +56,7 @@ public static class CloudCommands
                 "recover-user" => await WithServicesAsync(configuration, options, output, error, async d =>
                     Print(await d.Send(new EmergencyRecoverUserCommand(Required(options, "email"), Required(options, "reason"))), output, error)),
                 "generate-signing-key" => GenerateSigningKey(Required(options, "out"), output),
+                "generate-sync-key" => GenerateSyncKey(Required(options, "out"), output),
                 "register-standby-key" => await WithServicesAsync(configuration, options, output, error, async d =>
                     Print(await d.Send(new RegisterStandbySigningKeyCommand(Required(options, "public-key"))), output, error, kid => $"Clave de reserva publicada: {kid}")),
                 "revoke-signing-key" => await WithServicesAsync(configuration, options, output, error, async d =>
@@ -98,6 +99,7 @@ public static class CloudCommands
               generate-signing-key --out <archivo.pem>            Genera un par Ed25519 (privada en el archivo; imprime kid y pública).
               register-standby-key --public-key <x>               Publica una clave de reserva (su privada queda fuera del servidor).
               revoke-signing-key --kid <kid>                      Revoca una clave comprometida.
+              generate-sync-key --out <archivo>                   Clave de los paquetes .possync (Fase 16): privada en el archivo; imprime la pública.
               verify-audit                                        Verifica filas, sellos y cadena de la auditoría.
               healthcheck [--url http://localhost:8080/health/live]  Sonda de salud del contenedor.
             """);
@@ -145,6 +147,32 @@ public static class CloudCommands
     }
 
     /// <summary>Genera la clave privada en un archivo NUEVO con permisos solo para el dueño (no la sobrescribe nunca).</summary>
+    /// <summary>Clave de sincronización (Fase 16, D16-04): la privada abre los paquetes .possync; la pública se embebe en el POS.</summary>
+    private static int GenerateSyncKey(string path, TextWriter output)
+    {
+        var (key, publicKey) = Pos.Sync.Contracts.SyncPackage.GenerateKeyPair();
+        using (key)
+        {
+            var full = Path.GetFullPath(path);
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            using (var stream = new FileStream(full, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream))
+            {
+                writer.Write(Pos.Sync.Contracts.SyncPackage.ExportPrivate(key));
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(full, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+
+            output.WriteLine($"Clave privada de sincronización guardada en {full} (permisos 600). Configure Sync__PrivateKeyPath y haga su respaldo cifrado.");
+            output.WriteLine($"clave pública (para src/Modules/Sync/Pos.Modules.Sync.Infrastructure/sync-key.json): {publicKey}");
+        }
+
+        return 0;
+    }
+
     private static int GenerateSigningKey(string path, TextWriter output)
     {
         using var key = LicenseSigningKey.Generate();

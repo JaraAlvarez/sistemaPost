@@ -1,0 +1,176 @@
+@page "/tiendas"
+@attribute [Authorize(Policy = CloudPermissions.SyncDataView)]
+@inherits PortalPageBase
+@using System.Globalization
+
+<PageTitle>Datos de las tiendas · Portal</PageTitle>
+<MudText Typo="Typo.h4" GutterBottom="true">Datos de las tiendas</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Ventas, cierres de caja y existencias que las tiendas suben a la nube (cada minuto con Internet, o con un paquete .possync cargado aquí).
+</MudText>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@LoadError</MudAlert>
+}
+
+<MudGrid Class="mb-2">
+    <MudItem xs="12" md="6">
+        <MudSelect T="Guid?" Value="_organization" ValueChanged="OrganizacionAsync" Label="Empresa" Variant="Variant.Outlined">
+            @foreach (var organization in _organizations)
+            {
+                <MudSelectItem T="Guid?" Value="@organization.Id">@organization.LegalName · @organization.AccountName</MudSelectItem>
+            }
+        </MudSelect>
+    </MudItem>
+    <MudItem xs="6" md="3"><MudDatePicker Label="Desde" @bind-Date="_from" DateFormat="yyyy-MM-dd" /></MudItem>
+    <MudItem xs="6" md="3"><MudDatePicker Label="Hasta" @bind-Date="_to" DateFormat="yyyy-MM-dd" /></MudItem>
+</MudGrid>
+<MudStack Row="true" Class="mb-4" Wrap="Wrap.Wrap">
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_organization is null || Busy)" OnClick="CargarAsync">Actualizar</MudButton>
+    <AuthorizeView Policy="@CloudPermissions.SyncPackageUpload">
+        <MudFileUpload T="IBrowserFile" Accept=".possync" FilesChanged="SubirAsync" MaximumFileCount="1">
+            <CustomContent Context="upload">
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="Busy" OnClick="@upload.OpenFilePickerAsync">Cargar paquete .possync</MudButton>
+            </CustomContent>
+        </MudFileUpload>
+    </AuthorizeView>
+</MudStack>
+
+@if (_data is not null)
+{
+    <MudText Typo="Typo.h6" Class="mb-2">Sincronización por sucursal</MudText>
+    <MudSimpleTable Dense="true" Outlined="true" Class="mb-6">
+        <thead><tr><th>Sucursal</th><th>Último lote</th><th>Vía</th><th>Ventas</th><th>Cierres</th><th>Saldos</th><th>Productos</th></tr></thead>
+        <tbody>
+            @foreach (var i in _data.Installations)
+            {
+                <tr><td>@(i.BranchName ?? i.InstallationId.ToString())</td><td>@Date(i.LastBatchAt)</td><td>@(i.LastVia == "FILE" ? "Paquete" : i.LastVia == "ONLINE" ? "En línea" : "—")</td>
+                    <td>@i.Sales</td><td>@i.CashSessions</td><td>@i.StockRows</td><td>@i.Products</td></tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+
+    <MudTabs Elevation="1" Rounded="true" TabPanelsClass="pa-4">
+        <MudTabPanel Text="Ventas por día">
+            <MudSimpleTable Dense="true" Striped="true">
+                <thead><tr><th>Fecha</th><th>Sucursal</th><th style="text-align:right">Tiquetes</th><th style="text-align:right">Anuladas</th><th style="text-align:right">Ventas</th></tr></thead>
+                <tbody>
+                    @foreach (var d in _data.SalesByDay)
+                    {
+                        <tr><td>@d.BusinessDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td><td>@d.Branch</td><td style="text-align:right">@d.Tickets</td>
+                            <td style="text-align:right">@d.Voided</td><td style="text-align:right">@Money(d.Total)</td></tr>
+                    }
+                    <tr><td colspan="2"><b>Total</b></td><td style="text-align:right"><b>@_data.SalesByDay.Sum(d => d.Tickets)</b></td><td></td>
+                        <td style="text-align:right"><b>@Money(_data.SalesByDay.Sum(d => d.Total))</b></td></tr>
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+        <MudTabPanel Text="Ventas recientes">
+            <MudSimpleTable Dense="true" Striped="true">
+                <thead><tr><th>Fecha</th><th>Número</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th>Cliente</th><th>Estado</th><th style="text-align:right">Total</th></tr></thead>
+                <tbody>
+                    @foreach (var s in _data.RecentSales)
+                    {
+                        <tr><td>@Date(s.CompletedAt)</td><td>@s.Number</td><td>@s.Branch</td><td>@s.Terminal</td><td>@s.Cashier</td><td>@s.Customer</td>
+                            <td>@(s.Status == "VOIDED" ? "Anulada" : "Completada")</td><td style="text-align:right">@Money(s.Total)</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+        <MudTabPanel Text="Cierres de caja">
+            <MudSimpleTable Dense="true" Striped="true">
+                <thead><tr><th>Cierre</th><th>Jornada</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th style="text-align:right">Esperado</th><th style="text-align:right">Contado</th><th style="text-align:right">Diferencia</th></tr></thead>
+                <tbody>
+                    @foreach (var c in _data.CashSessions)
+                    {
+                        <tr><td>@Date(c.ClosedAt)</td><td>@c.Number</td><td>@c.Branch</td><td>@c.Terminal</td><td>@c.Cashier</td>
+                            <td style="text-align:right">@Money(c.Expected)</td><td style="text-align:right">@Money(c.Counted)</td>
+                            <td style="text-align:right; color:@(c.Difference is < 0 ? "var(--mud-palette-error)" : "inherit")">@Money(c.Difference)</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+        <MudTabPanel Text="Existencias">
+            <MudTextField T="string" @bind-Value="_search" Label="Buscar producto (nombre o SKU)" Immediate="true" DebounceInterval="400"
+                          OnDebounceIntervalElapsed="@(_ => ExistenciasAsync())" Class="mb-2" />
+            <MudSimpleTable Dense="true" Striped="true">
+                <thead><tr><th>Sucursal</th><th>Bodega</th><th>SKU</th><th>Producto</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Valor</th><th>Último movimiento</th></tr></thead>
+                <tbody>
+                    @foreach (var r in _stock)
+                    {
+                        <tr><td>@r.Branch</td><td>@r.Warehouse</td><td>@r.Sku</td><td>@r.Name</td><td style="text-align:right">@r.Quantity.ToString("#,##0.###", Co)</td>
+                            <td style="text-align:right">@Money(r.TotalValue)</td><td>@Date(r.LastMovementAt)</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    private static readonly CultureInfo Co = CultureInfo.GetCultureInfo("es-CO");
+    private IReadOnlyList<SyncOrganizationDto> _organizations = [];
+    private Guid? _organization;
+    private DateTime? _from = DateTime.Today.AddDays(-30);
+    private DateTime? _to = DateTime.Today;
+    private StoreDataDto? _data;
+    private IReadOnlyList<StockRowDto> _stock = [];
+    private string? _search;
+
+    private static string Money(decimal? value) => value is { } v ? v.ToString("$ #,##0", Co) : "—";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _organizations = await LoadAsync(new ListSyncOrganizationsQuery()) ?? [];
+        if (_organizations.Count == 1)
+        {
+            await OrganizacionAsync(_organizations[0].Id);
+        }
+    }
+
+    private async Task OrganizacionAsync(Guid? organization)
+    {
+        _organization = organization;
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        if (_organization is not { } id)
+        {
+            return;
+        }
+
+        _data = await LoadAsync(new GetStoreDataQuery(id, DateOnly.FromDateTime(_from ?? DateTime.Today.AddDays(-30)), DateOnly.FromDateTime(_to ?? DateTime.Today)));
+        await ExistenciasAsync();
+    }
+
+    private async Task ExistenciasAsync()
+    {
+        if (_organization is { } id)
+        {
+            _stock = await LoadAsync(new SearchStoreStockQuery(id, _search)) ?? [];
+        }
+    }
+
+    private async Task SubirAsync(IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+
+        using var memory = new MemoryStream();
+        await file.OpenReadStream(maxAllowedSize: 200 * 1024 * 1024).CopyToAsync(memory);
+        var result = await RunAsync(new UploadPackageCommand(memory.ToArray()), "Paquete cargado.");
+        if (result.IsSuccess)
+        {
+            var r = result.Value;
+            Snackbar.Add(r.Duplicate
+                ? $"Ese paquete ya se había cargado ({r.OrganizationName} · {r.BranchName})."
+                : $"{r.OrganizationName} · {r.BranchName}: {r.Items} datos, {r.Applied} nuevos o actualizados, {r.Ignored} ya estaban.", Severity.Info);
+            await CargarAsync();
+        }
+    }
+}

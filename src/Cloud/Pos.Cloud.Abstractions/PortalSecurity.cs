@@ -12,7 +12,10 @@ public static class PortalRoles
     public const string Support = "SUPPORT";
     public const string Reseller = "RESELLER";
 
-    public static IReadOnlyList<string> All { get; } = [Superadmin, Support, Reseller];
+    /// <summary>Cliente (dueño del supermercado, Fase 16): consulta los datos sincronizados de sus empresas y carga paquetes.</summary>
+    public const string Customer = "CUSTOMER";
+
+    public static IReadOnlyList<string> All { get; } = [Superadmin, Support, Reseller, Customer];
 }
 
 /// <summary>
@@ -42,13 +45,21 @@ public static class CloudPermissions
     public const string PortalUserManage = "portal.user.manage";
     public const string AuditView = "portal.audit.view";
 
+    /// <summary>Ver las ventas, cierres, existencias y el estado de sincronización (Fase 16). El cliente, solo de su cuenta.</summary>
+    public const string SyncDataView = "sync.data.view";
+
+    /// <summary>Cargar un paquete .possync exportado por una tienda sin Internet.</summary>
+    public const string SyncPackageUpload = "sync.package.upload";
+
     private static readonly HashSet<string> SupportPermissions =
-        [DashboardView, LicensingView, SubscriptionSupport, DeviceRelease, AuditView];
+        [DashboardView, LicensingView, SubscriptionSupport, DeviceRelease, AuditView, SyncDataView, SyncPackageUpload];
+
+    private static readonly HashSet<string> CustomerPermissions = [SyncDataView, SyncPackageUpload];
 
     private static readonly HashSet<string> SuperadminPermissions =
     [
         DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease,
-        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView,
+        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload,
     ];
 
     public static IReadOnlyCollection<string> All => SuperadminPermissions;
@@ -57,6 +68,7 @@ public static class CloudPermissions
     {
         PortalRoles.Superadmin => SuperadminPermissions,
         PortalRoles.Support => SupportPermissions,
+        PortalRoles.Customer => CustomerPermissions,
         _ => new HashSet<string>(),
     };
 
@@ -112,4 +124,17 @@ public static class Outcome
 
     public static Outcome<T> Fail<T>(Error error)
         where T : class => new(null, error);
+}
+
+/// <summary>Instalación del POS autenticada con su token de licencia y la huella de su equipo (sincronización, Fase 16, D16-03).</summary>
+public sealed record PosInstallationIdentity(Guid InstallationId, Guid OrganizationId, Guid AccountId, string OrganizationName, string? BranchName);
+
+/// <summary>Lo implementa el módulo de licencias; lo usan los módulos que reciben datos de las tiendas sin depender de él.</summary>
+public interface IPosInstallationAuthenticator
+{
+    /// <summary><c>null</c> si el token no es válido, la licencia no está activa o el equipo no es el activado.</summary>
+    Task<PosInstallationIdentity?> AuthenticateAsync(string token, string fingerprint, CancellationToken cancellationToken);
+
+    /// <summary>La instalación (sin autenticar el equipo): para los paquetes cargados en el portal, que llegan cifrados para la nube.</summary>
+    Task<PosInstallationIdentity?> FindAsync(Guid installationId, CancellationToken cancellationToken);
 }
