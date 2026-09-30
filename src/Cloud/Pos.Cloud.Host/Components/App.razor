@@ -4,8 +4,9 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
-    <title>Licencias · Portal</title>
+    @* Con Cloud:PathBase (p. ej. /businesspost) la base incluye la ruta: todos los enlaces del portal son relativos a ella. *@
+    <base href="@(HttpContext.Request.PathBase + "/")" />
+    <title>BusinessPost · Portal</title>
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
     <link href="@Assets["app.css"]" rel="stylesheet" />
     <HeadOutlet @rendermode="PageRenderMode" />

@@ -30,7 +30,7 @@ public sealed class AgentPrinter(ApiClient api)
         }
         catch (HttpRequestException)
         {
-            return "No se pudo hablar con el agente de impresión de esta caja (servicio PosSupermercado-TerminalAgent). La venta quedó registrada: reimprima cuando vuelva.";
+            return "No se pudo hablar con el agente de impresión de esta caja (servicio BusinessPost-TerminalAgent). La venta quedó registrada: reimprima cuando vuelva.";
         }
         catch (TaskCanceledException)
         {

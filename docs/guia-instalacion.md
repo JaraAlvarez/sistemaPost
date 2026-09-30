@@ -21,10 +21,10 @@
 
    ```powershell
    ./tools/scripts/build-installer.ps1 -Version 1.0.0 -PostgresZip C:\descargas\postgresql-18-windows-x64-binaries.zip `
-       -LicenseServer https://licencias.midominio.com/ -UpdateBaseUrl https://licencias.midominio.com/updates/ `
+       -LicenseServer https://businesspost.tutiendanueva.com/ -UpdateBaseUrl https://businesspost.tutiendanueva.com/updates/ `
        -SigningKey D:\claves\actualizaciones.pem -Notes "Primera versión"
    ```
-   Queda en `artifacts\releases`: el instalador `PosSupermercado-Setup-1.0.0.exe`, el paquete `PosSupermercado-1.0.0.zip` y el
+   Queda en `artifacts\releases`: el instalador `BusinessPost-Setup-1.0.0.exe`, el paquete `BusinessPost-1.0.0.zip` y el
    manifiesto firmado `stable.json`.
 5. Para que las tiendas se actualicen solas, suba el ZIP y `stable.json` a la carpeta `updates/` del VPS (despliegue-nube §16).
 
@@ -34,7 +34,7 @@
 1. Ejecute el instalador → **Todo en uno** → deje en blanco la recuperación → Instalar.
 2. Al terminar se abre el navegador en `http://localhost:5480/instalacion`: datos de la empresa y del propietario, la clave de licencia
    (o siga en demostración 30 días) y el **código de recuperación**. Imprímalo y guárdelo fuera del local.
-3. En el escritorio queda el acceso "POS Supermercado".
+3. En el escritorio queda el acceso "BusinessPost".
 
 ### Multicaja
 1. En el **servidor**: el instalador con **Servidor (Multicaja)** y el asistente como arriba. Se abren los puertos 5443 (HTTPS) y 5444
@@ -49,7 +49,7 @@ de datos, restaura el backup y verifica la auditoría. Después active de nuevo 
 
 ## 4. Actualizaciones
 
-- El servicio **PosSupermercado-Updater** revisa cada 6 horas si hay una versión nueva, la descarga y la verifica (firma y huella).
+- El servicio **BusinessPost-Updater** revisa cada 6 horas si hay una versión nueva, la descarga y la verifica (firma y huella).
 - La instala a las **02:00** si no hay jornadas abiertas. Antes hace un **backup obligatorio**.
 - Si algo falla, vuelve solo a la versión anterior y, si hace falta, a la base de datos del backup previo. Queda en la auditoría.
 - Para instalar ya, sin esperar: **Administración → Actualizaciones → Instalar ahora**. Úselo con las cajas cerradas.
@@ -57,12 +57,12 @@ de datos, restaura el backup y verifica la auditoría. Después active de nuevo 
 
 ## 5. Desinstalar
 
-Panel de control → Programas → POS Supermercado. Por defecto se **conservan** los datos y los backups en `C:\ProgramData\PosSupermercado`, y
+Panel de control → Programas → BusinessPost. Por defecto se **conservan** los datos y los backups en `C:\ProgramData\BusinessPost`, y
 una reinstalación los reutiliza. Para borrarlos hay que confirmar dos veces. Haga antes una copia en un disco externo.
 
 ## 6. Soporte
 
-Menú Inicio → POS Supermercado → **Paquete de soporte**: deja en el escritorio un ZIP con los registros, las versiones y el estado de los
+Menú Inicio → BusinessPost → **Paquete de soporte**: deja en el escritorio un ZIP con los registros, las versiones y el estado de los
 servicios, sin contraseñas ni datos de clientes. Envíelo a soporte.
 
 ## 7. Lista de verificación manual (tu validación de la Fase 13)

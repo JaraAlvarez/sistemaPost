@@ -107,7 +107,7 @@ public class ProductPathsTests
         var paths = ProductPaths.From(new ConfigurationBuilder().Build());
 
         paths.DataRoot.ShouldBe(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PosSupermercado"));
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "BusinessPost"));
         paths.ServerConfigFile.ShouldEndWith(Path.Combine("config", "server.json"));
         paths.LogsDirectory.ShouldEndWith("logs");
     }

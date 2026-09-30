@@ -8,11 +8,11 @@ using Pos.Server.Updater;
 using Pos.Updates.Contracts;
 
 // Uso:
-//   Pos.Server.Updater                  Servicio de Windows (PosSupermercado-Updater).
+//   Pos.Server.Updater                  Servicio de Windows (BusinessPost-Updater).
 //   Pos.Server.Updater discover [--seconds 3]
 //                                       Busca servidores Multicaja en la LAN (lo usa el instalador en modo Caja) y los imprime en JSON.
 var product = Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>()
-    .FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "PosSupermercado";
+    .FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "BusinessPost";
 
 if (args.Length > 0 && args[0] == "discover")
 {

@@ -118,6 +118,7 @@ public sealed record WrappedKey(int Version, string Salt, int MemoryKiB, int Ite
 /// </summary>
 public sealed class BackupKeyStore(string keyFile)
 {
+    // Identificador criptográfico interno y estable (no es el nombre comercial): cambiarlo dejaría ilegibles los secretos ya cifrados.
     public const string Purpose = "PosSupermercado.Backup.DataKey.v1";
 
     public string KeyFile { get; } = keyFile;

@@ -13,7 +13,7 @@ else
             @foreach (var s in Rows)
             {
                 <tr>
-                    <td><MudLink Href="@($"/empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink></td>
+                    <td><MudLink Href="@($"empresas/{s.OrganizationId}")">@s.OrganizationName</MudLink></td>
                     <td>@s.Nit</td>
                     <td>@PortalPageBase.EditionName(s.Edition)</td>
                     <td><MudChip T="string" Size="Size.Small" Color="@PortalPageBase.StatusColor(s.Status)">@PortalPageBase.StatusName(s.Status)</MudChip></td>

@@ -2,7 +2,7 @@
 @attribute [Authorize(Policy = CloudPermissions.DashboardView)]
 @inherits PortalPageBase
 
-<PageTitle>Tablero · Licencias</PageTitle>
+<PageTitle>Tablero · BusinessPost</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Tablero</MudText>
 
 @if (LoadError is not null)
@@ -42,7 +42,7 @@ else
                 @foreach (var i in _data.WithoutCheckin)
                 {
                     <tr>
-                        <td><MudLink Href="@($"/empresas/{i.OrganizationId}")">@i.OrganizationName</MudLink></td>
+                        <td><MudLink Href="@($"empresas/{i.OrganizationId}")">@i.OrganizationName</MudLink></td>
                         <td>@(i.BranchName ?? "—")</td>
                         <td>@i.AppVersion</td>
                         <td>@Date(i.LastCheckinAt)</td>

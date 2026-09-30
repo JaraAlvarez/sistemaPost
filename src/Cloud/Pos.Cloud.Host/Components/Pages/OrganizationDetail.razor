@@ -2,7 +2,7 @@
 @attribute [Authorize(Policy = CloudPermissions.LicensingView)]
 @inherits PortalPageBase
 
-<PageTitle>Empresa · Licencias</PageTitle>
+<PageTitle>Empresa · BusinessPost</PageTitle>
 
 @if (LoadError is not null)
 {
@@ -16,7 +16,7 @@ else if (_detail is not null)
 
     <MudText Typo="Typo.h4">@org.LegalName</MudText>
     <MudText Typo="Typo.body1" Class="mb-4">
-        NIT @org.Nit · @(org.City ?? "sin ciudad") · cliente <MudLink Href="@($"/clientes/{org.AccountId}")">@org.AccountName</MudLink>
+        NIT @org.Nit · @(org.City ?? "sin ciudad") · cliente <MudLink Href="@($"clientes/{org.AccountId}")">@org.AccountName</MudLink>
     </MudText>
 
     @if (_generatedKey is not null)

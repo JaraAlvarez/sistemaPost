@@ -22,7 +22,7 @@ public static class UpdateChannels
 /// Una versión publicada (docs/fases/fase-13-propuesta.md D13-08). El paquete es un ZIP con las carpetas <c>server/</c>, <c>migrator/</c>,
 /// <c>agent/</c> y <c>updater/</c> de esa versión.
 /// </summary>
-/// <param name="Product">Siempre <c>PosSupermercado</c> (u otro nombre comercial): un manifiesto de otro producto se rechaza.</param>
+/// <param name="Product">Siempre <c>BusinessPost</c> (u otro nombre comercial): un manifiesto de otro producto se rechaza.</param>
 /// <param name="Channel"><see cref="UpdateChannels"/>.</param>
 /// <param name="Version">SemVer <c>MAYOR.MENOR.PARCHE</c>.</param>
 /// <param name="PackageUrl">Dirección del ZIP (absoluta o relativa al manifiesto).</param>

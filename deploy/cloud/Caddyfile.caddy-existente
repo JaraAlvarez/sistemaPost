@@ -1,0 +1,61 @@
+# Bloques para AGREGAR al Caddyfile que ya existe en el VPS (el de tutiendanueva.com con Express + React): docs/despliegue-nube.md §18.
+# La aplicación corre con docker-compose.caddy-existente.yml y escucha en 127.0.0.1:5080 (APP_LOCAL_PORT).
+# Después de editar:  sudo caddy validate --config /etc/caddy/Caddyfile  &&  sudo systemctl reload caddy
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# OPCIÓN PRINCIPAL · subdominio propio: https://businesspost.tutiendanueva.com/
+# DNS: registro A (y AAAA si aplica) businesspost.tutiendanueva.com → IP del VPS. Caddy obtiene el certificado solo.
+# En .env: CLOUD_PATH_BASE vacío. Las tiendas usan:
+#   licencias       https://businesspost.tutiendanueva.com/
+#   actualizaciones https://businesspost.tutiendanueva.com/updates/stable.json
+# ---------------------------------------------------------------------------------------------------------------------------------
+businesspost.tutiendanueva.com {
+	encode zstd gzip
+
+	# La API del POS y el portal envían cuerpos pequeños.
+	request_body {
+		max_size 1MB
+	}
+
+	# La aplicación agrega sus propias cabeceras de seguridad (CSP, HSTS, nosniff…).
+	header -Server
+
+	# Actualizaciones del POS: manifiestos firmados y paquetes, como archivos estáticos (solo lectura).
+	handle_path /updates/* {
+		root * /opt/pos/deploy/cloud/updates
+		file_server
+	}
+
+	# Portal (Blazor Server con WebSockets), API del POS (/v1), API interna (/admin) y /health.
+	handle {
+		reverse_proxy 127.0.0.1:5080
+	}
+}
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# ALTERNATIVA · bajo una ruta del dominio existente: https://tutiendanueva.com/businesspost/
+# En .env: CLOUD_PATH_BASE=/businesspost. La cookie del portal pasa a ser __Secure-pos-portal limitada a /businesspost (no se envía
+# a la tienda en Express/React). Agregue estos bloques DENTRO del sitio tutiendanueva.com existente, ANTES de su `handle` general.
+# Las tiendas usarían https://tutiendanueva.com/businesspost/ y https://tutiendanueva.com/businesspost/updates/stable.json
+# ---------------------------------------------------------------------------------------------------------------------------------
+# tutiendanueva.com {
+# 	# … configuración existente …
+#
+# 	# Actualizaciones (se quita el prefijo para buscar el archivo en la carpeta).
+# 	handle_path /businesspost/updates/* {
+# 		root * /opt/pos/deploy/cloud/updates
+# 		file_server
+# 	}
+#
+# 	redir /businesspost /businesspost/ 308
+#
+# 	# `handle` (NO handle_path): la aplicación recibe la ruta COMPLETA y quita el prefijo ella misma (Cloud:PathBase).
+# 	handle /businesspost/* {
+# 		request_body {
+# 			max_size 1MB
+# 		}
+# 		reverse_proxy 127.0.0.1:5080
+# 	}
+#
+# 	# … handle existente de Express/React …
+# }

@@ -12,6 +12,7 @@ public static class ProtectedSecret
 {
     public const string Prefix = "dpapi:";
 
+    // Identificador criptográfico interno y estable (no es el nombre comercial): cambiarlo dejaría ilegibles los secretos ya cifrados.
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("PosSupermercado.Database.v1");
 
     /// <summary>Protege bytes con DPAPI de la máquina y una entropía propia del uso (p. ej. la clave de los backups).</summary>

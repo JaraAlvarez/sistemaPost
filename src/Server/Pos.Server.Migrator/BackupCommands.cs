@@ -37,7 +37,7 @@ internal static class BackupCommands
         }
 
         var product = Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "PosSupermercado";
+            .FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "BusinessPost";
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), product);
     }
 

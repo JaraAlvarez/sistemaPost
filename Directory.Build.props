@@ -17,7 +17,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <!-- Identidad del producto (el nombre comercial se cambia solo aquí). -->
-    <PosProductName>PosSupermercado</PosProductName>
+    <PosProductName>BusinessPost</PosProductName>
     <Product>$(PosProductName)</Product>
     <Company>$(PosProductName)</Company>
     <Copyright>© $([System.DateTime]::UtcNow.Year) $(PosProductName)</Copyright>

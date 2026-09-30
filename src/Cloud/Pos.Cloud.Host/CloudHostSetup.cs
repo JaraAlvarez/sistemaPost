@@ -45,7 +45,12 @@ internal static class CloudHostSetup
             context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.TraceIdentifier;
         });
         builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-        builder.Services.AddOpenApi("v1");
+        builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((document, _, _) =>
+        {
+            document.Info.Title = "BusinessPost — API de la nube (licencias, sincronización y portal)";
+            document.Info.Version = CloudStartup.AppVersion;
+            return Task.CompletedTask;
+        }));
 
         // Núcleo: reloj (zona de Colombia para mostrar fechas), IDs, despachador y persistencia de la nube.
         builder.Services.AddPosInfrastructure(BusinessTimeZones.Colombia);
@@ -139,6 +144,14 @@ internal static class CloudHostSetup
     public static WebApplication UseCloudHost(this WebApplication app)
     {
         app.UseForwardedHeaders();
+        // Bajo una ruta de un dominio compartido (Cloud:PathBase): /businesspost/v1/… → PathBase=/businesspost, Path=/v1/…
+        // Todo lo que sigue (rutas, cookies, <base href>, redirecciones) trabaja con la ruta sin el prefijo.
+        var pathBase = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<CloudOptions>>().Value.NormalizedPathBase;
+        if (pathBase.HasValue)
+        {
+            app.UsePathBase(pathBase);
+        }
+
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseSerilogRequestLogging();
         app.UseExceptionHandler();

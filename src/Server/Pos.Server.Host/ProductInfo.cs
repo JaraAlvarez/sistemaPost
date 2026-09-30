@@ -9,7 +9,7 @@ public static class ProductInfo
 
     public static string Name { get; } =
         HostAssembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "PosSupermercado";
+            .FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "BusinessPost";
 
     /// <summary>Versión completa (SemVer + metadatos de compilación).</summary>
     public static string Version { get; } =

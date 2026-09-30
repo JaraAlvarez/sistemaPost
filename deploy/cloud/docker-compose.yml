@@ -64,6 +64,9 @@ services:
       Cloud__DataProtectionKeysPath: /var/lib/pos-cloud/dataprotection
       # Solo Caddy llega a la aplicación (su puerto no se publica).
       Cloud__TrustForwardedHeaders: "true"
+      # Vacío (lo normal): el servidor vive en la raíz de su (sub)dominio. Solo si se publica bajo una ruta de un dominio compartido
+      # (p. ej. /businesspost): docs/despliegue-nube.md §18.
+      Cloud__PathBase: ${CLOUD_PATH_BASE:-}
       Licensing__Signing__PrivateKeyPath: /run/secrets/signing_key
       Licensing__LatestPosVersion: ${LATEST_POS_VERSION:-}
       # Fase 16: clave X25519 que abre los paquetes .possync cargados en el portal (docs/despliegue-nube.md §17).

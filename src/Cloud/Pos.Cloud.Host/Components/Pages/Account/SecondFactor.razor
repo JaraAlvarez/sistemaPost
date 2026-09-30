@@ -4,7 +4,7 @@
 @inject IDispatcher Dispatcher
 @inject NavigationManager Navigation
 
-<PageTitle>Código de verificación · Licencias</PageTitle>
+<PageTitle>Código de verificación · BusinessPost</PageTitle>
 
 @if (_error is not null)
 {
@@ -17,7 +17,7 @@
     <InputText id="code" type="text" @bind-Value="Input.Code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" />
     <button type="submit">Verificar</button>
 </EditForm>
-<p class="account-hint"><a href="/cuenta/ingresar">Volver a ingresar</a></p>
+<p class="account-hint"><a href="cuenta/ingresar">Volver a ingresar</a></p>
 
 @code {
     [CascadingParameter]
@@ -35,7 +35,7 @@
 
     private async Task VerifyAsync()
     {
-        var result = await Dispatcher.Send(new CompleteSecondFactorCommand(HttpContext.Request.Cookies[PortalCookie.Name] ?? string.Empty, Input.Code ?? string.Empty));
+        var result = await Dispatcher.Send(new CompleteSecondFactorCommand(PortalCookie.Read(HttpContext.Request) ?? string.Empty, Input.Code ?? string.Empty));
         var error = result.IsFailure ? result.Error : result.Value.Error;
         if (error is not null)
         {
@@ -45,7 +45,7 @@
 
         var session = result.Value.Value!;
         PortalCookie.Write(HttpContext.Response, session.Token, session.ExpiresAt);
-        Navigation.NavigateTo(session.User.MustChangePassword ? "/mi-cuenta" : PortalCookie.SafeReturnUrl(ReturnUrl), forceLoad: true);
+        Navigation.NavigateTo(PortalLinks.Local(session.User.MustChangePassword ? "/mi-cuenta" : PortalCookie.SafeReturnUrl(ReturnUrl)), forceLoad: true);
     }
 
     private sealed class CodeInput

@@ -3,7 +3,7 @@
         @if (context.User.MustChangePassword())
         {
             <MudAlert Severity="Severity.Warning" Class="mb-4">
-                Antes de continuar debe cambiar su contraseña temporal. <MudLink Href="/mi-cuenta">Cambiar contraseña</MudLink>
+                Antes de continuar debe cambiar su contraseña temporal. <MudLink Href="mi-cuenta">Cambiar contraseña</MudLink>
             </MudAlert>
         }
         else if (context.User.FindFirst(Pos.Cloud.Infrastructure.Persistence.PortalClaims.Role)?.Value == PortalRoles.Reseller)

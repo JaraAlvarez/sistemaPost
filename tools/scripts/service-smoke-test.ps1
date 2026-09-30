@@ -19,9 +19,9 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw 'Este script debe ejecutarse como Administrador.'
 }
 
-$serviceName = 'PosSupermercado-Server-SmokeTest'
+$serviceName = 'BusinessPost-Server-SmokeTest'
 $publishDir = Join-Path $PSScriptRoot '..\..\artifacts\publish\server-smoke'
-$dataRoot = Join-Path $env:ProgramData 'PosSupermercado-SmokeTest'
+$dataRoot = Join-Path $env:ProgramData 'BusinessPost-SmokeTest'
 
 & (Join-Path $PSScriptRoot 'publish-server.ps1') -Output $publishDir
 $exe = (Resolve-Path (Join-Path $publishDir 'Pos.Server.Host.exe')).Path

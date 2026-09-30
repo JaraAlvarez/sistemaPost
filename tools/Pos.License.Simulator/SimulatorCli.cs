@@ -52,7 +52,8 @@ public static class SimulatorCli
                 return 2;
             }
 
-            client = new HttpClient { BaseAddress = baseAddress, Timeout = TimeSpan.FromSeconds(30) };
+            // Barra final: con un servidor bajo una ruta (https://dominio/businesspost) las rutas relativas conservan el prefijo.
+            client = new HttpClient { BaseAddress = new Uri(baseAddress.ToString().TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(30) };
         }
 
         try

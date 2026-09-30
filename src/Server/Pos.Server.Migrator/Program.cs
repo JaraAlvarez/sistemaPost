@@ -41,7 +41,7 @@ using Pos.Server.Migrator;
 //   Pos.Server.Migrator support-bundle [--data-root D] [--output carpeta]
 //                       Paquete de soporte (ZIP): registros, versiones, estado de las migraciones y configuración SIN secretos.
 // Si no se pasa --connection se usa la variable de entorno POS_MIGRATOR_CONNECTION y, si no, server.json de la instalación.
-// La carpeta de datos (--data-root) por defecto es POS_DATA_ROOT o %ProgramData%\PosSupermercado.
+// La carpeta de datos (--data-root) por defecto es POS_DATA_ROOT o %ProgramData%\BusinessPost.
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
 //                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex,
 //                    6 = falló el backup previo obligatorio, 7 = inconsistencias en verify-consistency.

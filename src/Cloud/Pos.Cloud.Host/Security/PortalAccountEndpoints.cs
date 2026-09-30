@@ -16,7 +16,7 @@ internal static class PortalAccountEndpoints
             {
                 await dispatcher.Send(new PortalLogoutCommand(), ct);
                 PortalCookie.Delete(http.Response);
-                return TypedResults.LocalRedirect(PortalAuthenticationHandler.LoginPath);
+                return TypedResults.LocalRedirect(http.Request.PathBase + PortalAuthenticationHandler.LoginPath);
             })
             .AllowAnonymous();
         return endpoints;

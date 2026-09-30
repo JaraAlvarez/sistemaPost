@@ -3,7 +3,7 @@
 @inherits PortalPageBase
 @inject NavigationManager Navigation
 
-<PageTitle>Mi cuenta · Licencias</PageTitle>
+<PageTitle>Mi cuenta · BusinessPost</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Mi cuenta</MudText>
 
 @if (LoadError is not null)
@@ -88,7 +88,7 @@ else if (_me is { } me)
         if (await RunAsync(new ChangeOwnPasswordCommand(_current ?? string.Empty, _new ?? string.Empty), "Contraseña cambiada."))
         {
             // Recarga completa: la cookie sigue siendo válida y la sesión se vuelve a leer ya sin la contraseña temporal.
-            Navigation.NavigateTo(_me?.MustChangePassword == true ? "/" : "/mi-cuenta", forceLoad: true);
+            Navigation.NavigateTo(PortalLinks.Local(_me?.MustChangePassword == true ? "/" : "/mi-cuenta"), forceLoad: true);
         }
     }
 }

@@ -6,7 +6,7 @@
         @foreach (var o in Rows)
         {
             <tr>
-                <td><MudLink Href="@($"/empresas/{o.Id}")">@o.LegalName</MudLink></td>
+                <td><MudLink Href="@($"empresas/{o.Id}")">@o.LegalName</MudLink></td>
                 <td>@o.Nit</td>
                 <td>@o.AccountName</td>
                 <td>@PortalPageBase.EditionName(o.Subscription?.Edition)</td>

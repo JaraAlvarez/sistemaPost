@@ -1,1 +1,1 @@
-Suba aquí stable.json (manifiesto firmado) y PosSupermercado-<versión>.zip (ver docs/despliegue-nube.md §16).
+Suba aquí stable.json (manifiesto firmado) y BusinessPost-<versión>.zip (ver docs/despliegue-nube.md §16).

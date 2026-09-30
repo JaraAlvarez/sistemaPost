@@ -1,7 +1,7 @@
 @page "/sin-acceso"
 @attribute [AllowAnonymous]
 
-<PageTitle>Sin acceso · Licencias</PageTitle>
+<PageTitle>Sin acceso · BusinessPost</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Sin acceso</MudText>
 
 <AuthorizeView>
@@ -9,16 +9,16 @@
         @if (context.User.HasClaim(Pos.Cloud.Infrastructure.Persistence.PortalClaims.Stage, Pos.Cloud.Infrastructure.Persistence.PortalClaims.ActiveStage))
         {
             <AccessDeniedNotice />
-            <MudLink Href="/mi-cuenta">Ir a mi cuenta</MudLink>
+            <MudLink Href="mi-cuenta">Ir a mi cuenta</MudLink>
         }
         else
         {
             <MudAlert Severity="Severity.Info" Class="mb-4">Falta completar el ingreso con el código del doble factor.</MudAlert>
-            <MudLink Href="@PortalAuthenticationHandler.LoginPath">Volver a ingresar</MudLink>
+            <MudLink Href="@PortalLinks.Local(PortalAuthenticationHandler.LoginPath)">Volver a ingresar</MudLink>
         }
     </Authorized>
     <NotAuthorized>
         <MudAlert Severity="Severity.Info" Class="mb-4">Su sesión no está activa.</MudAlert>
-        <MudLink Href="@PortalAuthenticationHandler.LoginPath">Ingresar al portal</MudLink>
+        <MudLink Href="@PortalLinks.Local(PortalAuthenticationHandler.LoginPath)">Ingresar al portal</MudLink>
     </NotAuthorized>
 </AuthorizeView>
