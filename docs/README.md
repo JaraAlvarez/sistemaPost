@@ -37,6 +37,7 @@
 | 12-B · Licencia dentro del POS | [propuesta](fases/fase-12b-propuesta.md) · [informe](fases/fase-12b-informe.md) | Implementada — pendiente de tu validación |
 | 13 · Instalador y actualizaciones | [propuesta](fases/fase-13-propuesta.md) · [informe](fases/fase-13-informe.md) · [guía de instalación](guia-instalacion.md) | Implementada — pendiente de tu validación (compilar el instalador) |
 | 14 · Endurecimiento y pruebas | [propuesta](fases/fase-14-propuesta.md) · [informe](fases/fase-14-informe.md) · [seguridad](seguridad-revision.md) | Herramientas implementadas — corridas largas pendientes (tú) |
+| 15 · Interfaz: caja y backoffice | [propuesta](fases/fase-15-propuesta.md) · [informe](fases/fase-15-informe.md) | Implementada — pendiente de tu validación |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
 

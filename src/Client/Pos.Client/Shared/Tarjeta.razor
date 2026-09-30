@@ -1,0 +1,19 @@
+<MudPaper Class="pa-4" Elevation="1">
+    <MudText Typo="Typo.caption">@Titulo</MudText>
+    <MudText Typo="Typo.h5">@Valor</MudText>
+    @if (Detalle is not null)
+    {
+        <MudText Typo="Typo.caption">@Detalle</MudText>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Titulo { get; set; } = "";
+
+    [Parameter, EditorRequired]
+    public string Valor { get; set; } = "";
+
+    [Parameter]
+    public string? Detalle { get; set; }
+}

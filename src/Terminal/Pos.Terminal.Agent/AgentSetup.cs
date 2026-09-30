@@ -11,6 +11,11 @@ public static class AgentSetup
     public static WebApplicationBuilder AddTerminalAgent(this WebApplicationBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
+
+        // Configuración de la instalación (Fase 15): el instalador de la caja agrega aquí el origen de la interfaz servida por el servidor
+        // Multicaja (https://servidor:5443) para que pueda pedir la impresión. Fuera de la carpeta versionada: sobrevive a las actualizaciones.
+        builder.Configuration.AddJsonFile(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), AgentInfo.ProductName, "config", "agent.json"), optional: true);
         builder.Services.Configure<AgentOptions>(builder.Configuration.GetSection(AgentOptions.SectionName));
         builder.Services.AddWindowsService(options => options.ServiceName = AgentInfo.ServiceName);
 

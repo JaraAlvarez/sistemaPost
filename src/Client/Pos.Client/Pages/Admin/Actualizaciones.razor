@@ -1,0 +1,78 @@
+@page "/admin/actualizaciones"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Actualizaciones · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Actualizaciones" Cargando="_loading" Error="@_error">
+    @if (_status.ValueKind == JsonValueKind.Object)
+    {
+        <MudText Class="mb-2">Versión instalada: <b>@_status.Str("installedVersion")</b></MudText>
+        @if (_status.Bool("readyToInstall"))
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-3">
+                Versión @_status.Str("availableVersion") descargada y verificada. Se instala sola a las 02:00 sin jornadas abiertas (@Format.Date(_status.Date("nextWindow"))).
+                <div>@_status.Str("availableNotes")</div>
+            </MudAlert>
+            @if (Session.Has("system.update.manage") && !_status.Bool("installRequested"))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="_busy" OnClick="InstalarAsync">Instalar ahora (reinicia el servidor)</MudButton>
+            }
+            @if (_status.Bool("installRequested"))
+            {
+                <MudAlert Severity="Severity.Warning">Instalación pedida: el servidor se reiniciará en el próximo minuto.</MudAlert>
+            }
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-3">No hay actualizaciones pendientes. Última revisión: @Format.Date(_status.Date("lastCheckAt")) @_status.Str("lastError")</MudAlert>
+        }
+        <MudText Typo="Typo.h6" Class="mt-4 mb-2">Historial</MudText>
+        <MudSimpleTable Dense="true" Striped="true">
+            <thead><tr><th>Fecha</th><th>Resultado</th><th>De</th><th>A</th><th>Detalle</th></tr></thead>
+            <tbody>
+                @foreach (var entry in _status.Prop("history").Items())
+                {
+                    <tr><td>@Format.Date(entry.Date("at"))</td><td>@entry.Str("outcome")</td><td>@entry.Str("fromVersion")</td><td>@entry.Str("toVersion")</td><td>@entry.Str("detail")</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</Pagina>
+
+@code {
+    private JsonElement _status;
+    private bool _loading = true, _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _status = await Api.GetAsync<JsonElement>("api/v1/system/updates");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task InstalarAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync("api/v1/system/updates/install-now");
+            _status = await Api.GetAsync<JsonElement>("api/v1/system/updates");
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+}

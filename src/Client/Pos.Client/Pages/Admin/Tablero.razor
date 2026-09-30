@@ -1,0 +1,62 @@
+@page "/admin"
+@inject ApiClient Api
+@inject SessionState Session
+
+<PageTitle>Tablero · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Tablero del día" Cargando="_loading" Error="@_error">
+    @if (_data.ValueKind == JsonValueKind.Object)
+    {
+        var today = _data.Prop("today");
+        var last = _data.Prop("sameDayLastWeek");
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Ventas netas de hoy" Valor="@Format.Money(today.Dec("netSales"))" Detalle="@($"Hace una semana: {Format.Money(last.Dec("netSales"))}")" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Tiquetes" Valor="@today.Dec("tickets").ToString("0")" Detalle="@($"Hace una semana: {last.Dec("tickets"):0}")" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Ticket promedio" Valor="@Format.Money(today.Dec("averageTicket"))" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Jornadas abiertas" Valor="@_data.Dec("openCashSessions").ToString("0")" Detalle="@($"{_data.Dec("closingsWithUnreviewedDifference"):0} cierres con diferencia sin revisar")" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Productos bajo el mínimo" Valor="@_data.Dec("productsBelowMinimum").ToString("0")" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Lotes por vencer" Valor="@_data.Dec("lotsExpiringSoon").ToString("0")" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Anulados hoy" Valor="@today.Dec("voidedTickets").ToString("0")" /></MudItem>
+            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Solicitudes de datos por vencer" Valor="@_data.Dec("dataRequestsDueSoon").ToString("0")" /></MudItem>
+        </MudGrid>
+        <MudText Typo="Typo.h6" Class="mt-6 mb-2">Productos más vendidos hoy</MudText>
+        <MudSimpleTable Dense="true" Outlined="true">
+            <thead><tr><th>SKU</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Ventas</th></tr></thead>
+            <tbody>
+                @foreach (var product in _data.Prop("topProducts").Items())
+                {
+                    <tr><td>@product.Str("sku")</td><td>@product.Str("name")</td><td class="num">@Format.Quantity(product.Dec("quantity"))</td><td class="num">@Format.Money(product.Dec("sales"))</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</Pagina>
+
+@code {
+    private JsonElement _data;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            if (Session.Me!.Permissions.Any(p => p == "reporting.sales.basic"))
+            {
+                _data = await Api.GetAsync<JsonElement>("api/v1/reports/dashboard");
+            }
+            else
+            {
+                _error = "Su usuario no tiene permiso para ver el tablero de ventas.";
+            }
+
+            Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+}

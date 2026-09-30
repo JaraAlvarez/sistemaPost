@@ -1,0 +1,13 @@
+@* Proveedores de MudBlazor (tema, ventanas emergentes, avisos). Van en cada diseño de página. *@
+<MudThemeProvider Theme="@Theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@code {
+    private static readonly MudTheme Theme = new()
+    {
+        PaletteLight = new PaletteLight { Primary = "#1f6feb", Secondary = "#1a7f37", AppbarBackground = "#1f6feb" },
+        Typography = new Typography { Default = new DefaultTypography { FontFamily = ["Segoe UI", "system-ui", "sans-serif"] } },
+    };
+}

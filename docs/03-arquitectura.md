@@ -41,6 +41,8 @@
 | **Host .NET + WebView2** | Mismo lenguaje que el backend, UI web moderna, ligero | Hay que construir la "cáscara" (poco código) |
 | .NET MAUI / Avalonia | Multiplataforma | Innecesario (solo Windows); ecosistema más pequeño |
 
+> **Decidido en la Fase 15 (D15-01):** Blazor WebAssembly + MudBlazor servida por el servidor de la tienda, abierta en Edge en modo aplicación ([propuesta](fases/fase-15-propuesta.md)). El texto siguiente queda como referencia histórica.
+
 **Decisión propuesta:** la UI será **web (React + TypeScript)** consumiendo la API local, alojada en una cáscara ligera (**Tauri 2** o **host .NET + WebView2**; se decide en Fase 15). Como la UI solo habla con la API, esta decisión **no afecta** nada de lo que construyamos en las fases 1–14.
 
 ### Base de datos

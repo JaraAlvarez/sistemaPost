@@ -1,0 +1,20 @@
+@* Avisos permanentes (licencia, backups, integridad) para quien puede verlos. *@
+@inject SessionState Session
+
+@if (Session.Me is { } me)
+{
+    @foreach (var notice in me.License?.Notices ?? [])
+    {
+        <MudAlert Severity="@(notice.Severity switch { "CRITICAL" => Severity.Error, "WARNING" => Severity.Warning, _ => Severity.Info })" Dense="true" Class="mb-2">
+            @notice.Text
+        </MudAlert>
+    }
+    @if (me.BackupAlerts > 0)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Hay @me.BackupAlerts alerta(s) de backups. <MudLink Href="/admin/backups">Revisar</MudLink></MudAlert>
+    }
+    @if (me.OpenIntegrityIncidents > 0)
+    {
+        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">Hay @me.OpenIntegrityIncidents incidente(s) de integridad de la auditoría sin reconocer. <MudLink Href="/admin/auditoria">Revisar</MudLink></MudAlert>
+    }
+}

@@ -1,0 +1,186 @@
+@page "/admin/productos"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Productos · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Productos y precios" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("catalog.product.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevoAsync">Nuevo producto</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarAsync())" Class="mb-3" />
+        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>SKU</MudTh><MudTh>Nombre</MudTh><MudTh>Categoría</MudTh><MudTh>Código de barras</MudTh><MudTh Class="num">Precio</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Str("sku")</MudTd>
+                <MudTd>@context.Str("name")</MudTd>
+                <MudTd>@context.Str("categoryName")</MudTd>
+                <MudTd>@context.Str("primaryBarcode")</MudTd>
+                <MudTd Class="num">@Format.Money(context.Dec("price"))</MudTd>
+                <MudTd>@(context.Str("status") == "ACTIVE" ? "Activo" : context.Str("status"))</MudTd>
+                <MudTd>
+                    @if (Session.Has("catalog.price.manage"))
+                    {
+                        <MudButton Size="Size.Small" OnClick="@(() => CambiarPrecio(context))">Cambiar precio</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No hay productos que coincidan.</MudText></NoRecordsContent>
+        </MudTable>
+        <MudText Typo="Typo.caption">@_total producto(s). Se muestran los primeros 100.</MudText>
+    </ChildContent>
+</Pagina>
+
+@if (_nuevo)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Nuevo producto</h2>
+            <MudTextField @bind-Value="_sku" Label="SKU (código interno)" Immediate="true" />
+            <MudTextField @bind-Value="_name" Label="Nombre" Immediate="true" />
+            <MudSelect T="Guid?" @bind-Value="_category" Label="Categoría">
+                @foreach (var category in _categories)
+                {
+                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_barcode" Label="Código de barras (vacío = se genera uno interno)" Immediate="true" />
+            <MudNumericField T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
+            <MudSelect T="string" @bind-Value="_unit" Label="Unidad">
+                <MudSelectItem T="string" Value="@("UND")">Unidad</MudSelectItem>
+                <MudSelectItem T="string" Value="@("KG")">Kilogramo (báscula)</MudSelectItem>
+            </MudSelect>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CrearAsync">Crear</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_precioDe.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Precio de @_precioDe.Str("name")</h2>
+            <MudText Typo="Typo.body2">Precio actual: @Format.Money(_precioDe.Dec("price")). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
+            <MudNumericField T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _precioDe = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarPrecioAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _items = [];
+    private List<JsonElement> _categories = [];
+    private int _total;
+    private string? _search, _error, _sku, _name, _barcode;
+    private string _unit = "UND";
+    private Guid? _category;
+    private decimal _price, _nuevoPrecio;
+    private DateTime? _desde;
+    private bool _loading = true, _busy, _nuevo;
+    private JsonElement _precioDe;
+
+    protected override Task OnInitializedAsync() => BuscarAsync();
+
+    private async Task BuscarAsync()
+    {
+        _loading = true;
+        try
+        {
+            var page = await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=100&search={Uri.EscapeDataString(_search ?? "")}");
+            _items = page.Items();
+            _total = (int)page.Dec("totalCount");
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task NuevoAsync()
+    {
+        _categories = (await Api.GetAsync<JsonElement>("api/v1/catalog/categories")).Items();
+        _sku = _name = _barcode = null;
+        _price = 0;
+        _category = null;
+        _nuevo = true;
+    }
+
+    private async Task CrearAsync()
+    {
+        _busy = true;
+        try
+        {
+            var weight = _unit == "KG";
+            await Api.PostAsync<JsonElement>("api/v1/catalog/products", new
+            {
+                product = new
+                {
+                    sku = _sku, name = _name, shortName = (string?)null, description = (string?)null, categoryId = _category, brandId = (Guid?)null, baseUnitCode = _unit,
+                    saleMode = weight ? "Weight" : "Unit", productType = "Stockable", isSoldByScale = weight, allowsDecimalQuantity = weight, allowsOpenPrice = false,
+                    tracksLots = false, tracksExpiry = false, pluCode = (string?)null, netContent = (decimal?)null, netContentUnit = (string?)null,
+                },
+                barcode = string.IsNullOrWhiteSpace(_barcode) ? null : _barcode.Trim(),
+                generateBarcode = string.IsNullOrWhiteSpace(_barcode),
+                taxes = (object?)null,
+                price = _price,
+            });
+            Snackbar.Add("Producto creado.", Severity.Success);
+            _nuevo = false;
+            _search = _sku;
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void CambiarPrecio(JsonElement product)
+    {
+        _precioDe = product;
+        _nuevoPrecio = product.Dec("price");
+        _desde = null;
+    }
+
+    private async Task GuardarPrecioAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/catalog/products/{_precioDe.GetProperty("id").GetGuid()}/prices", new
+            {
+                price = _nuevoPrecio, priceListId = (Guid?)null, packagingId = (Guid?)null, branchId = (Guid?)null,
+                validFrom = _desde is { } d ? new DateTimeOffset(d.Date) : (DateTimeOffset?)null,
+            });
+            Snackbar.Add(_desde is null ? "Precio actualizado." : "Precio programado.", Severity.Success);
+            _precioDe = default;
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+}

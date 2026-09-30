@@ -1,0 +1,265 @@
+@page "/caja"
+@layout EmptyLayout
+@implements IAsyncDisposable
+
+<PageTitle>Caja · POS Supermercado</PageTitle>
+
+@if (!Session.IsSignedIn)
+{
+    <Redirigir A="/ingresar" />
+}
+else if (!Session.IsTerminal)
+{
+    <MudContainer MaxWidth="MaxWidth.Small" Class="mt-12">
+        <MudAlert Severity="Severity.Info">Para vender, entre con su código y PIN de cajero en un equipo de caja.</MudAlert>
+        <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" OnClick="SalirAsync">Entrar con código de caja</MudButton>
+    </MudContainer>
+}
+else
+{
+    <div class="caja">
+        <div class="caja-barra">
+            <MudIcon Icon="@Icons.Material.Filled.PointOfSale" />
+            <b>@(_session is null ? "Sin jornada" : $"Caja {_session.TerminalCode} · Jornada {_session.Number}")</b>
+            <span>@Session.Me!.DisplayName</span>
+            <span class="espacio"></span>
+            @if (Session.Me.License is { State: not "VALID" and not "VALID_OFFLINE" } license)
+            {
+                <MudChip T="string" Size="Size.Small" Color="@(license.State is "RESTRICTED" or "REACTIVATION_REQUIRED" ? Color.Error : Color.Warning)">
+                    @(license.State == "DEMO" ? $"Demostración · {license.DaysLeft} días" : license.State == "GRACE" ? $"Licencia en gracia · {license.DaysLeft} días" : "Licencia restringida")
+                </MudChip>
+            }
+            @if (_lastReceipt is not null)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Inherit" OnClick="ReimprimirAsync">Reimprimir última</MudButton>
+            }
+            @if (_session is not null && _session.Status == "OPEN")
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Inherit" OnClick="IniciarCierreAsync">Cerrar jornada</MudButton>
+            }
+            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Inherit" OnClick="SalirAsync">Salir</MudButton>
+        </div>
+
+        <div class="caja-lineas">
+            @if (_sale is null || !_sale.ActiveLines.Any())
+            {
+                <div class="caja-vacia">@(_session is null ? "Abra la jornada para empezar a vender." : "Escanee o escriba el código del producto.")</div>
+            }
+            else
+            {
+                <table>
+                    <thead><tr><th>#</th><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Desc.</th><th class="num">Total</th></tr></thead>
+                    <tbody>
+                        @foreach (var line in _sale.Lines)
+                        {
+                            <tr class="@(line.Status != "ACTIVE" ? "anulada" : line.Id == _selected ? "seleccion" : null)" @onclick="@(() => Seleccionar(line))">
+                                <td>@line.LineNo</td>
+                                <td>@line.Name<br /><small>@line.Sku@(line.PromotionName is null ? null : $" · {line.PromotionName}")</small></td>
+                                <td class="num">@Format.Quantity(line.Quantity)</td>
+                                <td class="num">@Format.Money(line.UnitPrice)</td>
+                                <td class="num">@(line.PromotionDiscount + line.LineDiscount == 0 ? "" : Format.Money(-(line.PromotionDiscount + line.LineDiscount)))</td>
+                                <td class="num">@Format.Money(line.Total)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="caja-lateral">
+            <div class="caja-subtotal"><span>Artículos</span><span>@(_sale?.ActiveLines.Sum(l => l.Quantity).ToString("0.###", Format.Colombia) ?? "0")</span></div>
+            <div class="caja-subtotal"><span>Subtotal</span><span>@Format.Money(_sale?.Subtotal ?? 0)</span></div>
+            <div class="caja-subtotal"><span>Impuestos</span><span>@Format.Money(_sale?.TaxTotal ?? 0)</span></div>
+            @if ((_sale?.PromotionTotal ?? 0) + (_sale?.DiscountTotal ?? 0) > 0)
+            {
+                <div class="caja-subtotal"><span>Ahorro</span><span>@Format.Money(-((_sale?.PromotionTotal ?? 0) + (_sale?.DiscountTotal ?? 0)))</span></div>
+            }
+            <MudDivider />
+            <div>TOTAL</div>
+            <div class="caja-total">@Format.Money(_sale?.Total ?? 0)</div>
+            @foreach (var warning in _sale?.Warnings ?? [])
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">@warning</MudAlert>
+            }
+            @if (_lastChange is { } change)
+            {
+                <MudAlert Severity="Severity.Success">Venta @_lastReceipt?.Sale.Number cobrada. <b>Cambio: @Format.Money(change)</b></MudAlert>
+            }
+            <MudSpacer />
+            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Large" FullWidth="true" Disabled="@(_sale is null || !_sale.ActiveLines.Any())" OnClick="AbrirCobro">
+                Cobrar (F10)
+            </MudButton>
+            <MudStack Row="true" Spacing="1">
+                <MudButton Variant="Variant.Outlined" FullWidth="true" Disabled="@(_selected is null)" OnClick="AbrirCantidad">Cantidad F4</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" FullWidth="true" Disabled="@(_selected is null)" OnClick="AnularLineaAsync">Anular Supr</MudButton>
+            </MudStack>
+            <MudStack Row="true" Spacing="1">
+                <MudButton Variant="Variant.Outlined" FullWidth="true" Disabled="@(_sale is null || !_sale.ActiveLines.Any())" OnClick="SuspenderAsync">Suspender F8</MudButton>
+                <MudButton Variant="Variant.Outlined" FullWidth="true" Disabled="@(_session is null)" OnClick="VerSuspendidasAsync">Recuperar F9</MudButton>
+            </MudStack>
+            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@(_sale is null)" OnClick="CancelarVentaAsync">Cancelar venta</MudButton>
+        </div>
+
+        <div class="caja-escaner">
+            <MudTextField @ref="_scanner" T="string" @bind-Value="_scan" Label="Código de barras, PLU o SKU (cantidad*código)" Variant="Variant.Outlined"
+                          Immediate="true" OnKeyDown="EscanerTeclaAsync" Disabled="@(_session is null || _busy)" AutoFocus="true" id="escaner" />
+        </div>
+        <div class="caja-atajos">F2 buscar · F4 cantidad · F8 suspender · F9 recuperar · F10 cobrar · Supr anular línea · Esc cerrar ventana</div>
+    </div>
+
+    @* ---------------------------------------------------------------- Abrir jornada *@
+    @if (_session is null && !_loading)
+    {
+        <div class="panel-fondo">
+            <div class="panel">
+                <h2>Abrir jornada</h2>
+                <MudText Typo="Typo.body2" Class="mb-2">Cuente el efectivo inicial del cajón (base) por denominación.</MudText>
+                <Conteo Denominaciones="_cashDenominations" Cantidades="_opening" OnChanged="@(() => StateHasChanged())" />
+                <div class="cifra mt-2">@Format.Money(Total(_opening))</div>
+                <div class="acciones">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AbrirJornadaAsync">Abrir jornada</MudButton>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ---------------------------------------------------------------- Buscar producto (F2) *@
+    @if (_panel == Panel.Buscar)
+    {
+        <div class="panel-fondo">
+            <div class="panel">
+                <h2>Buscar producto</h2>
+                <MudTextField T="string" @bind-Value="_search" Label="Nombre, SKU o código" Immediate="true" DebounceInterval="300" OnDebounceIntervalElapsed="BuscarAsync" AutoFocus="true" />
+                <MudList T="JsonElement" Dense="true" Class="mt-2">
+                    @foreach (var product in _found)
+                    {
+                        <MudListItem T="JsonElement" OnClick="@(() => AgregarProductoAsync(product))">
+                            @product.GetProperty("name").GetString() · <small>@product.GetProperty("sku").GetString()</small>
+                        </MudListItem>
+                    }
+                </MudList>
+                <div class="acciones"><MudButton OnClick="CerrarPanel">Cerrar (Esc)</MudButton></div>
+            </div>
+        </div>
+    }
+
+    @* ---------------------------------------------------------------- Cantidad (F4) *@
+    @if (_panel == Panel.Cantidad)
+    {
+        <div class="panel-fondo">
+            <div class="panel">
+                <h2>Cantidad</h2>
+                <MudNumericField T="decimal" @bind-Value="_quantity" Min="0.001m" AutoFocus="true" Label="Nueva cantidad" />
+                <div class="acciones">
+                    <MudButton OnClick="CerrarPanel">Cancelar</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CambiarCantidadAsync">Aplicar</MudButton>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ---------------------------------------------------------------- Cobro (F10) *@
+    @if (_panel == Panel.Cobro && _sale is not null)
+    {
+        <div class="panel-fondo">
+            <div class="panel">
+                <h2>Cobrar</h2>
+                <div class="caja-subtotal"><span>Total</span><span class="cifra">@Format.Money(_sale.AmountDue)</span></div>
+                <div class="caja-subtotal"><span>Pagado</span><span>@Format.Money(PagadoConEscrito)</span></div>
+                <div class="caja-subtotal"><span>@(PagadoConEscrito >= _sale.AmountDue ? "Cambio" : "Falta")</span><b>@Format.Money(Math.Abs(_sale.AmountDue - PagadoConEscrito))</b></div>
+                <MudDivider Class="my-2" />
+                @foreach (var payment in _payments)
+                {
+                    <div class="caja-subtotal">
+                        <span>@_methods.First(m => m.Id == payment.PaymentMethodId).Name @(payment.Reference is null ? null : $"({payment.Reference})")</span>
+                        <span>@Format.Money(payment.Amount) <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" OnClick="@(() => _payments.Remove(payment))" /></span>
+                    </div>
+                }
+                <MudNumericField T="decimal" @bind-Value="_amount" Label="Valor (Enter confirma)" Min="0" Class="mt-2" AutoFocus="true" Immediate="true" OnKeyDown="CobroTeclaAsync" />
+                @if (_methodSelected?.RequiresReference == true)
+                {
+                    <MudTextField @bind-Value="_reference" Label="Referencia (aprobación del datáfono)" Immediate="true" />
+                }
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-2">
+                    @foreach (var method in _methods)
+                    {
+                        <MudButton Variant="@(method == _methodSelected ? Variant.Filled : Variant.Outlined)" Color="Color.Primary" OnClick="@(() => AgregarPago(method))">@method.Name</MudButton>
+                    }
+                </MudStack>
+                <div class="acciones">
+                    <MudButton OnClick="CerrarPanel">Volver (Esc)</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Large" Disabled="@(_busy || PagadoConEscrito < _sale.AmountDue)" OnClick="CobrarAsync">Confirmar cobro (F10)</MudButton>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ---------------------------------------------------------------- Suspendidas (F9) *@
+    @if (_panel == Panel.Suspendidas)
+    {
+        <div class="panel-fondo">
+            <div class="panel">
+                <h2>Ventas suspendidas</h2>
+                @if (_held.Count == 0)
+                {
+                    <MudText>No hay ventas suspendidas en esta caja.</MudText>
+                }
+                <MudList T="SaleSummary" Dense="true">
+                    @foreach (var held in _held)
+                    {
+                        <MudListItem T="SaleSummary" OnClick="@(() => RecuperarAsync(held))">@(held.HoldLabel ?? "Sin nombre") · @Format.Money(held.Total) · @Format.Date(held.OpenedAt)</MudListItem>
+                    }
+                </MudList>
+                <div class="acciones"><MudButton OnClick="CerrarPanel">Cerrar (Esc)</MudButton></div>
+            </div>
+        </div>
+    }
+
+    @* ---------------------------------------------------------------- Autorización de supervisor *@
+    @if (_panel == Panel.Supervisor && _pending is not null)
+    {
+        <div class="panel-fondo">
+            <div class="panel">
+                <h2>Autorización de supervisor</h2>
+                <MudText Typo="Typo.body2" Class="mb-2">@_pending.Error.Message</MudText>
+                <MudTextField @bind-Value="_supervisorCode" Label="Código del supervisor" InputType="InputType.Password" Immediate="true" AutoFocus="true" />
+                <MudTextField @bind-Value="_supervisorPin" Label="PIN" InputType="InputType.Password" Immediate="true" />
+                <MudTextField @bind-Value="_supervisorReason" Label="Motivo" Immediate="true" />
+                <div class="acciones">
+                    <MudButton OnClick="CerrarPanel">Cancelar</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AutorizarAsync">Autorizar</MudButton>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ---------------------------------------------------------------- Cierre de jornada *@
+    @if (_panel == Panel.Cierre)
+    {
+        <div class="panel-fondo">
+            <div class="panel">
+                @if (_zReport is null)
+                {
+                    <h2>Cerrar jornada @_session?.Number</h2>
+                    <MudText Typo="Typo.body2" Class="mb-2">Arqueo ciego: cuente el efectivo del cajón por denominación y escriba el total de los demás medios.</MudText>
+                    <Conteo Denominaciones="_cashDenominations" Cantidades="_closing" OnChanged="@(() => StateHasChanged())" />
+                    @foreach (var method in _methods.Where(m => !m.AffectsCashDrawer))
+                    {
+                        <MudNumericField T="decimal" Value="@_closingOthers.GetValueOrDefault(method.Id)" ValueChanged="@(v => _closingOthers[method.Id] = v)" Label="@method.Name" Min="0" />
+                    }
+                    <MudTextField @bind-Value="_closingNote" Label="Nota sobre la diferencia (si la hay)" Immediate="true" />
+                    <div class="acciones">
+                        <MudButton OnClick="CancelarCierreAsync">Volver a vender</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CerrarJornadaAsync">Confirmar cierre</MudButton>
+                    </div>
+                }
+                else
+                {
+                    <h2>Jornada cerrada · Reporte Z</h2>
+                    <div class="tiquete">@_zReport.Text</div>
+                    <div class="acciones"><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SalirAsync">Terminar</MudButton></div>
+                }
+            </div>
+        </div>
+    }
+}

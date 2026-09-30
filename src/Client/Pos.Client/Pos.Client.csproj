@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+  <!-- Interfaz de caja y backoffice (Fase 15, D15-01): Blazor WebAssembly + MudBlazor. Corre en el navegador del equipo y solo habla con la
+       API del servidor de la tienda (/api/v1) y con el agente de impresión local. No tiene reglas de negocio. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Client</RootNamespace>
+    <!-- Sin globalización invariante: la interfaz formatea pesos y fechas en español de Colombia. -->
+    <BlazorWebAssemblyLoadAllGlobalizationData>true</BlazorWebAssemblyLoadAllGlobalizationData>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="MudBlazor" />
+  </ItemGroup>
+</Project>

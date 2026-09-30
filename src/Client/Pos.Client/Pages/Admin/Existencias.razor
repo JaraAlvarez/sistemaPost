@@ -1,0 +1,65 @@
+@page "/admin/existencias"
+@inject ApiClient Api
+
+<PageTitle>Existencias · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Existencias" Cargando="_loading" Error="@_error">
+    <MudStack Row="true" Class="mb-3" AlignItems="AlignItems.Center">
+        <MudTextField T="string" @bind-Value="_search" Label="Buscar producto" Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => CargarAsync())" />
+        <MudCheckBox T="bool" Value="_below" ValueChanged="@(v => FiltrarAsync(v))" Label="Solo bajo el mínimo" />
+    </MudStack>
+    <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+        <HeaderContent>
+            <MudTh>Bodega</MudTh><MudTh>SKU</MudTh><MudTh>Producto</MudTh><MudTh Class="num">Cantidad</MudTh><MudTh Class="num">Mínimo</MudTh>
+            <MudTh Class="num">Costo promedio</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Último movimiento</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Str("warehouseCode")</MudTd>
+            <MudTd>@context.Str("sku")</MudTd>
+            <MudTd>
+                @context.Str("productName")
+                @if (context.Bool("belowMinimum"))
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Bajo el mínimo</MudChip>
+                }
+            </MudTd>
+            <MudTd Class="num">@Format.Quantity(context.Dec("quantity")) @context.Str("baseUnitCode")</MudTd>
+            <MudTd Class="num">@(context.Str("minQuantity") == "" ? "—" : Format.Quantity(context.Dec("minQuantity")))</MudTd>
+            <MudTd Class="num">@(context.Str("averageCost") == "" ? "—" : Format.Money(context.Dec("averageCost")))</MudTd>
+            <MudTd Class="num">@(context.Str("totalValue") == "" ? "—" : Format.Money(context.Dec("totalValue")))</MudTd>
+            <MudTd>@Format.Date(context.Date("lastMovementAt"))</MudTd>
+        </RowTemplate>
+        <NoRecordsContent><MudText>Sin existencias que coincidan.</MudText></NoRecordsContent>
+    </MudTable>
+</Pagina>
+
+@code {
+    private List<JsonElement> _items = [];
+    private string? _search, _error;
+    private bool _below, _loading = true;
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task FiltrarAsync(bool below)
+    {
+        _below = below;
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            var below = _below ? "true" : "false";
+            _items = [.. (await Api.GetAsync<JsonElement>($"api/v1/inventory/stock?search={Uri.EscapeDataString(_search ?? "")}&belowMinimum={below}")).Items().Take(300)];
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+}

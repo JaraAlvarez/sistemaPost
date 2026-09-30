@@ -56,8 +56,9 @@ Source: "{#PackageDir}\pgsql\*";                      DestDir: "{app}\pgsql";   
 Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"; Flags: ignoreversion
 
 [Icons]
-Name: "{commondesktop}\POS Supermercado"; Filename: "{code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"
-Name: "{commonprograms}\POS Supermercado\POS Supermercado"; Filename: "{code:StartUrl}"
+; La interfaz se abre en Edge en modo aplicación (Fase 15, D15-03): sin barra de direcciones ni pestañas, como un programa.
+Name: "{commondesktop}\POS Supermercado"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"
+Name: "{commonprograms}\POS Supermercado\POS Supermercado"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"
 Name: "{commonprograms}\POS Supermercado\Paquete de soporte"; Filename: "{app}\app\current\migrator\Pos.Server.Migrator.exe"; Parameters: "support-bundle"; Check: IsServerMode
 
 [UninstallRun]
@@ -96,6 +97,13 @@ begin
     Result := 'http://localhost:5480/'
   else
     Result := TerminalPage.Values[0];
+end;
+
+function EdgePath(Param: String): String;
+begin
+  Result := ExpandConstant('{commonpf32}\Microsoft\Edge\Application\msedge.exe');
+  if not FileExists(Result) then
+    Result := ExpandConstant('{commonpf64}\Microsoft\Edge\Application\msedge.exe');
 end;
 
 procedure InitializeWizard;
@@ -240,6 +248,9 @@ begin
   else
   begin
     // Caja: el actualizador se actualiza desde el servidor de la tienda con la huella fijada (D13-09).
+    // El agente de impresión acepta la interfaz servida por el servidor (CORS).
+    SaveStringToFile(Data + '\config\agent.json', '{ "Agent": { "AllowedOrigins": [ "http://localhost:5480", "' +
+      Copy(TerminalPage.Values[0], 1, Length(TerminalPage.Values[0]) - 1) + '" ] } }', False);
     SaveStringToFile(Data + '\config\updater.json', '{ "Pos": { "Updates": { "Mode": "Terminal", "ServerUrl": "' + TerminalPage.Values[0] +
       '", "ServerCertificateThumbprint": "' + TerminalPage.Values[1] + '" } } }', False);
   end;

@@ -1,0 +1,114 @@
+@page "/admin/auditoria"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Auditoría · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Auditoría" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("audit.log.verify"))
+        {
+            <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="VerificarAsync">Verificar la integridad</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        @foreach (var incident in _incidents.Where(i => i.Str("acknowledgedAt") == ""))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-2">
+                Incidente de integridad (@Format.Date(incident.Date("detectedAt"))): @incident.Str("summary")
+                @if (Session.Has("audit.incident.acknowledge"))
+                {
+                    <MudButton Size="Size.Small" Class="ml-2" OnClick="@(() => ReconocerAsync(incident))">Reconocer</MudButton>
+                }
+            </MudAlert>
+        }
+        <MudStack Row="true" Class="mb-3">
+            <MudTextField T="string" @bind-Value="_q" Label="Buscar (acción, usuario, texto)" Immediate="true" DebounceInterval="400" OnDebounceIntervalElapsed="@(_ => CargarAsync())" />
+            <MudSelect T="string" Value="_severity" ValueChanged="@(v => FiltrarAsync(v))" Label="Severidad" Clearable="true">
+                <MudSelectItem T="string" Value="@("INFO")">Información</MudSelectItem>
+                <MudSelectItem T="string" Value="@("WARNING")">Advertencia</MudSelectItem>
+                <MudSelectItem T="string" Value="@("CRITICAL")">Crítica</MudSelectItem>
+            </MudSelect>
+        </MudStack>
+        <MudTable Items="_logs" Dense="true" Hover="true" Striped="true">
+            <HeaderContent><MudTh>Fecha</MudTh><MudTh>Acción</MudTh><MudTh>Usuario</MudTh><MudTh>Registro</MudTh><MudTh>Resumen</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@Format.Date(context.Date("occurredAt"))</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@(context.Str("severity") == "CRITICAL" ? Color.Error : context.Str("severity") == "WARNING" ? Color.Warning : Color.Default)">
+                        @(context.Str("actionName") is { Length: > 0 } name ? name : context.Str("action"))
+                    </MudChip>
+                </MudTd>
+                <MudTd>@context.Str("userDisplayName")</MudTd>
+                <MudTd>@context.Str("entityLabel")</MudTd>
+                <MudTd>@context.Str("summary")</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </ChildContent>
+</Pagina>
+
+@code {
+    private List<JsonElement> _logs = [];
+    private List<JsonElement> _incidents = [];
+    private bool _loading = true, _busy;
+    private string? _error, _q, _severity;
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task FiltrarAsync(string severity)
+    {
+        _severity = severity;
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            _logs = (await Api.GetAsync<JsonElement>($"api/v1/audit/logs?pageSize=100&q={Uri.EscapeDataString(_q ?? "")}&severity={_severity}")).Items();
+            if (Session.Has("audit.log.verify"))
+            {
+                _incidents = (await Api.GetAsync<JsonElement>("api/v1/audit/incidents")).Items();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task VerificarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.PostAsync<JsonElement>("api/v1/audit/verify");
+            Snackbar.Add(result.Bool("isValid") ? "La bitácora está íntegra." : "La verificación encontró hallazgos: revise los incidentes.",
+                result.Bool("isValid") ? Severity.Success : Severity.Error);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task ReconocerAsync(JsonElement incident)
+    {
+        try
+        {
+            await Api.PostAsync($"api/v1/audit/incidents/{incident.GetProperty("id").GetGuid()}/acknowledge", new { note = "Revisado desde la administración" });
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

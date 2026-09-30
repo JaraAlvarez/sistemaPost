@@ -1,0 +1,14 @@
+@inject NavigationManager Navigation
+
+@code {
+    [Parameter, EditorRequired]
+    public string A { get; set; } = "/";
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.NavigateTo(A);
+        }
+    }
+}
