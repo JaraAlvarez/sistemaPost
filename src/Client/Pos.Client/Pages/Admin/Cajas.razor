@@ -1,0 +1,462 @@
+@page "/admin/cajas"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Cajas y equipos · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Cajas y equipos" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (PuedeEmparejar)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Computer" Class="mr-2" Disabled="_busy" OnClick="@(() => GenerarCodigoAsync(null))">
+                Emparejar PC administrativo
+            </MudButton>
+        }
+        @if (Session.Has("organization.terminal.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevaCaja">Nueva caja</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudTable Items="_cajas" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Sucursal</MudTh><MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Bodega</MudTh><MudTh>Equipo</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@NombreSucursal(context.Str("branchId"))</MudTd>
+                <MudTd>@context.Str("code")</MudTd>
+                <MudTd>@context.Str("name")</MudTd>
+                <MudTd>@NombreBodega(context)</MudTd>
+                <MudTd>@EquipoDe(context)</MudTd>
+                <MudTd>@Estado(context.Str("status"))</MudTd>
+                <MudTd>
+                    @if (Session.Has("organization.terminal.manage"))
+                    {
+                        <MudButton Size="Size.Small" OnClick="@(() => EditarCaja(context))">Editar</MudButton>
+                        <MudButton Size="Size.Small" OnClick="@(() => AbrirImpresoraAsync(context))">Impresora</MudButton>
+                        @if (Activa(context))
+                        {
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => CambiarEstadoAsync(context, "Inactive"))">Inactivar</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => CambiarEstadoAsync(context, "Blocked"))">Bloquear</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Size="Size.Small" OnClick="@(() => CambiarEstadoAsync(context, "Active"))">Activar</MudButton>
+                        }
+                    }
+                    @if (PuedeEmparejar && Activa(context))
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_busy" OnClick="@(() => GenerarCodigoAsync(context))">Emparejar equipo</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No hay cajas.</MudText></NoRecordsContent>
+        </MudTable>
+        @if (!Session.IsMulti)
+        {
+            <MudText Typo="Typo.caption" Class="d-block mt-2">Edición Caja Única: este equipo hace todo; no se emparejan otros equipos.</MudText>
+        }
+
+        @if (Session.Has("organization.device.manage"))
+        {
+            <MudText Typo="Typo.h6" Class="mt-5 mb-2">Equipos emparejados</MudText>
+            <MudTable Items="_equipos" Dense="true" Hover="true" Striped="true">
+                <HeaderContent>
+                    <MudTh>Equipo</MudTh><MudTh>Tipo</MudTh><MudTh>Caja</MudTh><MudTh>Estado</MudTh><MudTh>Emparejado</MudTh><MudTh>Último contacto</MudTh><MudTh>Versión</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Str("hostname")</MudTd>
+                    <MudTd>@TipoEquipo(context.Str("kind"))</MudTd>
+                    <MudTd>@CodigoCaja(context.Str("posTerminalId"))</MudTd>
+                    <MudTd>@(context.Str("status") == "Revoked" ? "Revocado" : "Activo")</MudTd>
+                    <MudTd>@Format.Date(context.Date("pairedAt"))</MudTd>
+                    <MudTd>@Format.Date(context.Date("lastSeenAt"))</MudTd>
+                    <MudTd>@context.Str("appVersion")</MudTd>
+                    <MudTd>
+                        @if (context.Str("status") != "Revoked")
+                        {
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => _revocar = context)">Revocar</MudButton>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>No hay equipos emparejados.</MudText></NoRecordsContent>
+            </MudTable>
+        }
+    </ChildContent>
+</Pagina>
+
+@if (_panelCaja)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@(_cajaId is null ? "Nueva caja" : "Editar caja")</h2>
+            @if (_cajaId is null)
+            {
+                <MudSelect T="Guid?" Value="_tSucursal" ValueChanged="CambiarSucursal" Label="Sucursal">
+                    @foreach (var branch in _sucursales.Where(Activa))
+                    {
+                        <MudSelectItem T="Guid?" Value="@branch.GetProperty("id").GetGuid()">@branch.Str("code") · @branch.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTextField @bind-Value="_tCodigo" Label="Código (p. ej. C02)" Immediate="true" />
+            }
+            <MudTextField @bind-Value="_tNombre" Label="Nombre" Immediate="true" />
+            <MudSelect T="Guid?" @bind-Value="_tBodega" Label="@(_cajaId is null ? "Bodega de la que vende (vacío = piso de venta de la sucursal)" : "Bodega de la que vende")" Clearable="@(_cajaId is null)">
+                @foreach (var warehouse in BodegasDeVenta(_tSucursal))
+                {
+                    <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _panelCaja = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarCajaAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_impresoraDe.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Impresora de tiquetes · caja @_impresoraDe.Str("code")</h2>
+            @if (!_impresoraConfigurada)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">La caja aún no tiene impresora configurada: se muestran los valores por defecto.</MudAlert>
+            }
+            <MudSelect T="string" @bind-Value="_iConexion" Label="Conexión">
+                <MudSelectItem T="string" Value="@("File")">Archivo (pruebas o caja sin impresora)</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Network")">Red (IP:puerto, normalmente 9100)</MudSelectItem>
+                <MudSelectItem T="string" Value="@("WindowsSpooler")">Impresora instalada en Windows</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Serial")">Puerto serie o USB virtual (COMx)</MudSelectItem>
+            </MudSelect>
+            <MudTextField @bind-Value="_iDireccion" Label="@EtiquetaDireccion" Immediate="true" />
+            <MudSelect T="int" @bind-Value="_iPapel" Label="Ancho del papel">
+                <MudSelectItem T="int" Value="80">80 mm</MudSelectItem>
+                <MudSelectItem T="int" Value="58">58 mm</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" @bind-Value="_iPagina" Label="Página de códigos">
+                <MudSelectItem T="string" Value="@("Pc850")">PC850 (con tildes y ñ)</MudSelectItem>
+                <MudSelectItem T="string" Value="@("Ascii")">ASCII (sin tildes)</MudSelectItem>
+            </MudSelect>
+            <MudCheckBox T="bool" @bind-Value="_iCorte" Label="Corte automático del papel" />
+            <MudCheckBox T="bool" @bind-Value="_iCajon" Label="Cajón monedero conectado a la impresora" />
+            @if (_iCajon)
+            {
+                <MudSelect T="string" @bind-Value="_iPin" Label="Pin del cajón">
+                    <MudSelectItem T="string" Value="@("Pin2")">Pin 2</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Pin5")">Pin 5</MudSelectItem>
+                </MudSelect>
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _impresoraDe = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarImpresoraAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_codigo.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Código de emparejamiento @(_codigoCaja is null ? "· PC administrativo" : $"· caja {_codigoCaja}")</h2>
+            <div class="cifra my-3" style="font-size: 56px; letter-spacing: 10px; text-align: center;">@_codigo.Str("code")</div>
+            <MudText Typo="Typo.body2" Class="mb-2">Vence: @Format.Date(_codigo.Date("expiresAt")). Sirve una sola vez.</MudText>
+            <MudText Typo="Typo.body2">En el equipo nuevo abra la aplicación del POS (la dirección del servidor de la tienda), elija «Emparejar este equipo» y escriba este código.</MudText>
+            @if (_codigo.Str("certificateFingerprint").Length > 0)
+            {
+                <MudText Typo="Typo.caption" Class="d-block mt-2">Huella del certificado del servidor (para verificar en el equipo nuevo): @_codigo.Str("certificateFingerprint")</MudText>
+            }
+            <div class="acciones">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CerrarCodigoAsync">Listo</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_revocar.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Revocar el equipo @_revocar.Str("hostname")</h2>
+            <MudText Typo="Typo.body2">
+                Su credencial deja de valer y sus sesiones se cierran de inmediato. Para volver a usarlo hay que emparejarlo de nuevo con un código.
+            </MudText>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _revocar = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="RevocarAsync">Revocar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _cajas = [];
+    private List<JsonElement> _sucursales = [];
+    private List<JsonElement> _equipos = [];
+    private readonly Dictionary<Guid, List<JsonElement>> _bodegas = [];
+    private bool _loading = true, _busy, _panelCaja, _impresoraConfigurada, _iCorte, _iCajon;
+    private string? _error, _tCodigo, _tNombre, _iDireccion, _codigoCaja;
+    private Guid? _cajaId, _tSucursal, _tBodega;
+    private JsonElement _impresoraDe, _codigo, _revocar;
+    private string _iConexion = "File", _iPagina = "Pc850", _iPin = "Pin2";
+    private int _iPapel = 80;
+
+    private bool PuedeEmparejar => Session.Has("organization.device.manage") && Session.IsMulti;
+
+    private string EtiquetaDireccion => _iConexion switch
+    {
+        "Network" => "Dirección IP y puerto (p. ej. 192.168.1.50:9100)",
+        "WindowsSpooler" => "Nombre de la impresora en Windows",
+        "Serial" => "Puerto (p. ej. COM3)",
+        _ => "Carpeta donde se escriben los tiquetes (opcional)",
+    };
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            _sucursales = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
+            _cajas = (await Api.GetAsync<JsonElement>("api/v1/organization/terminals")).Items();
+            _bodegas.Clear();
+            foreach (var branch in _sucursales)
+            {
+                var id = branch.GetProperty("id").GetGuid();
+                _bodegas[id] = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{id}")).Prop("warehouses").Items();
+            }
+
+            if (Session.Has("organization.device.manage"))
+            {
+                _equipos = (await Api.GetAsync<JsonElement>("api/v1/devices")).Items();
+            }
+
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private string NombreSucursal(string branchId) =>
+        _sucursales.FirstOrDefault(b => b.Str("id") == branchId).Str("name") is { Length: > 0 } name ? name : branchId;
+
+    private string NombreBodega(JsonElement terminal) =>
+        _bodegas.Values.SelectMany(w => w).FirstOrDefault(w => w.Str("id") == terminal.Str("warehouseId")).Str("name");
+
+    private string CodigoCaja(string terminalId) =>
+        terminalId.Length == 0 ? "" : _cajas.FirstOrDefault(t => t.Str("id") == terminalId).Str("code");
+
+    private string EquipoDe(JsonElement terminal)
+    {
+        var device = _equipos.FirstOrDefault(d => d.Str("posTerminalId") == terminal.Str("id") && d.Str("status") != "Revoked");
+        return device.ValueKind == JsonValueKind.Object ? device.Str("hostname")
+            : terminal.Str("deviceId").Length > 0 ? "Emparejada"
+            : "Sin equipo";
+    }
+
+    private IEnumerable<JsonElement> BodegasDeVenta(Guid? branchId) =>
+        branchId is { } id && _bodegas.TryGetValue(id, out var warehouses) ? warehouses.Where(w => Activa(w) && w.Bool("allowsSales")) : [];
+
+    // ------------------------------------------------------------------------------------------ Cajas
+
+    private void NuevaCaja()
+    {
+        _cajaId = null;
+        _tSucursal = _sucursales.Count == 1 ? _sucursales[0].GetProperty("id").GetGuid() : null;
+        _tCodigo = _tNombre = null;
+        _tBodega = null;
+        _panelCaja = true;
+    }
+
+    private void CambiarSucursal(Guid? branchId)
+    {
+        _tSucursal = branchId;
+        _tBodega = null;
+    }
+
+    private void EditarCaja(JsonElement terminal)
+    {
+        _cajaId = terminal.GetProperty("id").GetGuid();
+        _tSucursal = terminal.GetProperty("branchId").GetGuid();
+        _tNombre = terminal.Str("name");
+        _tBodega = terminal.GetProperty("warehouseId").GetGuid();
+        _panelCaja = true;
+    }
+
+    private async Task GuardarCajaAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (_cajaId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/organization/terminals/{id}", new { name = _tNombre, warehouseId = _tBodega });
+                Snackbar.Add("Caja actualizada.", Severity.Success);
+            }
+            else if (_tSucursal is { } branchId)
+            {
+                await Api.PostAsync<JsonElement>($"api/v1/organization/branches/{branchId}/terminals", new { code = _tCodigo, name = _tNombre, warehouseId = _tBodega });
+                Snackbar.Add("Caja creada con sus series de numeración.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Elija la sucursal de la caja.", Severity.Warning);
+                _busy = false;
+                return;
+            }
+
+            _panelCaja = false;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task CambiarEstadoAsync(JsonElement terminal, string status)
+    {
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/organization/terminals/{terminal.GetProperty("id").GetGuid()}/status", new { status });
+            Snackbar.Add(status switch { "Active" => "Caja activada.", "Blocked" => "Caja bloqueada.", _ => "Caja inactivada." }, Severity.Success);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------ Impresora
+
+    private async Task AbrirImpresoraAsync(JsonElement terminal)
+    {
+        try
+        {
+            var printer = await Api.GetAsync<JsonElement>($"api/v1/organization/terminals/{terminal.GetProperty("id").GetGuid()}/receipt-printer");
+            _impresoraConfigurada = printer.Bool("configured");
+            _iConexion = printer.Str("connection") switch
+            {
+                "NETWORK" => "Network",
+                "WINDOWS_SPOOLER" => "WindowsSpooler",
+                "SERIAL" => "Serial",
+                _ => "File",
+            };
+            _iDireccion = printer.Str("address");
+            _iPapel = printer.Dec("paperWidthMm") == 58 ? 58 : 80;
+            _iPagina = printer.Str("codePage") == "ASCII" ? "Ascii" : "Pc850";
+            _iCorte = printer.Bool("autoCut");
+            _iCajon = printer.Bool("drawerConnected");
+            _iPin = printer.Str("drawerPin") == "PIN5" ? "Pin5" : "Pin2";
+            _impresoraDe = terminal;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task GuardarImpresoraAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PutAsync<JsonElement>($"api/v1/organization/terminals/{_impresoraDe.GetProperty("id").GetGuid()}/receipt-printer", new
+            {
+                connection = _iConexion,
+                address = string.IsNullOrWhiteSpace(_iDireccion) ? null : _iDireccion.Trim(),
+                paperWidthMm = _iPapel,
+                codePage = _iPagina,
+                autoCut = _iCorte,
+                drawerConnected = _iCajon,
+                drawerPin = _iPin,
+            });
+            Snackbar.Add("Impresora guardada. La caja la usa desde el próximo tiquete.", Severity.Success);
+            _impresoraDe = default;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    // ------------------------------------------------------------------------------------------ Equipos
+
+    private async Task GenerarCodigoAsync(JsonElement? terminal)
+    {
+        _busy = true;
+        try
+        {
+            object body = terminal is { } t
+                ? new { kind = "Terminal", posTerminalId = (Guid?)t.GetProperty("id").GetGuid() }
+                : new { kind = "AdminWorkstation", posTerminalId = (Guid?)null };
+            _codigo = await Api.PostAsync<JsonElement>("api/v1/devices/pairing-codes", body);
+            _codigoCaja = terminal?.Str("code");
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task CerrarCodigoAsync()
+    {
+        _codigo = default;
+        _codigoCaja = null;
+        await CargarAsync();
+    }
+
+    private async Task RevocarAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync($"api/v1/devices/{_revocar.GetProperty("id").GetGuid()}/revoke");
+            Snackbar.Add("Equipo revocado.", Severity.Success);
+            _revocar = default;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    // ------------------------------------------------------------------------------------------ Comunes
+
+    private static bool Activa(JsonElement element) => string.Equals(element.Str("status"), "Active", StringComparison.OrdinalIgnoreCase);
+
+    private static string Estado(string status) => status switch
+    {
+        "Active" => "Activa",
+        "Inactive" => "Inactiva",
+        "Blocked" => "Bloqueada",
+        _ => status,
+    };
+
+    private static string TipoEquipo(string kind) => kind switch
+    {
+        "Terminal" => "Caja",
+        "AdminWorkstation" => "PC administrativo",
+        "StoreServer" => "Servidor de la tienda",
+        "AllInOne" => "Equipo único",
+        _ => kind,
+    };
+}

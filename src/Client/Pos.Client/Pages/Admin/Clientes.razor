@@ -1,0 +1,639 @@
+@page "/admin/clientes"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Clientes · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Clientes" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (_tab == 0 && Session.Has("customers.customer.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="NuevoAsync">Nuevo cliente</MudButton>
+        }
+        else if (_tab == 1 && Session.Has("customers.group.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevoGrupo">Nuevo grupo</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudTabs @bind-ActivePanelIndex="_tab">
+            <MudTabPanel Text="Clientes">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="my-3">
+                    <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, cédula/NIT o celular" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarAsync())" />
+                    <MudSelect T="string" Value="_statusFilter" ValueChanged="@(v => FiltrarAsync(v))" Label="Estado" Style="max-width: 200px">
+                        <MudSelectItem T="string" Value="@("")">Todos</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("ACTIVE")">Activos</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("INACTIVE")">Inactivos</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("BLOCKED")">Bloqueados</MudSelectItem>
+                    </MudSelect>
+                </MudStack>
+                <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+                    <HeaderContent>
+                        <MudTh>Identificación</MudTh><MudTh>Nombre</MudTh><MudTh>Celular</MudTh><MudTh>Correo</MudTh><MudTh>Grupo</MudTh><MudTh>Estado</MudTh><MudTh>Autorizó datos</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@Identificacion(context)</MudTd>
+                        <MudTd>@context.Str("displayName")</MudTd>
+                        <MudTd>@context.Str("phone")</MudTd>
+                        <MudTd>@context.Str("email")</MudTd>
+                        <MudTd>@context.Str("groupCode")</MudTd>
+                        <MudTd>@NombreEstado(context.Str("status"))</MudTd>
+                        <MudTd>@(context.Bool("serviceConsent") ? "Sí" : "No")</MudTd>
+                        <MudTd>
+                            <MudButton Size="Size.Small" OnClick="@(() => FichaAsync(context.GetProperty("partyId").GetGuid()))">Ficha</MudButton>
+                            @if (Session.Has("customers.customer.manage"))
+                            {
+                                <MudButton Size="Size.Small" OnClick="@(() => EditarAsync(context))">Editar</MudButton>
+                                @if (context.Str("status") == "BLOCKED" || context.Str("status") == "INACTIVE")
+                                {
+                                    <MudButton Size="Size.Small" OnClick="@(() => ActivarAsync(context))">Activar</MudButton>
+                                }
+                                else
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => Bloquear(context))">Bloquear</MudButton>
+                                }
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay clientes que coincidan.</MudText></NoRecordsContent>
+                </MudTable>
+                <MudText Typo="Typo.caption">@_total cliente(s). Se muestran los primeros 100.</MudText>
+            </MudTabPanel>
+            <MudTabPanel Text="Grupos">
+                <MudTable Items="_groups" Dense="true" Hover="true" Striped="true" Class="mt-3">
+                    <HeaderContent>
+                        <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Lista de precios</MudTh><MudTh>Por defecto</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("code")</MudTd>
+                        <MudTd>@context.Str("name")</MudTd>
+                        <MudTd>@NombreLista(context.Str("priceListId"))</MudTd>
+                        <MudTd>@(context.Bool("isDefault") ? "Sí" : "")</MudTd>
+                        <MudTd>@NombreEstado(context.Str("status"))</MudTd>
+                        <MudTd>
+                            @if (Session.Has("customers.group.manage"))
+                            {
+                                <MudButton Size="Size.Small" OnClick="@(() => EditarGrupo(context))">Editar</MudButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay grupos de clientes.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+        </MudTabs>
+    </ChildContent>
+</Pagina>
+
+@if (_form)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@(_editId is null ? "Nuevo cliente" : "Corregir datos del cliente")</h2>
+            @if (_editId is not null && _namesUnknown)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">Escriba de nuevo los nombres y apellidos del cliente: se guardan tal como queden aquí.</MudAlert>
+            }
+            <MudSelect T="string" @bind-Value="_personType" Label="Tipo de persona">
+                <MudSelectItem T="string" Value="@("NATURAL")">Persona natural</MudSelectItem>
+                <MudSelectItem T="string" Value="@("LEGAL")">Persona jurídica</MudSelectItem>
+            </MudSelect>
+            <MudSelect T="string" @bind-Value="_idType" Label="Tipo de identificación">
+                @foreach (var type in _idTypes.Where(t => _personType == "LEGAL" ? t.Bool("allowsLegal") : t.Bool("allowsNatural")))
+                {
+                    <MudSelectItem T="string" Value="@type.Str("code")">@type.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            <MudStack Row="true">
+                <MudTextField @bind-Value="_idNumber" Label="Número de identificación" Immediate="true" />
+                @if (RequiereDv)
+                {
+                    <MudTextField @bind-Value="_checkDigit" Label="DV" Immediate="true" Style="max-width: 80px" />
+                }
+            </MudStack>
+            @if (_personType == "LEGAL")
+            {
+                <MudTextField @bind-Value="_legalName" Label="Razón social" Immediate="true" />
+                <MudTextField @bind-Value="_tradeName" Label="Nombre comercial (opcional)" Immediate="true" />
+            }
+            else
+            {
+                <MudTextField @bind-Value="_firstNames" Label="Nombres" Immediate="true" />
+                <MudTextField @bind-Value="_lastNames" Label="Apellidos" Immediate="true" />
+            }
+            <MudTextField @bind-Value="_phone" Label="Celular (opcional)" Immediate="true" />
+            <MudTextField @bind-Value="_email" Label="Correo electrónico (opcional)" Immediate="true" />
+            <MudTextField @bind-Value="_address" Label="Dirección (opcional)" Immediate="true" />
+            <MudTextField @bind-Value="_municipality" Label="Código DANE del municipio (opcional)" Immediate="true" />
+            <MudCheckBox T="bool" @bind-Value="_alwaysInvoice" Label="Siempre pide factura" />
+            @if (_editId is null)
+            {
+                <MudCheckBox T="bool" @bind-Value="_serviceConsent" Label="Autorizó el tratamiento de sus datos (historial y atención)" />
+                @if (_serviceConsent)
+                {
+                    <MudSelect T="string" @bind-Value="_consentChannel" Label="Cómo lo autorizó">
+                        <MudSelectItem T="string" Value="@("PaperForm")">Formato en papel</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("PosSigned")">Firma en el punto de venta</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Phone")">Por teléfono</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Email")">Por correo electrónico</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Web")">Por la web</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("PosVerbal")">Verbal</MudSelectItem>
+                    </MudSelect>
+                }
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _form = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_bloquearDe.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Bloquear a @_bloquearDe.Str("displayName")</h2>
+            <MudText Typo="Typo.body2">Un cliente bloqueado no se puede asignar a ventas nuevas.</MudText>
+            <MudTextField @bind-Value="_motivo" Label="Motivo" Immediate="true" AutoFocus="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _bloquearDe = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="BloquearAsync">Bloquear</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_ficha.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(900px, 96vw)">
+            <h2>@_ficha.Str("displayName")</h2>
+            <MudText Typo="Typo.body2">@Identificacion(_ficha) · @NombreEstado(_ficha.Str("status"))@(_ficha.Str("blockReason") is { Length: > 0 } reason ? $" ({reason})" : "")</MudText>
+            <MudText Typo="Typo.body2">Celular: @Texto(_ficha.Str("phone")) · Correo: @Texto(_ficha.Str("email")) · Dirección: @Texto(_ficha.Str("address"))</MudText>
+            <MudText Typo="Typo.body2">
+                Grupo: @_ficha.Str("groupCode") · Siempre pide factura: @(_ficha.Bool("alwaysRequestsInvoice") ? "Sí" : "No")
+                · Autorizó datos: @(_ficha.Bool("serviceConsent") ? $"Sí (política v{_ficha.Str("consentPolicyVersion")})" : "No")
+            </MudText>
+            @if (Session.Has("customers.pricing.assign"))
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2">
+                    <MudSelect T="Guid?" @bind-Value="_fichaGrupo" Label="Grupo">
+                        @foreach (var group in _groups.Where(g => g.Str("status") == "ACTIVE"))
+                        {
+                            <MudSelectItem T="Guid?" Value="@group.GetProperty("id").GetGuid()">@group.Str("name")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSelect T="Guid?" @bind-Value="_fichaLista" Label="Lista de precios propia">
+                        <MudSelectItem T="Guid?" Value="@((Guid?)null)">La del grupo</MudSelectItem>
+                        @foreach (var list in _priceLists)
+                        {
+                            <MudSelectItem T="Guid?" Value="@list.GetProperty("id").GetGuid()">@list.Str("name")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="AsignarPreciosAsync">Guardar grupo</MudButton>
+                </MudStack>
+            }
+            @if (_fichaError is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">@_fichaError</MudAlert>
+            }
+            @if (_resumen.ValueKind == JsonValueKind.Object)
+            {
+                <MudText Typo="Typo.h6" Class="mt-3">Resumen de compras</MudText>
+                <MudSimpleTable Dense="true">
+                    <tbody>
+                        <tr><td>Compras</td><td class="num">@_resumen.Dec("purchases")</td><td>Total comprado</td><td class="num">@Format.Money(_resumen.Dec("totalPurchased"))</td></tr>
+                        <tr><td>Ticket promedio</td><td class="num">@Format.Money(_resumen.Dec("averageTicket"))</td><td>Sucursal habitual</td><td>@Texto(_resumen.Str("usualBranch"))</td></tr>
+                        <tr><td>Primera compra</td><td>@Format.Date(_resumen.Date("firstPurchaseAt"))</td><td>Última compra</td><td>@Format.Date(_resumen.Date("lastPurchaseAt"))</td></tr>
+                        <tr><td>Ventas anuladas</td><td class="num">@_resumen.Dec("voidedSales")</td><td>Cambios</td><td class="num">@_resumen.Dec("exchanges") (@Format.Money(_resumen.Dec("returnedCredit")))</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+                @if (_resumen.Prop("topProducts").Items() is { Count: > 0 } top)
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mt-2">Productos frecuentes</MudText>
+                    <MudSimpleTable Dense="true">
+                        <thead><tr><th>SKU</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Total</th></tr></thead>
+                        <tbody>
+                            @foreach (var product in top)
+                            {
+                                <tr><td>@product.Str("sku")</td><td>@product.Str("name")</td><td class="num">@Format.Quantity(product.Dec("quantity"))</td><td class="num">@Format.Money(product.Dec("total"))</td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            }
+            @if (_historial.Count > 0)
+            {
+                <MudText Typo="Typo.h6" Class="mt-3">Historial</MudText>
+                <div style="overflow-x: auto">
+                    <MudSimpleTable Dense="true">
+                        <thead><tr><th>Fecha</th><th>Documento</th><th>Tipo</th><th>Sucursal / caja</th><th>Medios de pago</th><th>Estado</th><th class="num">Total</th></tr></thead>
+                        <tbody>
+                            @foreach (var entry in _historial)
+                            {
+                                <tr>
+                                    <td>@Format.Date(entry.Date("at"))</td>
+                                    <td>@entry.Str("number")@(entry.Str("originalSaleNumber") is { Length: > 0 } original ? $" (de {original})" : "")</td>
+                                    <td>@NombreMovimiento(entry.Str("kind"))</td>
+                                    <td>@entry.Str("branchName") / @entry.Str("terminalCode")</td>
+                                    <td>@string.Join(", ", entry.Prop("paymentMethods").Items().Select(p => p.ToString()))</td>
+                                    <td>@entry.Str("status")</td>
+                                    <td class="num">@Format.Money(entry.Dec("total"))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+            <div class="acciones">
+                <MudButton Variant="Variant.Filled" OnClick="@(() => _ficha = default)">Cerrar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_grupoForm)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@(_grupoId is null ? "Nuevo grupo de clientes" : "Editar grupo")</h2>
+            @if (_grupoId is null)
+            {
+                <MudTextField @bind-Value="_grupoCode" Label="Código (p. ej. MAYORISTAS)" Immediate="true" />
+            }
+            <MudTextField @bind-Value="_grupoName" Label="Nombre" Immediate="true" />
+            <MudSelect T="Guid?" @bind-Value="_grupoLista" Label="Lista de precios">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Lista general</MudSelectItem>
+                @foreach (var list in _priceLists)
+                {
+                    <MudSelectItem T="Guid?" Value="@list.GetProperty("id").GetGuid()">@list.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_grupoId is not null)
+            {
+                <MudCheckBox T="bool" @bind-Value="_grupoActivo" Label="Activo" />
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _grupoForm = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarGrupoAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _items = [];
+    private List<JsonElement> _groups = [];
+    private List<JsonElement> _priceLists = [];
+    private List<JsonElement> _idTypes = [];
+    private List<JsonElement> _historial = [];
+    private List<string>? _responsibilities;
+    private int _tab, _total;
+    private string _statusFilter = "", _personType = "NATURAL", _consentChannel = "PaperForm";
+    private string? _search, _error, _idType, _idNumber, _checkDigit, _firstNames, _lastNames, _legalName, _tradeName, _email, _phone, _address, _municipality,
+        _taxRegime, _motivo, _fichaError, _grupoCode, _grupoName;
+    private bool _loading = true, _busy, _form, _alwaysInvoice, _serviceConsent, _namesUnknown, _grupoForm, _grupoActivo;
+    private Guid? _editId, _grupoId, _grupoLista, _fichaGrupo, _fichaLista;
+    private JsonElement _bloquearDe, _ficha, _resumen;
+
+    private bool RequiereDv => _idTypes.FirstOrDefault(t => t.Str("code") == _idType).Bool("requiresCheckDigit");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarGruposAsync();
+        try
+        {
+            _priceLists = (await Api.GetAsync<JsonElement>("api/v1/catalog/price-lists")).Items().Where(l => l.Str("status") == "ACTIVE").ToList();
+        }
+        catch (ApiException)
+        {
+            // Sin permiso para ver el catálogo: los grupos se muestran sin el nombre de la lista.
+        }
+
+        await BuscarAsync();
+    }
+
+    private async Task BuscarAsync()
+    {
+        _loading = true;
+        try
+        {
+            var status = string.IsNullOrEmpty(_statusFilter) ? "" : $"&status={_statusFilter}";
+            var page = await Api.GetAsync<JsonElement>($"api/v1/customers?pageSize=100&search={Uri.EscapeDataString(_search ?? "")}{status}");
+            _items = page.Items();
+            _total = (int)page.Dec("totalCount");
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private Task FiltrarAsync(string status)
+    {
+        _statusFilter = status;
+        return BuscarAsync();
+    }
+
+    private async Task CargarGruposAsync()
+    {
+        try
+        {
+            _groups = (await Api.GetAsync<JsonElement>("api/v1/customers/groups")).Items();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private static string Identificacion(JsonElement customer) =>
+        $"{customer.Str("identificationType")} {customer.Str("identificationNumber")}{(customer.Str("checkDigit") is { Length: > 0 } dv ? "-" + dv : "")}";
+
+    private static string NombreEstado(string status) => status switch
+    {
+        "ACTIVE" => "Activo",
+        "INACTIVE" => "Inactivo",
+        "BLOCKED" => "Bloqueado",
+        _ => status,
+    };
+
+    private static string NombreMovimiento(string kind) => kind switch
+    {
+        "SALE" => "Venta",
+        "VOID" => "Anulación",
+        "EXCHANGE" => "Cambio",
+        "WARRANTY" => "Garantía",
+        _ => kind,
+    };
+
+    private static string Texto(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private string NombreLista(string id) =>
+        string.IsNullOrEmpty(id) ? "General" : _priceLists.FirstOrDefault(l => l.Str("id") == id).Str("name") is { Length: > 0 } name ? name : "Lista propia";
+
+    private async Task CargarTiposAsync()
+    {
+        if (_idTypes.Count == 0)
+        {
+            _idTypes = (await Api.GetAsync<JsonElement>("api/v1/reference/identification-types")).Items();
+        }
+    }
+
+    private async Task NuevoAsync()
+    {
+        try
+        {
+            await CargarTiposAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return;
+        }
+
+        _editId = null;
+        _personType = "NATURAL";
+        _idType = "CC";
+        _idNumber = _checkDigit = _firstNames = _lastNames = _legalName = _tradeName = _email = _phone = _address = _municipality = _taxRegime = null;
+        _responsibilities = null;
+        _alwaysInvoice = false;
+        _serviceConsent = true;
+        _consentChannel = "PaperForm";
+        _namesUnknown = false;
+        _form = true;
+    }
+
+    private async Task EditarAsync(JsonElement row)
+    {
+        var partyId = row.GetProperty("partyId").GetGuid();
+        try
+        {
+            await CargarTiposAsync();
+            var customer = await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}");
+            _personType = customer.Str("personType") is { Length: > 0 } personType ? personType : "NATURAL";
+            _idType = customer.Str("identificationType");
+            _idNumber = customer.Str("identificationNumber");
+            _checkDigit = Nulo(customer.Str("checkDigit"));
+            _email = Nulo(customer.Str("email"));
+            _phone = Nulo(customer.Str("phone"));
+            _address = Nulo(customer.Str("address"));
+            _municipality = Nulo(customer.Str("municipalityCode"));
+            _taxRegime = Nulo(customer.Str("taxRegime"));
+            _responsibilities = customer.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()).ToList();
+            _alwaysInvoice = customer.Bool("alwaysRequestsInvoice");
+            _firstNames = _lastNames = _legalName = _tradeName = null;
+            _namesUnknown = true;
+            if (Session.Has("parties.party.view"))
+            {
+                var party = await Api.GetAsync<JsonElement>($"api/v1/parties/{partyId}");
+                _firstNames = Nulo(party.Str("firstNames"));
+                _lastNames = Nulo(party.Str("lastNames"));
+                _legalName = Nulo(party.Str("legalName"));
+                _tradeName = Nulo(party.Str("tradeName"));
+                _namesUnknown = false;
+            }
+            else if (_personType == "LEGAL")
+            {
+                _legalName = customer.Str("displayName");
+                _namesUnknown = false;
+            }
+
+            _editId = partyId;
+            _form = true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task GuardarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var legal = _personType == "LEGAL";
+            var party = new
+            {
+                personType = _personType, identificationType = _idType, identificationNumber = _idNumber?.Trim(), checkDigit = RequiereDv ? Nulo(_checkDigit) : null,
+                legalName = legal ? Nulo(_legalName) : null, firstNames = legal ? null : Nulo(_firstNames), lastNames = legal ? null : Nulo(_lastNames),
+                tradeName = legal ? Nulo(_tradeName) : null, taxRegime = _taxRegime, fiscalResponsibilities = _responsibilities,
+                email = Nulo(_email), phone = Nulo(_phone), address = Nulo(_address), municipalityCode = Nulo(_municipality),
+            };
+            if (_editId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/customers/{id}", new { party, alwaysRequestsInvoice = _alwaysInvoice });
+                Snackbar.Add("Datos del cliente corregidos.", Severity.Success);
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>("api/v1/customers", new
+                {
+                    party,
+                    alwaysRequestsInvoice = _alwaysInvoice,
+                    consents = _serviceConsent ? new[] { new { purpose = "Service", granted = true, channel = _consentChannel } } : null,
+                });
+                Snackbar.Add("Cliente creado.", Severity.Success);
+                _search = _idNumber;
+            }
+
+            _form = false;
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void Bloquear(JsonElement customer)
+    {
+        _bloquearDe = customer;
+        _motivo = null;
+    }
+
+    private async Task BloquearAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/customers/{_bloquearDe.GetProperty("partyId").GetGuid()}/status", new { status = "Blocked", reason = Nulo(_motivo) });
+            Snackbar.Add("Cliente bloqueado.", Severity.Success);
+            _bloquearDe = default;
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task ActivarAsync(JsonElement customer)
+    {
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/customers/{customer.GetProperty("partyId").GetGuid()}/status", new { status = "Active", reason = (string?)null });
+            Snackbar.Add("Cliente activado.", Severity.Success);
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task FichaAsync(Guid partyId)
+    {
+        try
+        {
+            _ficha = await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}");
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return;
+        }
+
+        _fichaGrupo = _ficha.GetProperty("groupId").GetGuid();
+        _fichaLista = Guid.TryParse(_ficha.Str("priceListId"), out var list) ? list : null;
+        _resumen = default;
+        _historial = [];
+        _fichaError = null;
+        if (!Session.Has("customers.history.view"))
+        {
+            return;
+        }
+
+        try
+        {
+            _resumen = await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}/summary");
+            _historial = (await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}/history?pageSize=50")).Items();
+        }
+        catch (ApiException ex)
+        {
+            _fichaError = ex.Message;
+        }
+    }
+
+    private async Task AsignarPreciosAsync()
+    {
+        if (_fichaGrupo is not { } groupId)
+        {
+            Snackbar.Add("Elija el grupo.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var partyId = _ficha.GetProperty("partyId").GetGuid();
+            _ficha = await Api.PutAsync<JsonElement>($"api/v1/customers/{partyId}/pricing", new { groupId, priceListId = _fichaLista });
+            Snackbar.Add("Grupo y lista de precios asignados.", Severity.Success);
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void NuevoGrupo()
+    {
+        _grupoId = null;
+        _grupoCode = _grupoName = null;
+        _grupoLista = null;
+        _grupoActivo = true;
+        _grupoForm = true;
+    }
+
+    private void EditarGrupo(JsonElement group)
+    {
+        _grupoId = group.GetProperty("id").GetGuid();
+        _grupoCode = group.Str("code");
+        _grupoName = group.Str("name");
+        _grupoLista = Guid.TryParse(group.Str("priceListId"), out var list) ? list : null;
+        _grupoActivo = group.Str("status") == "ACTIVE";
+        _grupoForm = true;
+    }
+
+    private async Task GuardarGrupoAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (_grupoId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/customers/groups/{id}", new { name = Nulo(_grupoName), priceListId = _grupoLista, isActive = _grupoActivo });
+                Snackbar.Add("Grupo actualizado.", Severity.Success);
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>("api/v1/customers/groups", new { code = Nulo(_grupoCode), name = Nulo(_grupoName), priceListId = _grupoLista });
+                Snackbar.Add("Grupo creado.", Severity.Success);
+            }
+
+            _grupoForm = false;
+            await CargarGruposAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+}

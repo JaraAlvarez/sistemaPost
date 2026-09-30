@@ -1,0 +1,573 @@
+@page "/admin/ajustes"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Ajustes · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Ajustes de inventario" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("inventory.adjustment.quick"))
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.FlashOn" OnClick="NuevoRapido">Ajuste rápido</MudButton>
+        }
+        @if (Session.Has("inventory.adjustment.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Class="ml-2" OnClick="Nuevo">Nuevo ajuste</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudSelect T="string" Value="_estado" ValueChanged="@(v => FiltrarAsync(v))" Label="Estado" Class="mb-3" Style="max-width: 280px">
+            <MudSelectItem T="string" Value="@("")">Todos</MudSelectItem>
+            <MudSelectItem T="string" Value="@("DRAFT")">Borrador</MudSelectItem>
+            <MudSelectItem T="string" Value="@("PENDING_APPROVAL")">Pendiente de aprobación</MudSelectItem>
+            <MudSelectItem T="string" Value="@("POSTED")">Publicado</MudSelectItem>
+            <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
+        </MudSelect>
+        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Bodega</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Str("number")</MudTd>
+                <MudTd>@Format.Date(context.Date("createdAt"))</MudTd>
+                <MudTd>@Bodega(context.Str("warehouseId"))</MudTd>
+                <MudTd>@Estado(context.Str("status"))</MudTd>
+                <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context.GetProperty("id").GetGuid()))">Ver</MudButton></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No hay ajustes.</MudText></NoRecordsContent>
+        </MudTable>
+    </ChildContent>
+</Pagina>
+
+@if (_nuevo)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(900px, 96vw)">
+            <h2>Nuevo ajuste</h2>
+            <MudStack Row="true">
+                <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
+                    @foreach (var warehouse in Elegibles)
+                    {
+                        <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="Guid?" @bind-Value="_motivo" Label="Motivo">
+                    @foreach (var reason in _motivos.Where(r => r.Str("status") == "ACTIVE"))
+                    {
+                        <MudSelectItem T="Guid?" Value="@reason.GetProperty("id").GetGuid()">@reason.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+            @if (Motivo.ValueKind == JsonValueKind.Object)
+            {
+                <MudText Typo="Typo.caption" Class="d-block">@AyudaMotivo(Motivo.Str("kind"))</MudText>
+            }
+            <MudTextField T="string" @bind-Value="_notas" Label="@(Motivo.Bool("requiresNote") ? "Observación (obligatoria para este motivo)" : "Observación (opcional)")" Immediate="true" />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
+                <MudTextField T="string" @bind-Value="_buscar" Label="Producto: nombre, SKU o código (Enter busca)" Immediate="true" OnKeyDown="BuscarTeclaAsync"
+                              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
+                <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Style="max-width: 130px" />
+                @if (EsSaldoInicial)
+                {
+                    <MudNumericField T="decimal?" @bind-Value="_costo" Label="Costo unitario" Min="0" Style="max-width: 150px" />
+                }
+            </MudStack>
+            <MudStack Row="true">
+                <MudTextField T="string" @bind-Value="_lote" Label="Lote (opcional)" Immediate="true" />
+                <MudDatePicker @bind-Date="_vence" Label="Vencimiento del lote (opcional)" DateFormat="dd/MM/yyyy" />
+            </MudStack>
+            @if (_resultados.Count > 0)
+            {
+                <MudSimpleTable Dense="true" Class="my-2">
+                    <tbody>
+                        @foreach (var product in _resultados)
+                        {
+                            <tr>
+                                <td>@product.Str("sku")</td>
+                                <td>@product.Str("name")</td>
+                                <td>@product.Str("baseUnitCode")</td>
+                                <td><MudButton Size="Size.Small" OnClick="@(() => AgregarLinea(product))">Agregar</MudButton></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            <MudSimpleTable Dense="true" Class="my-2">
+                <thead>
+                    <tr><th>SKU</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Costo unitario</th><th>Lote</th><th>Vence</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in _lineas)
+                    {
+                        <tr>
+                            <td>@line.Sku</td>
+                            <td>@line.Nombre</td>
+                            <td class="num">@Format.Quantity(line.Cantidad) @line.Unidad</td>
+                            <td class="num">@Format.Money(line.Costo)</td>
+                            <td>@line.Lote</td>
+                            <td>@(line.Vence is { } vence ? vence.ToString("dd/MM/yyyy", Format.Colombia) : "")</td>
+                            <td><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" OnClick="@(() => _lineas.Remove(line))" /></td>
+                        </tr>
+                    }
+                    @if (_lineas.Count == 0)
+                    {
+                        <tr><td colspan="7">Agregue al menos un producto.</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
+                <MudButton Disabled="_busy" OnClick="@(() => CrearAsync(false))">Guardar borrador</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(true))">Guardar y publicar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_rapido)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Ajuste rápido</h2>
+            <MudText Typo="Typo.body2">Entrada inmediata al costo promedio para un producto que está físicamente pero el sistema no tiene. Queda en la auditoría y en el reporte de ajustes.</MudText>
+            <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
+                @foreach (var warehouse in Elegibles)
+                {
+                    <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_producto.ValueKind == JsonValueKind.Object)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2">
+                    <MudText>@_producto.Str("sku") · @_producto.Str("name")</MudText>
+                    <MudButton Size="Size.Small" OnClick="@(() => _producto = default)">Cambiar</MudButton>
+                </MudStack>
+            }
+            else
+            {
+                <MudTextField T="string" @bind-Value="_buscar" Label="Producto: nombre, SKU o código (Enter busca)" Immediate="true" OnKeyDown="BuscarTeclaAsync"
+                              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
+                @if (_resultados.Count > 0)
+                {
+                    <MudSimpleTable Dense="true" Class="my-2">
+                        <tbody>
+                            @foreach (var product in _resultados)
+                            {
+                                <tr>
+                                    <td>@product.Str("sku")</td>
+                                    <td>@product.Str("name")</td>
+                                    <td><MudButton Size="Size.Small" OnClick="@(() => ElegirProducto(product))">Elegir</MudButton></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            }
+            <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad que entra" Min="0" />
+            <MudTextField T="string" @bind-Value="_notas" Label="Motivo (de 5 a 300 caracteres)" Immediate="true" Lines="2" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _rapido = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AjusteRapidoAsync">Registrar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_ajuste.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(900px, 96vw)">
+            <h2>Ajuste @_ajuste.Str("number") · @Estado(Status)</h2>
+            <MudText Typo="Typo.body2">
+                Bodega @Bodega(_ajuste.Str("warehouseId")) · Motivo: @NombreMotivo(_ajuste.Str("reasonId"), _ajuste.Str("reasonCode")) · Fecha contable @Fecha(_ajuste.Str("businessDate"))
+                @if (_ajuste.Date("postedAt") is { } posted)
+                {
+                    <span> · Publicado @Format.Date(posted)</span>
+                }
+            </MudText>
+            @if (_ajuste.Str("notes") is { Length: > 0 } notes)
+            {
+                <MudText Typo="Typo.body2">Observación: @notes</MudText>
+            }
+            @if (Status == "PENDING_APPROVAL")
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="my-2">Supera el umbral de aprobación: debe aprobarlo un usuario distinto de quien lo creó.</MudAlert>
+            }
+            <MudSimpleTable Dense="true" Class="my-2">
+                <thead>
+                    <tr>
+                        <th>SKU</th><th>Producto</th><th class="num">Cantidad</th>
+                        @if (VerCostos)
+                        {
+                            <th class="num">Costo unitario</th>
+                        }
+                        <th>Lote</th><th>Vence</th><th>Nota</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in _ajuste.Prop("lines").Items())
+                    {
+                        <tr>
+                            <td>@line.Str("sku")</td>
+                            <td>@line.Str("productName")</td>
+                            <td class="num">@(line.Dec("quantity") > 0 ? "+" : "")@Format.Quantity(line.Dec("quantity"))</td>
+                            @if (VerCostos)
+                            {
+                                <td class="num">@(line.Prop("unitCost").ValueKind == JsonValueKind.Number ? Format.Money(line.Dec("unitCost")) : "—")</td>
+                            }
+                            <td>@line.Str("lotNumber")</td>
+                            <td>@Fecha(line.Str("expiryDate"))</td>
+                            <td>@line.Str("notes")</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (VerCostos && _ajuste.Prop("totalValue").ValueKind == JsonValueKind.Number)
+            {
+                <MudText Typo="Typo.body2">Valor del ajuste: @Format.Money(_ajuste.Dec("totalValue"))</MudText>
+            }
+            <div class="acciones">
+                <MudButton OnClick="Cerrar">Cerrar</MudButton>
+                @if (Status is "DRAFT" or "PENDING_APPROVAL" && Session.Has("inventory.adjustment.manage"))
+                {
+                    <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => AccionAsync("cancel"))">
+                        @(_confirmar == "cancel" ? "Confirmar anulación" : "Anular")
+                    </MudButton>
+                }
+                @if (Status == "DRAFT" && Session.Has("inventory.adjustment.manage"))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("post"))">
+                        @(_confirmar == "post" ? "Confirmar publicación" : "Publicar")
+                    </MudButton>
+                }
+                @if (Status == "PENDING_APPROVAL" && Session.Has("inventory.adjustment.approve"))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("approve"))">
+                        @(_confirmar == "approve" ? "Confirmar aprobación" : "Aprobar y publicar")
+                    </MudButton>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _items = [];
+    private List<JsonElement> _bodegas = [];
+    private List<JsonElement> _motivos = [];
+    private List<JsonElement> _resultados = [];
+    private readonly List<Linea> _lineas = [];
+    private JsonElement _ajuste, _producto;
+    private string _estado = "";
+    private string? _error, _notas, _buscar, _lote, _confirmar;
+    private Guid? _bodega, _motivo;
+    private decimal _cantidad = 1;
+    private decimal? _costo;
+    private DateTime? _vence;
+    private bool _loading = true, _busy, _nuevo, _rapido;
+
+    private string Status => _ajuste.Str("status");
+
+    private bool VerCostos => Session.Has("inventory.cost.view");
+
+    private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
+
+    private JsonElement Motivo => _motivos.FirstOrDefault(r => _motivo is { } id && r.Prop("id").TryGetGuid(out var reasonId) && reasonId == id);
+
+    private bool EsSaldoInicial => Motivo.Str("kind") == "INITIAL_BALANCE";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarBodegasAsync();
+        await CargarAsync();
+    }
+
+    private async Task CargarBodegasAsync()
+    {
+        if (Session.Me is not { } me)
+        {
+            return;
+        }
+
+        try
+        {
+            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Message}", Severity.Warning);
+        }
+    }
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            _items = (await Api.GetAsync<JsonElement>($"api/v1/inventory/adjustments{(string.IsNullOrEmpty(_estado) ? "" : "?status=" + Uri.EscapeDataString(_estado))}")).Items();
+            _motivos = (await Api.GetAsync<JsonElement>("api/v1/inventory/reasons")).Items();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task FiltrarAsync(string? estado)
+    {
+        _estado = estado ?? "";
+        await CargarAsync();
+    }
+
+    private string Bodega(string id)
+    {
+        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
+        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
+    }
+
+    private string NombreMotivo(string id, string code) => _motivos.FirstOrDefault(r => r.Str("id") == id).Str("name") is { Length: > 0 } name ? name : code;
+
+    private static string Estado(string status) => status switch
+    {
+        "DRAFT" => "Borrador",
+        "PENDING_APPROVAL" => "Pendiente de aprobación",
+        "POSTED" => "Publicado",
+        "CANCELLED" => "Anulado",
+        _ => status,
+    };
+
+    private static string AyudaMotivo(string kind) => kind switch
+    {
+        "INITIAL_BALANCE" => "Saldo inicial: solo entradas y cada línea lleva su costo unitario.",
+        "ADJUSTMENT" => "Cantidad positiva = entra; negativa = sale. Entra al costo promedio vigente.",
+        _ => "Este motivo es de salida: las cantidades se descuentan del inventario.",
+    };
+
+    private static string Fecha(string value) =>
+        DateOnly.TryParse(value, CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "";
+
+    private void Nuevo()
+    {
+        _bodega = Elegibles.Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
+        _motivo = null;
+        _notas = _buscar = _lote = null;
+        _cantidad = 1;
+        _costo = null;
+        _vence = null;
+        _resultados = [];
+        _lineas.Clear();
+        _nuevo = true;
+    }
+
+    private void NuevoRapido()
+    {
+        _bodega = Elegibles.Where(b => b.Bool("allowsSales")).Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
+        _producto = default;
+        _notas = _buscar = null;
+        _cantidad = 1;
+        _resultados = [];
+        _rapido = true;
+    }
+
+    private async Task BuscarTeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await BuscarAsync();
+        }
+    }
+
+    private async Task BuscarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_buscar))
+        {
+            _resultados = [];
+            return;
+        }
+
+        try
+        {
+            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            if (_resultados.Count == 0)
+            {
+                Snackbar.Add("No hay productos que coincidan.", Severity.Info);
+            }
+            else if (_resultados.Count == 1)
+            {
+                if (_rapido)
+                {
+                    ElegirProducto(_resultados[0]);
+                }
+                else
+                {
+                    AgregarLinea(_resultados[0]);
+                }
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void ElegirProducto(JsonElement product)
+    {
+        _producto = product;
+        _resultados = [];
+        _buscar = null;
+    }
+
+    private void AgregarLinea(JsonElement product)
+    {
+        var id = product.GetProperty("id").GetGuid();
+        if (_lineas.Any(l => l.ProductId == id))
+        {
+            Snackbar.Add("El producto ya está en el ajuste.", Severity.Warning);
+            return;
+        }
+
+        var lote = string.IsNullOrWhiteSpace(_lote) ? null : _lote.Trim();
+        _lineas.Add(new Linea(
+            id, product.Str("sku"), product.Str("name"), product.Str("baseUnitCode"), _cantidad, EsSaldoInicial ? _costo : null, lote,
+            lote is not null && _vence is { } vence ? DateOnly.FromDateTime(vence) : null));
+        _resultados = [];
+        _buscar = _lote = null;
+        _cantidad = 1;
+        _costo = null;
+        _vence = null;
+    }
+
+    private async Task CrearAsync(bool publicar)
+    {
+        _busy = true;
+        try
+        {
+            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/adjustments", new
+            {
+                warehouseId = _bodega,
+                reasonId = _motivo,
+                businessDate = (DateOnly?)null,
+                notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
+                lines = _lineas.Select(l => new
+                {
+                    productId = l.ProductId, quantity = l.Cantidad, unitCost = l.Costo, notes = (string?)null, lotNumber = l.Lote, expiryDate = l.Vence,
+                }).ToList(),
+            });
+            var id = created.GetProperty("id").GetGuid();
+            _nuevo = false;
+            if (publicar)
+            {
+                var posted = await Api.PostAsync<JsonElement>($"api/v1/inventory/adjustments/{id}/post");
+                Snackbar.Add(MensajePublicacion(posted), Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Ajuste guardado en borrador.", Severity.Success);
+            }
+
+            await CargarAsync();
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            await CargarAsync();
+        }
+
+        _busy = false;
+    }
+
+    private static string MensajePublicacion(JsonElement adjustment) => adjustment.Str("status") == "PENDING_APPROVAL"
+        ? "El ajuste supera el umbral: quedó pendiente de aprobación por otro usuario."
+        : "Ajuste publicado en el kardex.";
+
+    private async Task AjusteRapidoAsync()
+    {
+        if (_producto.ValueKind != JsonValueKind.Object)
+        {
+            Snackbar.Add("Elija el producto.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/quick-adjustments", new
+            {
+                warehouseId = _bodega,
+                productId = _producto.GetProperty("id").GetGuid(),
+                quantity = _cantidad,
+                reason = _notas?.Trim() ?? "",
+            });
+            Snackbar.Add($"Ajuste rápido {created.Str("number")} publicado.", Severity.Success);
+            _rapido = false;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task VerAsync(Guid id)
+    {
+        try
+        {
+            _ajuste = await Api.GetAsync<JsonElement>($"api/v1/inventory/adjustments/{id}");
+            _confirmar = null;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void Cerrar()
+    {
+        _ajuste = default;
+        _confirmar = null;
+    }
+
+    private async Task AccionAsync(string action)
+    {
+        if (_confirmar != action)
+        {
+            _confirmar = action;
+            return;
+        }
+
+        _busy = true;
+        var id = _ajuste.GetProperty("id").GetGuid();
+        try
+        {
+            if (action == "cancel")
+            {
+                await Api.PostAsync($"api/v1/inventory/adjustments/{id}/cancel");
+                Snackbar.Add("Ajuste anulado.", Severity.Success);
+            }
+            else
+            {
+                var result = await Api.PostAsync<JsonElement>($"api/v1/inventory/adjustments/{id}/{action}");
+                Snackbar.Add(MensajePublicacion(result), Severity.Success);
+            }
+
+            await CargarAsync();
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _confirmar = null;
+        _busy = false;
+    }
+
+    private sealed record Linea(Guid ProductId, string Sku, string Nombre, string Unidad, decimal Cantidad, decimal? Costo, string? Lote, DateOnly? Vence);
+}

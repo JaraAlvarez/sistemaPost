@@ -1,0 +1,410 @@
+@page "/admin/gastos"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Gastos · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Gastos" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("expenses.expense.manage"))
+        {
+            @if (_tab == 0)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevoAsync">Registrar gasto</MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevaCategoria">Nueva categoría</MudButton>
+            }
+        }
+    </Acciones>
+    <ChildContent>
+        <MudTabs @bind-ActivePanelIndex="_tab">
+            <MudTabPanel Text="Gastos">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="my-3">
+                    <MudDatePicker @bind-Date="_desde" Label="Desde" DateFormat="dd/MM/yyyy" Style="max-width: 180px" />
+                    <MudDatePicker @bind-Date="_hasta" Label="Hasta" DateFormat="dd/MM/yyyy" Style="max-width: 180px" />
+                    <MudSelect T="Guid?" @bind-Value="_filtroCategoria" Label="Categoría" Style="max-width: 280px">
+                        <MudSelectItem T="Guid?" Value="@((Guid?)null)">Todas</MudSelectItem>
+                        @foreach (var category in _categories)
+                        {
+                            <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@NombreCategoria(category)</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="BuscarAsync">Consultar</MudButton>
+                </MudStack>
+                <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+                    <HeaderContent>
+                        <MudTh>Número</MudTh><MudTh>Fecha</MudTh><MudTh>Categoría</MudTh><MudTh>Descripción</MudTh><MudTh>Medio de pago</MudTh><MudTh>Referencia</MudTh>
+                        <MudTh>De la caja</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">IVA</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("number")</MudTd>
+                        <MudTd>@Fecha(context.Str("businessDate"))</MudTd>
+                        <MudTd>@context.Str("categoryName")</MudTd>
+                        <MudTd>@context.Str("description")</MudTd>
+                        <MudTd>@NombreMedio(context.Str("paymentMethodId"))</MudTd>
+                        <MudTd>@context.Str("reference")</MudTd>
+                        <MudTd>@(context.Str("cashSessionId").Length > 0 ? "Sí" : "")</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("amount"))</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Dec("taxAmount"))</MudTd>
+                        <MudTd>
+                            @if (context.Str("status") == "VOIDED")
+                            {
+                                <span title="@context.Str("voidReason")">Anulado</span>
+                            }
+                            else
+                            {
+                                <span>Registrado</span>
+                            }
+                        </MudTd>
+                        <MudTd>
+                            @if (Session.Has("expenses.expense.manage") && context.Str("status") != "VOIDED")
+                            {
+                                <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => Anular(context))">Anular</MudButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay gastos en el periodo.</MudText></NoRecordsContent>
+                </MudTable>
+                <MudText Typo="Typo.body2" Class="mt-2">
+                    @_items.Count gasto(s) · Total registrado (sin anulados): <b>@Format.Money(_items.Where(e => e.Str("status") != "VOIDED").Sum(e => e.Dec("amount")))</b>
+                </MudText>
+            </MudTabPanel>
+            <MudTabPanel Text="Categorías">
+                <MudTable Items="_categories" Dense="true" Hover="true" Striped="true" Class="mt-3">
+                    <HeaderContent>
+                        <MudTh>Categoría</MudTh><MudTh Class="num">Orden</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@NombreCategoria(context)</MudTd>
+                        <MudTd Class="num">@context.Dec("sortOrder")</MudTd>
+                        <MudTd>@(context.Str("status") == "ACTIVE" ? "Activa" : "Inactiva")</MudTd>
+                        <MudTd>
+                            @if (Session.Has("expenses.expense.manage"))
+                            {
+                                <MudButton Size="Size.Small" OnClick="@(() => EditarCategoria(context))">Editar</MudButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay categorías de gasto.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+        </MudTabs>
+    </ChildContent>
+</Pagina>
+
+@if (_nuevo)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Registrar gasto</h2>
+            <MudSelect T="Guid?" @bind-Value="_categoria" Label="Categoría">
+                @foreach (var category in _categories.Where(c => c.Str("status") == "ACTIVE"))
+                {
+                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@NombreCategoria(category)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_descripcion" Label="Descripción" Immediate="true" />
+            <MudStack Row="true">
+                <MudNumericField T="decimal" @bind-Value="_valor" Label="Valor total pagado" Min="0" />
+                <MudNumericField T="decimal" @bind-Value="_iva" Label="IVA incluido (si aplica)" Min="0" />
+            </MudStack>
+            <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
+                @foreach (var method in _methods)
+                {
+                    <MudSelectItem T="Guid?" Value="@method.GetProperty("id").GetGuid()">@method.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_referencia" Label="Referencia o número de factura (opcional)" Immediate="true" />
+            <MudDatePicker @bind-Date="_fecha" Label="Fecha del gasto (vacío = hoy)" DateFormat="dd/MM/yyyy" />
+            @if (_sessions.Count > 0)
+            {
+                <MudSelect T="Guid?" @bind-Value="_jornada" Label="Pagado con dinero de la caja (opcional)">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">No, se pagó fuera de la caja</MudSelectItem>
+                    @foreach (var session in _sessions)
+                    {
+                        <MudSelectItem T="Guid?" Value="@session.GetProperty("id").GetGuid()">
+                            Jornada @session.Str("number") · caja @session.Str("terminalCode") · @session.Str("cashierName")
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+                <MudText Typo="Typo.caption">Si sale de la caja, el efectivo se descuenta de esa jornada en el mismo momento.</MudText>
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RegistrarAsync">Registrar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_anular.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Anular gasto @_anular.Str("number")</h2>
+            <MudText Typo="Typo.body2">
+                @_anular.Str("description") por @Format.Money(_anular.Dec("amount")).
+                @if (_anular.Str("cashSessionId").Length > 0)
+                {
+                    <span> Salió de la caja: el dinero vuelve a esa jornada con una corrección.</span>
+                }
+            </MudText>
+            <MudTextField @bind-Value="_motivo" Label="Motivo de la anulación" Immediate="true" AutoFocus="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _anular = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="AnularAsync">Anular</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_categoriaForm)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@(_categoriaId is null ? "Nueva categoría de gasto" : "Editar categoría")</h2>
+            <MudTextField @bind-Value="_categoriaNombre" Label="Nombre" Immediate="true" />
+            @if (_categoriaId is null)
+            {
+                <MudSelect T="Guid?" @bind-Value="_categoriaPadre" Label="Dentro de (opcional)">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Ninguna (categoría principal)</MudSelectItem>
+                    @foreach (var category in _categories.Where(c => c.Str("parentId").Length == 0))
+                    {
+                        <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudNumericField T="int" @bind-Value="_categoriaOrden" Label="Orden" Min="0" />
+            @if (_categoriaId is not null)
+            {
+                <MudCheckBox T="bool" @bind-Value="_categoriaActiva" Label="Activa" />
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _categoriaForm = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarCategoriaAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _items = [];
+    private List<JsonElement> _categories = [];
+    private List<JsonElement> _methods = [];
+    private List<JsonElement> _sessions = [];
+    private int _tab, _categoriaOrden;
+    private string? _error, _descripcion, _referencia, _motivo, _categoriaNombre;
+    private bool _loading = true, _busy, _nuevo, _categoriaForm, _categoriaActiva;
+    private DateTime? _desde = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1), _hasta = DateTime.Today, _fecha;
+    private Guid? _filtroCategoria, _categoria, _medio, _jornada, _categoriaId, _categoriaPadre;
+    private decimal _valor, _iva;
+    private JsonElement _anular;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarCategoriasAsync();
+        try
+        {
+            _methods = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        await BuscarAsync();
+    }
+
+    private async Task BuscarAsync()
+    {
+        _loading = true;
+        try
+        {
+            var query = new List<string>();
+            if (_desde is { } desde)
+            {
+                query.Add("from=" + desde.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            }
+
+            if (_hasta is { } hasta)
+            {
+                query.Add("to=" + hasta.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            }
+
+            if (_filtroCategoria is { } category)
+            {
+                query.Add($"categoryId={category}");
+            }
+
+            _items = (await Api.GetAsync<JsonElement>($"api/v1/expenses?{string.Join("&", query)}")).Items();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task CargarCategoriasAsync()
+    {
+        try
+        {
+            _categories = (await Api.GetAsync<JsonElement>("api/v1/expenses/categories")).Items();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private string NombreCategoria(JsonElement category)
+    {
+        var parentId = category.Str("parentId");
+        if (parentId.Length == 0)
+        {
+            return category.Str("name");
+        }
+
+        var parent = _categories.FirstOrDefault(c => c.Str("id") == parentId).Str("name");
+        return parent.Length > 0 ? $"{parent} › {category.Str("name")}" : category.Str("name");
+    }
+
+    private string NombreMedio(string id) => _methods.FirstOrDefault(m => m.Str("id") == id).Str("name");
+
+    private static string Fecha(string value) =>
+        DateOnly.TryParse(value, CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : value;
+
+    private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task NuevoAsync()
+    {
+        _sessions = [];
+        if (Session.Has("cash.report.view"))
+        {
+            try
+            {
+                _sessions = (await Api.GetAsync<JsonElement>("api/v1/cash/sessions?status=OPEN")).Items();
+            }
+            catch (ApiException)
+            {
+                // Sin jornadas abiertas visibles: el gasto se registra fuera de la caja.
+            }
+        }
+
+        _categoria = _medio = _jornada = null;
+        _descripcion = _referencia = null;
+        _valor = _iva = 0;
+        _fecha = null;
+        _nuevo = true;
+    }
+
+    private async Task RegistrarAsync()
+    {
+        if (_categoria is null || _medio is null)
+        {
+            Snackbar.Add("Elija la categoría y el medio de pago.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>("api/v1/expenses", new
+            {
+                categoryId = _categoria,
+                description = Nulo(_descripcion),
+                amount = _valor,
+                taxAmount = _iva,
+                paymentMethodId = _medio,
+                partyId = (Guid?)null,
+                cashSessionId = _jornada,
+                reference = Nulo(_referencia),
+                businessDate = _fecha is { } fecha ? DateOnly.FromDateTime(fecha) : (DateOnly?)null,
+            });
+            Snackbar.Add("Gasto registrado.", Severity.Success);
+            _nuevo = false;
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void Anular(JsonElement expense)
+    {
+        _anular = expense;
+        _motivo = null;
+    }
+
+    private async Task AnularAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/expenses/{_anular.GetProperty("id").GetGuid()}/void", new { reason = Nulo(_motivo) });
+            Snackbar.Add("Gasto anulado.", Severity.Success);
+            _anular = default;
+            await BuscarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void NuevaCategoria()
+    {
+        _categoriaId = _categoriaPadre = null;
+        _categoriaNombre = null;
+        _categoriaOrden = (_categories.Count + 1) * 10;
+        _categoriaActiva = true;
+        _categoriaForm = true;
+    }
+
+    private void EditarCategoria(JsonElement category)
+    {
+        _categoriaId = category.GetProperty("id").GetGuid();
+        _categoriaPadre = null;
+        _categoriaNombre = category.Str("name");
+        _categoriaOrden = (int)category.Dec("sortOrder");
+        _categoriaActiva = category.Str("status") == "ACTIVE";
+        _categoriaForm = true;
+    }
+
+    private async Task GuardarCategoriaAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (_categoriaId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/expenses/categories/{id}", new { name = Nulo(_categoriaNombre), sortOrder = _categoriaOrden, isActive = _categoriaActiva });
+                Snackbar.Add("Categoría actualizada.", Severity.Success);
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>("api/v1/expenses/categories", new { name = Nulo(_categoriaNombre), parentId = _categoriaPadre, sortOrder = _categoriaOrden });
+                Snackbar.Add("Categoría creada.", Severity.Success);
+            }
+
+            _categoriaForm = false;
+            await CargarCategoriasAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+}

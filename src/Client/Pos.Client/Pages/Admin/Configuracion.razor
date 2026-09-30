@@ -1,0 +1,824 @@
+@page "/admin/configuracion"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Configuración · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Configuración" Cargando="_loading" Error="@_error">
+    <MudTabs Elevation="0" Outlined="true" TabPanelsClass="pa-3">
+        @if (Session.Has("organization.company.view"))
+        {
+            <MudTabPanel Text="Empresa">
+                @if (_errorEmpresa is not null)
+                {
+                    <MudAlert Severity="Severity.Error">@_errorEmpresa</MudAlert>
+                }
+                else if (_empresa.ValueKind == JsonValueKind.Object)
+                {
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="_cRazonSocial" Label="Razón social" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="_cNombreComercial" Label="Nombre comercial" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
+                        <MudItem xs="12" sm="4">
+                            <MudSelect T="string" @bind-Value="_cTipoPersona" Label="Tipo de persona" ReadOnly="@(!PuedeEmpresa)">
+                                <MudSelectItem T="string" Value="@("Legal")">Persona jurídica</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("Natural")">Persona natural</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="4">
+                            <MudTextField T="string" Value="@Identificacion" Label="Identificación (no se puede cambiar)" ReadOnly="true" />
+                        </MudItem>
+                        <MudItem xs="12" sm="4"><MudTextField @bind-Value="_cRegimen" Label="Régimen tributario (código)" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="_cResponsabilidades" Label="Responsabilidades fiscales (códigos separados por coma)" Immediate="true" ReadOnly="@(!PuedeEmpresa)" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="_cMunicipio" Label="Municipio (código DANE de 5 dígitos)" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
+                        <MudItem xs="12" sm="6"><MudTextField @bind-Value="_cDireccion" Label="Dirección" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
+                        <MudItem xs="12" sm="3"><MudTextField @bind-Value="_cTelefono" Label="Teléfono" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
+                        <MudItem xs="12" sm="3"><MudTextField @bind-Value="_cCorreo" Label="Correo" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
+                    </MudGrid>
+                    <MudText Typo="Typo.caption" Class="d-block mt-2">
+                        País: @_empresa.Str("countryCode") · Moneda: @_empresa.Str("currencyCode") · Zona horaria: @_empresa.Str("timezone")
+                    </MudText>
+                    @if (PuedeEmpresa)
+                    {
+                        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarEmpresaAsync">Guardar</MudButton>
+                    }
+                }
+            </MudTabPanel>
+        }
+        @if (Session.Has("organization.branch.view"))
+        {
+            <MudTabPanel Text="Sucursales y bodegas">
+                @if (_errorSucursales is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-2">@_errorSucursales</MudAlert>
+                }
+                @if (Session.Has("organization.branch.manage"))
+                {
+                    <MudButton Class="mb-2" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevaSucursal">Nueva sucursal</MudButton>
+                }
+                <MudTable Items="_sucursales" Dense="true" Hover="true" Striped="true">
+                    <HeaderContent>
+                        <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Municipio</MudTh><MudTh>Dirección</MudTh><MudTh>Teléfono</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Str("code")@(context.Bool("isHomeBranch") ? " (esta tienda)" : "")</MudTd>
+                        <MudTd>@context.Str("name")</MudTd>
+                        <MudTd>@context.Str("municipalityCode")</MudTd>
+                        <MudTd>@context.Str("address")</MudTd>
+                        <MudTd>@context.Str("phone")</MudTd>
+                        <MudTd>@Estado(context.Str("status"))</MudTd>
+                        <MudTd>
+                            <MudButton Size="Size.Small" OnClick="@(() => VerBodegasAsync(context))">Bodegas</MudButton>
+                            @if (Session.Has("organization.branch.manage"))
+                            {
+                                <MudButton Size="Size.Small" OnClick="@(() => EditarSucursal(context))">Editar</MudButton>
+                                @if (Activo(context))
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => EstadoSucursalAsync(context, "deactivate"))">Inactivar</MudButton>
+                                }
+                                else
+                                {
+                                    <MudButton Size="Size.Small" OnClick="@(() => EstadoSucursalAsync(context, "activate"))">Activar</MudButton>
+                                }
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay sucursales.</MudText></NoRecordsContent>
+                </MudTable>
+
+                @if (_sucursalBodegas.ValueKind == JsonValueKind.Object)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-4 mb-2">
+                        <MudText Typo="Typo.h6">Bodegas de @_sucursalBodegas.Str("name")</MudText>
+                        <MudSpacer />
+                        @if (Session.Has("organization.warehouse.manage"))
+                        {
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevaBodega">Nueva bodega</MudButton>
+                        }
+                    </MudStack>
+                    <MudTable Items="_bodegas" Dense="true" Hover="true" Striped="true">
+                        <HeaderContent>
+                            <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Vende</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.Str("code")</MudTd>
+                            <MudTd>@context.Str("name")</MudTd>
+                            <MudTd>@TipoBodega(context.Str("kind"))</MudTd>
+                            <MudTd>@(context.Bool("allowsSales") ? "Sí" : "No")</MudTd>
+                            <MudTd>@Estado(context.Str("status"))</MudTd>
+                            <MudTd>
+                                @if (Session.Has("organization.warehouse.manage") && Activo(context))
+                                {
+                                    <MudButton Size="Size.Small" OnClick="@(() => EditarBodega(context))">Editar</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => InactivarBodegaAsync(context))">Inactivar</MudButton>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent><MudText>La sucursal no tiene bodegas.</MudText></NoRecordsContent>
+                    </MudTable>
+                }
+            </MudTabPanel>
+        }
+        <MudTabPanel Text="Medios de pago">
+            @if (_errorMedios is not null)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-2">@_errorMedios</MudAlert>
+            }
+            @if (PuedeMedios)
+            {
+                <MudButton Class="mb-2" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevoMedio">Nuevo medio de pago</MudButton>
+            }
+            <MudTable Items="_medios" Dense="true" Hover="true" Striped="true">
+                <HeaderContent>
+                    <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Código DIAN</MudTh><MudTh>Pide referencia</MudTh><MudTh Class="num">Orden</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Str("code")@(context.Bool("isSystem") ? " (sistema)" : "")</MudTd>
+                    <MudTd>@context.Str("name")</MudTd>
+                    <MudTd>@TipoMedio(context.Str("kind"))</MudTd>
+                    <MudTd>@context.Str("dianCode")</MudTd>
+                    <MudTd>@(context.Bool("requiresReference") ? "Sí" : "No")</MudTd>
+                    <MudTd Class="num">@context.Str("sortOrder")</MudTd>
+                    <MudTd>@Estado(context.Str("status"))</MudTd>
+                    <MudTd>
+                        @if (PuedeMedios)
+                        {
+                            <MudButton Size="Size.Small" OnClick="@(() => EditarMedio(context))">Editar</MudButton>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>No hay medios de pago.</MudText></NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+        @if (Session.Has("settings.setting.view"))
+        {
+            <MudTabPanel Text="Parámetros">
+                <MudSelect T="Guid?" Value="_nivel" ValueChanged="CambiarNivelAsync" Label="Nivel" Class="mb-2" Style="max-width: 360px;">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Empresa (todas las sucursales)</MudSelectItem>
+                    @foreach (var branch in _sucursales)
+                    {
+                        <MudSelectItem T="Guid?" Value="@branch.GetProperty("id").GetGuid()">Sucursal @branch.Str("code") · @branch.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (_errorParametros is not null)
+                {
+                    <MudAlert Severity="Severity.Error" Class="mb-2">@_errorParametros</MudAlert>
+                }
+                <MudTable Items="_parametros" Dense="true" Hover="true" Striped="true" Filter="@FiltroParametro">
+                    <ToolBarContent>
+                        <MudTextField T="string" @bind-Value="_buscarParametro" Placeholder="Buscar parámetro" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" />
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh>Parámetro</MudTh><MudTh>Valor</MudTh><MudTh>Origen</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd Style="white-space: normal;">
+                            <b>@context.Str("description")</b><br />
+                            <MudText Typo="Typo.caption">@context.Str("key")</MudText>
+                        </MudTd>
+                        <MudTd Style="white-space: normal;">@Valor(context.Prop("value"))</MudTd>
+                        <MudTd>@Origen(context.Str("source"))</MudTd>
+                        <MudTd>
+                            @if (Session.Has("settings.setting.manage") && Permitido(context))
+                            {
+                                <MudButton Size="Size.Small" OnClick="@(() => EditarParametro(context))">Cambiar</MudButton>
+                                @if (context.Str("source") == Alcance)
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => QuitarParametroAsync(context))">Volver a heredar</MudButton>
+                                }
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><MudText>No hay parámetros.</MudText></NoRecordsContent>
+                </MudTable>
+            </MudTabPanel>
+        }
+    </MudTabs>
+</Pagina>
+
+@if (_panelSucursal)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@(_sucursalId is null ? "Nueva sucursal" : "Editar sucursal")</h2>
+            @if (_sucursalId is null)
+            {
+                <MudTextField @bind-Value="_bCodigo" Label="Código (p. ej. S02)" Immediate="true" />
+            }
+            <MudTextField @bind-Value="_bNombre" Label="Nombre" Immediate="true" />
+            <MudTextField @bind-Value="_bMunicipio" Label="Municipio (código DANE de 5 dígitos)" Immediate="true" />
+            <MudTextField @bind-Value="_bDireccion" Label="Dirección" Immediate="true" />
+            <MudTextField @bind-Value="_bTelefono" Label="Teléfono (opcional)" Immediate="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _panelSucursal = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarSucursalAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_panelBodega)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@(_bodegaId is null ? $"Nueva bodega en {_sucursalBodegas.Str("name")}" : "Editar bodega")</h2>
+            @if (_bodegaId is null)
+            {
+                <MudTextField @bind-Value="_wCodigo" Label="Código (p. ej. BODEGA)" Immediate="true" />
+            }
+            <MudTextField @bind-Value="_wNombre" Label="Nombre" Immediate="true" />
+            @if (_bodegaId is null)
+            {
+                <MudSelect T="string" @bind-Value="_wTipo" Label="Tipo">
+                    <MudSelectItem T="string" Value="@("SalesFloor")">Piso de venta</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Storage")">Depósito</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Damaged")">Averías</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("InTransit")">En tránsito</MudSelectItem>
+                </MudSelect>
+            }
+            <MudCheckBox T="bool" @bind-Value="_wVende" Label="Se vende desde esta bodega" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _panelBodega = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarBodegaAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_panelMedio)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@(_medioId is null ? "Nuevo medio de pago" : "Editar medio de pago")</h2>
+            @if (_medioId is null)
+            {
+                <MudTextField @bind-Value="_pCodigo" Label="Código (p. ej. QR_BANCO)" Immediate="true" />
+                <MudSelect T="string" @bind-Value="_pTipo" Label="Tipo">
+                    <MudSelectItem T="string" Value="@("DebitCard")">Tarjeta débito</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("CreditCard")">Tarjeta crédito</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Transfer")">Transferencia</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Wallet")">Billetera digital</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Voucher")">Bono</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Other")">Otro</MudSelectItem>
+                </MudSelect>
+            }
+            <MudTextField @bind-Value="_pNombre" Label="Nombre" Immediate="true" />
+            <MudTextField @bind-Value="_pDian" Label="Código DIAN del medio de pago (opcional)" Immediate="true" />
+            <MudNumericField T="int" @bind-Value="_pOrden" Label="Orden en la caja" Min="0" />
+            <MudCheckBox T="bool" @bind-Value="_pReferencia" Label="Pide referencia (aprobación del datáfono, número de transferencia)" />
+            @if (_medioId is not null)
+            {
+                <MudCheckBox T="bool" @bind-Value="_pActivo" Label="Activo" />
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _panelMedio = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarMedioAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_parametro.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>@_parametro.Str("description")</h2>
+            <MudText Typo="Typo.caption" Class="d-block mb-2">@_parametro.Str("key") · nivel: @(_nivel is null ? "empresa" : "sucursal")</MudText>
+            <MudText Typo="Typo.body2" Class="mb-2">
+                Valor actual: @Valor(_parametro.Prop("value")) (@Origen(_parametro.Str("source"))).
+                Si se quita la excepción queda: @Valor(_parametro.Prop("inheritedValue")) (@Origen(_parametro.Str("inheritedFrom"))).
+            </MudText>
+            @if (EsBooleano(_parametro.Prop("value")))
+            {
+                <MudSwitch T="bool" @bind-Value="_valorBool" Label="@(_valorBool ? "Sí" : "No")" Color="Color.Primary" />
+            }
+            else
+            {
+                <MudTextField @bind-Value="_valorTexto" Label="Nuevo valor" Immediate="true" AutoFocus="true"
+                              HelperText="@(_parametro.Prop("value").ValueKind == JsonValueKind.String ? "Texto" : "Número, lista o valor JSON")" />
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _parametro = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarParametroAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] ReservedKinds = ["EXCHANGE_CREDIT", "CUSTOMER_CREDIT", "LOYALTY_POINTS"];
+
+    private bool _loading = true, _busy;
+    private string? _error, _errorEmpresa, _errorSucursales, _errorMedios, _errorParametros;
+
+    // Empresa
+    private JsonElement _empresa;
+    private string? _cRazonSocial, _cNombreComercial, _cRegimen, _cResponsabilidades, _cMunicipio, _cDireccion, _cTelefono, _cCorreo;
+    private string _cTipoPersona = "Legal";
+
+    // Sucursales y bodegas
+    private List<JsonElement> _sucursales = [];
+    private List<JsonElement> _bodegas = [];
+    private JsonElement _sucursalBodegas;
+    private bool _panelSucursal, _panelBodega;
+    private Guid? _sucursalId, _bodegaId;
+    private string? _bCodigo, _bNombre, _bMunicipio, _bDireccion, _bTelefono, _wCodigo, _wNombre;
+    private string _wTipo = "Storage";
+    private bool _wVende;
+
+    // Medios de pago
+    private List<JsonElement> _medios = [];
+    private bool _panelMedio, _pReferencia, _pActivo = true;
+    private Guid? _medioId;
+    private string? _pCodigo, _pNombre, _pDian;
+    private string _pTipo = "Transfer";
+    private int _pOrden = 50;
+
+    // Parámetros
+    private List<JsonElement> _parametros = [];
+    private JsonElement _parametro;
+    private Guid? _nivel;
+    private string? _buscarParametro, _valorTexto;
+    private bool _valorBool;
+
+    private bool PuedeEmpresa => Session.Has("organization.company.manage");
+
+    private bool PuedeMedios => Session.Has("cash.payment_method.manage");
+
+    private string Identificacion =>
+        $"{_empresa.Str("identificationType")} {_empresa.Str("identificationNumber")}{(_empresa.Str("checkDigit").Length > 0 ? "-" + _empresa.Str("checkDigit") : "")}";
+
+    private string Alcance => _nivel is null ? "Company" : "Branch";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            if (Session.Has("organization.company.view"))
+            {
+                await CargarEmpresaAsync();
+            }
+
+            if (Session.Has("organization.branch.view"))
+            {
+                await CargarSucursalesAsync();
+            }
+
+            await CargarMediosAsync();
+            if (Session.Has("settings.setting.view"))
+            {
+                await CargarParametrosAsync();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    // ------------------------------------------------------------------------------------------ Empresa
+
+    private async Task CargarEmpresaAsync()
+    {
+        try
+        {
+            _empresa = await Api.GetAsync<JsonElement>("api/v1/organization/company");
+            _cRazonSocial = _empresa.Str("legalName");
+            _cNombreComercial = _empresa.Str("tradeName");
+            _cTipoPersona = _empresa.Str("personType") is { Length: > 0 } personType ? personType : "Legal";
+            _cRegimen = _empresa.Str("taxRegime");
+            _cResponsabilidades = string.Join(", ", _empresa.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()));
+            _cMunicipio = _empresa.Str("municipalityCode");
+            _cDireccion = _empresa.Str("address");
+            _cTelefono = _empresa.Str("phone");
+            _cCorreo = _empresa.Str("email");
+            _errorEmpresa = null;
+        }
+        catch (ApiException ex)
+        {
+            _errorEmpresa = ex.Message;
+        }
+    }
+
+    private async Task GuardarEmpresaAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PutAsync<JsonElement>("api/v1/organization/company", new
+            {
+                legalName = _cRazonSocial,
+                tradeName = _cNombreComercial,
+                personType = _cTipoPersona,
+                identificationType = _empresa.Str("identificationType"),
+                identificationNumber = _empresa.Str("identificationNumber"),
+                checkDigit = Vacio(_empresa.Str("checkDigit")),
+                taxRegime = _cRegimen,
+                fiscalResponsibilities = (_cResponsabilidades ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                municipalityCode = _cMunicipio,
+                address = _cDireccion,
+                phone = Vacio(_cTelefono),
+                email = Vacio(_cCorreo),
+            });
+            Snackbar.Add("Datos de la empresa guardados.", Severity.Success);
+            await CargarEmpresaAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    // ------------------------------------------------------------------------------------------ Sucursales y bodegas
+
+    private async Task CargarSucursalesAsync()
+    {
+        try
+        {
+            _sucursales = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
+            _errorSucursales = null;
+        }
+        catch (ApiException ex)
+        {
+            _errorSucursales = ex.Message;
+        }
+    }
+
+    private void NuevaSucursal()
+    {
+        _sucursalId = null;
+        _bCodigo = _bNombre = _bMunicipio = _bDireccion = _bTelefono = null;
+        _panelSucursal = true;
+    }
+
+    private void EditarSucursal(JsonElement branch)
+    {
+        _sucursalId = branch.GetProperty("id").GetGuid();
+        _bCodigo = branch.Str("code");
+        _bNombre = branch.Str("name");
+        _bMunicipio = branch.Str("municipalityCode");
+        _bDireccion = branch.Str("address");
+        _bTelefono = branch.Str("phone");
+        _panelSucursal = true;
+    }
+
+    private async Task GuardarSucursalAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (_sucursalId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/organization/branches/{id}", new
+                {
+                    name = _bNombre, municipalityCode = _bMunicipio, address = _bDireccion, phone = Vacio(_bTelefono),
+                });
+                Snackbar.Add("Sucursal actualizada.", Severity.Success);
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>("api/v1/organization/branches", new
+                {
+                    code = _bCodigo, name = _bNombre, municipalityCode = _bMunicipio, address = _bDireccion, phone = Vacio(_bTelefono),
+                });
+                Snackbar.Add("Sucursal creada con sus bodegas y series.", Severity.Success);
+            }
+
+            _panelSucursal = false;
+            await CargarSucursalesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task EstadoSucursalAsync(JsonElement branch, string action)
+    {
+        try
+        {
+            await Api.PostAsync($"api/v1/organization/branches/{branch.GetProperty("id").GetGuid()}/{action}");
+            Snackbar.Add(action == "activate" ? "Sucursal activada." : "Sucursal inactivada.", Severity.Success);
+            await CargarSucursalesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task VerBodegasAsync(JsonElement branch)
+    {
+        try
+        {
+            await CargarBodegasAsync(branch.GetProperty("id").GetGuid());
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task CargarBodegasAsync(Guid branchId)
+    {
+        var detail = await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{branchId}");
+        _sucursalBodegas = detail.Prop("branch");
+        _bodegas = detail.Prop("warehouses").Items();
+    }
+
+    private void NuevaBodega()
+    {
+        _bodegaId = null;
+        _wCodigo = _wNombre = null;
+        _wTipo = "Storage";
+        _wVende = false;
+        _panelBodega = true;
+    }
+
+    private void EditarBodega(JsonElement warehouse)
+    {
+        _bodegaId = warehouse.GetProperty("id").GetGuid();
+        _wNombre = warehouse.Str("name");
+        _wVende = warehouse.Bool("allowsSales");
+        _panelBodega = true;
+    }
+
+    private async Task GuardarBodegaAsync()
+    {
+        _busy = true;
+        try
+        {
+            var branchId = _sucursalBodegas.GetProperty("id").GetGuid();
+            if (_bodegaId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/organization/warehouses/{id}", new { name = _wNombre, allowsSales = _wVende });
+                Snackbar.Add("Bodega actualizada.", Severity.Success);
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>($"api/v1/organization/branches/{branchId}/warehouses", new
+                {
+                    code = _wCodigo, name = _wNombre, kind = _wTipo, allowsSales = _wVende,
+                });
+                Snackbar.Add("Bodega creada.", Severity.Success);
+            }
+
+            _panelBodega = false;
+            await CargarBodegasAsync(branchId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task InactivarBodegaAsync(JsonElement warehouse)
+    {
+        try
+        {
+            await Api.PostAsync($"api/v1/organization/warehouses/{warehouse.GetProperty("id").GetGuid()}/deactivate");
+            Snackbar.Add("Bodega inactivada.", Severity.Success);
+            await CargarBodegasAsync(_sucursalBodegas.GetProperty("id").GetGuid());
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------ Medios de pago
+
+    private async Task CargarMediosAsync()
+    {
+        try
+        {
+            _medios = [.. (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods?includeInactive=true")).Items()
+                .Where(m => !ReservedKinds.Contains(m.Str("kind")))
+                .OrderBy(m => m.Dec("sortOrder"))];
+            _errorMedios = null;
+        }
+        catch (ApiException ex)
+        {
+            _errorMedios = ex.Message;
+        }
+    }
+
+    private void NuevoMedio()
+    {
+        _medioId = null;
+        _pCodigo = _pNombre = _pDian = null;
+        _pTipo = "Transfer";
+        _pOrden = 50;
+        _pReferencia = false;
+        _pActivo = true;
+        _panelMedio = true;
+    }
+
+    private void EditarMedio(JsonElement method)
+    {
+        _medioId = method.GetProperty("id").GetGuid();
+        _pNombre = method.Str("name");
+        _pDian = method.Str("dianCode");
+        _pOrden = (int)method.Dec("sortOrder");
+        _pReferencia = method.Bool("requiresReference");
+        _pActivo = method.Str("status") == "ACTIVE";
+        _panelMedio = true;
+    }
+
+    private async Task GuardarMedioAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (_medioId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/cash/payment-methods/{id}", new
+                {
+                    name = _pNombre, dianCode = Vacio(_pDian), requiresReference = _pReferencia, sortOrder = _pOrden, isActive = _pActivo,
+                });
+                Snackbar.Add("Medio de pago actualizado.", Severity.Success);
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>("api/v1/cash/payment-methods", new
+                {
+                    code = _pCodigo, name = _pNombre, kind = _pTipo, dianCode = Vacio(_pDian), requiresReference = _pReferencia, sortOrder = _pOrden,
+                });
+                Snackbar.Add("Medio de pago creado.", Severity.Success);
+            }
+
+            _panelMedio = false;
+            await CargarMediosAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    // ------------------------------------------------------------------------------------------ Parámetros
+
+    private async Task CargarParametrosAsync()
+    {
+        try
+        {
+            var query = _nivel is { } branchId ? $"?branchId={branchId}" : "";
+            _parametros = [.. (await Api.GetAsync<JsonElement>("api/v1/settings" + query)).Items().OrderBy(s => s.Str("key"), StringComparer.Ordinal)];
+            _errorParametros = null;
+        }
+        catch (ApiException ex)
+        {
+            _errorParametros = ex.Message;
+        }
+    }
+
+    private async Task CambiarNivelAsync(Guid? nivel)
+    {
+        _nivel = nivel;
+        await CargarParametrosAsync();
+    }
+
+    private bool FiltroParametro(JsonElement setting) =>
+        string.IsNullOrWhiteSpace(_buscarParametro)
+        || setting.Str("key").Contains(_buscarParametro, StringComparison.OrdinalIgnoreCase)
+        || setting.Str("description").Contains(_buscarParametro, StringComparison.OrdinalIgnoreCase);
+
+    private bool Permitido(JsonElement setting) => setting.Prop("allowedScopes").Items().Any(s => s.ToString() == Alcance);
+
+    private void EditarParametro(JsonElement setting)
+    {
+        var value = setting.Prop("value");
+        _valorBool = value.ValueKind == JsonValueKind.True;
+        _valorTexto = value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Null or JsonValueKind.Undefined => "",
+            _ => value.GetRawText(),
+        };
+        _parametro = setting;
+    }
+
+    private async Task GuardarParametroAsync()
+    {
+        JsonElement value;
+        var current = _parametro.Prop("value");
+        if (EsBooleano(current))
+        {
+            value = JsonSerializer.SerializeToElement(_valorBool);
+        }
+        else if (current.ValueKind == JsonValueKind.String)
+        {
+            value = JsonSerializer.SerializeToElement(_valorTexto ?? "");
+        }
+        else
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(_valorTexto) ? "null" : _valorTexto);
+                value = document.RootElement.Clone();
+            }
+            catch (JsonException)
+            {
+                Snackbar.Add("El valor no tiene un formato válido: escriba un número (con punto decimal), una lista o un valor JSON.", Severity.Error);
+                return;
+            }
+        }
+
+        _busy = true;
+        try
+        {
+            await Api.PutAsync<JsonElement?>($"api/v1/settings/{Uri.EscapeDataString(_parametro.Str("key"))}", new { scope = Alcance, scopeId = _nivel, value });
+            Snackbar.Add("Parámetro guardado.", Severity.Success);
+            _parametro = default;
+            await CargarParametrosAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task QuitarParametroAsync(JsonElement setting)
+    {
+        try
+        {
+            var scopeId = _nivel is { } id ? $"&scopeId={id}" : "";
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/settings/{Uri.EscapeDataString(setting.Str("key"))}?scope={Alcance}{scopeId}", null);
+            Snackbar.Add("Excepción eliminada: el parámetro vuelve a heredar.", Severity.Success);
+            await CargarParametrosAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------ Comunes
+
+    private static string? Vacio(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool Activo(JsonElement element) => string.Equals(element.Str("status"), "Active", StringComparison.OrdinalIgnoreCase);
+
+    private static bool EsBooleano(JsonElement value) => value.ValueKind is JsonValueKind.True or JsonValueKind.False;
+
+    private static string Estado(string status) => status.ToUpperInvariant() switch
+    {
+        "ACTIVE" => "Activo",
+        "INACTIVE" => "Inactivo",
+        "BLOCKED" => "Bloqueado",
+        _ => status,
+    };
+
+    private static string TipoBodega(string kind) => kind switch
+    {
+        "SalesFloor" => "Piso de venta",
+        "Storage" => "Depósito",
+        "Damaged" => "Averías",
+        "InTransit" => "En tránsito",
+        _ => kind,
+    };
+
+    private static string TipoMedio(string kind) => kind switch
+    {
+        "CASH" => "Efectivo",
+        "DEBIT_CARD" => "Tarjeta débito",
+        "CREDIT_CARD" => "Tarjeta crédito",
+        "TRANSFER" => "Transferencia",
+        "WALLET" => "Billetera digital",
+        "VOUCHER" => "Bono",
+        "OTHER" => "Otro",
+        _ => kind,
+    };
+
+    private static string Origen(string source) => source switch
+    {
+        "Default" => "valor por defecto",
+        "Company" => "empresa",
+        "Branch" => "sucursal",
+        "Terminal" => "caja",
+        _ => source,
+    };
+
+    private static string Valor(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString() ?? "",
+        JsonValueKind.True => "Sí",
+        JsonValueKind.False => "No",
+        JsonValueKind.Null or JsonValueKind.Undefined => "—",
+        _ => value.GetRawText(),
+    };
+}

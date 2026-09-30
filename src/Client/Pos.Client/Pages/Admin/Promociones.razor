@@ -1,0 +1,714 @@
+@page "/admin/promociones"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Promociones · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Promociones" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("promotions.promotion.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="NuevaAsync">Nueva promoción</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Las promociones se aplican solas en la caja mientras están activas y vigentes. Solo el encargado las crea y administra; una promoción activa no se edita:
+            se pausa o se termina y se crea otra.
+        </MudText>
+        <MudSelect T="string" Value="_statusFilter" ValueChanged="@(v => FiltrarAsync(v))" Label="Estado" Style="max-width: 220px" Class="mb-3">
+            <MudSelectItem T="string" Value="@("")">Todas</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Draft")">Borradores</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Active")">Activas</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Paused")">Pausadas</MudSelectItem>
+            <MudSelectItem T="string" Value="@("Ended")">Terminadas</MudSelectItem>
+        </MudSelect>
+        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Número</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Estado</MudTh><MudTh>Desde</MudTh><MudTh>Hasta</MudTh><MudTh>Rige ahora</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Str("number")</MudTd>
+                <MudTd>@context.Str("name")</MudTd>
+                <MudTd>@NombreTipo(context.Str("type"))</MudTd>
+                <MudTd>@NombreEstado(context.Str("status"))</MudTd>
+                <MudTd>@Format.Date(context.Date("validFrom"))</MudTd>
+                <MudTd>@Format.Date(context.Date("validTo"))</MudTd>
+                <MudTd>@(context.Bool("inEffectNow") ? "Sí" : "No")</MudTd>
+                <MudTd>
+                    @if (Session.Has("promotions.promotion.manage"))
+                    {
+                        var status = context.Str("status");
+                        <MudButton Size="Size.Small" OnClick="@(() => SimularAsync(context))">Simular</MudButton>
+                        @if (status == "DRAFT")
+                        {
+                            <MudButton Size="Size.Small" OnClick="@(() => EditarAsync(context))">Editar</MudButton>
+                        }
+                        @if (status is "DRAFT" or "PAUSED")
+                        {
+                            <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => AccionAsync(context, "activate", "Promoción activada."))">Activar</MudButton>
+                        }
+                        @if (status == "ACTIVE")
+                        {
+                            <MudButton Size="Size.Small" OnClick="@(() => AccionAsync(context, "pause", "Promoción pausada."))">Pausar</MudButton>
+                        }
+                        @if (status is "DRAFT" or "ACTIVE" or "PAUSED")
+                        {
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => _terminar = context)">Terminar</MudButton>
+                        }
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>No hay promociones.</MudText></NoRecordsContent>
+        </MudTable>
+    </ChildContent>
+</Pagina>
+
+@if (_form)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(760px, 96vw)">
+            <h2>@(_editId is null ? "Nueva promoción" : "Editar promoción")</h2>
+            <MudTextField @bind-Value="_name" Label="Nombre (3 a 80 caracteres)" Immediate="true" />
+            <MudSelect T="string" @bind-Value="_type" Label="Tipo de promoción">
+                @foreach (var type in Tipos)
+                {
+                    <MudSelectItem T="string" Value="@type.Value">@type.Label</MudSelectItem>
+                }
+            </MudSelect>
+
+            @switch (_type)
+            {
+                case "MultiBuy":
+                    <MudStack Row="true">
+                        <MudNumericField T="int" @bind-Value="_buy" Label="Lleve (unidades)" Min="2" Max="100" />
+                        <MudNumericField T="int" @bind-Value="_pay" Label="Pague (unidades)" Min="0" />
+                    </MudStack>
+                    break;
+                case "SpecialPrice":
+                    <MudNumericField T="decimal" @bind-Value="_price" Label="Precio especial por unidad (IVA incluido)" Min="0" />
+                    break;
+                case "PercentOff":
+                    <MudNumericField T="decimal" @bind-Value="_percent" Label="Porcentaje de descuento" Min="0" Max="100" Adornment="Adornment.End" AdornmentText="%" />
+                    break;
+                case "QuantityPrice":
+                    <MudStack Row="true">
+                        <MudNumericField T="decimal" @bind-Value="_minQty" Label="Desde (cantidad)" Min="0" />
+                        <MudNumericField T="decimal" @bind-Value="_price" Label="Precio por unidad (IVA incluido)" Min="0" />
+                    </MudStack>
+                    break;
+                case "Combo":
+                    <MudNumericField T="decimal" @bind-Value="_price" Label="Precio del combo (IVA incluido)" Min="0" />
+                    <MudText Typo="Typo.caption">El combo lleva dos o más productos distintos; la cantidad de cada uno se indica en la lista.</MudText>
+                    break;
+            }
+
+            <MudText Typo="Typo.subtitle2" Class="mt-3">@(_type == "Combo" ? "Productos del combo" : "Aplica a")</MudText>
+            @if (_itemsForm.Count == 0)
+            {
+                <MudText Typo="Typo.body2">Agregue al menos un producto@(_type == "Combo" ? "" : ", categoría o marca").</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true">
+                    <tbody>
+                        @foreach (var item in _itemsForm)
+                        {
+                            <tr>
+                                <td>@item.Kind</td>
+                                <td>@item.Label</td>
+                                <td style="width: 130px">
+                                    @if (_type == "Combo")
+                                    {
+                                        <MudNumericField T="decimal" @bind-Value="item.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" />
+                                    }
+                                </td>
+                                <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="@(() => _itemsForm.Remove(item))" /></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudSelect T="string" @bind-Value="_itemKind" Label="Agregar" Style="max-width: 160px">
+                    <MudSelectItem T="string" Value="@("product")">Producto</MudSelectItem>
+                    @if (_type != "Combo")
+                    {
+                        <MudSelectItem T="string" Value="@("category")">Categoría</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("brand")">Marca</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (_itemKind == "category" && _type != "Combo")
+                {
+                    <MudSelect T="Guid?" @bind-Value="_categorySel" Label="Categoría (incluye sus subcategorías)">
+                        @foreach (var category in _categories)
+                        {
+                            <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" OnClick="AgregarCategoria">Agregar</MudButton>
+                }
+                else if (_itemKind == "brand" && _type != "Combo")
+                {
+                    <MudSelect T="Guid?" @bind-Value="_brandSel" Label="Marca">
+                        @foreach (var brand in _brands)
+                        {
+                            <MudSelectItem T="Guid?" Value="@brand.GetProperty("id").GetGuid()">@brand.Str("name")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Size="Size.Small" OnClick="AgregarMarca">Agregar</MudButton>
+                }
+                else
+                {
+                    <MudTextField T="string" @bind-Value="_productSearch" Label="Buscar producto por nombre, SKU o código" Immediate="true" DebounceInterval="350"
+                                  OnDebounceIntervalElapsed="@(_ => BuscarProductosAsync())" />
+                }
+            </MudStack>
+            @if ((_itemKind == "product" || _type == "Combo") && _productResults.Count > 0)
+            {
+                <MudSimpleTable Dense="true">
+                    <tbody>
+                        @foreach (var product in _productResults)
+                        {
+                            <tr>
+                                <td>@product.Str("sku")</td>
+                                <td>@product.Str("name")</td>
+                                <td class="num">@Format.Money(product.Dec("price"))</td>
+                                <td><MudButton Size="Size.Small" OnClick="@(() => AgregarProducto(product))">Agregar</MudButton></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+
+            <MudText Typo="Typo.subtitle2" Class="mt-3">Vigencia</MudText>
+            <MudStack Row="true">
+                <MudDatePicker @bind-Date="_desde" Label="Desde el día" DateFormat="dd/MM/yyyy" />
+                <MudDatePicker @bind-Date="_hasta" Label="Hasta el día, inclusive (opcional)" DateFormat="dd/MM/yyyy" />
+            </MudStack>
+            <MudText Typo="Typo.caption">Días de la semana (ninguno marcado = todos los días)</MudText>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="0">
+                @foreach (var day in Dias)
+                {
+                    <MudCheckBox T="bool" Value="@_dias.Contains(day.Day)" ValueChanged="@((bool v) => CambiarDia(day.Day, v))" Label="@day.Label" />
+                }
+            </MudStack>
+            <MudStack Row="true">
+                <MudTimePicker @bind-Time="_horaDesde" Label="Desde la hora (opcional)" />
+                <MudTimePicker @bind-Time="_horaHasta" Label="Hasta la hora (opcional)" />
+            </MudStack>
+            <MudStack Row="true">
+                <MudNumericField T="int?" @bind-Value="_maxApp" Label="Máximo de aplicaciones por venta (opcional)" Min="1" />
+                <MudTextField @bind-Value="_ticket" Label="Texto en el tiquete (opcional, 40 caracteres)" MaxLength="40" Immediate="true" />
+            </MudStack>
+            @if (_branchIds.Count > 0)
+            {
+                <MudText Typo="Typo.caption">Rige solo en @_branchIds.Count sucursal(es) elegidas; se conservan.</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.caption">Rige en todas las sucursales.</MudText>
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _form = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarAsync">Guardar borrador</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_terminar.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Terminar @_terminar.Str("name")</h2>
+            <MudText>Una promoción terminada deja de aplicarse y no se puede volver a activar. ¿Terminarla?</MudText>
+            <div class="acciones">
+                <MudButton OnClick="@(() => _terminar = default)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="TerminarAsync">Terminar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_simular.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width: min(860px, 96vw)">
+            <h2>Simular: @_simular.Str("name")</h2>
+            <MudText Typo="Typo.body2">Venta de ejemplo calculada con el mismo motor de la caja. No se guarda nada.</MudText>
+            <MudSimpleTable Dense="true" Class="mt-2">
+                <tbody>
+                    @foreach (var line in _lineas)
+                    {
+                        <tr>
+                            <td>@line.Label</td>
+                            <td style="width: 140px"><MudNumericField T="decimal" @bind-Value="line.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" /></td>
+                            <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="@(() => _lineas.Remove(line))" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudTextField T="string" @bind-Value="_productSearch" Label="Agregar producto (nombre, SKU o código)" Immediate="true" DebounceInterval="350"
+                          OnDebounceIntervalElapsed="@(_ => BuscarProductosAsync())" />
+            @if (_productResults.Count > 0)
+            {
+                <MudSimpleTable Dense="true">
+                    <tbody>
+                        @foreach (var product in _productResults)
+                        {
+                            <tr>
+                                <td>@product.Str("sku")</td>
+                                <td>@product.Str("name")</td>
+                                <td class="num">@Format.Money(product.Dec("price"))</td>
+                                <td><MudButton Size="Size.Small" OnClick="@(() => AgregarLinea(product))">Agregar</MudButton></td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            @if (_resultado.ValueKind == JsonValueKind.Object)
+            {
+                <MudText Typo="Typo.h6" Class="mt-3">Resultado</MudText>
+                <div style="overflow-x: auto">
+                    <MudSimpleTable Dense="true">
+                        <thead>
+                            <tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Bruto</th><th>Promoción</th><th class="num">Descuento</th><th class="num">Total</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in _resultado.Prop("lines").Items())
+                            {
+                                <tr>
+                                    <td>@line.Str("sku") · @line.Str("name")</td>
+                                    <td class="num">@Format.Quantity(line.Dec("quantity"))</td>
+                                    <td class="num">@Format.Money(line.Dec("unitPrice"))</td>
+                                    <td class="num">@Format.Money(line.Dec("gross"))</td>
+                                    <td>@line.Str("promotionName")</td>
+                                    <td class="num">@Format.Money(line.Dec("promotionDiscount"))</td>
+                                    <td class="num">@Format.Money(line.Dec("total"))</td>
+                                </tr>
+                            }
+                            <tr>
+                                <td colspan="3"><b>Totales</b></td>
+                                <td class="num"><b>@Format.Money(_resultado.Dec("gross"))</b></td>
+                                <td></td>
+                                <td class="num"><b>@Format.Money(_resultado.Dec("promotionTotal"))</b></td>
+                                <td class="num"><b>@Format.Money(_resultado.Dec("total"))</b></td>
+                            </tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _simular = default)">Cerrar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="EjecutarSimulacionAsync">Simular</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly (string Value, string Code, string Label)[] Tipos =
+    [
+        ("MultiBuy", "MULTI_BUY", "Lleve N pague M"),
+        ("SpecialPrice", "SPECIAL_PRICE", "Precio especial"),
+        ("PercentOff", "PERCENT_OFF", "Descuento en porcentaje"),
+        ("QuantityPrice", "QUANTITY_PRICE", "Precio por cantidad"),
+        ("Combo", "COMBO", "Combo a precio fijo"),
+    ];
+
+    private static readonly (DayOfWeek Day, string Label)[] Dias =
+    [
+        (DayOfWeek.Monday, "Lun"), (DayOfWeek.Tuesday, "Mar"), (DayOfWeek.Wednesday, "Mié"), (DayOfWeek.Thursday, "Jue"),
+        (DayOfWeek.Friday, "Vie"), (DayOfWeek.Saturday, "Sáb"), (DayOfWeek.Sunday, "Dom"),
+    ];
+
+    private List<JsonElement> _items = [];
+    private List<JsonElement> _categories = [];
+    private List<JsonElement> _brands = [];
+    private List<JsonElement> _productResults = [];
+    private List<ItemForm> _itemsForm = [];
+    private List<LineaForm> _lineas = [];
+    private List<Guid> _branchIds = [];
+    private HashSet<DayOfWeek> _dias = [];
+    private string _statusFilter = "", _type = "SpecialPrice", _itemKind = "product";
+    private string? _error, _name, _ticket, _productSearch;
+    private bool _loading = true, _busy, _form;
+    private Guid? _editId, _categorySel, _brandSel;
+    private DateTime? _desde, _hasta;
+    private TimeSpan? _horaDesde, _horaHasta;
+    private int _buy = 3, _pay = 2;
+    private int? _maxApp;
+    private decimal _price, _percent, _minQty;
+    private JsonElement _terminar, _simular, _resultado;
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            var filter = string.IsNullOrEmpty(_statusFilter) ? "" : $"?status={_statusFilter}";
+            _items = (await Api.GetAsync<JsonElement>($"api/v1/promotions{filter}")).Items();
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private Task FiltrarAsync(string status)
+    {
+        _statusFilter = status;
+        return CargarAsync();
+    }
+
+    private static string NombreTipo(string code) => Tipos.FirstOrDefault(t => t.Code == code).Label ?? code;
+
+    private static string NombreEstado(string status) => status switch
+    {
+        "DRAFT" => "Borrador",
+        "ACTIVE" => "Activa",
+        "PAUSED" => "Pausada",
+        "ENDED" => "Terminada",
+        _ => status,
+    };
+
+    private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task<bool> CargarMaestrosAsync()
+    {
+        try
+        {
+            if (_categories.Count == 0)
+            {
+                _categories = (await Api.GetAsync<JsonElement>("api/v1/catalog/categories")).Items();
+            }
+
+            if (_brands.Count == 0)
+            {
+                _brands = (await Api.GetAsync<JsonElement>("api/v1/catalog/brands")).Items();
+            }
+
+            return true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return false;
+        }
+    }
+
+    private async Task NuevaAsync()
+    {
+        if (!await CargarMaestrosAsync())
+        {
+            return;
+        }
+
+        _editId = null;
+        _name = _ticket = _productSearch = null;
+        _type = "SpecialPrice";
+        _itemKind = "product";
+        _buy = 3;
+        _pay = 2;
+        _price = _percent = _minQty = 0;
+        _maxApp = null;
+        _desde = DateTime.Today;
+        _hasta = null;
+        _horaDesde = _horaHasta = null;
+        _dias = [];
+        _branchIds = [];
+        _itemsForm = [];
+        _productResults = [];
+        _form = true;
+    }
+
+    private async Task EditarAsync(JsonElement row)
+    {
+        if (!await CargarMaestrosAsync())
+        {
+            return;
+        }
+
+        try
+        {
+            var promotion = await Api.GetAsync<JsonElement>($"api/v1/promotions/{row.GetProperty("id").GetGuid()}");
+            _editId = promotion.GetProperty("id").GetGuid();
+            _name = promotion.Str("name");
+            _type = Tipos.FirstOrDefault(t => t.Code == promotion.Str("type")).Value ?? "SpecialPrice";
+            _buy = (int)promotion.Dec("buyQuantity");
+            _pay = (int)promotion.Dec("payQuantity");
+            _price = promotion.Dec("price");
+            _percent = promotion.Dec("percent");
+            _minQty = promotion.Dec("minQuantity");
+            _maxApp = promotion.Dec("maxApplications") is > 0 and var max ? (int)max : null;
+            _ticket = Nulo(promotion.Str("ticketText"));
+            _desde = promotion.Date("validFrom")?.ToLocalTime().Date;
+            _hasta = promotion.Date("validTo") is { } to ? to.ToLocalTime().AddTicks(-1).Date : null;
+            _horaDesde = Hora(promotion.Str("startTime"));
+            _horaHasta = Hora(promotion.Str("endTime"));
+            var days = promotion.Prop("days").Items().Select(d => Enum.TryParse<DayOfWeek>(d.ToString(), true, out var day) ? day : (DayOfWeek?)null)
+                .OfType<DayOfWeek>().ToHashSet();
+            if (days.Count == 7)
+            {
+                days.Clear();
+            }
+
+            _dias = days;
+            _branchIds = promotion.Prop("branchIds").Items().Select(b => b.GetGuid()).ToList();
+            _itemsForm = promotion.Prop("items").Items().Select(i => new ItemForm
+            {
+                ProductId = Guid.TryParse(i.Str("productId"), out var p) ? p : null,
+                CategoryId = Guid.TryParse(i.Str("categoryId"), out var c) ? c : null,
+                BrandId = Guid.TryParse(i.Str("brandId"), out var b) ? b : null,
+                Kind = i.Str("productId").Length > 0 ? "Producto" : i.Str("categoryId").Length > 0 ? "Categoría" : "Marca",
+                Label = i.Str("productName") is { Length: > 0 } pn ? pn : i.Str("categoryName") is { Length: > 0 } cn ? cn : i.Str("brandName"),
+                Quantity = i.Dec("quantity") > 0 ? i.Dec("quantity") : 1m,
+            }).ToList();
+            _itemKind = "product";
+            _productSearch = null;
+            _productResults = [];
+            _form = true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private static TimeSpan? Hora(string value) =>
+        TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time.ToTimeSpan() : null;
+
+    private void CambiarDia(DayOfWeek day, bool selected)
+    {
+        if (selected)
+        {
+            _dias.Add(day);
+        }
+        else
+        {
+            _dias.Remove(day);
+        }
+    }
+
+    private async Task BuscarProductosAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_productSearch))
+        {
+            _productResults = [];
+            return;
+        }
+
+        try
+        {
+            _productResults = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(_productSearch)}")).Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void AgregarProducto(JsonElement product)
+    {
+        var id = product.GetProperty("id").GetGuid();
+        if (_itemsForm.All(i => i.ProductId != id))
+        {
+            _itemsForm.Add(new ItemForm { ProductId = id, Kind = "Producto", Label = $"{product.Str("sku")} · {product.Str("name")}", Quantity = 1m });
+        }
+    }
+
+    private void AgregarCategoria()
+    {
+        if (_categorySel is { } id && _itemsForm.All(i => i.CategoryId != id))
+        {
+            _itemsForm.Add(new ItemForm { CategoryId = id, Kind = "Categoría", Label = _categories.First(c => c.GetProperty("id").GetGuid() == id).Str("path"), Quantity = 1m });
+        }
+    }
+
+    private void AgregarMarca()
+    {
+        if (_brandSel is { } id && _itemsForm.All(i => i.BrandId != id))
+        {
+            _itemsForm.Add(new ItemForm { BrandId = id, Kind = "Marca", Label = _brands.First(b => b.GetProperty("id").GetGuid() == id).Str("name"), Quantity = 1m });
+        }
+    }
+
+    private async Task GuardarAsync()
+    {
+        if (_desde is not { } desde)
+        {
+            Snackbar.Add("Indique desde qué día rige la promoción.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var combo = _type == "Combo";
+            var body = new
+            {
+                name = Nulo(_name),
+                type = _type,
+                validFrom = new DateTimeOffset(desde.Date),
+                validTo = _hasta is { } hasta ? new DateTimeOffset(hasta.Date.AddDays(1)) : (DateTimeOffset?)null,
+                days = _dias.Count is 0 or 7 ? null : Dias.Where(d => _dias.Contains(d.Day)).Select(d => d.Day.ToString()).ToList(),
+                startTime = _horaDesde is { } start ? TimeOnly.FromTimeSpan(start) : (TimeOnly?)null,
+                endTime = _horaHasta is { } end ? TimeOnly.FromTimeSpan(end) : (TimeOnly?)null,
+                branchIds = _branchIds,
+                maxApplications = _maxApp,
+                ticketText = Nulo(_ticket),
+                buyQuantity = _type == "MultiBuy" ? _buy : (int?)null,
+                payQuantity = _type == "MultiBuy" ? _pay : (int?)null,
+                price = _type is "SpecialPrice" or "QuantityPrice" or "Combo" ? _price : (decimal?)null,
+                percent = _type == "PercentOff" ? _percent : (decimal?)null,
+                minQuantity = _type == "QuantityPrice" ? _minQty : (decimal?)null,
+                items = _itemsForm
+                    .Where(i => !combo || i.ProductId is not null)
+                    .Select(i => new { productId = i.ProductId, packagingId = (Guid?)null, categoryId = i.CategoryId, brandId = i.BrandId, quantity = combo ? i.Quantity : 1m })
+                    .ToList(),
+            };
+            if (_editId is { } id)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/promotions/{id}", body);
+                Snackbar.Add("Promoción actualizada.", Severity.Success);
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>("api/v1/promotions", body);
+                Snackbar.Add("Promoción creada en borrador. Simúlela y actívela cuando esté lista.", Severity.Success);
+            }
+
+            _form = false;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task AccionAsync(JsonElement promotion, string action, string message)
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/promotions/{promotion.GetProperty("id").GetGuid()}/{action}");
+            Snackbar.Add(message, Severity.Success);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task TerminarAsync()
+    {
+        var promotion = _terminar;
+        _terminar = default;
+        await AccionAsync(promotion, "end", "Promoción terminada.");
+    }
+
+    private async Task SimularAsync(JsonElement row)
+    {
+        try
+        {
+            var promotion = await Api.GetAsync<JsonElement>($"api/v1/promotions/{row.GetProperty("id").GetGuid()}");
+            var type = promotion.Str("type");
+            _lineas = promotion.Prop("items").Items()
+                .Where(i => i.Str("productId").Length > 0)
+                .Select(i => new LineaForm
+                {
+                    ProductId = i.GetProperty("productId").GetGuid(),
+                    Label = i.Str("productName"),
+                    Quantity = type switch
+                    {
+                        "MULTI_BUY" => promotion.Dec("buyQuantity"),
+                        "QUANTITY_PRICE" => promotion.Dec("minQuantity"),
+                        "COMBO" => i.Dec("quantity"),
+                        _ => 1m,
+                    },
+                })
+                .ToList();
+            _productSearch = null;
+            _productResults = [];
+            _resultado = default;
+            _simular = promotion;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void AgregarLinea(JsonElement product)
+    {
+        var id = product.GetProperty("id").GetGuid();
+        if (_lineas.FirstOrDefault(l => l.ProductId == id) is { } line)
+        {
+            line.Quantity += 1m;
+        }
+        else
+        {
+            _lineas.Add(new LineaForm { ProductId = id, Label = $"{product.Str("sku")} · {product.Str("name")}", Quantity = 1m });
+        }
+    }
+
+    private async Task EjecutarSimulacionAsync()
+    {
+        if (_lineas.Count == 0)
+        {
+            Snackbar.Add("Agregue al menos un producto a la venta de ejemplo.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _resultado = await Api.PostAsync<JsonElement>(
+                $"api/v1/promotions/{_simular.GetProperty("id").GetGuid()}/simulate",
+                _lineas.Select(l => new { productId = l.ProductId, packagingId = (Guid?)null, quantity = l.Quantity }).ToList());
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private sealed class ItemForm
+    {
+        public Guid? ProductId { get; init; }
+
+        public Guid? CategoryId { get; init; }
+
+        public Guid? BrandId { get; init; }
+
+        public string Kind { get; init; } = "";
+
+        public string Label { get; init; } = "";
+
+        public decimal Quantity { get; set; } = 1m;
+    }
+
+    private sealed class LineaForm
+    {
+        public Guid ProductId { get; init; }
+
+        public string Label { get; init; } = "";
+
+        public decimal Quantity { get; set; } = 1m;
+    }
+}

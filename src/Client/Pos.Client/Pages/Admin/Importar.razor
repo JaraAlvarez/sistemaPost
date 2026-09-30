@@ -1,0 +1,224 @@
+@page "/admin/importar"
+@inject ApiClient Api
+@inject SessionState Session
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+<PageTitle>Importar · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Importar desde Excel" Cargando="false" Error="@null">
+    <ChildContent>
+        @if (Session.Has("catalog.import.run"))
+        {
+            <MudText Typo="Typo.h6" Class="mb-2">Productos y precios</MudText>
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Descargue la plantilla, llénela en Excel y súbala (.xlsx o .csv). Primero se muestra la vista previa fila por fila; nada cambia
+                hasta que pulse <b>Aplicar</b>, y solo se aplica si ninguna fila tiene errores.
+            </MudText>
+            <MudStack Row="true" Wrap="Wrap.Wrap" Class="mb-4">
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Download" OnClick="@(() => PlantillaAsync("products"))">Plantilla de productos</MudButton>
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Download" OnClick="@(() => PlantillaAsync("prices"))">Plantilla de precios</MudButton>
+                <MudFileUpload T="IBrowserFile" Accept=".xlsx,.csv" FilesChanged="@(f => SubirAsync("products", f))" MaximumFileCount="1">
+                    <CustomContent Context="upload">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="_busy" OnClick="@upload.OpenFilePickerAsync">Subir productos</MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+                <MudFileUpload T="IBrowserFile" Accept=".xlsx,.csv" FilesChanged="@(f => SubirAsync("prices", f))" MaximumFileCount="1">
+                    <CustomContent Context="upload">
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="_busy" OnClick="@upload.OpenFilePickerAsync">Subir precios</MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+            </MudStack>
+
+            @if (_batch.ValueKind == JsonValueKind.Object)
+            {
+                <MudPaper Outlined="true" Class="pa-4 mb-6">
+                    <MudText Typo="Typo.subtitle1">
+                        @_batch.Str("fileName") · @_batch.Dec("totalRows") filas: @_batch.Dec("createRows") nuevas, @_batch.Dec("updateRows") cambian,
+                        @_batch.Dec("unchangedRows") sin cambios, <b>@_batch.Dec("errorRows") con errores</b>. Estado: @Estado(_batch.Str("status"))
+                    </MudText>
+                    @if (_batch.Str("status") == "PREVIEW")
+                    {
+                        <div class="acciones mb-2">
+                            <MudButton OnClick="DescartarAsync" Disabled="_busy">Descartar</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _batch.Dec("errorRows") > 0)" OnClick="AplicarAsync">Aplicar</MudButton>
+                        </div>
+                    }
+                    <MudTable Items="Filas" Dense="true" Striped="true" Height="420px" FixedHeader="true">
+                        <HeaderContent><MudTh>Fila</MudTh><MudTh>Acción</MudTh><MudTh>Producto</MudTh><MudTh>Errores y avisos</MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.Dec("rowNumber")</MudTd>
+                            <MudTd>@Accion(context.Str("action"))</MudTd>
+                            <MudTd>@context.Str("key")</MudTd>
+                            <MudTd>
+                                @foreach (var e in context.Prop("errors").Items())
+                                {
+                                    <div style="color:var(--mud-palette-error)">@e.GetString()</div>
+                                }
+                                @foreach (var w in context.Prop("warnings").Items())
+                                {
+                                    <div style="color:var(--mud-palette-warning)">@w.GetString()</div>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudPaper>
+            }
+        }
+
+        @if (Session.Has("inventory.adjustment.manage"))
+        {
+            <MudText Typo="Typo.h6" Class="mb-2">Saldo inicial de inventario</MudText>
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Archivo con las columnas <b>sku</b> (o <b>codigo_barras</b>), <b>cantidad</b> y <b>costo</b> (costo unitario). Se crea un ajuste en
+                borrador en la bodega principal de la sucursal; revíselo y publíquelo en <MudLink Href="/admin/ajustes">Ajustes</MudLink>.
+            </MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                <MudSelect T="Guid?" @bind-Value="_warehouse" Label="Sucursal" Style="min-width:260px">
+                    @foreach (var branch in _branches.Where(b => b.Str("defaultWarehouseId").Length > 0))
+                    {
+                        <MudSelectItem T="Guid?" Value="@Guid.Parse(branch.Str("defaultWarehouseId"))">@branch.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudFileUpload T="IBrowserFile" Accept=".xlsx,.csv" FilesChanged="SaldoInicialAsync" MaximumFileCount="1">
+                    <CustomContent Context="upload">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="@(_busy || _warehouse is null)"
+                                   OnClick="@upload.OpenFilePickerAsync">Subir saldo inicial</MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+            </MudStack>
+        }
+    </ChildContent>
+</Pagina>
+
+@code {
+    private const long MaxFileBytes = 20 * 1024 * 1024;
+    private JsonElement _batch;
+    private List<JsonElement> _branches = [];
+    private Guid? _warehouse;
+    private bool _busy;
+
+    private List<JsonElement> Filas => _batch.Prop("rows").Items().Where(r => r.Prop("errors").Items().Count > 0 || r.Prop("warnings").Items().Count > 0 || r.Str("action") != "UNCHANGED").Take(500).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Has("inventory.adjustment.manage"))
+        {
+            try
+            {
+                _branches = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
+                _warehouse = _branches.Count == 1 && Guid.TryParse(_branches[0].Str("defaultWarehouseId"), out var w) ? w : null;
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    private static string Estado(string status) => status switch
+    {
+        "PREVIEW" => "vista previa",
+        "APPLIED" => "aplicada",
+        "DISCARDED" => "descartada",
+        _ => status,
+    };
+
+    private static string Accion(string action) => action switch
+    {
+        "CREATE" => "Nuevo",
+        "UPDATE" => "Cambia",
+        "UNCHANGED" => "Sin cambios",
+        "ERROR" => "Error",
+        _ => action,
+    };
+
+    private async Task PlantillaAsync(string kind)
+    {
+        try
+        {
+            var (name, type, content) = await Api.DownloadAsync($"api/v1/catalog/imports/templates/{kind}");
+            await Js.InvokeVoidAsync("pos.download", name, type, Convert.ToBase64String(content));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private static async Task<byte[]> LeerAsync(IBrowserFile file)
+    {
+        using var memory = new MemoryStream();
+        await file.OpenReadStream(MaxFileBytes).CopyToAsync(memory);
+        return memory.ToArray();
+    }
+
+    private async Task SubirAsync(string kind, IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _batch = await Api.UploadAsync<JsonElement>($"api/v1/catalog/imports?kind={kind}", file.Name, await LeerAsync(file));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (IOException ex)
+        {
+            Snackbar.Add($"No se pudo leer el archivo: {ex.Message}", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task AplicarAsync() => await AccionAsync("apply", "Importación aplicada.");
+
+    private async Task DescartarAsync() => await AccionAsync("discard", "Importación descartada.");
+
+    private async Task AccionAsync(string action, string done)
+    {
+        _busy = true;
+        try
+        {
+            _batch = await Api.PostAsync<JsonElement>($"api/v1/catalog/imports/{_batch.GetProperty("id").GetGuid()}/{action}");
+            Snackbar.Add(done, Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task SaldoInicialAsync(IBrowserFile? file)
+    {
+        if (file is null || _warehouse is not { } warehouse)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var adjustment = await Api.UploadAsync<JsonElement>($"api/v1/inventory/adjustments/initial-balance/import?warehouseId={warehouse}", file.Name, await LeerAsync(file));
+            Snackbar.Add($"Ajuste {adjustment.Str("number")} creado en borrador con {adjustment.Prop("lines").Items().Count} productos. Publíquelo en Ajustes.", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        catch (IOException ex)
+        {
+            Snackbar.Add($"No se pudo leer el archivo: {ex.Message}", Severity.Error);
+        }
+
+        _busy = false;
+    }
+}
