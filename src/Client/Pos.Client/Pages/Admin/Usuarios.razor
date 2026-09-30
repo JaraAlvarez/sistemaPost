@@ -1,0 +1,143 @@
+@page "/admin/usuarios"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Usuarios · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Usuarios" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("identity.user.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="Nuevo">Nuevo usuario</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudTable Items="_users" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Usuario</MudTh><MudTh>Nombre</MudTh><MudTh>Roles</MudTh><MudTh>Código de caja</MudTh><MudTh>Estado</MudTh><MudTh>Último ingreso</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Str("username")</MudTd>
+                <MudTd>@context.Str("displayName")</MudTd>
+                <MudTd>@string.Join(", ", context.Prop("roles").Items().Select(r => NombreRol(r.Str("roleCode"))))</MudTd>
+                <MudTd>@context.Str("posCode")</MudTd>
+                <MudTd>@(context.Str("status") == "ACTIVE" ? "Activo" : context.Str("status") == "LOCKED" ? "Bloqueado" : "Inactivo")</MudTd>
+                <MudTd>@Format.Date(context.Date("lastLoginAt"))</MudTd>
+                <MudTd>
+                    @if (Session.Has("identity.user.manage") && context.Str("username") != "system")
+                    {
+                        @if (context.Str("status") == "LOCKED")
+                        {
+                            <MudButton Size="Size.Small" OnClick="@(() => AccionAsync(context, "unlock", "Usuario desbloqueado."))">Desbloquear</MudButton>
+                        }
+                        else if (context.Str("status") == "ACTIVE")
+                        {
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => AccionAsync(context, "deactivate", "Usuario inactivado."))">Inactivar</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Size="Size.Small" OnClick="@(() => AccionAsync(context, "activate", "Usuario activado."))">Activar</MudButton>
+                        }
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </ChildContent>
+</Pagina>
+
+@if (_nuevo)
+{
+    <div class="panel-fondo">
+        <div class="panel">
+            <h2>Nuevo usuario</h2>
+            <MudTextField @bind-Value="_username" Label="Usuario" Immediate="true" />
+            <MudTextField @bind-Value="_displayName" Label="Nombre completo" Immediate="true" />
+            <MudTextField @bind-Value="_password" Label="Contraseña inicial (la cambia al entrar)" InputType="InputType.Password" Immediate="true" />
+            <MudSelect T="Guid?" @bind-Value="_role" Label="Rol">
+                @foreach (var role in _roles)
+                {
+                    <MudSelectItem T="Guid?" Value="@role.GetProperty("id").GetGuid()">@role.Str("name")</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField @bind-Value="_posCode" Label="Código de caja (opcional, 3 a 6 dígitos)" Immediate="true" />
+            <MudTextField @bind-Value="_pin" Label="PIN de caja (opcional, 4 a 6 dígitos)" InputType="InputType.Password" Immediate="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CrearAsync">Crear</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _users = [];
+    private List<JsonElement> _roles = [];
+    private bool _loading = true, _busy, _nuevo;
+    private string? _error, _username, _displayName, _password, _posCode, _pin;
+    private Guid? _role;
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        _loading = true;
+        try
+        {
+            _users = (await Api.GetAsync<JsonElement>("api/v1/identity/users")).Items();
+            _roles = (await Api.GetAsync<JsonElement>("api/v1/identity/roles")).Items();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private string NombreRol(string code) => _roles.FirstOrDefault(r => r.Str("code") == code).Str("name") is { Length: > 0 } name ? name : code;
+
+    private void Nuevo()
+    {
+        _username = _displayName = _password = _posCode = _pin = null;
+        _role = null;
+        _nuevo = true;
+    }
+
+    private async Task CrearAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>("api/v1/identity/users", new
+            {
+                username = _username, displayName = _displayName, email = (string?)null, password = _password,
+                posCode = string.IsNullOrWhiteSpace(_posCode) ? null : _posCode, pin = string.IsNullOrWhiteSpace(_pin) ? null : _pin, employeeId = (Guid?)null,
+                roles = _role is null ? [] : new[] { new { roleId = _role, branchId = (Guid?)null } },
+            });
+            Snackbar.Add("Usuario creado.", Severity.Success);
+            _nuevo = false;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task AccionAsync(JsonElement user, string action, string message)
+    {
+        try
+        {
+            await Api.PostAsync($"api/v1/identity/users/{user.GetProperty("id").GetGuid()}/{action}");
+            Snackbar.Add(message, Severity.Success);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

@@ -1,0 +1,127 @@
+@page "/admin/backups"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<PageTitle>Backups · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Backups" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("backup.backup.run"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Backup" Disabled="_busy" OnClick="RespaldarAsync">Respaldar ahora</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        @if (_alerts.ValueKind == JsonValueKind.Object)
+        {
+            @if (_alerts.Bool("recoveryCodePending"))
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-2">
+                    Falta confirmar el código de recuperación: sin él los backups solo se abren en este equipo.
+                    @if (Session.Has("backup.recovery.manage"))
+                    {
+                        <MudButton Size="Size.Small" Class="ml-2" OnClick="GenerarCodigoAsync">Generar el código</MudButton>
+                    }
+                </MudAlert>
+            }
+            @if (_alerts.Bool("lastBackupTooOld"))
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-2">El último backup verificado es muy antiguo (@Format.Date(_alerts.Date("lastVerifiedBackupAt"))).</MudAlert>
+            }
+            @if (_alerts.Dec("failingDestinations") > 0)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-2">@_alerts.Dec("failingDestinations") destino(s) de backup fallando.</MudAlert>
+            }
+        }
+        @if (_code is not null)
+        {
+            <MudPaper Class="pa-4 mb-4" Outlined="true">
+                <MudText>Código de recuperación (se muestra UNA sola vez). Imprímalo y guárdelo FUERA del local:</MudText>
+                <div class="cifra my-2">@_code</div>
+                <MudTextField @bind-Value="_confirm" Label="Escríbalo de nuevo para confirmar" Immediate="true" />
+                <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" OnClick="ConfirmarAsync">Confirmar</MudButton>
+            </MudPaper>
+        }
+        <MudText Typo="Typo.h6" Class="mb-2">Historial</MudText>
+        <MudTable Items="_runs" Dense="true" Striped="true">
+            <HeaderContent><MudTh>Fecha</MudTh><MudTh>Tipo</MudTh><MudTh>Resultado</MudTh><MudTh Class="num">Tamaño</MudTh><MudTh>Copias</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@Format.Date(context.Date("startedAt"))</MudTd>
+                <MudTd>@context.Str("kind")</MudTd>
+                <MudTd>@(context.Bool("succeeded") ? context.Bool("verified") ? "Correcto y verificado" : "Correcto" : "Falló: " + context.Str("error"))</MudTd>
+                <MudTd Class="num">@(context.Dec("sizeBytes") > 0 ? (context.Dec("sizeBytes") / 1024 / 1024).ToString("0.0", Format.Colombia) + " MB" : "")</MudTd>
+                <MudTd>@string.Join(" · ", context.Prop("copies").Items().Select(c => $"{c.Str("destinationName")}: {c.Str("status")}"))</MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>Aún no hay backups.</MudText></NoRecordsContent>
+        </MudTable>
+        <MudText Typo="Typo.caption" Class="mt-2 d-block">La restauración se hace desde la consola del servidor (docs/guia-recuperacion.md), nunca desde el navegador.</MudText>
+    </ChildContent>
+</Pagina>
+
+@code {
+    private List<JsonElement> _runs = [];
+    private JsonElement _alerts;
+    private bool _loading = true, _busy;
+    private string? _error, _code, _confirm;
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        try
+        {
+            _runs = (await Api.GetAsync<JsonElement>("api/v1/backups?limit=30")).Items();
+            _alerts = await Api.GetAsync<JsonElement>("api/v1/backups/alerts");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task RespaldarAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync("api/v1/backups");
+            Snackbar.Add("Backup en cola: aparecerá en el historial en unos minutos.", Severity.Info);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task GenerarCodigoAsync()
+    {
+        try
+        {
+            _code = (await Api.PostAsync<JsonElement>("api/v1/backups/recovery-code")).Str("code");
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task ConfirmarAsync()
+    {
+        try
+        {
+            await Api.PostAsync("api/v1/backups/recovery-code/confirm", new { code = _confirm });
+            _code = null;
+            Snackbar.Add("Código confirmado.", Severity.Success);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

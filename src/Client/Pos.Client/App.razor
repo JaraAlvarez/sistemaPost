@@ -1,0 +1,13 @@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(AdminLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(EmptyLayout)">
+            <MudContainer MaxWidth="MaxWidth.Small" Class="mt-16">
+                <MudAlert Severity="Severity.Warning">La página no existe. <MudLink Href="/">Volver al inicio</MudLink></MudAlert>
+            </MudContainer>
+        </LayoutView>
+    </NotFound>
+</Router>

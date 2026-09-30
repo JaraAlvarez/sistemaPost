@@ -1,0 +1,32 @@
+@* Encabezado común de las pantallas del backoffice con el indicador de carga y el error. *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5">@Titulo</MudText>
+    <MudSpacer />
+    @Acciones
+</MudStack>
+@if (Cargando)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-3" />
+}
+@if (Error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@Error</MudAlert>
+}
+@ChildContent
+
+@code {
+    [Parameter, EditorRequired]
+    public string Titulo { get; set; } = "";
+
+    [Parameter]
+    public bool Cargando { get; set; }
+
+    [Parameter]
+    public string? Error { get; set; }
+
+    [Parameter]
+    public RenderFragment? Acciones { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

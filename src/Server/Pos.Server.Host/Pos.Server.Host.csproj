@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="Serilog.AspNetCore" />
@@ -36,6 +37,7 @@
     <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Api\Pos.Modules.Reference.Api.csproj" />
     <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
     <ProjectReference Include="..\..\Shared\Pos.Updates.Contracts\Pos.Updates.Contracts.csproj" />
+    <ProjectReference Include="..\..\Client\Pos.Client\Pos.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>

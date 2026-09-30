@@ -167,12 +167,14 @@ internal static class ServerSetup
     {
         app.UseMiddleware<CorrelationIdMiddleware>();
 
-        // Consola de PRUEBA (wwwroot/prueba): solo en desarrollo, hasta la interfaz definitiva de la Fase 15.
-        if (app.Environment.IsDevelopment())
-        {
-            app.UseDefaultFiles();
-            app.UseStaticFiles();
-        }
+        // Interfaz de caja y backoffice (Fase 15, D15-02): Blazor WebAssembly servida por el propio servidor, con su política de contenido.
+        app.UseMiddleware<ContentSecurityPolicyMiddleware>();
+        app.UseBlazorFrameworkFiles();
+        app.UseDefaultFiles();
+        app.UseStaticFiles();
+
+        // El enrutamiento va DESPUÉS de los archivos estáticos: si no, la ruta de reserva de la interfaz se queda con /css, /_framework…
+        app.UseRouting();
 
         app.UseSerilogRequestLogging();
         app.UseExceptionHandler();
@@ -203,6 +205,9 @@ internal static class ServerSetup
         {
             module.MapEndpoints(api);
         }
+
+        // Rutas de la interfaz (/caja, /admin/…): el enrutador de Blazor decide. La API y la salud nunca caen aquí.
+        app.MapFallbackToFile("{*path:regex(^(?!api/|health).*$)}", "index.html");
 
         // Se crea al arrancar para que el uptime cuente desde el inicio real.
         _ = app.Services.GetRequiredService<ServerRuntime>();

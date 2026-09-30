@@ -1,0 +1,59 @@
+@page "/emparejar"
+@layout EmptyLayout
+@inject ApiClient Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+@inject IJSRuntime Js
+
+<PageTitle>Emparejar equipo · POS Supermercado</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-12">
+    <MudPaper Class="pa-6" Elevation="3">
+        <MudText Typo="Typo.h5" Class="mb-2">Emparejar este equipo</MudText>
+        <MudText Typo="Typo.body2" Class="mb-4">
+            En la administración del servidor, un administrador genera un código de emparejamiento para esta caja (Usuarios → Equipos) y le muestra
+            la huella del certificado del servidor. Compare que la huella coincida con la que aparece en la barra de dirección del navegador antes de continuar.
+        </MudText>
+        <EditForm Model="this" OnSubmit="EmparejarAsync">
+            <MudTextField @bind-Value="_code" Label="Código de emparejamiento" Immediate="true" AutoFocus="true" />
+            <MudTextField @bind-Value="_name" Label="Nombre de este equipo" Immediate="true" Placeholder="CAJA-02" />
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="_busy">Emparejar</MudButton>
+        </EditForm>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string? _code, _name, _error;
+    private bool _busy;
+
+    private async Task EmparejarAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            // Huella del equipo: aleatoria y guardada con la credencial (el navegador no puede leer el hardware).
+            var fingerprint = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+            var agent = await Js.InvokeAsync<string>("pos.userAgent");
+            var device = await Api.PostAsync<DeviceCredential>("api/v1/devices/pair", new
+            {
+                code = _code?.Trim(), hostname = string.IsNullOrWhiteSpace(_name) ? "CAJA" : _name.Trim(), machineFingerprintHash = fingerprint,
+                osVersion = agent.Length > 100 ? agent[..100] : agent, appVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+            });
+            await Session.SaveDeviceAsync(device);
+            Navigation.NavigateTo("/ingresar");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

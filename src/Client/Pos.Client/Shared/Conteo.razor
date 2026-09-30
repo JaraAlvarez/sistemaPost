@@ -1,0 +1,27 @@
+@* Conteo de efectivo por denominación (apertura y cierre de la jornada). *@
+<MudGrid Spacing="1">
+    @foreach (var denomination in Denominaciones)
+    {
+        <MudItem xs="6" sm="4">
+            <MudNumericField T="int" Value="@Cantidades.GetValueOrDefault(denomination.Id)" ValueChanged="@(v => Cambiar(denomination.Id, v))"
+                             Label="@Format.Money(denomination.Value)" Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<Denomination> Denominaciones { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public Dictionary<Guid, int> Cantidades { get; set; } = [];
+
+    [Parameter]
+    public EventCallback OnChanged { get; set; }
+
+    private async Task Cambiar(Guid id, int value)
+    {
+        Cantidades[id] = value;
+        await OnChanged.InvokeAsync();
+    }
+}

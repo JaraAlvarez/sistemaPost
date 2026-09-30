@@ -1,0 +1,114 @@
+@page "/"
+@page "/ingresar"
+@layout EmptyLayout
+@inject ApiClient Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+
+<PageTitle>Ingresar · POS Supermercado</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-12">
+    <MudPaper Class="pa-6" Elevation="3">
+        <MudText Typo="Typo.h5" Class="mb-1">POS Supermercado</MudText>
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" Class="my-6" />
+        }
+        else if (_needsPairing)
+        {
+            <MudAlert Severity="Severity.Info" Class="my-4">
+                Este equipo aún no está emparejado con el servidor de la tienda. Pida el código de emparejamiento a un administrador.
+            </MudAlert>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/emparejar">Emparejar este equipo</MudButton>
+        }
+        else
+        {
+            <MudTabs @bind-ActivePanelIndex="_tab" Class="mt-2">
+                <MudTabPanel Text="Caja">
+                    <EditForm Model="this" OnSubmit="CajaAsync">
+                        <MudTextField @bind-Value="_code" Label="Código de cajero" InputType="InputType.Password" Immediate="true" AutoFocus="true" Class="mt-4" />
+                        <MudTextField @bind-Value="_pin" Label="PIN" InputType="InputType.Password" Immediate="true" />
+                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-4" Disabled="_busy">Entrar a la caja</MudButton>
+                    </EditForm>
+                </MudTabPanel>
+                <MudTabPanel Text="Administración">
+                    <EditForm Model="this" OnSubmit="AdminAsync">
+                        <MudTextField @bind-Value="_username" Label="Usuario" Immediate="true" Class="mt-4" />
+                        <MudTextField @bind-Value="_password" Label="Contraseña" InputType="InputType.Password" Immediate="true" />
+                        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-4" Disabled="_busy">Entrar</MudButton>
+                    </EditForm>
+                </MudTabPanel>
+            </MudTabs>
+            @if (Session.Device is not null)
+            {
+                <MudText Typo="Typo.caption" Class="mt-4 d-block">Equipo emparejado como @(Session.Device.DeviceKind == "Terminal" ? "caja" : "puesto administrativo").</MudText>
+            }
+        }
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _needsPairing;
+    private int _tab;
+    private string? _code, _pin, _username, _password, _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Session.LoadDeviceAsync();
+            Session.Setup = await Api.GetAsync<SetupStatus>("api/v1/setup/status");
+            if (!Session.Setup.IsCompleted)
+            {
+                Navigation.NavigateTo("/instalacion", forceLoad: true);
+                return;
+            }
+
+            // En Multicaja, un equipo de la red (no el propio servidor) debe estar emparejado para entrar.
+            var local = Navigation.BaseUri.Contains("://localhost", StringComparison.OrdinalIgnoreCase) || Navigation.BaseUri.Contains("://127.0.0.1", StringComparison.Ordinal);
+            _needsPairing = Session.IsMulti && !local && Session.Device is null;
+            _tab = Session.Device?.DeviceKind == "Terminal" || !Session.IsMulti ? 0 : 1;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (HttpRequestException)
+        {
+            _error = "No se pudo conectar con el servidor de la tienda.";
+        }
+
+        _loading = false;
+    }
+
+    private Task CajaAsync() => EntrarAsync(() => Api.PostAsync<LoginResult>("api/v1/auth/pos-login", new { posCode = _code, pin = _pin }));
+
+    private Task AdminAsync() => EntrarAsync(() => Api.PostAsync<LoginResult>("api/v1/auth/login", new { username = _username, password = _password }));
+
+    private async Task EntrarAsync(Func<Task<LoginResult>> login)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            Session.SignIn(await login());
+            Navigation.NavigateTo(Session.IsTerminal ? "/caja" : Session.Me!.MustChangePassword ? "/cambiar-clave" : "/admin");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+            _pin = null;
+            _password = null;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,41 @@
+@page "/cambiar-clave"
+@layout EmptyLayout
+@inject ApiClient Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+
+<PageTitle>Cambiar contraseña · POS Supermercado</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-12">
+    <MudPaper Class="pa-6" Elevation="3">
+        <MudText Typo="Typo.h5" Class="mb-2">Cambie su contraseña</MudText>
+        <MudText Typo="Typo.body2" Class="mb-4">Su contraseña es temporal. Escriba una nueva de al menos 10 caracteres.</MudText>
+        <EditForm Model="this" OnSubmit="CambiarAsync">
+            <MudTextField @bind-Value="_current" Label="Contraseña actual" InputType="InputType.Password" Immediate="true" />
+            <MudTextField @bind-Value="_new" Label="Nueva contraseña" InputType="InputType.Password" Immediate="true" />
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Class="mt-4">Cambiar</MudButton>
+        </EditForm>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string? _current, _new, _error;
+
+    private async Task CambiarAsync()
+    {
+        try
+        {
+            await Api.PostAsync("api/v1/auth/change-password", new { currentPassword = _current, newPassword = _new });
+            Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
+            Navigation.NavigateTo("/admin");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}
