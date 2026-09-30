@@ -19,6 +19,7 @@ using Pos.Server.Host.Middleware;
 using Pos.Server.Host.Modules;
 using Pos.Server.Host.Security;
 using Pos.Server.Host.SystemInfo;
+using Pos.Server.Host.Updates;
 using Pos.SharedKernel.Time;
 using Scalar.AspNetCore;
 using Serilog;
@@ -90,6 +91,12 @@ internal static class ServerSetup
         builder.Services.AddSingleton<IServerIdentity>(sp => sp.GetRequiredService<ServerCertificate>());
         AddRateLimits(builder.Services);
         builder.Services.AddHostedService<DatabaseStartup>();
+
+        // Instalador y actualizaciones (Fase 13): estado del actualizador, historial auditado y descubrimiento en la LAN (Multicaja).
+        builder.Services.AddSingleton(sp => ProductPaths.From(sp.GetRequiredService<IConfiguration>()));
+        builder.Services.AddSingleton<IPermissionCatalogProvider, Updates.UpdatePermissionCatalog>();
+        builder.Services.AddSingleton<IDatabaseReadyHook, Updates.UpdateHistoryAuditor>();
+        builder.Services.AddHostedService<Updates.LanDiscoveryResponder>();
         builder.Services.AddSingleton(sp => new Infrastructure.Backup.BackupEnvironment(
             paths.DataRoot,
             paths.ServerConfigFile,
@@ -176,8 +183,14 @@ internal static class ServerSetup
 
         app.MapPosHealthChecks();
 
+        // Asistente inicial mínimo (Fase 13, D13-05): lo abre el instalador; la Fase 15 lo reemplaza con el diseño definitivo.
+        app.MapGet("/instalacion", (IWebHostEnvironment environment) =>
+                Results.File(Path.Combine(environment.WebRootPath, "instalacion", "index.html"), "text/html; charset=utf-8"))
+            .ExcludeFromDescription();
+
         var api = app.MapGroup("/api/v1");
         api.MapSystemEndpoints();
+        api.MapUpdateEndpoints();
 
         if (app.Environment.IsDevelopment())
         {

@@ -35,6 +35,7 @@
     <ProjectReference Include="..\..\Modules\Organization\Pos.Modules.Organization.Api\Pos.Modules.Organization.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Api\Pos.Modules.Reference.Api.csproj" />
     <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
+    <ProjectReference Include="..\..\Shared\Pos.Updates.Contracts\Pos.Updates.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -59,3 +59,5 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0052](0052-restauracion-desde-la-consola.md) | Restauración solo desde la consola del servidor | Aceptada | 2026-09-29 |
 | [0053](0053-restricciones-de-licencia-por-lista-de-permitidos.md) | Restricciones de la licencia en el backend por lista de permitidos | Aceptada | 2026-09-29 |
 | [0054](0054-licencia-local-token-en-la-bd-y-reloj-confiable.md) | Licencia local: token en la BD, estado calculado, claves embebidas y reloj confiable | Aceptada | 2026-09-29 |
+| [0055](0055-instalador-inno-setup-y-postgresql-empaquetado.md) | Instalador con Inno Setup y PostgreSQL empaquetado | Aceptada | 2026-09-30 |
+| [0056](0056-versiones-lado-a-lado-y-actualizador-firmado.md) | Versiones lado a lado y actualizador con manifiesto firmado | Aceptada | 2026-09-30 |

@@ -119,6 +119,8 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Fase 13: manifiestos firmados y paquetes de actualización del POS (docs/despliegue-nube.md §16).
+      - ./updates:/srv/updates:ro
       - caddy_data:/data
       - caddy_config:/config
     networks: [frontend]

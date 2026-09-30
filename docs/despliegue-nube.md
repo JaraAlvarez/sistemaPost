@@ -355,3 +355,20 @@ El POS solo confía en las claves públicas **embebidas en su binario** (ADR-005
 4. Configure en cada tienda `Pos:Licensing:ServerUrl` con la dirección pública del servidor (lo hace el instalador, Fase 13).
 
 La migración de la nube `V2026.10.005` (sello de auditoría en los check-ins) se aplica sola al actualizar el contenedor (§10).
+
+## 16. Actualizaciones del POS (Fase 13)
+
+Caddy sirve la carpeta `deploy/cloud/updates` del VPS en `https://licencias.<DOMINIO>/updates/` (solo lectura).
+
+1. Arme la versión en su PC con `tools/scripts/build-installer.ps1` (ver [guía de instalación](guia-instalacion.md) §2).
+2. Copie al VPS `PosSupermercado-<versión>.zip` y el manifiesto firmado `stable.json` (o `beta.json`):
+
+   ```bash
+   scp artifacts/releases/PosSupermercado-1.0.1.zip artifacts/releases/stable.json usuario@vps:~/pos/deploy/cloud/updates/
+   ```
+3. Las tiendas lo descargan en las siguientes 6 horas y lo instalan a las 02:00 sin jornadas abiertas. Para un piloto, publique primero
+   en `beta.json` y configure esas tiendas con `Pos:Updates:Channel = beta`.
+4. **La clave de firma de actualizaciones nunca va al VPS**: el manifiesto se firma en su PC.
+
+Para retirar una versión defectuosa, vuelva a subir el `stable.json` anterior: las tiendas que ya actualizaron se quedan en la nueva
+(la vuelta atrás automática solo actúa si la versión no arranca).

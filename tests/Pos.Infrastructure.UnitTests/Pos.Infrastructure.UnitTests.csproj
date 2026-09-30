@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingBlocks\Pos.Infrastructure\Pos.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Licensing\Pos.Modules.Licensing.Application\Pos.Modules.Licensing.Application.csproj" />
+    <ProjectReference Include="..\..\src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj" />
   </ItemGroup>
 
   <ItemGroup>

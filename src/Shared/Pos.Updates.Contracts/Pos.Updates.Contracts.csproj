@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Contrato de las actualizaciones (Fase 13): manifiesto firmado con Ed25519, versiones, historial que el actualizador deja para el
+       servidor y la solicitud de "instalar ahora". Lo usan el actualizador, el servidor de tienda y la herramienta de publicación. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Updates.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Pos.Licensing.Contracts\Pos.Licensing.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Infrastructure.UnitTests" />
+  </ItemGroup>
+</Project>

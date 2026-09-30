@@ -127,3 +127,11 @@ flowchart TD
 | 10. Diagnóstico | Herramienta "Generar paquete de soporte" (logs, versión, estado de servicios; sin datos sensibles). |
 
 Firma de código del instalador con **certificado de firma de código** (preferible EV) para evitar alertas de SmartScreen.
+
+> **Implementado en la Fase 13** ([informe](fases/fase-13-informe.md), ADR [0055](adr/0055-instalador-inno-setup-y-postgresql-empaquetado.md) ·
+> [0056](adr/0056-versiones-lado-a-lado-y-actualizador-firmado.md), [guía de instalación](guia-instalacion.md)): instalador `.exe` con Inno
+> Setup (Todo en uno / Servidor / Caja), PostgreSQL 18 empaquetado con contraseñas aleatorias en DPAPI, servicios con reinicio automático,
+> firewall de la red privada, asistente inicial en `/instalacion`, recuperación desde backup en el instalador, descubrimiento UDP de las
+> cajas, desinstalación que conserva los datos y paquete de soporte. Actualizador con manifiesto firmado (Ed25519, clave propia), ventana
+> 02:00 sin jornadas abiertas, backup previo, versiones lado a lado y vuelta atrás automática; las cajas se actualizan desde el servidor.
+> Sin MSI ni servicio de actualización de binarios de Windows (winget): no hacen falta en un supermercado.

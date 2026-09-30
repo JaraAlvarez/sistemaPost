@@ -224,5 +224,10 @@ INSERT INTO audit.action_types (code, module, name, default_severity) VALUES
     ('SETTING_OVERRIDE_REMOVED', 'settings', 'Excepción de configuración eliminada', 'INFO'),
     ('CLOCK_JUMP_DETECTED', 'system', 'Reloj del servidor atrasado respecto a la bitácora', 'CRITICAL'),
     ('DATABASE_MIGRATED', 'system', 'Base de datos actualizada a una nueva versión', 'WARNING'),
-    ('SERVER_STARTED', 'system', 'Servidor iniciado', 'INFO')
+    ('SERVER_STARTED', 'system', 'Servidor iniciado', 'INFO'),
+    ('UPDATE_APPLIED', 'system', 'Actualización instalada', 'INFO'),
+    ('UPDATE_DOWNLOADED', 'system', 'Actualización descargada y verificada', 'INFO'),
+    ('UPDATE_FAILED', 'system', 'Actualización fallida', 'CRITICAL'),
+    ('UPDATE_INSTALL_REQUESTED', 'system', 'Instalación inmediata de una actualización solicitada', 'WARNING'),
+    ('UPDATE_ROLLED_BACK', 'system', 'Actualización revertida a la versión anterior', 'CRITICAL')
 ON CONFLICT (code) DO UPDATE SET module = EXCLUDED.module, name = EXCLUDED.name, default_severity = EXCLUDED.default_severity;

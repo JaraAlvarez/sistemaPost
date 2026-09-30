@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Actualizador (Fase 13, D13-08/09): servicio de Windows que consulta el manifiesto firmado, descarga y verifica el paquete, espera la
+       ventana segura, hace el backup obligatorio, cambia de versión (carpetas lado a lado), migra, comprueba la salud y vuelve atrás si
+       algo falla. En las cajas se actualiza desde el servidor de la tienda. También busca el servidor en la LAN (comando "discover"). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Pos.Server.Updater</RootNamespace>
+    <AssemblyName>Pos.Server.Updater</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\Pos.Infrastructure\Pos.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Shared\Pos.Updates.Contracts\Pos.Updates.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Claves públicas de confianza para los manifiestos (se completan al compilar la versión de producción). -->
+    <EmbeddedResource Include="update-keys.json" LogicalName="Pos.Updates.TrustedKeys.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Infrastructure.UnitTests" />
+  </ItemGroup>
+</Project>
