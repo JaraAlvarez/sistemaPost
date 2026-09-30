@@ -43,6 +43,8 @@ REVOKE UPDATE, DELETE, TRUNCATE ON cash.cash_movements FROM pos_app;
 
 -- Eventos de los documentos fiscales: solo agregar y leer (D7-12).
 REVOKE UPDATE, DELETE, TRUNCATE ON billing.fiscal_document_events FROM pos_app;
+-- Facturación electrónica (Fase 11-B): los documentos, los rangos y la configuración del proveedor nunca se borran.
+REVOKE DELETE, TRUNCATE ON billing.fiscal_documents, billing.fiscal_numbering_ranges, billing.provider_settings FROM pos_app;
 
 -- Autorizaciones de tratamiento de datos: la prueba ante la SIC no se modifica (D8-06).
 REVOKE UPDATE, DELETE, TRUNCATE ON customers.customer_consents FROM pos_app;

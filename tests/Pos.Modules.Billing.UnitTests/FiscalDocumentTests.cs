@@ -46,7 +46,8 @@ public class FiscalDocumentTests
     public void Electronico_nace_pendiente_y_la_anulacion_o_el_cambio_emiten_nota_credito()
     {
         var sale = Electronic();
-        (sale.DocumentType, sale.Status, sale.NextAttemptAt, sale.IsElectronic).ShouldBe((FiscalDocumentType.PosElectronic, FiscalStatus.Pending, (DateTimeOffset?)Now, true));
+        (sale.DocumentType, sale.Status, sale.NextAttemptAt, sale.IsElectronic).ShouldBe((FiscalDocumentType.InvoiceElectronic, FiscalStatus.Pending, (DateTimeOffset?)Now, true));
+        sale.ReferenceCode.ShouldBe(sale.SourceId.ToString("N"));
         sale.Events.Single().Detail.ShouldBe("Pendiente de envío al proveedor.");
 
         Electronic(FiscalSource.SaleVoid).DocumentType.ShouldBe(FiscalDocumentType.CreditNote);
@@ -71,13 +72,15 @@ public class FiscalDocumentTests
         var pending = Electronic();
         pending.Void("Venta anulada", Now, Cashier, Guid.NewGuid).ShouldBeTrue();
         pending.NextAttemptAt.ShouldBeNull();
+        (pending.Status, pending.Events[^1].EventType).ShouldBe((FiscalStatus.Cancelled, "CANCELLED"));
+        pending.Void("Otra vez", Now, Cashier, Guid.NewGuid).ShouldBeTrue();
+        pending.Events.Count(e => e.EventType == "CANCELLED").ShouldBe(1);
         Should.Throw<ArgumentNullException>(() => pending.Void("x", Now, null, null!));
     }
 
     [Theory]
     [InlineData(FiscalStatus.Accepted)]
     [InlineData(FiscalStatus.Submitting)]
-    [InlineData(FiscalStatus.Contingency)]
     public void Un_electronico_aceptado_o_en_curso_no_se_anula_requiere_nota_credito(FiscalStatus status)
     {
         var document = Electronic();
@@ -119,6 +122,7 @@ public class FiscalDocumentTests
     [InlineData(FiscalStatus.Pending)]
     [InlineData(FiscalStatus.Error)]
     [InlineData(FiscalStatus.Rejected)]
+    [InlineData(FiscalStatus.Contingency)]
     public void Reintento_manual_de_un_electronico_pendiente_con_error_o_rechazado(FiscalStatus status)
     {
         var document = Electronic();

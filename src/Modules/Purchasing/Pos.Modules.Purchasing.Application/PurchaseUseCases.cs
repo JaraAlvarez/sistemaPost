@@ -4,6 +4,7 @@ using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
+using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Inventory.Contracts;
@@ -318,6 +319,7 @@ internal sealed class PostPurchaseHandler(
     ISettingsReader settings,
     IDocumentNumberAllocator numbers,
     ICashRegister cash,
+    IBillingService billing,
     IActorContext actor,
     IAuditWriter audit,
     IIdGenerator ids,
@@ -425,6 +427,20 @@ internal sealed class PostPurchaseHandler(
         else if (request.CashSessionId is not null)
         {
             return Error.Validation("PURCHASING.CASH_SESSION_ONLY_FOR_CASH", "Solo una compra de contado se paga desde la caja.");
+        }
+
+        // Documento soporte (Fase 11-B): la compra a un proveedor no obligado a facturar lo genera PENDIENTE en esta misma
+        // transacción; la cola de facturación electrónica lo envía (si la facturación está apagada no se genera).
+        if (purchase.RequiresSupportDocument)
+        {
+            var support = await billing.IssueSupportDocumentAsync(
+                new FiscalSupportDocumentRequest(
+                    purchase.Id, purchase.Number, purchase.SupplierId, purchase.BranchId, purchase.BusinessDate, purchase.Subtotal, purchase.TaxTotal, purchase.Total),
+                cancellationToken);
+            if (support.IsFailure)
+            {
+                return support.Error;
+            }
         }
 
         var alerts = await UpdateSupplierCostsAndAlertAsync(purchase, supplier.Value, products, context, now, cancellationToken);
