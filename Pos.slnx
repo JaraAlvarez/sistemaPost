@@ -148,6 +148,8 @@
     <Project Path="tests/Pos.Modules.Inventory.UnitTests/Pos.Modules.Inventory.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Organization.UnitTests/Pos.Modules.Organization.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Billing.UnitTests/Pos.Modules.Billing.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Billing.FactusFake/Pos.Modules.Billing.FactusFake.csproj" />
+    <Project Path="tests/Pos.Modules.Billing.Factus.Tests/Pos.Modules.Billing.Factus.Tests.csproj" />
     <Project Path="tests/Pos.Modules.Cash.UnitTests/Pos.Modules.Cash.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Parties.UnitTests/Pos.Modules.Parties.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Promotions.UnitTests/Pos.Modules.Promotions.UnitTests.csproj" />

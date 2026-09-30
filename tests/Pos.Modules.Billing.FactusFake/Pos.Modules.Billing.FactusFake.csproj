@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Fase 11-B: servidor Factus SIMULADO reutilizable (biblioteca, no proyecto de pruebas). Imita Factus API v2 a nivel HTTP:
+       OAuth2 (password/refresh), factura, nota crédito, documento soporte, rangos, consulta, descargas, idempotencia por
+       reference_code, rechazos DIAN, 422, 409, 429, caídas y latencia. Se usa como HttpMessageHandler o como servidor Kestrel
+       en un puerto libre (pruebas de integración del servidor). No depende del cliente: valida el formato real en el cable. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <IsTestProject>false</IsTestProject>
+    <RootNamespace>Pos.Modules.Billing.FactusFake</RootNamespace>
+  </PropertyGroup>
+
+  <!-- tests/Directory.Build.props agrega xUnit y coverlet a todo proyecto bajo tests/: esta biblioteca no los necesita. -->
+  <ItemGroup>
+    <PackageReference Remove="xunit.v3" />
+    <PackageReference Remove="coverlet.MTP" />
+    <PackageReference Remove="Shouldly" />
+    <Using Remove="Xunit" />
+    <Using Remove="Shouldly" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>
