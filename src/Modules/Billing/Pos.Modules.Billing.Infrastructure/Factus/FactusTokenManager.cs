@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -14,71 +15,68 @@ namespace Pos.Modules.Billing.Infrastructure.Factus;
 /// </summary>
 internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFactory, TimeProvider time, ILogger<FactusTokenManager> logger) : IDisposable
 {
-
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private string? _credentialKey;
-    private string? _accessToken;
-    private string? _refreshToken;
-    private DateTimeOffset _expiresAt;
+    // Un token por juego de credenciales y ambiente (FactusOptions.CredentialKey incluye la URL base): dos empresas o el sandbox y
+    // la producción de la misma empresa nunca comparten token. Solo en memoria: al reiniciar el servidor se pide uno nuevo.
+    private readonly ConcurrentDictionary<string, TokenSlot> _slots = new(StringComparer.Ordinal);
 
     /// <summary>Token vigente, o un fallo tipado (credenciales o transitorio).</summary>
     public async Task<TokenLease> GetAsync(FactusOptions options, bool forcePasswordGrant, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
+        var slot = _slots.GetOrAdd(options.CredentialKey, _ => new TokenSlot());
+        await slot.Gate.WaitAsync(cancellationToken);
         try
         {
-            if (_credentialKey != options.CredentialKey || forcePasswordGrant)
-                Reset(options.CredentialKey);
+            if (forcePasswordGrant)
+                slot.Reset();
 
-            if (_accessToken is not null && time.GetUtcNow() < _expiresAt - options.TokenRenewalMargin)
-                return new TokenLease(_accessToken, _expiresAt, null);
+            if (slot.AccessToken is not null && time.GetUtcNow() < slot.ExpiresAt - options.TokenRenewalMargin)
+                return new TokenLease(slot.AccessToken, slot.ExpiresAt, null);
 
-            if (_refreshToken is not null)
+            if (slot.RefreshToken is not null)
             {
-                var refreshed = await RequestAsync(options, refresh: true, cancellationToken);
+                var refreshed = await RequestAsync(slot, options, refresh: true, cancellationToken);
                 if (refreshed.Token is not null || refreshed.Failure?.Outcome == FactusOutcome.TransientError)
                     return refreshed;
                 LogRefreshRejected(logger, refreshed.Failure?.HttpStatus);
-                _refreshToken = null;
+                slot.RefreshToken = null;
             }
 
-            return await RequestAsync(options, refresh: false, cancellationToken);
+            return await RequestAsync(slot, options, refresh: false, cancellationToken);
         }
         finally
         {
-            _gate.Release();
+            slot.Gate.Release();
         }
     }
 
     /// <summary>Marca como vencido el token que recibió un 401 (si otro hilo ya lo renovó, no hace nada).</summary>
-    public async Task InvalidateAsync(string rejectedToken, CancellationToken cancellationToken)
+    public async Task InvalidateAsync(FactusOptions options, string rejectedToken, CancellationToken cancellationToken)
     {
-        await _gate.WaitAsync(cancellationToken);
+        if (!_slots.TryGetValue(options.CredentialKey, out var slot))
+            return;
+
+        await slot.Gate.WaitAsync(cancellationToken);
         try
         {
-            if (_accessToken == rejectedToken)
+            if (slot.AccessToken == rejectedToken)
             {
-                _accessToken = null;
-                _expiresAt = DateTimeOffset.MinValue;
+                slot.AccessToken = null;
+                slot.ExpiresAt = DateTimeOffset.MinValue;
             }
         }
         finally
         {
-            _gate.Release();
+            slot.Gate.Release();
         }
     }
 
-    public void Dispose() => _gate.Dispose();
-
-    private void Reset(string credentialKey)
+    public void Dispose()
     {
-        _credentialKey = credentialKey;
-        _accessToken = null;
-        _refreshToken = null;
-        _expiresAt = DateTimeOffset.MinValue;
+        foreach (var slot in _slots.Values)
+            slot.Gate.Dispose();
     }
 
-    private async Task<TokenLease> RequestAsync(FactusOptions options, bool refresh, CancellationToken cancellationToken)
+    private async Task<TokenLease> RequestAsync(TokenSlot slot, FactusOptions options, bool refresh, CancellationToken cancellationToken)
     {
         var form = new List<KeyValuePair<string, string>>
         {
@@ -88,7 +86,7 @@ internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFa
         };
         if (refresh)
         {
-            form.Add(new("refresh_token", _refreshToken!));
+            form.Add(new("refresh_token", slot.RefreshToken!));
         }
         else
         {
@@ -100,8 +98,8 @@ internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFa
         request.Content = new FormUrlEncodedContent(form);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         // La página de refresh token pide también el Bearer anterior en Authorization.
-        if (refresh && _accessToken is not null)
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+        if (refresh && slot.AccessToken is not null)
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", slot.AccessToken);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(options.RequestTimeout);
@@ -130,11 +128,11 @@ internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFa
                 if (!TryReadToken(body, out var access, out var refreshToken, out var expiresIn))
                     return Fail(FactusResult.Transient("Respuesta de autenticación de Factus inválida.", status));
 
-                _accessToken = access;
-                _refreshToken = refreshToken ?? _refreshToken;
-                _expiresAt = time.GetUtcNow().AddSeconds(expiresIn > 0 ? expiresIn : 3600);
-                LogTokenIssued(logger, refresh ? "refresh_token" : "password", _expiresAt);
-                return new TokenLease(_accessToken, _expiresAt, null);
+                slot.AccessToken = access;
+                slot.RefreshToken = refreshToken ?? slot.RefreshToken;
+                slot.ExpiresAt = time.GetUtcNow().AddSeconds(expiresIn > 0 ? expiresIn : 3600);
+                LogTokenIssued(logger, refresh ? "refresh_token" : "password", slot.ExpiresAt);
+                return new TokenLease(slot.AccessToken, slot.ExpiresAt, null);
             }
 
             if (FactusApiClient.IsTransient(response.StatusCode))
@@ -171,6 +169,22 @@ internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFa
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Factus: el refresh token fue rechazado (HTTP {Status}); se autentica con usuario y clave.")]
     private static partial void LogRefreshRejected(ILogger logger, int? status);
+}
+
+/// <summary>Estado del token de un juego de credenciales y ambiente.</summary>
+internal sealed class TokenSlot
+{
+    public SemaphoreSlim Gate { get; } = new(1, 1);
+    public string? AccessToken { get; set; }
+    public string? RefreshToken { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; } = DateTimeOffset.MinValue;
+
+    public void Reset()
+    {
+        AccessToken = null;
+        RefreshToken = null;
+        ExpiresAt = DateTimeOffset.MinValue;
+    }
 }
 
 /// <summary>Token prestado para una petición, o el fallo que impidió obtenerlo.</summary>

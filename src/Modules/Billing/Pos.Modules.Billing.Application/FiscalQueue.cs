@@ -36,6 +36,7 @@ public sealed class FiscalDocumentProcessor(
     IFiscalSourceReader sources,
     IFiscalProvider provider,
     ISettingsReader settings,
+    FiscalRateLimiter limiter,
     IAuditWriter audit,
     IUnitOfWork unitOfWork,
     IIdGenerator ids,
@@ -118,7 +119,15 @@ public sealed class FiscalDocumentProcessor(
 
         now = clock.UtcNow;
         var maxMinutes = result.Outcome == FiscalOutcome.Unavailable ? 15 : 60;
-        var status = document.RecordResult(result, provider.Name, now, now + FiscalRetryPolicy.Delay(document.Attempts, maxMinutes), ids.NewId);
+        var nextAttempt = now + FiscalRetryPolicy.Delay(document.Attempts, maxMinutes);
+        if (result.RetryAfter is { } retryAfter && retryAfter > TimeSpan.Zero)
+        {
+            // Límite de ritmo del proveedor (HTTP 429): nada más sale hacia él antes de la espera que pidió (D11B-09).
+            limiter.PauseUntil(now + retryAfter);
+            nextAttempt = nextAttempt < now + retryAfter ? now + retryAfter : nextAttempt;
+        }
+
+        var status = document.RecordResult(result, provider.Name, now, nextAttempt, ids.NewId);
         if (status == FiscalStatus.Rejected)
         {
             await audit.WriteAsync(
@@ -148,6 +157,7 @@ public sealed class FiscalDocumentProcessor(
         FiscalInvoiceDraft invoice => provider.SubmitInvoiceAsync(connection, invoice, cancellationToken),
         FiscalCreditNoteDraft credit => provider.SubmitCreditNoteAsync(connection, credit, cancellationToken),
         FiscalSupportDocumentDraft support => provider.SubmitSupportDocumentAsync(connection, support, cancellationToken),
+        FiscalAdjustmentNoteDraft adjustment => provider.SubmitAdjustmentNoteAsync(connection, adjustment, cancellationToken),
         _ => throw new InvalidOperationException("Borrador fiscal desconocido."),
     };
 
@@ -164,12 +174,24 @@ public sealed class FiscalDocumentProcessor(
 
         var numbering = new FiscalNumbering(range.Id, range.ProviderRangeId, range.Prefix, range.ResolutionNumber);
         var header = FiscalDraftBuilder.Header(document, numbering, issuer.Issuer, issuer.Establishment);
-        if (document.Source == FiscalSource.Purchase)
+        if (document.Source is FiscalSource.Purchase or FiscalSource.PurchaseVoid)
         {
             var purchase = await sources.GetPurchaseAsync(document.SourceId, cancellationToken);
-            return purchase is null
-                ? Error.NotFound("BILLING.SOURCE_NOT_FOUND", "No se encontró la compra del documento soporte.")
-                : FiscalDraftBuilder.SupportDocument(header, purchase with { Supplier = Party(document, purchase.Supplier, await CodesAsync(cancellationToken)) });
+            if (purchase is null)
+            {
+                return Error.NotFound("BILLING.SOURCE_NOT_FOUND", "No se encontró la compra del documento soporte.");
+            }
+
+            purchase = purchase with { Supplier = Party(document, purchase.Supplier, await CodesAsync(cancellationToken)) };
+            if (document.Source == FiscalSource.Purchase)
+            {
+                return FiscalDraftBuilder.SupportDocument(header, purchase);
+            }
+
+            // Nota de ajuste: espera a que el documento soporte que anula esté aceptado (igual que una nota crédito).
+            var support = document.RelatedDocumentId is { } supportId ? await documents.GetAsync(supportId, cancellationToken) : null;
+            var supportReference = FiscalDraftBuilder.Reference(support);
+            return supportReference.IsFailure ? supportReference.Error : FiscalDraftBuilder.AdjustmentNote(header, purchase, supportReference.Value);
         }
 
         FiscalDocument? invoice = null;
@@ -242,7 +264,26 @@ public sealed class FiscalRangeService(
     public static readonly Error NotConfigured = Error.BusinessRule(
         "BILLING.PROVIDER_NOT_CONFIGURED", "Configure las credenciales del proveedor de facturación electrónica.");
 
+    /// <summary>
+    /// Una sincronización a la vez en el proceso: la manual (API) y la automática de la cola podían correr juntas e insertar los mismos
+    /// rangos en transacciones cruzadas (bloqueo mutuo o llave duplicada). La segunda espera y encuentra los rangos ya creados.
+    /// </summary>
+    private static readonly SemaphoreSlim SyncGate = new(1, 1);
+
     public async Task<Result<IReadOnlyList<FiscalRangeDto>>> SyncAsync(CancellationToken cancellationToken)
+    {
+        await SyncGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await SyncCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            SyncGate.Release();
+        }
+    }
+
+    private async Task<Result<IReadOnlyList<FiscalRangeDto>>> SyncCoreAsync(CancellationToken cancellationToken)
     {
         if (installation.CompanyId is not { } companyId)
         {
@@ -315,17 +356,50 @@ public sealed class FiscalRangeService(
     }
 }
 
-/// <summary>Límite de ritmo propio (D11B-09): ventana deslizante de un minuto (⚙️ 60 envíos por minuto por NIT).</summary>
+/// <summary>
+/// Límite de ritmo propio (D11B-09): ventana deslizante de un minuto (⚙️ 60 envíos por minuto por NIT). Si el proveedor pide esperar
+/// (HTTP 429 con <c>Retry-After</c>), no concede envíos hasta que pase esa espera.
+/// </summary>
 public sealed class FiscalRateLimiter(TimeProvider time)
 {
     private readonly Queue<DateTimeOffset> _sent = new();
     private readonly Lock _gate = new();
+    private DateTimeOffset _pausedUntil = DateTimeOffset.MinValue;
+
+    /// <summary>Hasta cuándo está en pausa por pedido del proveedor (o <c>null</c>).</summary>
+    public DateTimeOffset? PausedUntil
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pausedUntil > time.GetUtcNow() ? _pausedUntil : null;
+            }
+        }
+    }
+
+    /// <summary>El proveedor pidió esperar: nada sale antes de <paramref name="until"/>.</summary>
+    public void PauseUntil(DateTimeOffset until)
+    {
+        lock (_gate)
+        {
+            if (until > _pausedUntil)
+            {
+                _pausedUntil = until;
+            }
+        }
+    }
 
     public bool TryAcquire(int perMinute)
     {
         lock (_gate)
         {
             var now = time.GetUtcNow();
+            if (now < _pausedUntil)
+            {
+                return false;
+            }
+
             while (_sent.Count > 0 && now - _sent.Peek() >= TimeSpan.FromMinutes(1))
             {
                 _sent.Dequeue();

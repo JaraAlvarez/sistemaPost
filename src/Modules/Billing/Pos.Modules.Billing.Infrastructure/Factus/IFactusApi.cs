@@ -19,6 +19,9 @@ public interface IFactusApi
     /// <summary>POST <c>v2/support-documents/validate</c>.</summary>
     Task<FactusResult> CreateSupportDocumentAsync(FactusSupportDocumentRequest request, CancellationToken cancellationToken);
 
+    /// <summary>POST <c>v2/adjustment-notes/validate</c> (nota de ajuste al documento soporte).</summary>
+    Task<FactusResult> CreateAdjustmentNoteAsync(FactusAdjustmentNoteRequest request, CancellationToken cancellationToken);
+
     /// <summary>GET <c>v2/numbering-ranges?filter[is_active]=1&amp;filter[document]=…</c>.</summary>
     Task<FactusQueryResult<IReadOnlyList<FactusNumberingRange>>> GetNumberingRangesAsync(
         bool onlyActive, string? documentCode, CancellationToken cancellationToken);
@@ -38,7 +41,7 @@ public interface IFactusApi
     /// <summary>
     /// Elimina un documento NO validado (rechazado) para poder reenviarlo corregido:
     /// DELETE <c>v2/bills/destroy/reference/:reference_code</c>, <c>v2/credit-notes/reference/:reference_code</c> o
-    /// <c>v2/support-documents/reference/:reference_code</c>.
+    /// <c>v2/support-documents/reference/:reference_code</c> (y, por analogía — SUPUESTO —, <c>v2/adjustment-notes/reference/:reference_code</c>).
     /// </summary>
     Task<FactusQueryResult<bool>> DeleteUnvalidatedAsync(FactusDocumentKind kind, string referenceCode, CancellationToken cancellationToken);
 }

@@ -79,7 +79,7 @@ public class ElectronicBillingTests
         var shop = await SalesScenario.CreateAsync(factory);
         await shop.OpenSessionAsync();
         var ranges = await EnableAsync(shop);
-        ranges.Count.ShouldBe(3);
+        ranges.Count.ShouldBe(4); // factura, nota crédito, documento soporte y nota de ajuste
         ranges.ShouldAllBe(r => r.BranchId == shop.Catalog.Setup.BranchId && r.IsUsable);
         (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_RANGES_SYNCED'")).ShouldBe(1);
         (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_SETTINGS_CHANGED'")).ShouldBe(1);
@@ -387,7 +387,7 @@ public class ElectronicBillingTests
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "BILLING.INVALID_ASSIGNMENT");
         await shop.Owner.PutAsJsonAsync($"/api/v1/billing/ranges/{Guid.NewGuid()}/assignment", new { branchId = shop.Catalog.Setup.BranchId }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.NotFound, "BILLING.RANGE_NOT_FOUND");
-        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_RANGE_ASSIGNED'")).ShouldBe(4);
+        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_RANGE_ASSIGNED'")).ShouldBe(5);
 
         await DueNowAsync(shop);
         (await ProcessAsync(shop)).Accepted.ShouldBe(1);

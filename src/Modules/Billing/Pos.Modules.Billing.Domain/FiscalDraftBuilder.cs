@@ -46,7 +46,8 @@ public sealed record FiscalPurchaseSnapshot(
     DateOnly InvoiceDate,
     FiscalParty Supplier,
     IReadOnlyList<FiscalSourceLine> Lines,
-    IReadOnlyList<FiscalPayment> Payments);
+    IReadOnlyList<FiscalPayment> Payments,
+    string? VoidReason = null);
 
 /// <summary>
 /// Arma el modelo fiscal neutro desde el documento GUARDADO (D11B-06, RN-FE-03): la bolsa va como renglón con su valor, el INC y el
@@ -165,6 +166,19 @@ public static class FiscalDraftBuilder
         ArgumentNullException.ThrowIfNull(purchase);
         var lines = Lines(purchase.Lines);
         return new FiscalSupportDocumentDraft(header, purchase.Supplier, purchase.SupplierInvoiceNumber, lines, purchase.Payments, Totals(lines, 0m));
+    }
+
+    /// <summary>
+    /// Nota de ajuste por anulación de la compra: los mismos renglones y medios de pago del documento soporte aceptado, concepto
+    /// "anulación" (tabla de motivos de las notas de ajuste, código 2).
+    /// </summary>
+    public static FiscalAdjustmentNoteDraft AdjustmentNote(FiscalHeader header, FiscalPurchaseSnapshot purchase, FiscalDocumentReference supportDocument)
+    {
+        ArgumentNullException.ThrowIfNull(purchase);
+        var support = SupportDocument(header, purchase);
+        return new FiscalAdjustmentNoteDraft(
+            header, support.Supplier, supportDocument, FiscalCorrectionConcept.Void,
+            string.IsNullOrWhiteSpace(purchase.VoidReason) ? "Anulación de la compra" : purchase.VoidReason, support.Lines, support.Payments, support.Totals);
     }
 
     /// <summary>Referencia a la factura aceptada que corrige una nota crédito.</summary>

@@ -2,7 +2,8 @@
 -- V2026.10.032 · billing · Facturación electrónica (Fase 11-B, núcleo independiente del proveedor).
 -- Diseño: docs/fases/fase-11b-propuesta.md §5, D11B-01 a D11B-11 (aprobada: se construye y queda en modo OFF).
 --
---   · fiscal_documents: documento soporte (compras a proveedores no obligados a facturar), origen PURCHASE, estado CANCELLED
+--   · fiscal_documents: documento soporte (compras a proveedores no obligados a facturar), origen PURCHASE, nota de ajuste al
+--     documento soporte (origen PURCHASE_VOID: anulación de la compra con el documento soporte ya aceptado), estado CANCELLED
 --     (factura pendiente cancelada por la anulación de la venta antes de enviarla), reference_code ÚNICO (idempotencia del
 --     proveedor: reintentar nunca duplica), rango asignado, id y estado en el proveedor, mensaje de rechazo, fecha de validación,
 --     representación gráfica y los datos fiscales del adquirente corregidos por el supervisor (la venta es inmutable).
@@ -39,7 +40,8 @@ CREATE TABLE billing.fiscal_numbering_ranges (
     CONSTRAINT fk_fiscal_numbering_ranges__company FOREIGN KEY (company_id) REFERENCES org.companies (id),
     CONSTRAINT fk_fiscal_numbering_ranges__branch FOREIGN KEY (branch_id, company_id) REFERENCES org.branches (id, company_id),
     CONSTRAINT fk_fiscal_numbering_ranges__terminal FOREIGN KEY (pos_terminal_id, branch_id) REFERENCES org.pos_terminals (id, branch_id),
-    CONSTRAINT ck_fiscal_numbering_ranges__type CHECK (document_type IN ('INVOICE_ELECTRONIC', 'POS_ELECTRONIC', 'CREDIT_NOTE', 'SUPPORT_DOCUMENT')),
+    CONSTRAINT ck_fiscal_numbering_ranges__type CHECK (document_type IN (
+        'INVOICE_ELECTRONIC', 'POS_ELECTRONIC', 'CREDIT_NOTE', 'SUPPORT_DOCUMENT', 'ADJUSTMENT_NOTE')),
     CONSTRAINT ck_fiscal_numbering_ranges__numbers CHECK (range_from > 0 AND range_from <= range_to AND current_number BETWEEN range_from - 1 AND range_to),
     CONSTRAINT ck_fiscal_numbering_ranges__validity CHECK (valid_from IS NULL OR valid_to IS NULL OR valid_from <= valid_to),
     CONSTRAINT ck_fiscal_numbering_ranges__terminal CHECK (pos_terminal_id IS NULL OR branch_id IS NOT NULL)
@@ -103,17 +105,18 @@ ALTER TABLE billing.fiscal_documents DROP CONSTRAINT ck_fiscal_documents__type;
 ALTER TABLE billing.fiscal_documents DROP CONSTRAINT ck_fiscal_documents__status;
 
 ALTER TABLE billing.fiscal_documents
-    ADD CONSTRAINT ck_fiscal_documents__source CHECK (source IN ('SALE', 'SALE_VOID', 'CUSTOMER_RETURN', 'PURCHASE')),
+    ADD CONSTRAINT ck_fiscal_documents__source CHECK (source IN ('SALE', 'SALE_VOID', 'CUSTOMER_RETURN', 'PURCHASE', 'PURCHASE_VOID')),
     ADD CONSTRAINT ck_fiscal_documents__type CHECK (document_type IN (
-        'INTERNAL_RECEIPT', 'POS_ELECTRONIC', 'INVOICE_ELECTRONIC', 'CREDIT_NOTE', 'SUPPORT_DOCUMENT')),
+        'INTERNAL_RECEIPT', 'POS_ELECTRONIC', 'INVOICE_ELECTRONIC', 'CREDIT_NOTE', 'SUPPORT_DOCUMENT', 'ADJUSTMENT_NOTE')),
     ADD CONSTRAINT ck_fiscal_documents__status CHECK (status IN (
         'NOT_REQUIRED', 'PENDING', 'SUBMITTING', 'ACCEPTED', 'REJECTED', 'CONTINGENCY', 'ERROR', 'VOIDED', 'CANCELLED')),
     ADD CONSTRAINT ux_fiscal_documents__reference_code UNIQUE (reference_code),
     ADD CONSTRAINT fk_fiscal_documents__numbering_range FOREIGN KEY (numbering_range_id) REFERENCES billing.fiscal_numbering_ranges (id),
     -- Todo documento electrónico lleva su código de referencia (idempotencia del proveedor, RN-FE-02).
     ADD CONSTRAINT ck_fiscal_documents__reference CHECK (document_type = 'INTERNAL_RECEIPT' OR reference_code IS NOT NULL),
-    -- El documento soporte es exclusivo de las compras.
-    ADD CONSTRAINT ck_fiscal_documents__support CHECK ((source = 'PURCHASE') = (document_type = 'SUPPORT_DOCUMENT')),
+    -- El documento soporte es exclusivo de las compras y la nota de ajuste, de la anulación de una compra con documento soporte aceptado.
+    ADD CONSTRAINT ck_fiscal_documents__support CHECK (
+        (source = 'PURCHASE') = (document_type = 'SUPPORT_DOCUMENT') AND (source = 'PURCHASE_VOID') = (document_type = 'ADJUSTMENT_NOTE')),
     -- Aceptado = con número fiscal y CUFE/CUDE/CUDS; rechazado = con el mensaje del rechazo.
     ADD CONSTRAINT ck_fiscal_documents__accepted CHECK (status <> 'ACCEPTED' OR (fiscal_number IS NOT NULL AND cufe IS NOT NULL AND validated_at IS NOT NULL)),
     ADD CONSTRAINT ck_fiscal_documents__rejected CHECK (status <> 'REJECTED' OR rejection_message IS NOT NULL),
