@@ -19,6 +19,12 @@ internal static class PortalSchemes
     public const string Selector = "Portal";
     public const string Cookie = "PortalCookie";
     public const string Bearer = "PortalBearer";
+
+    /// <summary>Cookie temporal con la identidad devuelta por Google (solo entre <c>/signin-google</c> y <c>/cuenta/google/completar</c>).</summary>
+    public const string External = "PortalExternal";
+
+    /// <summary>Manejador OAuth/OpenID de Google (existe solo si <c>Portal:Google</c> está configurado).</summary>
+    public const string Google = "Google";
 }
 
 /// <summary>
@@ -129,9 +135,20 @@ internal sealed class PortalAuthenticationHandler(IOptionsMonitor<PortalAuthenti
 
         var session = await Context.RequestServices.GetRequiredService<PortalSessionAuthenticator>()
             .AuthenticateAsync(token, Options.Channel, Context.RequestAborted);
-        return session is null
-            ? AuthenticateResult.Fail("La sesión no existe, venció o fue revocada.")
-            : AuthenticateResult.Success(new AuthenticationTicket(ToPrincipal(session, Scheme.Name), Scheme.Name));
+        if (session is null)
+        {
+            return AuthenticateResult.Fail("La sesión no existe, venció o fue revocada.");
+        }
+
+        // En el navegador, una sesión PENDIENTE (falta el código TOTP) no es una identidad: las páginas de /cuenta leen la cookie
+        // directamente. Si lo fuera, el token antifalsificación del formulario del código quedaría atado a ella y, al vencer la
+        // sesión pendiente (5 min) antes de enviarlo, Blazor respondería un 400 vacío (causa del "HTTP ERROR 400" en producción).
+        if (Options.Channel == SessionChannel.Portal && session.Stage != SessionStage.Active)
+        {
+            return AuthenticateResult.NoResult();
+        }
+
+        return AuthenticateResult.Success(new AuthenticationTicket(ToPrincipal(session, Scheme.Name), Scheme.Name));
     }
 
     protected override async Task HandleChallengeAsync(AuthenticationProperties properties)
@@ -181,7 +198,8 @@ internal static class PortalAuthorization
             .AddPolicyScheme(PortalSchemes.Selector, "Portal", o => o.ForwardDefaultSelector = context =>
                 context.Request.Path.StartsWithSegments("/admin") ? PortalSchemes.Bearer : PortalSchemes.Cookie)
             .AddScheme<PortalAuthenticationOptions, PortalAuthenticationHandler>(PortalSchemes.Cookie, o => o.Channel = SessionChannel.Portal)
-            .AddScheme<PortalAuthenticationOptions, PortalAuthenticationHandler>(PortalSchemes.Bearer, o => o.Channel = SessionChannel.Api);
+            .AddScheme<PortalAuthenticationOptions, PortalAuthenticationHandler>(PortalSchemes.Bearer, o => o.Channel = SessionChannel.Api)
+            .AddPortalGoogle();
 
         var authorization = services.AddAuthorizationBuilder().SetDefaultPolicy(ActiveSession);
         foreach (var permission in CloudPermissions.All)
@@ -232,4 +250,28 @@ internal sealed class MustChangePasswordMiddleware(RequestDelegate next)
 
     private static bool IsPortalPage(PathString path) =>
         !ExcludedPrefixes.Any(prefix => path.StartsWithSegments(prefix, StringComparison.OrdinalIgnoreCase)) && !Path.HasExtension(path.Value);
+}
+
+/// <summary>
+/// Formularios de acceso (/cuenta) cuyo token antifalsificación ya no vale (la sesión con la que se generó venció o cambió, o
+/// las llaves de protección de datos cambiaron): en vez del 400 vacío de Blazor (que el navegador muestra como "HTTP ERROR 400"
+/// y que ASP.NET registra solo en Debug), se registra una advertencia y se vuelve al ingreso con un aviso.
+/// </summary>
+internal sealed partial class AccountFormExpiredMiddleware(RequestDelegate next, ILogger<AccountFormExpiredMiddleware> logger)
+{
+    public Task InvokeAsync(HttpContext context)
+    {
+        if (HttpMethods.IsPost(context.Request.Method) && context.Request.Path.StartsWithSegments("/cuenta", StringComparison.OrdinalIgnoreCase)
+            && context.Features.Get<Microsoft.AspNetCore.Antiforgery.IAntiforgeryValidationFeature>() is { IsValid: false } validation)
+        {
+            LogExpired(logger, context.Request.Path.Value ?? string.Empty, validation.Error?.Message ?? string.Empty);
+            context.Response.Redirect($"{context.Request.PathBase}{PortalAuthenticationHandler.LoginPath}?vencido=1");
+            return Task.CompletedTask;
+        }
+
+        return next(context);
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Formulario de acceso {Path} con token antifalsificación inválido o vencido: {Reason}")]
+    private static partial void LogExpired(ILogger logger, string path, string reason);
 }

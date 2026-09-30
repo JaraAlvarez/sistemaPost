@@ -1,15 +1,28 @@
 @page "/cuenta/ingresar"
 @layout AccountLayout
+@using Microsoft.Extensions.Options
 @using Pos.Application.Abstractions.Messaging
 @using Pos.Cloud.PortalIdentity.Domain
 @inject IDispatcher Dispatcher
 @inject NavigationManager Navigation
+@inject IOptions<PortalGoogleOptions> Google
 
 <PageTitle>Ingresar · BusinessPost</PageTitle>
 
-@if (_error is not null)
+@if ((_error ?? Notice) is { } message)
 {
-    <div class="account-error" role="alert">@_error</div>
+    <div class="account-error" role="alert">@message</div>
+}
+
+@if (Google.Value.IsConfigured)
+{
+    @* Formulario aparte (POST con token antifalsificación) hacia el desafío de Google: /cuenta/google → Google → /signin-google. *@
+    <form method="post" action="@PortalLinks.Local(PortalGoogle.ChallengePath)" class="account-google">
+        <AntiforgeryToken />
+        <input type="hidden" name="returnUrl" value="@PortalCookie.SafeReturnUrl(ReturnUrl)" />
+        <button type="submit">Ingresar con Google</button>
+    </form>
+    <p class="account-hint">O con su correo y contraseña:</p>
 }
 
 <EditForm Model="Input" method="post" OnValidSubmit="LoginAsync" FormName="login">
@@ -19,7 +32,7 @@
     <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password" />
     <button type="submit">Ingresar</button>
 </EditForm>
-<p class="account-hint">Después de la contraseña se pide el código de su aplicación autenticadora (doble factor obligatorio).</p>
+<p class="account-hint">Si activó el doble factor, después de la contraseña se pide el código de su aplicación autenticadora.</p>
 
 @code {
     [CascadingParameter]
@@ -31,7 +44,25 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
+    /// <summary>Resultado del ingreso con Google (<c>rechazado</c>, <c>bloqueado</c>, <c>error</c>).</summary>
+    [SupplyParameterFromQuery(Name = "google")]
+    private string? GoogleResult { get; set; }
+
+    /// <summary>El formulario anterior venció (token antifalsificación de una sesión que ya no existe).</summary>
+    [SupplyParameterFromQuery(Name = "vencido")]
+    private string? Expired { get; set; }
+
     private string? _error;
+
+    private string? Notice =>
+        Expired is not null ? "La página de acceso venció (pasaron varios minutos o su sesión cambió). Ingrese de nuevo."
+        : GoogleResult switch
+        {
+            null => null,
+            "rechazado" => PortalIdentityErrors.ExternalLoginRejected.Message,
+            "bloqueado" => PortalIdentityErrors.UserLocked.Message,
+            _ => "No se completó el ingreso con Google. Intente de nuevo o ingrese con su contraseña.",
+        };
 
     protected override void OnInitialized() => Input ??= new();
 
@@ -50,8 +81,17 @@
 
         var challenge = result.Value.Value!;
         PortalCookie.Write(HttpContext.Response, challenge.Token, challenge.ExpiresAt);
+        var returnUrl = PortalCookie.SafeReturnUrl(ReturnUrl);
+        if (challenge.Stage == "ACTIVE")
+        {
+            // Sin doble factor (opcional y no activado): la sesión ya está activa. El middleware lleva a /mi-cuenta si la
+            // contraseña es temporal.
+            Navigation.NavigateTo(PortalLinks.Local(returnUrl), forceLoad: true);
+            return;
+        }
+
         var next = challenge.Stage == "ENROLLMENT_REQUIRED" ? "/cuenta/activar-doble-factor" : "/cuenta/segundo-factor";
-        Navigation.NavigateTo($"{PortalLinks.Local(next)}?returnUrl={Uri.EscapeDataString(PortalCookie.SafeReturnUrl(ReturnUrl))}");
+        Navigation.NavigateTo($"{PortalLinks.Local(next)}?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
     }
 
     private sealed class LoginInput

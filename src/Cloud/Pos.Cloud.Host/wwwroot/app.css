@@ -55,6 +55,15 @@ html, body {
     cursor: pointer;
 }
 
+/* Ingreso con Google: botón claro, arriba del formulario de contraseña. */
+.account-google button {
+    margin-top: 4px;
+    background: #fff;
+    color: #3c4043;
+    border: 1px solid #c4c9d0;
+    font-weight: 500;
+}
+
 .account-error {
     background: #fdecea;
     color: #611a15;

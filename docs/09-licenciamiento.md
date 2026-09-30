@@ -224,9 +224,11 @@ Mensajes en el token (`msgs`): `TRIAL`, `SUBSCRIPTION_EXPIRING` (7 días antes �
 `SUBSCRIPTION_PAST_DUE`, `SUBSCRIPTION_SUSPENDED`, `SUBSCRIPTION_CANCELLED`, `SUBSCRIPTION_EXPIRED` y `UPDATE_AVAILABLE`
 (si `Licensing:LatestPosVersion` es mayor que la versión reportada).
 
-**Portal y API interna** (`/admin`, Bearer o cookie `__Host-` del portal): acceso con contraseña Argon2id + **TOTP obligatorio**
-(`/admin/auth/login` → `/admin/auth/totp/enrollment` en el primer ingreso → `/admin/auth/totp`), bloqueo por intentos, sesiones
-revocables, contraseña temporal que obliga a cambiarla. Roles: `SUPERADMIN` (todo, incluidos usuarios del portal y claves de firma) y
+**Portal y API interna** (`/admin`, Bearer o cookie `__Host-` del portal): acceso con **"Ingresar con Google"**
+(correo verificado de un usuario activo; ADR-0062) o con contraseña Argon2id + **TOTP opcional** (`Portal:RequireTotp`, por
+defecto `false`; a quien lo activó se le pide siempre: `/admin/auth/login` → `/admin/auth/totp`; con `RequireTotp=true`,
+`/admin/auth/totp/enrollment` en el primer ingreso), bloqueo por intentos, sesiones revocables, contraseña temporal que obliga a
+cambiarla (salvo a quien entró con Google). Roles: `SUPERADMIN` (todo, incluidos usuarios del portal y claves de firma) y
 `SUPPORT` (consulta, reactivar, extender la gracia, liberar equipos, auditoría); `RESELLER` existe en el modelo sin permisos.
 Permisos: `licensing.dashboard.view`, `licensing.data.view`, `licensing.account.manage`, `licensing.subscription.manage`,
 `licensing.subscription.support`, `licensing.license.manage`, `licensing.device.release`, `licensing.signing_key.view`,

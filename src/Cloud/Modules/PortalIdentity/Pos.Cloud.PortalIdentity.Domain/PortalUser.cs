@@ -34,7 +34,8 @@ public sealed record LoginPolicy(int MaxFailedAttempts, TimeSpan LockoutDuration
 }
 
 /// <summary>
-/// Usuario del portal (L-08): solo el equipo del propietario. Contraseña Argon2id y TOTP obligatorio; tras
+/// Usuario del portal (L-08): solo el equipo del propietario. Contraseña Argon2id y TOTP (obligatorio u opcional según
+/// <c>Portal:RequireTotp</c>; ADR-0062), o ingreso con Google si el correo coincide; tras
 /// <see cref="LoginPolicy.MaxFailedAttempts"/> intentos fallidos (contraseña o código) se bloquea un tiempo.
 /// </summary>
 [Audited("portal")]
@@ -204,7 +205,10 @@ public sealed partial class PortalUser : AggregateRoot<Guid>, IHasAuditLabel
 
     public void UseTotpStep(long step) => TotpLastStep = step;
 
-    /// <summary>Recuperación manual del 2FA (teléfono perdido): el próximo ingreso vuelve a enrolar.</summary>
+    /// <summary>
+    /// Recuperación manual del 2FA (teléfono perdido) o desactivación por el propio usuario cuando el doble factor es opcional:
+    /// el próximo ingreso vuelve a enrolar solo si <c>Portal:RequireTotp</c> lo exige.
+    /// </summary>
     public void ResetTotp()
     {
         TotpEnabled = false;
@@ -258,6 +262,16 @@ public enum SessionStage
 
     /// <summary>Segundo factor completo.</summary>
     Active,
+}
+
+/// <summary>Cómo se autenticó la sesión (ADR-0062).</summary>
+public enum SessionAuthMethod
+{
+    /// <summary>Correo y contraseña (más el TOTP si el usuario lo tiene activo o si la configuración lo exige).</summary>
+    Password,
+
+    /// <summary>Cuenta de Google con correo verificado igual al del usuario del portal.</summary>
+    Google,
 }
 
 public enum SessionChannel
@@ -316,6 +330,19 @@ public sealed class PortalSession : Entity<Guid>
 
     public string? UserAgent { get; private set; }
 
+    /// <summary>Método con el que se autenticó (contraseña o Google).</summary>
+    public SessionAuthMethod AuthMethod { get; private set; } = SessionAuthMethod.Password;
+
+    /// <summary>
+    /// ¿Debe cambiar la contraseña antes de usar el portal? Solo si la contraseña es temporal y la sesión entró CON ella: quien
+    /// entró con Google no usó la contraseña temporal (ADR-0062).
+    /// </summary>
+    public bool RequiresPasswordChange(PortalUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        return user.MustChangePassword && AuthMethod == SessionAuthMethod.Password;
+    }
+
     public static PortalSession StartPending(
         Guid id, PortalUser user, string tokenHash, SessionChannel channel, SessionPolicy policy, DateTimeOffset now, IPAddress? ip, string? userAgent)
     {
@@ -331,6 +358,35 @@ public sealed class PortalSession : Entity<Guid>
             IpAddress = ip,
             UserAgent = userAgent is { Length: > 300 } ? userAgent[..300] : userAgent,
         };
+    }
+
+    /// <summary>
+    /// Sesión ACTIVA desde el primer paso: contraseña de un usuario sin TOTP cuando el doble factor no es obligatorio, o Google.
+    /// </summary>
+    public static PortalSession StartActive(
+        Guid id, PortalUser user, string tokenHash, SessionChannel channel, SessionAuthMethod method, SessionPolicy policy, DateTimeOffset now,
+        IPAddress? ip, string? userAgent)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(policy);
+        var session = new PortalSession(id, user.Id, tokenHash, SessionStage.Active, channel, now)
+        {
+            AuthMethod = method,
+            IpAddress = ip,
+            UserAgent = userAgent is { Length: > 300 } ? userAgent[..300] : userAgent,
+        };
+        session.CompleteSecondFactor(user, tokenHash, policy, now);
+        return session;
+    }
+
+    /// <summary>
+    /// Tras un cambio de seguridad hecho por el propio usuario en esta sesión (contraseña, activar o desactivar el TOTP), la sesión
+    /// en curso sigue abierta con la nueva versión de seguridad (las demás se revocan aparte).
+    /// </summary>
+    public void KeepAfterSecurityChange(PortalUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        SecurityVersion = user.SecurityVersion;
     }
 
     public bool IsUsable(PortalUser user, DateTimeOffset now)
@@ -412,6 +468,16 @@ public static class PortalIdentityErrors
     public static readonly Error TotpAlreadyEnabled = Error.BusinessRule("PORTAL.TOTP_ALREADY_ENABLED", "El doble factor ya está activo.");
 
     public static readonly Error TotpEnrollmentRequired = Error.BusinessRule("PORTAL.TOTP_ENROLLMENT_REQUIRED", "Primero escanee el código QR del doble factor.");
+
+    /// <summary>Ingreso con Google rechazado (correo desconocido, sin verificar o usuario deshabilitado): mensaje genérico.</summary>
+    public static readonly Error ExternalLoginRejected = Error.Unauthorized(
+        "PORTAL.EXTERNAL_LOGIN_REJECTED",
+        "No fue posible ingresar con esa cuenta de Google. Use el correo registrado en el portal o ingrese con su contraseña.");
+
+    public static readonly Error TotpRequiredByPolicy = Error.BusinessRule(
+        "PORTAL.TOTP_REQUIRED_BY_POLICY", "En este portal el doble factor es obligatorio: no se puede desactivar.");
+
+    public static readonly Error TotpNotEnabled = Error.BusinessRule("PORTAL.TOTP_NOT_ENABLED", "El doble factor no está activo.");
 
     public static readonly Error LastSuperadmin = Error.BusinessRule(
         "PORTAL.LAST_SUPERADMIN", "Debe quedar al menos un superadministrador activo.");

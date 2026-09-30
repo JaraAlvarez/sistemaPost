@@ -6,7 +6,7 @@
 > del VPS**; la clave privada de firma en un archivo protegido, nunca en el repositorio ni en la BD.
 >
 > **Despliegue del dueño:** el VPS ya tiene Caddy sirviendo `tutiendanueva.com` (Express + React). La nube de BusinessPost va en el
-> subdominio **`https://businesspost.tutiendanueva.com/`** dentro de ese Caddy: siga los pasos 1–17 con los cambios del **§18**
+> subdominio **`https://businesspost.tutiendanueva.com/`** dentro de ese Caddy: siga los pasos 1–17 con los cambios del **§18**; el ingreso con Google está en el **§19**
 > (en lugar de `licencias.midominio.com`, use `businesspost.tutiendanueva.com`).
 
 ## 0. Piezas
@@ -172,7 +172,12 @@ docker compose exec app dotnet /app/Pos.Cloud.Host.dll create-superadmin --email
 ```
 
 Imprime una **contraseña temporal** (solo funciona si aún no hay superadministrador). Entre a
-`https://licencias.midominio.com/cuenta/ingresar`: el portal exige cambiarla y enrolar el doble factor (TOTP) con el código QR.
+`https://licencias.midominio.com/cuenta/ingresar`:
+
+- **Con "Ingresar con Google"** configurado (§19) y el mismo correo en su cuenta de Google: entra sin usar la temporal y sin que
+  se le exija cambiarla (en "Mi cuenta" puede cambiarla para tener una contraseña de respaldo).
+- **Con la contraseña temporal:** el portal exige cambiarla. El doble factor (TOTP) es opcional (`PORTAL_REQUIRE_TOTP=false`, lo
+  predeterminado): actívelo en "Mi cuenta" si quiere; con `PORTAL_REQUIRE_TOTP=true` se enrola con el código QR al entrar.
 
 Publique la clave pública de la reserva (sin su privada):
 
@@ -281,6 +286,7 @@ con ella siguen siendo válidos) · `REVOKED` (comprometida: el POS deja de conf
 | `/health` → `database` Unhealthy | `docker compose logs db-init app postgres`; `docker compose exec app dotnet /app/Pos.Cloud.Host.dll status --connection "Host=postgres;Database=pos_cloud;Username=pos_migrator;Password=<DB_MIGRATOR_PASSWORD>"` muestra la versión y los scripts pendientes o modificados |
 | `/health` → `signing` Degraded | Archivo ausente o ilegible (dueño 1654, permisos 400) o clave `RETIRED`/`REVOKED`: configure la activa correcta y recree `app` |
 | Caddy no obtiene el certificado | DNS (`dig`), puertos 80/443 abiertos en `ufw` **y** en el firewall del proveedor, `docker compose logs caddy`. Let's Encrypt limita los intentos: corrija antes de reintentar |
+| El navegador muestra "HTTP ERROR 400" (página vacía) en `/cuenta/…` | Desde ADR-0062 un formulario de acceso vencido vuelve a `/cuenta/ingresar?vencido=1` y deja una advertencia *"Formulario de acceso … token antifalsificación inválido o vencido"* en `docker compose logs app`. Si aun así ve un 400 vacío, suba temporalmente el detalle de ASP.NET (`Serilog__MinimumLevel__Override__Microsoft.AspNetCore: Debug` en el servicio `app`, `docker compose up -d app`), repita el recorrido y busque `antiforgery`, `BadRequest` o `Host` en los logs; vuelva a `Warning` después |
 | Se perdieron las llaves de Data Protection | Los secretos TOTP no se pueden descifrar: restaure el respaldo, o use `recover-user` con cada usuario para re-enrolar el doble factor |
 | La auditoría tiene hallazgos (`verify-audit` ≠ 0) | No borre nada. Conserve el volumen y un respaldo, compare con respaldos anteriores e investigue antes de continuar |
 | Se perdió el VPS | VPS nuevo + sección 9. Los POS siguen vendiendo sin conexión hasta `valid_until + gracia` (doc 09) |
@@ -461,3 +467,49 @@ Solo si no se puede crear el subdominio. Diferencias con la opción principal:
   POS y el simulador (`--server https://tutiendanueva.com/businesspost`) conservan la ruta al llamar a `/v1`.
 - Si más adelante pasa al subdominio, cambie la dirección en cada tienda (`Pos:Licensing:ServerUrl`, `Pos:Updates:ManifestUrl`); los
   usuarios del portal vuelven a ingresar.
+
+## 19. Ingreso al portal con Google (ADR-0062)
+
+"Ingresar con Google" reemplaza al doble factor como forma normal de entrar: entra solo quien tenga en Google un correo
+**verificado** igual al de un usuario **activo** del portal (no se crean usuarios; los crea el superadministrador en "Usuarios del
+portal"). La contraseña queda de respaldo.
+
+1. **Proyecto y pantalla de consentimiento** — en [Google Cloud Console](https://console.cloud.google.com/): cree (o elija) un
+   proyecto → *APIs y servicios* → *Pantalla de consentimiento de OAuth* (en consolas nuevas: *Google Auth Platform* → *Branding*):
+   - Tipo de usuario **Externo** (o **Interno** si todos usan el Google Workspace de su empresa).
+   - Nombre de la aplicación `BusinessPost`, correo de asistencia y del desarrollador: los suyos. Dominio autorizado:
+     `tutiendanueva.com`.
+   - Alcances: `openid`, `.../auth/userinfo.email` y `.../auth/userinfo.profile` (no requieren verificación de Google).
+   - Con tipo Externo en modo **Prueba**, agregue como *usuarios de prueba* los correos del equipo, o **publique** la aplicación
+     (con solo esos alcances no hace falta revisión).
+2. **Cliente OAuth** — *Credenciales* (o *Clientes*) → *Crear credenciales* → *ID de cliente de OAuth* → tipo **Aplicación web**:
+   - *Orígenes de JavaScript autorizados:* `https://businesspost.tutiendanueva.com`
+   - *URI de redireccionamiento autorizados:* `https://businesspost.tutiendanueva.com/signin-google`
+     (bajo una ruta, alternativa del §18: `https://tutiendanueva.com/businesspost/signin-google`).
+   - Copie el **ID de cliente** y el **secreto del cliente**.
+3. **Variables** en `/opt/pos/deploy/cloud/.env` (permisos 600; nunca en el repositorio):
+
+   ```bash
+   GOOGLE_CLIENT_ID=123456789-xxxx.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=GOCSPX-...
+   PORTAL_REQUIRE_TOTP=false
+   ```
+   El compose las pasa a la aplicación como `Portal__Google__ClientId`, `Portal__Google__ClientSecret` y `Portal__RequireTotp`.
+   Aplique con `docker compose up -d app` (con los mismos `-f` del §18). Sin `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` el botón no
+   aparece y el portal funciona solo con contraseña. El secreto no se escribe en los logs.
+4. **Requisitos del proxy:** la URI de redirección se arma con el esquema y el host que ve la aplicación, así que deben llegarle
+   `X-Forwarded-Proto: https` y el `Host` original (`Cloud__TrustForwardedHeaders=true`, como en el §18; Caddy los envía solo). Si
+   Google responde `redirect_uri_mismatch`, compare la URI del error con la registrada en el paso 2.
+5. **Prueba:** abra `https://businesspost.tutiendanueva.com/cuenta/ingresar` → *Ingresar con Google* → elija la cuenta. Debe quedar
+   en el portal; en *Auditoría* aparece `PORTAL_LOGIN_SUCCEEDED` con "método GOOGLE", la IP y el navegador. Un correo que no es usuario
+   del portal ve "No fue posible ingresar con esa cuenta de Google" y queda un `PORTAL_LOGIN_FAILED`.
+
+Notas:
+
+- **Contraseña temporal:** quien entra con Google no está obligado a cambiarla (no la usó). Con contraseña, sí.
+- **Doble factor:** con `PORTAL_REQUIRE_TOTP=false` cada usuario lo activa o desactiva en "Mi cuenta"; a quien lo tiene activo se
+  le pide al entrar con contraseña (Google nunca lo pide: active la verificación en dos pasos de su cuenta de Google).
+  `PORTAL_REQUIRE_TOTP=true` vuelve al comportamiento anterior (todos enrolan con el QR).
+- Un usuario deshabilitado o bloqueado en el portal no entra aunque Google lo autentique. Para quitar el acceso de alguien,
+  deshabilítelo en el portal (no basta con quitarle la cuenta de Google si conoce su contraseña).
+- Rotar el secreto: cree uno nuevo en la consola, cámbielo en `.env`, `docker compose up -d app` y borre el anterior.

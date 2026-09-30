@@ -14,7 +14,7 @@ using Pos.SharedKernel.Results;
 namespace Pos.Cloud.PortalIdentity.Api;
 
 /// <summary>
-/// Usuarios del portal: acceso de la API interna (<c>/admin/auth</c>, token Bearer con el mismo TOTP obligatorio que el navegador),
+/// Usuarios del portal: acceso de la API interna (<c>/admin/auth</c>, token Bearer con las mismas reglas de TOTP que el navegador),
 /// gestión de usuarios y sesiones (superadministrador) y consulta de la auditoría.
 /// </summary>
 public sealed class PortalIdentityModule : IModule
@@ -61,7 +61,20 @@ public sealed class PortalIdentityModule : IModule
                 (await d.Send(new ChangeOwnPasswordCommand(r.CurrentPassword, r.NewPassword), ct)).ToHttpResult())
             .RequireAuthorization();
 
-        var users = api.MapGroup("/admin/users").WithTags("Usuarios del portal").RequireAuthorization(CloudPermissions.PortalUserManage);
+        // Doble factor opcional del propio usuario (ADR-0062), igual que en "Mi cuenta" del portal.
+        auth.MapPost("/me/totp/enrollment", async (IDispatcher d, CancellationToken ct) => (await d.Send(new BeginOwnTotpEnrollmentCommand(), ct)).ToHttpResult())
+            .RequireAuthorization()
+            .WithSummary("Activar el TOTP propio: secreto y enlace otpauth:// (se confirma con el primer código)");
+        auth.MapPost("/me/totp", async (CodeRequest r, IDispatcher d, CancellationToken ct) => (await d.Send(new ConfirmOwnTotpCommand(r.Code), ct)).ToHttpResult())
+            .RequireAuthorization()
+            .RequireRateLimiting(LoginRateLimit)
+            .WithSummary("Confirma el TOTP propio con el primer código");
+        auth.MapPost("/me/totp/disable", async (CodeRequest r, IDispatcher d, CancellationToken ct) => (await d.Send(new DisableOwnTotpCommand(r.Code), ct)).ToHttpResult())
+            .RequireAuthorization()
+            .RequireRateLimiting(LoginRateLimit)
+            .WithSummary("Desactiva el TOTP propio con un código vigente (si Portal:RequireTotp no lo exige)");
+
+        var users =api.MapGroup("/admin/users").WithTags("Usuarios del portal").RequireAuthorization(CloudPermissions.PortalUserManage);
         users.MapGet("/", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListPortalUsersQuery(), ct)).ToHttpResult());
         users.MapPost("/", async (CreatePortalUserCommand command, IDispatcher d, CancellationToken ct) =>
             (await d.Send(command, ct)).ToCreatedResult(u => $"/admin/users/{u.UserId}"));
@@ -100,6 +113,8 @@ public sealed record LoginRequest(string Email, string Password);
 public sealed record TokenRequest(string Token);
 
 public sealed record TotpRequest(string Token, string Code);
+
+public sealed record CodeRequest(string Code);
 
 public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 

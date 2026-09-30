@@ -19,6 +19,13 @@ public sealed class PortalIdentityOptions
 
     public int IdleMinutes { get; set; } = (int)SessionPolicy.Default.IdleTimeout.TotalMinutes;
 
+    /// <summary>
+    /// ¿El doble factor (TOTP) es obligatorio para entrar con contraseña? Por defecto NO (ADR-0062): la contraseña basta, salvo
+    /// para quien activó su TOTP en "Mi cuenta", a quien siempre se le pide. <c>true</c> = comportamiento de la Fase 12-A (todos
+    /// deben enrolar su autenticador). El ingreso con Google nunca pide el TOTP.
+    /// </summary>
+    public bool RequireTotp { get; set; }
+
     /// <summary>Nombre que muestra la aplicación autenticadora del teléfono.</summary>
     public string TotpIssuer { get; set; } = "POS Licencias";
 
@@ -85,9 +92,25 @@ public static class TemporaryPasswords
     }
 }
 
-public sealed record PortalMeDto(Guid Id, string Email, string DisplayName, string Role, bool MustChangePassword, IReadOnlyCollection<string> Permissions);
+/// <summary>
+/// Usuario en curso. <see cref="MustChangePassword"/> es el efectivo de la sesión (quien entró con Google no está obligado);
+/// <see cref="HasTemporaryPassword"/> dice si la contraseña guardada sigue siendo la temporal.
+/// </summary>
+public sealed record PortalMeDto(
+    Guid Id,
+    string Email,
+    string DisplayName,
+    string Role,
+    bool MustChangePassword,
+    IReadOnlyCollection<string> Permissions,
+    bool TotpEnabled = false,
+    bool HasTemporaryPassword = false,
+    string AuthMethod = "PASSWORD");
 
-/// <summary>Resultado de la contraseña correcta: token de la sesión pendiente y qué falta (código o enrolamiento).</summary>
+/// <summary>
+/// Resultado de la contraseña correcta: token de la sesión y qué falta: <c>TOTP_REQUIRED</c>, <c>ENROLLMENT_REQUIRED</c> o
+/// <c>ACTIVE</c> (nada: el TOTP no es obligatorio y el usuario no lo tiene activo; el token ya es el de la sesión).
+/// </summary>
 public sealed record LoginChallengeDto(string Token, string Stage, DateTimeOffset ExpiresAt);
 
 public sealed record TotpEnrollmentDto(string Secret, string EnrollmentLink);
@@ -119,7 +142,8 @@ public sealed record PortalSessionInfoDto(
     DateTimeOffset? RevokedAt,
     string? RevokedReason,
     string? IpAddress,
-    string? UserAgent);
+    string? UserAgent,
+    string AuthMethod = "PASSWORD");
 
 /// <summary>Usuario creado o contraseña restablecida: la temporal se muestra una sola vez.</summary>
 public sealed record TemporaryPasswordDto(Guid UserId, string Email, string TemporaryPassword);
