@@ -71,6 +71,10 @@ services:
       Licensing__LatestPosVersion: ${LATEST_POS_VERSION:-}
       # Fase 16: clave X25519 que abre los paquetes .possync cargados en el portal (docs/despliegue-nube.md §17).
       Sync__PrivateKeyPath: /run/secrets/sync_key
+      # Acceso al portal (ADR-0062): "Ingresar con Google" solo si hay ClientId y secreto; TOTP opcional salvo PORTAL_REQUIRE_TOTP=true.
+      Portal__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
+      Portal__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
+      Portal__RequireTotp: ${PORTAL_REQUIRE_TOTP:-false}
       TZ: America/Bogota
       # Registros: información propia; el detalle de ASP.NET Core y EF Core solo desde advertencias.
       Serilog__MinimumLevel__Default: Information

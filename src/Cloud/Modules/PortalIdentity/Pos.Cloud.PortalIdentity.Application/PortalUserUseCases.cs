@@ -15,7 +15,8 @@ internal static class PortalUserUseCaseMapping
 
     public static PortalSessionInfoDto ToDto(PortalSession s) => new(
         s.Id, s.UserId, s.Stage switch { SessionStage.Active => "ACTIVE", SessionStage.PendingTotp => "PENDING_TOTP", _ => "PENDING_ENROLLMENT" },
-        s.Channel == SessionChannel.Api ? "API" : "PORTAL", s.CreatedAt, s.ExpiresAt, s.LastSeenAt, s.RevokedAt, s.RevokedReason, s.IpAddress?.ToString(), s.UserAgent);
+        s.Channel == SessionChannel.Api ? "API" : "PORTAL", s.CreatedAt, s.ExpiresAt, s.LastSeenAt, s.RevokedAt, s.RevokedReason, s.IpAddress?.ToString(), s.UserAgent,
+        s.AuthMethod == SessionAuthMethod.Google ? "GOOGLE" : "PASSWORD");
 
     public static async Task RevokeAllAsync(IPortalIdentityStore store, Guid userId, string reason, DateTimeOffset now, CancellationToken cancellationToken)
     {

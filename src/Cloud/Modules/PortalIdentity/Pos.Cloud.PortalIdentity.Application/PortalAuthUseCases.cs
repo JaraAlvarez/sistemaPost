@@ -88,8 +88,36 @@ public sealed class PortalAuthServices(
         return PortalIdentityErrors.UserLocked;
     }
 
-    public static PortalMeDto Me(PortalUser user) =>
-        new(user.Id, user.Email, user.DisplayName, PortalRoleCodes.ToCode(user.Role), user.MustChangePassword, CloudPermissions.ForRole(PortalRoleCodes.ToCode(user.Role)));
+    /// <summary>El usuario visto desde una sesión: la obligación de cambiar la contraseña depende de cómo entró (ADR-0062).</summary>
+    public static PortalMeDto Me(PortalUser user, PortalSession? session = null) =>
+        new(user.Id, user.Email, user.DisplayName, PortalRoleCodes.ToCode(user.Role), session?.RequiresPasswordChange(user) ?? user.MustChangePassword,
+            CloudPermissions.ForRole(PortalRoleCodes.ToCode(user.Role)), user.TotpEnabled, user.MustChangePassword,
+            session?.AuthMethod == SessionAuthMethod.Google ? "GOOGLE" : "PASSWORD");
+
+    /// <summary>Sesión ACTIVA nueva (contraseña sin TOTP o Google): registra el ingreso y lo audita con su método.</summary>
+    public async Task<(PortalSession Session, string Token)> StartActiveSessionAsync(
+        PortalUser user, SessionChannel channel, SessionAuthMethod method, IPAddress? ip, string? userAgent, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var now = clock.UtcNow;
+        var token = SecureTokens.Create();
+        var session = PortalSession.StartActive(ids.NewId(), user, SecureTokens.Hash(token), channel, method, options.Sessions, now, ip, userAgent);
+        store.Add(session);
+        user.RegisterSuccessfulSignIn(now);
+        await AuditAsync(user, "PORTAL_LOGIN_SUCCEEDED", LoginSummary(user, session), AuditSeverity.Info, cancellationToken);
+        return (session, token);
+    }
+
+    /// <summary>Resumen de la auditoría de un ingreso: canal, método, IP y agente de usuario.</summary>
+    public static string LoginSummary(PortalUser user, PortalSession session)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(session);
+        var method = session.AuthMethod == SessionAuthMethod.Google ? "GOOGLE" : "CONTRASEÑA";
+        var agent = session.UserAgent is { Length: > 0 } ua ? (ua.Length > 120 ? ua[..120] : ua) : "desconocido";
+        return $"{user.Email} entró al portal ({(session.Channel == SessionChannel.Api ? "API" : "navegador")}, método {method}) desde "
+               + $"{session.IpAddress?.ToString() ?? "IP desconocida"}; agente: {agent}.";
+    }
 }
 
 public static class PortalRoleCodes
@@ -156,6 +184,14 @@ internal sealed class PortalLoginHandler(PortalAuthServices auth) : ICommandHand
         if (!passwordOk || !user.CanSignIn(now))
         {
             return Outcome.Fail<LoginChallengeDto>(await auth.FailAsync(user, "PORTAL_LOGIN_FAILED", $"Contraseña incorrecta o usuario deshabilitado ({user.Email}).", cancellationToken));
+        }
+
+        // Doble factor opcional (ADR-0062): sin TOTP activo y sin exigirlo la configuración, la contraseña basta.
+        if (!user.TotpEnabled && !auth.Options.RequireTotp)
+        {
+            var (active, activeToken) = await auth.StartActiveSessionAsync(
+                user, request.Channel, SessionAuthMethod.Password, request.IpAddress, request.UserAgent, cancellationToken);
+            return Outcome.Ok(new LoginChallengeDto(activeToken, "ACTIVE", active.ExpiresAt));
         }
 
         var token = SecureTokens.Create();
@@ -245,10 +281,207 @@ internal sealed class CompleteSecondFactorHandler(PortalAuthServices auth) : ICo
         var token = SecureTokens.Create();
         session.CompleteSecondFactor(user, SecureTokens.Hash(token), auth.Options.Sessions, now);
         user.RegisterSuccessfulSignIn(now);
-        await auth.AuditAsync(user, "PORTAL_LOGIN_SUCCEEDED",
-            $"{user.Email} entró al portal ({(session.Channel == SessionChannel.Api ? "API" : "navegador")}) desde {session.IpAddress?.ToString() ?? "IP desconocida"}.",
-            AuditSeverity.Info, cancellationToken);
-        return Outcome.Ok(new PortalSessionDto(token, session.Id, session.ExpiresAt, PortalAuthServices.Me(user)));
+        await auth.AuditAsync(user, "PORTAL_LOGIN_SUCCEEDED", PortalAuthServices.LoginSummary(user, session), AuditSeverity.Info, cancellationToken);
+        return Outcome.Ok(new PortalSessionDto(token, session.Id, session.ExpiresAt, PortalAuthServices.Me(user, session)));
+    }
+}
+
+// ─────────────────────────────── Ingreso con un proveedor externo (Google) ───────────────────────────────
+
+/// <summary>
+/// Ingreso con Google (ADR-0062): el host ya validó la respuesta de Google (OAuth/OpenID) y entrega el correo y si Google lo
+/// verificó. Solo entra un correo VERIFICADO igual (sin distinguir mayúsculas) al de un usuario humano ACTIVO y sin bloqueo;
+/// nunca se crean usuarios. Correcto → sesión ACTIVA (sin TOTP: la seguridad de la cuenta de Google hace de segundo factor).
+/// Cualquier rechazo responde un error genérico y queda en la auditoría. El caso de uso se confirma aunque falle.
+/// </summary>
+public sealed record PortalExternalLoginCommand(
+    string Provider, string? Email, bool EmailVerified, SessionChannel Channel, IPAddress? IpAddress, string? UserAgent)
+    : ICommand<Outcome<PortalSessionDto>>;
+
+internal sealed class PortalExternalLoginHandler(PortalAuthServices auth, IAuditWriter audit)
+    : ICommandHandler<PortalExternalLoginCommand, Outcome<PortalSessionDto>>
+{
+    public async Task<Result<Outcome<PortalSessionDto>>> Handle(PortalExternalLoginCommand request, CancellationToken cancellationToken)
+    {
+        if (!string.Equals(request.Provider, PortalExternalProviders.Google, StringComparison.Ordinal))
+        {
+            return Outcome.Fail<PortalSessionDto>(PortalIdentityErrors.ExternalLoginRejected);
+        }
+
+        var now = auth.Clock.UtcNow;
+        var email = PortalUser.NormalizeEmail(request.Email);
+        var shown = email.Length == 0 ? "(sin correo)" : email.Length > 120 ? email[..120] : email;
+        var origin = $"desde {request.IpAddress?.ToString() ?? "IP desconocida"}";
+        var user = PortalUser.IsValidEmail(email) ? await auth.Store.FindUserByEmailAsync(email, cancellationToken) : null;
+        if (user is null || user.Kind != PortalUserKind.Human)
+        {
+            // Sin usuario al que atribuirlo: fila de auditoría sin entidad (el correo es el dato del intento).
+            await audit.WriteAsync(
+                new AuditEntry("portal", "PORTAL_LOGIN_FAILED", nameof(PortalUser), null, null,
+                    $"Ingreso con Google rechazado: el correo {shown} no corresponde a un usuario del portal ({origin}).", Severity: AuditSeverity.Warning),
+                cancellationToken);
+            return Outcome.Fail<PortalSessionDto>(PortalIdentityErrors.ExternalLoginRejected);
+        }
+
+        if (!request.EmailVerified)
+        {
+            await auth.AuditAsync(user, "PORTAL_LOGIN_FAILED",
+                $"Ingreso con Google rechazado: Google no verificó el correo {user.Email} ({origin}).", AuditSeverity.Warning, cancellationToken);
+            return Outcome.Fail<PortalSessionDto>(PortalIdentityErrors.ExternalLoginRejected);
+        }
+
+        if (user.IsLockedAt(now))
+        {
+            await auth.AuditAsync(user, "PORTAL_LOGIN_FAILED", $"Ingreso con Google de {user.Email} mientras está bloqueado ({origin}).", AuditSeverity.Warning, cancellationToken);
+            return Outcome.Fail<PortalSessionDto>(PortalIdentityErrors.UserLocked);
+        }
+
+        if (user.Status != PortalUserStatus.Active)
+        {
+            await auth.AuditAsync(user, "PORTAL_LOGIN_FAILED", $"Ingreso con Google de {user.Email}: usuario deshabilitado ({origin}).", AuditSeverity.Warning, cancellationToken);
+            return Outcome.Fail<PortalSessionDto>(PortalIdentityErrors.ExternalLoginRejected);
+        }
+
+        var (session, token) = await auth.StartActiveSessionAsync(user, request.Channel, SessionAuthMethod.Google, request.IpAddress, request.UserAgent, cancellationToken);
+        return Outcome.Ok(new PortalSessionDto(token, session.Id, session.ExpiresAt, PortalAuthServices.Me(user, session)));
+    }
+}
+
+/// <summary>Proveedores externos de identidad admitidos.</summary>
+public static class PortalExternalProviders
+{
+    public const string Google = "GOOGLE";
+}
+
+// ─────────────────────────────── Doble factor opcional desde "Mi cuenta" ───────────────────────────────
+
+/// <summary>Resuelve el usuario y la sesión ACTIVA en curso (acciones del propio usuario sobre su seguridad).</summary>
+internal static class OwnAccount
+{
+    public static async Task<(PortalUser User, PortalSession Session)?> ResolveAsync(IPortalUserContext current, PortalAuthServices auth, CancellationToken cancellationToken)
+    {
+        if (!current.IsAuthenticated || current.SessionId is not { } sessionId
+            || await auth.Store.GetSessionAsync(sessionId, cancellationToken) is not { Stage: SessionStage.Active } session
+            || await auth.Store.GetUserAsync(session.UserId, cancellationToken) is not { } user || !session.IsUsable(user, auth.Clock.UtcNow))
+        {
+            return null;
+        }
+
+        return (user, session);
+    }
+
+    /// <summary>Tras el cambio de seguridad: la sesión en curso sigue abierta y las demás se cierran.</summary>
+    public static async Task KeepOnlyCurrentAsync(PortalAuthServices auth, PortalUser user, PortalSession current, string reason, CancellationToken cancellationToken)
+    {
+        current.KeepAfterSecurityChange(user);
+        foreach (var session in await auth.Store.GetOpenSessionsAsync(user.Id, cancellationToken))
+        {
+            if (session.Id != current.Id)
+            {
+                session.Revoke(reason, auth.Clock.UtcNow);
+            }
+        }
+    }
+}
+
+/// <summary>El usuario empieza a activar su TOTP (opcional): secreto nuevo para el QR, sin confirmar hasta el primer código.</summary>
+public sealed record BeginOwnTotpEnrollmentCommand : ICommand<TotpEnrollmentDto>;
+
+internal sealed class BeginOwnTotpEnrollmentHandler(IPortalUserContext current, PortalAuthServices auth)
+    : ICommandHandler<BeginOwnTotpEnrollmentCommand, TotpEnrollmentDto>
+{
+    public async Task<Result<TotpEnrollmentDto>> Handle(BeginOwnTotpEnrollmentCommand request, CancellationToken cancellationToken)
+    {
+        if (await OwnAccount.ResolveAsync(current, auth, cancellationToken) is not { } own)
+        {
+            return PortalIdentityErrors.SessionInvalid;
+        }
+
+        var secret = Totp.GenerateSecret();
+        var begun = own.User.BeginTotpEnrollment(auth.Protector.Protect(secret));
+        return begun.IsFailure
+            ? begun.Error
+            : new TotpEnrollmentDto(Totp.ToBase32(secret), Totp.EnrollmentLink(auth.Options.TotpIssuer, own.User.Email, secret));
+    }
+}
+
+/// <summary>El primer código correcto activa el TOTP del usuario; desde ahí el ingreso con contraseña lo pide siempre.</summary>
+public sealed record ConfirmOwnTotpCommand(string Code) : ICommand;
+
+internal sealed class ConfirmOwnTotpHandler(IPortalUserContext current, PortalAuthServices auth) : ICommandHandler<ConfirmOwnTotpCommand>
+{
+    public async Task<Result> Handle(ConfirmOwnTotpCommand request, CancellationToken cancellationToken)
+    {
+        if (await OwnAccount.ResolveAsync(current, auth, cancellationToken) is not { } own)
+        {
+            return PortalIdentityErrors.SessionInvalid;
+        }
+
+        var (user, session) = own;
+        if (user.TotpEnabled)
+        {
+            return PortalIdentityErrors.TotpAlreadyEnabled;
+        }
+
+        if ((user.TotpSecretProtected is { } stored ? auth.Protector.Unprotect(stored) : null) is not { } secret)
+        {
+            return PortalIdentityErrors.TotpEnrollmentRequired;
+        }
+
+        if (Totp.Verify(secret, request.Code, auth.Clock.UtcNow, user.TotpLastStep) is not { } step)
+        {
+            return PortalIdentityErrors.InvalidCode;
+        }
+
+        var confirmed = user.ConfirmTotp(step);
+        if (confirmed.IsFailure)
+        {
+            return confirmed.Error;
+        }
+
+        await OwnAccount.KeepOnlyCurrentAsync(auth, user, session, "Activación del doble factor", cancellationToken);
+        await auth.AuditAsync(user, "PORTAL_TOTP_ENROLLED", $"{user.Email} activó el doble factor desde Mi cuenta; se cerraron sus otras sesiones.",
+            AuditSeverity.Warning, cancellationToken);
+        return Result.Success();
+    }
+}
+
+/// <summary>
+/// El usuario desactiva su TOTP con un código vigente (prueba de que aún tiene el autenticador). No se permite si la
+/// configuración lo exige (<c>Portal:RequireTotp</c>).
+/// </summary>
+public sealed record DisableOwnTotpCommand(string Code) : ICommand;
+
+internal sealed class DisableOwnTotpHandler(IPortalUserContext current, PortalAuthServices auth) : ICommandHandler<DisableOwnTotpCommand>
+{
+    public async Task<Result> Handle(DisableOwnTotpCommand request, CancellationToken cancellationToken)
+    {
+        if (await OwnAccount.ResolveAsync(current, auth, cancellationToken) is not { } own)
+        {
+            return PortalIdentityErrors.SessionInvalid;
+        }
+
+        if (auth.Options.RequireTotp)
+        {
+            return PortalIdentityErrors.TotpRequiredByPolicy;
+        }
+
+        var (user, session) = own;
+        if ((user.TotpEnabled && user.TotpSecretProtected is { } stored ? auth.Protector.Unprotect(stored) : null) is not { } secret)
+        {
+            return PortalIdentityErrors.TotpNotEnabled;
+        }
+
+        if (Totp.Verify(secret, request.Code, auth.Clock.UtcNow, user.TotpLastStep) is null)
+        {
+            return PortalIdentityErrors.InvalidCode;
+        }
+
+        user.ResetTotp();
+        await OwnAccount.KeepOnlyCurrentAsync(auth, user, session, "Desactivación del doble factor", cancellationToken);
+        await auth.AuditAsync(user, "PORTAL_TOTP_DISABLED", $"{user.Email} desactivó su doble factor desde Mi cuenta; se cerraron sus otras sesiones.",
+            AuditSeverity.Warning, cancellationToken);
+        return Result.Success();
     }
 }
 
@@ -287,7 +520,8 @@ internal sealed class GetMyAccountHandler(IPortalUserContext current, PortalAuth
         }
 
         var sessions = await auth.Store.ListSessionsAsync(userId, 20, cancellationToken);
-        return (PortalAuthServices.Me(user), [.. sessions.Select(PortalUserUseCaseMapping.ToDto)]);
+        var session = current.SessionId is { } sessionId ? await auth.Store.GetSessionAsync(sessionId, cancellationToken) : null;
+        return (PortalAuthServices.Me(user, session), [.. sessions.Select(PortalUserUseCaseMapping.ToDto)]);
     }
 }
 
@@ -349,7 +583,7 @@ public sealed class PortalPermissionChecker(IPortalUserContext current, IPortalI
         var session = await store.GetSessionAsync(sessionId, cancellationToken);
         var user = session is null ? null : await store.GetUserAsync(session.UserId, cancellationToken);
         return session is { Stage: SessionStage.Active } && user is not null && session.IsUsable(user, clock.UtcNow)
-               && !user.MustChangePassword
+               && !session.RequiresPasswordChange(user)
                && CloudPermissions.RoleHas(PortalRoleCodes.ToCode(user.Role), permissionCode);
     }
 }
@@ -371,8 +605,9 @@ public sealed class PortalSessionAuthenticator(PortalAuthServices auth)
         }
 
         var role = PortalRoleCodes.ToCode(user.Role);
+        var mustChange = session.RequiresPasswordChange(user);
         return new AuthenticatedPortalSession(
-            session.Id, user.Id, user.Email, user.DisplayName, role, session.Stage, user.MustChangePassword,
-            session.Stage == SessionStage.Active && !user.MustChangePassword ? CloudPermissions.ForRole(role) : []);
+            session.Id, user.Id, user.Email, user.DisplayName, role, session.Stage, mustChange,
+            session.Stage == SessionStage.Active && !mustChange ? CloudPermissions.ForRole(role) : []);
     }
 }

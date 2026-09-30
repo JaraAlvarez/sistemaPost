@@ -99,11 +99,28 @@ public static class PortalApi
         return (await SignInAsync(factory, user, changePassword: true), user);
     }
 
-    /// <summary>Paso 1 (contraseña) + enrolamiento del autenticador si hace falta + paso 2 (código) → cliente con Bearer.</summary>
+    /// <summary>
+    /// Paso 1 (contraseña) + enrolamiento del autenticador si hace falta + paso 2 (código) → cliente con Bearer. Con el doble factor
+    /// opcional y sin TOTP activo, el paso 1 ya entrega la sesión activa.
+    /// </summary>
     public static async Task<HttpClient> SignInAsync(CloudServerFactory factory, PortalCredentials user, bool changePassword = false)
     {
         var anonymous = factory.CreateClient();
         var challenge = await PostAsync<LoginChallengeDto>(anonymous, "/admin/auth/login", new { email = user.Email, password = user.Password });
+        if (challenge.Stage == "ACTIVE")
+        {
+            // Doble factor opcional (Portal:RequireTotp=false) y sin TOTP activo: la contraseña basta.
+            var active = factory.CreateClient();
+            active.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", challenge.Token);
+            if (changePassword)
+            {
+                await EnsureAsync(await active.PostAsJsonAsync("/admin/auth/password", new { currentPassword = user.Password, newPassword = NewPassword }), HttpStatusCode.NoContent);
+                user.Password = NewPassword;
+            }
+
+            return active;
+        }
+
         if (challenge.Stage == "ENROLLMENT_REQUIRED")
         {
             var enrollment = await PostAsync<TotpEnrollmentDto>(anonymous, "/admin/auth/totp/enrollment", new { token = challenge.Token });

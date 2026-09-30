@@ -170,6 +170,7 @@ internal static class CloudHostSetup
         app.UseMiddleware<MustChangePasswordMiddleware>();
         app.UseAuthorization();
         app.UseAntiforgery();
+        app.UseMiddleware<AccountFormExpiredMiddleware>();
 
         app.MapStaticAssets().AllowAnonymous();
         app.MapCloudHealthChecks();
@@ -184,6 +185,7 @@ internal static class CloudHostSetup
         }
 
         app.MapPortalAccountEndpoints();
+        app.MapPortalGoogleEndpoints();
         app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
         return app;
     }

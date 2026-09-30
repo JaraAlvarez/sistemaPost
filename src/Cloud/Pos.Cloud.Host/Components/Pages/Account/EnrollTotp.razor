@@ -14,7 +14,7 @@
 @if (_enrollment is not null)
 {
     <p class="account-hint">
-        El doble factor es obligatorio. Escanee este código con Google Authenticator, Microsoft Authenticator o Aegis y escriba el
+        En este portal el doble factor es obligatorio. Escanee este código con Google Authenticator, Microsoft Authenticator o Aegis y escriba el
         primer código que muestre.
     </p>
     <img class="account-qr" src="@QrCodes.ToDataUri(_enrollment.EnrollmentLink)" alt="Código QR del doble factor" />

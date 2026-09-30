@@ -372,5 +372,65 @@ public class PortalSessionTests
             PortalSession.StartPending(Guid.Empty, user, "h", SessionChannel.Api, null!, Start, null, null));
         Should.Throw<ArgumentNullException>(() => session.CompleteSecondFactor(null!, "h", Policy, Start));
         Should.Throw<ArgumentNullException>(() => session.CompleteSecondFactor(user, "h", null!, Start));
+        Should.Throw<ArgumentNullException>(() =>
+            PortalSession.StartActive(Guid.Empty, null!, "h", SessionChannel.Portal, SessionAuthMethod.Google, Policy, Start, null, null));
+        Should.Throw<ArgumentNullException>(() => session.RequiresPasswordChange(null!));
+        Should.Throw<ArgumentNullException>(() => session.KeepAfterSecurityChange(null!));
+    }
+
+    [Fact]
+    public void Google_o_contrasena_sin_TOTP_crean_la_sesion_activa_de_una_vez()
+    {
+        var user = Users.Support();
+        var session = PortalSession.StartActive(
+            Guid.CreateVersion7(), user, "hash-activo", SessionChannel.Portal, SessionAuthMethod.Google, Policy, Start, IPAddress.Loopback, new string('a', 400));
+
+        session.Stage.ShouldBe(SessionStage.Active);
+        session.AuthMethod.ShouldBe(SessionAuthMethod.Google);
+        session.TokenHash.ShouldBe("hash-activo");
+        session.SecondFactorAt.ShouldBe(Start);
+        session.ExpiresAt.ShouldBe(Start + Policy.AbsoluteLifetime);
+        session.IdleExpiresAt.ShouldBe(Start + Policy.IdleTimeout);
+        session.UserAgent!.Length.ShouldBe(300);
+        session.IsUsable(user, Start.AddMinutes(10)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void La_contrasena_temporal_obliga_a_cambiarla_solo_si_se_entro_con_ella()
+    {
+        var user = Users.Support();
+        user.MustChangePassword.ShouldBeTrue();
+        var password = PortalSession.StartActive(Guid.CreateVersion7(), user, "h1", SessionChannel.Portal, SessionAuthMethod.Password, Policy, Start, null, null);
+        var google = PortalSession.StartActive(Guid.CreateVersion7(), user, "h2", SessionChannel.Portal, SessionAuthMethod.Google, Policy, Start, null, null);
+
+        password.RequiresPasswordChange(user).ShouldBeTrue();
+        google.RequiresPasswordChange(user).ShouldBeFalse();
+        Pending(user).AuthMethod.ShouldBe(SessionAuthMethod.Password);
+
+        user.SetPassword("hash-nuevo", Start, mustChange: false);
+        password.RequiresPasswordChange(user).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Un_cambio_de_seguridad_propio_conserva_la_sesion_en_curso()
+    {
+        var user = Users.Support();
+        var session = PortalSession.StartActive(Guid.CreateVersion7(), user, "h", SessionChannel.Portal, SessionAuthMethod.Password, Policy, Start, null, null);
+        user.BeginTotpEnrollment("secreto-cifrado");
+        user.ConfirmTotp(10);
+        session.IsUsable(user, Start).ShouldBeFalse();
+
+        session.KeepAfterSecurityChange(user);
+        session.IsUsable(user, Start).ShouldBeTrue();
+        session.ExpiresAt.ShouldBe(Start + Policy.AbsoluteLifetime, "No se extiende el vencimiento.");
+    }
+
+    [Fact]
+    public void Los_errores_del_ingreso_con_Google_tienen_codigo_estable()
+    {
+        PortalIdentityErrors.ExternalLoginRejected.Code.ShouldBe("PORTAL.EXTERNAL_LOGIN_REJECTED");
+        PortalIdentityErrors.ExternalLoginRejected.Type.ShouldBe(ErrorType.Unauthorized);
+        PortalIdentityErrors.TotpRequiredByPolicy.Code.ShouldBe("PORTAL.TOTP_REQUIRED_BY_POLICY");
+        PortalIdentityErrors.TotpNotEnabled.Code.ShouldBe("PORTAL.TOTP_NOT_ENABLED");
     }
 }

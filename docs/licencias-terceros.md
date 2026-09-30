@@ -31,6 +31,7 @@ Política (ADR-0006): solo licencias **MIT, Apache-2.0, BSD, ISC o PostgreSQL** 
 | PDFsharp-MigraDoc *(desde la Fase 9)* | 6.2.4 | MIT | Exportar reportes a PDF (tabla con encabezado de la empresa); QuestPDF se descartó por su licencia comercial |
 | MudBlazor *(desde la Fase 12-A, solo la nube)* | 9.11.0 | MIT | Componentes del portal web de licencias (Blazor) |
 | QRCoder *(desde la Fase 12-A, solo la nube)* | 1.8.0 | MIT | Código QR del enrolamiento del doble factor (TOTP) |
+| Microsoft.AspNetCore.Authentication.Google *(desde la Fase 12-A, solo la nube)* | 10.0.12 | MIT | Ingreso al portal con Google (OAuth 2.0 / OpenID Connect; ADR-0062) |
 | Datos DIVIPOLA (DANE, datos.gov.co) | 2026-09-28 | Datos abiertos del Gobierno de Colombia | Catálogo de departamentos y municipios |
 
 ## Solo desarrollo y pruebas (no se distribuyen)

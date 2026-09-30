@@ -2,6 +2,7 @@
 @attribute [Authorize]
 @inherits PortalPageBase
 @inject NavigationManager Navigation
+@inject PortalIdentityOptions IdentityOptions
 
 <PageTitle>Mi cuenta · BusinessPost</PageTitle>
 <MudText Typo="Typo.h4" GutterBottom="true">Mi cuenta</MudText>
@@ -16,6 +17,13 @@ else if (_me is { } me)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-4">
             Está usando una contraseña temporal: cámbiela para poder usar el portal.
+        </MudAlert>
+    }
+    else if (me.HasTemporaryPassword)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4">
+            Entró con Google. Su contraseña de respaldo sigue siendo la temporal: si quiere poder entrar también con contraseña,
+            cámbiela abajo (necesita la temporal).
         </MudAlert>
     }
 
@@ -37,14 +45,51 @@ else if (_me is { } me)
         <MudText Typo="Typo.caption" Class="d-block mt-2">Al cambiarla se cierran sus otras sesiones abiertas.</MudText>
     </MudPaper>
 
+    <MudPaper Class="pa-4 mb-4" Elevation="1" Style="max-width: 560px">
+        <MudText Typo="Typo.h6" Class="mb-2">Doble factor (código de una aplicación autenticadora)</MudText>
+        @if (me.TotpEnabled)
+        {
+            <MudText Class="mb-2">
+                Activo: al entrar con contraseña se le pide el código. El ingreso con Google no lo pide.
+            </MudText>
+            @if (IdentityOptions.RequireTotp)
+            {
+                <MudText Typo="Typo.caption">En este portal el doble factor es obligatorio.</MudText>
+            }
+            else
+            {
+                <MudTextField T="string" @bind-Value="_code" Label="Código actual para desactivarlo" MaxLength="6" autocomplete="one-time-code" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Class="mt-3" Disabled="Busy" OnClick="DisableTotpAsync">Desactivar doble factor</MudButton>
+            }
+        }
+        else if (_enrollment is null)
+        {
+            <MudText Class="mb-2">
+                Opcional. Si lo activa, además de la contraseña se le pedirá el código de Google Authenticator, Microsoft
+                Authenticator o Aegis.
+            </MudText>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="Busy" OnClick="BeginTotpAsync">Activar doble factor</MudButton>
+        }
+        else
+        {
+            <MudText Class="mb-2">Escanee el código con su aplicación autenticadora y escriba el primer código que muestre.</MudText>
+            <img class="account-qr" src="@QrCodes.ToDataUri(_enrollment.EnrollmentLink)" alt="Código QR del doble factor" />
+            <MudText Typo="Typo.caption" Class="d-block">Clave para escribirla a mano: @_enrollment.Secret</MudText>
+            <MudTextField T="string" @bind-Value="_code" Label="Primer código" MaxLength="6" autocomplete="one-time-code" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="ConfirmTotpAsync">Activar</MudButton>
+        }
+        <MudText Typo="Typo.caption" Class="d-block mt-2">Al activarlo o desactivarlo se cierran sus otras sesiones abiertas.</MudText>
+    </MudPaper>
+
     <MudText Typo="Typo.h6" Class="mb-2">Mis sesiones recientes</MudText>
     <MudSimpleTable Dense="true" Outlined="true">
-        <thead><tr><th>Canal</th><th>Inicio</th><th>Última actividad</th><th>IP</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Canal</th><th>Método</th><th>Inicio</th><th>Última actividad</th><th>IP</th><th>Estado</th></tr></thead>
         <tbody>
             @foreach (var s in _sessions)
             {
                 <tr>
                     <td>@(s.Channel == "API" ? "API" : "Portal")</td>
+                    <td>@(s.AuthMethod == "GOOGLE" ? "Google" : "Contraseña")</td>
                     <td>@Date(s.CreatedAt)</td>
                     <td>@Date(s.LastSeenAt)</td>
                     <td>@(s.IpAddress ?? "—")</td>
@@ -61,6 +106,8 @@ else if (_me is { } me)
     private string? _current;
     private string? _new;
     private string? _confirm;
+    private string? _code;
+    private TotpEnrollmentDto? _enrollment;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -74,6 +121,32 @@ else if (_me is { } me)
         else
         {
             Snackbar.Add(account.Error.Message, Severity.Error);
+        }
+    }
+
+    private async Task BeginTotpAsync()
+    {
+        var result = await RunAsync(new BeginOwnTotpEnrollmentCommand(), "Escanee el código QR.");
+        _enrollment = result.IsSuccess ? result.Value : null;
+        _code = null;
+    }
+
+    private async Task ConfirmTotpAsync()
+    {
+        if (await RunAsync(new ConfirmOwnTotpCommand(_code ?? string.Empty), "Doble factor activado."))
+        {
+            _enrollment = null;
+            _code = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task DisableTotpAsync()
+    {
+        if (await RunAsync(new DisableOwnTotpCommand(_code ?? string.Empty), "Doble factor desactivado."))
+        {
+            _code = null;
+            await LoadAsync();
         }
     }
 

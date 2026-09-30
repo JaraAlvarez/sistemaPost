@@ -66,3 +66,4 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0059](0059-modo-de-emision-y-factura-electronica-por-venta-con-factus.md) | Modo de emisión (OFF / ON_REQUEST / EVERY_SALE) y factura electrónica por venta con Factus | Aceptada | 2026-09-30 |
 | [0060](0060-emision-asincrona-idempotente-y-contingencia.md) | Emisión asíncrona, idempotencia por `reference_code` y contingencia sin Internet | Aceptada | 2026-09-30 |
 | [0061](0061-mapeo-fiscal-desde-la-venta-guardada.md) | Mapeo fiscal desde la venta guardada (modelo neutro, pesables, notas y documento soporte) | Aceptada | 2026-09-30 |
+| [0062](0062-ingreso-con-google-y-doble-factor-opcional.md) | Ingreso al portal con Google y doble factor (TOTP) opcional | Aceptada | 2026-09-30 |

@@ -134,6 +134,8 @@ public class CloudServerFactory : WebApplicationFactory<Program>
             ["Licensing:Signing:PrivateKeyPath"] = PrivateKeyPath,
             ["Licensing:RequestsPerLicensePerHour"] = "100000",
             ["Licensing:LatestPosVersion"] = "1.2.0",
+            // Las pruebas de la Fase 12-A cubren el TOTP obligatorio; el opcional (por defecto) y Google tienen su propia fábrica.
+            ["Portal:RequireTotp"] = "true",
         }).AddInMemoryCollection(ExtraSettings));
     }
 

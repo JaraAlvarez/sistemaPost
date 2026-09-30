@@ -37,6 +37,7 @@ internal sealed class PortalIdentityModelContributor : ICloudModelContributor
             b.Property(x => x.TokenHash).HasColumnType("char(64)");
             b.Property(x => x.Stage).HasUpperSnakeConversion();
             b.Property(x => x.Channel).HasUpperSnakeConversion();
+            b.Property(x => x.AuthMethod).HasUpperSnakeConversion();
             b.Property(x => x.IpAddress).HasColumnType("inet");
             b.HasOne<PortalUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
         });

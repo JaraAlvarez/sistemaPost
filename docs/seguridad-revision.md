@@ -6,7 +6,7 @@
 
 | Área ASVS | Estado | Evidencia o acción |
 |---|---|---|
-| V2 Autenticación | ✅ | Contraseñas Argon2id (NSec), bloqueo por intentos, PIN solo en cajas emparejadas, contraseña temporal que obliga a cambiarla, límite de peticiones en ingreso y emparejamiento. Portal de la nube con TOTP obligatorio |
+| V2 Autenticación | ✅ | Contraseñas Argon2id (NSec), bloqueo por intentos, PIN solo en cajas emparejadas, contraseña temporal que obliga a cambiarla, límite de peticiones en ingreso y emparejamiento. Portal de la nube con "Ingresar con Google" (correo verificado) o contraseña + TOTP opcional/obligatorio por configuración (ADR-0062) |
 | V3 Sesiones | ✅ | Tokens opacos (ADR-0016) con caducidad por inactividad y máxima, atados al equipo que los abrió, revocables; cookie `__Host-` en el portal |
 | V4 Control de acceso | ✅ | Cada endpoint declara permiso o anónimo justificado (`AllowAnonymousByDesign`); autorización de supervisor de un solo uso; la licencia restringida se aplica en el backend (ADR-0053, prueba R10) |
 | V5 Validación y codificación | ✅ | FluentValidation en cada comando; SQL siempre parametrizado (Dapper/EF); ProblemDetails sin trazas |
