@@ -1,4 +1,5 @@
 using Pos.Application.Abstractions.Security;
+using Pos.Modules.Licensing.Contracts;
 
 namespace Pos.Modules.Identity.Contracts;
 
@@ -110,7 +111,8 @@ public sealed record MeDto(
     bool MustChangePassword,
     IReadOnlyList<string> Permissions,
     int OpenIntegrityIncidents = 0,
-    int BackupAlerts = 0);
+    int BackupAlerts = 0,
+    LicenseSummaryDto? License = null);
 
 public sealed record LoginResultDto(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeDto User);
 

@@ -13,6 +13,9 @@ INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUE
     ('backup.backup.view',                'backup',       'Ver el historial de backups, los destinos y las alertas; descargar un backup',    false),
     ('backup.destination.configure',      'backup',       'Configurar los destinos de los backups (carpetas, disco externo, red, nube)',     true),
     ('backup.recovery.manage',            'backup',       'Generar y confirmar el código de recuperación de los backups (solo el propietario)', true),
+    ('licensing.license.check',           'licensing',    'Verificar la licencia ahora con el servidor de licencias',                        false),
+    ('licensing.license.manage',          'licensing',    'Activar la licencia y liberar este equipo (solo el propietario)',                 true),
+    ('licensing.license.view',            'licensing',    'Ver el estado de la licencia y el historial de verificaciones',                   false),
     ('cash.drawer.open',              'cash',         'Abrir el cajón sin venta (admite autorización de supervisor)',                  true),
     ('cash.movement.withdraw',        'cash',         'Retirar efectivo de la caja (admite autorización de supervisor)',               true),
     ('cash.payment_method.manage',    'cash',         'Crear y modificar medios de pago',                                              true),
@@ -102,7 +105,8 @@ ON CONFLICT (code) DO UPDATE SET module = EXCLUDED.module, description = EXCLUDE
 -- Los permisos que ya no están en el código quedan obsoletos (no se borran).
 UPDATE identity.permissions SET is_deprecated = true
 WHERE code NOT IN (
-    'audit.incident.acknowledge', 'audit.log.verify', 'audit.log.view', 'backup.backup.run', 'backup.backup.view', 'backup.destination.configure', 'backup.recovery.manage', 'catalog.import.run', 'catalog.master.manage', 'catalog.price.manage',
+    'audit.incident.acknowledge', 'audit.log.verify', 'audit.log.view', 'backup.backup.run', 'backup.backup.view', 'backup.destination.configure', 'backup.recovery.manage',
+    'licensing.license.check', 'licensing.license.manage', 'licensing.license.view', 'catalog.import.run', 'catalog.master.manage', 'catalog.price.manage',
     'catalog.product.manage', 'catalog.product.view', 'catalog.tax.manage', 'identity.permission.view',
     'identity.role.manage', 'identity.session.revoke', 'identity.user.manage', 'identity.user.view',
     'inventory.adjustment.approve', 'inventory.adjustment.manage', 'inventory.cost.view', 'inventory.count.approve',

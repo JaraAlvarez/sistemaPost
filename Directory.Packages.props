@@ -27,6 +27,7 @@
     <PackageVersion Include="QRCoder" Version="1.8.0" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.17.10" />
     <PackageVersion Include="System.IO.Ports" Version="10.0.12" />
+    <PackageVersion Include="System.Management" Version="10.0.12" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
     <!-- Incluye Serilog.Sinks.File, Serilog.Formatting.Compact y Serilog.Settings.Configuration. -->
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />

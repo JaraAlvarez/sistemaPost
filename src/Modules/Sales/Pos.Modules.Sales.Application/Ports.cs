@@ -29,8 +29,10 @@ public interface ISalesStore
 }
 
 /// <summary>Encabezado del tiquete: empresa, sucursal, caja y cajero.</summary>
+/// <summary>Encabezado del tiquete. <c>Demo</c>: instalación en demostración (Fase 12-B, D12B-09), el tiquete dice "DEMOSTRACIÓN".</summary>
 public sealed record TicketHeader(
-    string LegalName, string TradeName, string Nit, string? Address, string? Phone, string BranchName, string? BranchAddress, string TerminalCode, string CashierName);
+    string LegalName, string TradeName, string Nit, string? Address, string? Phone, string BranchName, string? BranchAddress, string TerminalCode, string CashierName,
+    bool Demo = false);
 
 public sealed record SaleFilter(
     Guid BranchId, DateOnly? From, DateOnly? To, string? Status, string? Number, Guid? PosTerminalId, Guid? CashSessionId, int Limit, Guid? CustomerId = null);

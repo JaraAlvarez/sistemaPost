@@ -86,7 +86,7 @@ internal sealed class LicensingReadModel(CloudDbContext context) : ILicensingRea
             [.. installations.Select(i => i with { OrganizationName = organization.LegalName })],
             [.. checkins.Select(c => new CheckinDto(
                 c.Id, c.InstallationId, c.OccurredAt, c.AppVersion, c.ActiveTerminals, c.ReportedClock, c.IpAddress?.ToString(), Code(c.Result), c.RejectionCode,
-                c.SubscriptionStatus?.ToCode(), c.TokenValidUntil))]);
+                c.SubscriptionStatus?.ToCode(), c.TokenValidUntil, c.AuditSealNo, c.AuditSealCode, c.AuditSealedAt))]);
     }
 
     public async Task<IReadOnlyList<SubscriptionRowDto>> ListSubscriptionsAsync(DateTimeOffset now, CancellationToken cancellationToken)

@@ -2,6 +2,7 @@ using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Data;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
@@ -42,7 +43,7 @@ public sealed record SetupCommand(
     BranchInput Branch,
     OwnerInput Owner,
     TerminalInput? Terminal = null,
-    SetupMode Mode = SetupMode.NewCompany) : ICommand<SetupResultDto>;
+    SetupMode Mode = SetupMode.NewCompany) : ICommand<SetupResultDto>, IAllowedWhenRestricted;
 
 internal sealed class SetupCommandValidator : AbstractValidator<SetupCommand>
 {

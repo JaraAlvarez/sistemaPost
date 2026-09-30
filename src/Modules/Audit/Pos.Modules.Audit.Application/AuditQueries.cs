@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -331,7 +332,7 @@ internal sealed class ListIncidentsHandler(IAuditReadModel read) : IQueryHandler
 // ------------------------------------------------------------------------------------------------ Comandos
 
 /// <summary>Verificación manual de toda la bitácora (queda registrada como MANUAL; con hallazgos nuevos abre un incidente).</summary>
-public sealed record VerifyAuditCommand : ICommand<AuditVerificationDto>;
+public sealed record VerifyAuditCommand : ICommand<AuditVerificationDto>, IAllowedWhenRestricted;
 
 internal sealed class VerifyAuditHandler(IntegrityService integrity, ICurrentUser user) : ICommandHandler<VerifyAuditCommand, AuditVerificationDto>
 {
@@ -340,7 +341,7 @@ internal sealed class VerifyAuditHandler(IntegrityService integrity, ICurrentUse
 }
 
 /// <summary>El propietario reconoce un incidente de integridad con una nota (D10-05). El reconocimiento es una fila nueva.</summary>
-public sealed record AcknowledgeIncidentCommand(Guid IncidentId, string Note) : ICommand<IntegrityIncidentDto>;
+public sealed record AcknowledgeIncidentCommand(Guid IncidentId, string Note) : ICommand<IntegrityIncidentDto>, IAllowedWhenRestricted;
 
 internal sealed class AcknowledgeIncidentHandler(
     IAuditIntegrityStore store, IAuditReadModel read, IAuditWriter audit, ICurrentUser user, IIdGenerator ids, IClock clock)
@@ -376,7 +377,7 @@ internal sealed class AcknowledgeIncidentHandler(
 }
 
 /// <summary>Constancia de integridad en PDF con el último sello (ancla externa manual, D10-09).</summary>
-public sealed record IssueIntegrityCertificateCommand : ICommand<IntegrityCertificateDto>;
+public sealed record IssueIntegrityCertificateCommand : ICommand<IntegrityCertificateDto>, IAllowedWhenRestricted;
 
 internal sealed class IssueIntegrityCertificateHandler(
     IAuditAnchor anchor,

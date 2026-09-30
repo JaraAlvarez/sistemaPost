@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -8,10 +9,11 @@ using Pos.Modules.Audit.Contracts;
 using Pos.Modules.Backup.Contracts;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
+using Pos.Modules.Licensing.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.SharedKernel.Identifiers;
-using Pos.SharedKernel.Security;
 using Pos.SharedKernel.Results;
+using Pos.SharedKernel.Security;
 using Pos.SharedKernel.Time;
 
 namespace Pos.Modules.Identity.Application;
@@ -47,7 +49,8 @@ public sealed class AuthServices(
     IIdGenerator ids,
     IClock clock,
     IIntegrityStatus integrity,
-    IBackupStatus backups)
+    IBackupStatus backups,
+    ILicenseStatus license)
 {
     /// <summary>Hash válido de una contraseña que no existe: iguala el tiempo de respuesta cuando el usuario no existe.</summary>
     private static string? _dummyHash;
@@ -172,7 +175,8 @@ public sealed class AuthServices(
         // Alertas de backups (D11-10) para quien puede verlos.
         var backupAlerts = effective.Contains(BackupPermissions.View) ? (await backups.GetAlertsAsync(cancellationToken)).Count : 0;
         return new MeDto(user.Id, user.Username, user.DisplayName, sessionId, terminal ? "TERMINAL" : "BACKOFFICE", branchId, posTerminalId,
-            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts);
+            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts,
+            license.Summary); // Estado de la licencia para todos (Fase 12-B): la barra muestra "demostración", "vence en N días"…
     }
 
     /// <summary>Ingreso fallido (Fase 10, §5.1): queda en la bitácora además de <c>identity.login_attempts</c>.</summary>
@@ -191,7 +195,7 @@ public sealed class AuthServices(
 
 // ───────────────────────────── Backoffice ─────────────────────────────
 
-public sealed record LoginCommand(string Username, string Password) : ICommand<AuthOutcome<LoginResultDto>>;
+public sealed record LoginCommand(string Username, string Password) : ICommand<AuthOutcome<LoginResultDto>>, IAllowedWhenRestricted;
 
 internal sealed class LoginValidator : AbstractValidator<LoginCommand>
 {
@@ -229,7 +233,7 @@ internal sealed class LoginHandler(AuthServices auth, TerminalResolver terminals
 // ───────────────────────────── Caja ─────────────────────────────
 
 /// <summary>Entrada en caja con código de cajero + PIN (D3-08). Solo desde una caja emparejada o, en Caja Única, el propio equipo.</summary>
-public sealed record PosLoginCommand(string PosCode, string Pin) : ICommand<AuthOutcome<LoginResultDto>>;
+public sealed record PosLoginCommand(string PosCode, string Pin) : ICommand<AuthOutcome<LoginResultDto>>, IAllowedWhenRestricted;
 
 internal sealed class PosLoginValidator : AbstractValidator<PosLoginCommand>
 {
@@ -282,7 +286,7 @@ public sealed class TerminalResolver(IClientContext client, IInstallationContext
 
 // ───────────────────────────── Sesión actual ─────────────────────────────
 
-public sealed record LogoutCommand : ICommand;
+public sealed record LogoutCommand : ICommand, IAllowedWhenRestricted;
 
 internal sealed class LogoutHandler(ICurrentUser current, ISessionStore sessions, IAuditWriter audit) : ICommandHandler<LogoutCommand>
 {
@@ -311,7 +315,7 @@ internal sealed class GetMeHandler(ICurrentUser current, IIdentityStore store, A
     }
 }
 
-public sealed record ChangePasswordCommand(string CurrentPassword, string NewPassword) : ICommand;
+public sealed record ChangePasswordCommand(string CurrentPassword, string NewPassword) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class ChangePasswordHandler(ICurrentUser current, AuthServices auth, CredentialPolicy policy, ISessionStore sessions)
     : ICommandHandler<ChangePasswordCommand>
@@ -338,7 +342,7 @@ internal sealed class ChangePasswordHandler(ICurrentUser current, AuthServices a
     }
 }
 
-public sealed record ChangePinCommand(string? CurrentPin, string NewPin) : ICommand;
+public sealed record ChangePinCommand(string? CurrentPin, string NewPin) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class ChangePinHandler(ICurrentUser current, AuthServices auth, CredentialPolicy policy) : ICommandHandler<ChangePinCommand>
 {
@@ -379,7 +383,7 @@ internal sealed class ChangePinHandler(ICurrentUser current, AuthServices auth, 
 /// </summary>
 public sealed record CreateAuthorizationCommand(
     string SupervisorCode, string SupervisorPin, string PermissionCode, string Action, Guid? TargetId, string? TargetType, string? Reason)
-    : ICommand<AuthOutcome<AuthorizationGrantDto>>;
+    : ICommand<AuthOutcome<AuthorizationGrantDto>>, IAllowedWhenRestricted;
 
 internal sealed class CreateAuthorizationValidator : AbstractValidator<CreateAuthorizationCommand>
 {

@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Identity.Contracts;
@@ -293,7 +294,7 @@ internal sealed class ListSessionsHandler(ISessionStore sessions, IClock clock) 
         Result.Success(await sessions.ListActiveAsync(clock.UtcNow, cancellationToken));
 }
 
-public sealed record RevokeSessionCommand(Guid SessionId) : ICommand;
+public sealed record RevokeSessionCommand(Guid SessionId) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class RevokeSessionHandler(ISessionStore sessions, ICurrentUser current, IAuditWriter audit) : ICommandHandler<RevokeSessionCommand>
 {

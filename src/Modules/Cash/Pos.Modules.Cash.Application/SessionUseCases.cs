@@ -1,5 +1,6 @@
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
@@ -297,7 +298,7 @@ public enum ManualMovementKind
 /// </summary>
 public sealed record RegisterMovementCommand(
     Guid SessionId, ManualMovementKind Kind, decimal Amount, string Reason, Guid? PaymentMethodId = null, int? Direction = null)
-    : ICommand<CashMovementResultDto>;
+    : ICommand<CashMovementResultDto>, IAllowedWhenRestricted;
 
 internal sealed class RegisterMovementHandler(
     SessionLoader loader,
@@ -377,7 +378,7 @@ internal sealed class RegisterMovementHandler(
 // ─────────────────────────────── Cierre ───────────────────────────────
 
 /// <summary>Inicia el cierre: desde ahora no se admiten ventas (RN-CSH-03). Se puede cancelar antes de confirmar.</summary>
-public sealed record StartClosingCommand(Guid SessionId) : ICommand<CashSessionDto>;
+public sealed record StartClosingCommand(Guid SessionId) : ICommand<CashSessionDto>, IAllowedWhenRestricted;
 
 internal sealed class StartClosingHandler(SessionLoader loader, SessionViews views, OpenSalesGuard openSales, IClock clock)
     : ICommandHandler<StartClosingCommand, CashSessionDto>
@@ -401,7 +402,7 @@ internal sealed class StartClosingHandler(SessionLoader loader, SessionViews vie
     }
 }
 
-public sealed record CancelClosingCommand(Guid SessionId) : ICommand<CashSessionDto>;
+public sealed record CancelClosingCommand(Guid SessionId) : ICommand<CashSessionDto>, IAllowedWhenRestricted;
 
 internal sealed class CancelClosingHandler(SessionLoader loader, SessionViews views) : ICommandHandler<CancelClosingCommand, CashSessionDto>
 {
@@ -424,7 +425,7 @@ internal sealed class CancelClosingHandler(SessionLoader loader, SessionViews vi
 /// y devuelve el reporte Z con el sello (D6-08). Definitivo: no hay reapertura (RN-CSH-08).
 /// </summary>
 public sealed record CloseSessionCommand(Guid SessionId, IReadOnlyList<CountLineRequest> Count, string? DifferenceNote, bool BySupervisor = false, string? Reason = null)
-    : ICommand<CashReportDto>;
+    : ICommand<CashReportDto>, IAllowedWhenRestricted;
 
 internal sealed class CloseSessionHandler(
     ICashStore store,
@@ -504,7 +505,7 @@ internal sealed class CloseSessionHandler(
 }
 
 /// <summary>Revisión del supervisor de un cierre con diferencia o cerrado por supervisor (RN-CSH-05).</summary>
-public sealed record ReviewSessionCommand(Guid SessionId, string Note) : ICommand<CashSessionDto>;
+public sealed record ReviewSessionCommand(Guid SessionId, string Note) : ICommand<CashSessionDto>, IAllowedWhenRestricted;
 
 internal sealed class ReviewSessionHandler(ICashStore store, SessionViews views, IActorContext actor, IAuditWriter audit, IClock clock)
     : ICommandHandler<ReviewSessionCommand, CashSessionDto>

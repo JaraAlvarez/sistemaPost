@@ -4,10 +4,11 @@ using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Customers.Contracts;
+using Pos.Modules.Expenses.Contracts;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
 using Pos.Modules.Inventory.Contracts;
-using Pos.Modules.Expenses.Contracts;
+using Pos.Modules.Licensing.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Parties.Contracts;
 using Pos.Modules.Promotions.Contracts;
@@ -39,7 +40,7 @@ public static class SystemRoles
         // Reconocer un incidente de integridad (Fase 10, D10-10) y el código de recuperación de los backups (Fase 11) son solo del propietario.
         new(Administrator, "Administrador", "Administra la operación y la configuración.",
             [.. allPermissions.Where(p => p != SalesPermissions.WarrantyRefund && p != AuditPermissions.IncidentAcknowledge
-                && p != BackupPermissions.RecoveryManage)]),
+                && p != BackupPermissions.RecoveryManage && p != LicensePermissions.Manage)]),
         new(CashSupervisor, "Supervisor de caja", "Supervisa cajas, autoriza anulaciones y revisa cierres.",
             [OrganizationPermissions.BranchView, SettingsPermissions.SettingView, IdentityPermissions.UserView, IdentityPermissions.SessionRevoke,
              CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CountRegister, PartiesPermissions.PartyView,

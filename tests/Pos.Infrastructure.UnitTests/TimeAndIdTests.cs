@@ -1,7 +1,10 @@
 using System.Globalization;
+using Pos.Application.Abstractions.Licensing;
+using Pos.Application.Abstractions.Messaging;
 using Pos.Infrastructure.Identifiers;
-using Pos.Infrastructure.Licensing;
+using Pos.Infrastructure.Messaging.Behaviors;
 using Pos.Infrastructure.Time;
+using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
 
 namespace Pos.Infrastructure.UnitTests;
@@ -49,15 +52,41 @@ public class UuidV7IdGeneratorTests
     }
 }
 
-public class AllowAllFeatureGateTests
+public class LicenseRestrictionBehaviorTests
 {
-    [Fact]
-    public void Habilita_todo_sin_limites_hasta_la_fase_12()
-    {
-        var gate = new AllowAllFeatureGate();
+    private sealed record AdminCommand : ICommand;
 
-        gate.IsEnabled("purchasing.orders").ShouldBeTrue();
-        gate.GetLimit("max_terminals").ShouldBeNull();
+    private sealed record SaleCommand : ICommand, IAllowedWhenRestricted;
+
+    private sealed record ReadQuery : IQuery<int>;
+
+    private sealed class Gate(bool restricted) : ILicenseGate
+    {
+        public LicenseGateState Current { get; } = new(restricted, false, restricted ? "Licencia vencida." : null);
+    }
+
+    [Fact]
+    public async Task En_RESTRICTED_solo_pasan_las_consultas_y_los_comandos_permitidos()
+    {
+        var calls = 0;
+        Task<Result> Next()
+        {
+            calls++;
+            return Task.FromResult(Result.Success());
+        }
+
+        Task<Result<int>> NextQuery()
+        {
+            calls++;
+            return Task.FromResult(Result.Success(1));
+        }
+
+        var blocked = await new LicenseRestrictionBehavior<AdminCommand, Result>(new Gate(true)).Handle(new AdminCommand(), Next, TestContext.Current.CancellationToken);
+        blocked.Error.Code.ShouldBe(LicenseGateErrors.Restricted.Code);
+        (await new LicenseRestrictionBehavior<SaleCommand, Result>(new Gate(true)).Handle(new SaleCommand(), Next, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+        (await new LicenseRestrictionBehavior<ReadQuery, Result<int>>(new Gate(true)).Handle(new ReadQuery(), NextQuery, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+        (await new LicenseRestrictionBehavior<AdminCommand, Result>(new Gate(false)).Handle(new AdminCommand(), Next, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+        calls.ShouldBe(3);
     }
 }
 

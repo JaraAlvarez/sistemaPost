@@ -337,3 +337,21 @@ tienda o con el código de recuperación del propietario.
 Recuperar un backup desde la nube en un equipo nuevo: descárguelo desde la consola de MinIO (`https://backups.<DOMINIO>` no expone la
 consola; use `docker compose exec minio mc cp local/pos-backups/<carpeta>/<archivo>.posbak /tmp/` y cópielo) y siga
 [guia-recuperacion.md](guia-recuperacion.md).
+
+## 15. Claves públicas embebidas en el POS (Fase 12-B)
+
+El POS solo confía en las claves públicas **embebidas en su binario** (ADR-0054). Antes de publicar una versión para clientes:
+
+1. En el VPS, liste las claves de firma (portal → "Claves de firma", o el comando `keys` del servidor): anote `kid` y `x` de la
+   clave `ACTIVE` y de la `STANDBY`.
+2. Escríbalas en `src/Modules/Licensing/Pos.Modules.Licensing.Infrastructure/trusted-keys.json`:
+
+   ```json
+   { "keys": [ { "kid": "…", "kty": "OKP", "crv": "Ed25519", "x": "…", "status": "ACTIVE" },
+               { "kid": "…", "kty": "OKP", "crv": "Ed25519", "x": "…", "status": "STANDBY" } ] }
+   ```
+3. Compile y publique. Al rotar (§11), la `STANDBY` pasa a `ACTIVE` y el POS ya la conoce; genere una nueva `STANDBY` y embébala en la
+   siguiente versión.
+4. Configure en cada tienda `Pos:Licensing:ServerUrl` con la dirección pública del servidor (lo hace el instalador, Fase 13).
+
+La migración de la nube `V2026.10.005` (sello de auditoría en los check-ins) se aplica sola al actualizar el contenedor (§10).

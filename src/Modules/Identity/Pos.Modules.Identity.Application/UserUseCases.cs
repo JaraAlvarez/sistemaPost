@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Identity.Contracts;
@@ -193,7 +194,7 @@ internal sealed class SetUserActiveHandler(
     }
 }
 
-public sealed record UnlockUserCommand(Guid UserId) : ICommand;
+public sealed record UnlockUserCommand(Guid UserId) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class UnlockUserHandler(IIdentityStore store) : ICommandHandler<UnlockUserCommand>
 {
@@ -398,7 +399,7 @@ public sealed class UserMutations(IIdentityStore store, PrivilegeGuard guard, IC
 /// Crea el Propietario en una instalación configurada sin él (Fase 2). Solo desde el propio servidor y solo mientras
 /// no exista un Propietario activo.
 /// </summary>
-public sealed record CreateOwnerCommand(OwnerInput Owner) : ICommand<Guid>;
+public sealed record CreateOwnerCommand(OwnerInput Owner) : ICommand<Guid>, IAllowedWhenRestricted;
 
 internal sealed class CreateOwnerHandler(
     IInstallationContext installation, IClientContext client, IIdentityProvisioning provisioning, IIdentityStore store)

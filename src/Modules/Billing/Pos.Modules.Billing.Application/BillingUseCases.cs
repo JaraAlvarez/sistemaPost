@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Pos.Application.Abstractions.Data;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -214,7 +215,7 @@ internal sealed class ListFiscalDocumentsHandler(IFiscalDocumentStore store, IIn
 }
 
 /// <summary>Reintento manual de un documento electrónico pendiente, con error o rechazado.</summary>
-public sealed record RetryFiscalDocumentCommand(Guid DocumentId) : ICommand<FiscalDocumentDto>;
+public sealed record RetryFiscalDocumentCommand(Guid DocumentId) : ICommand<FiscalDocumentDto>, IAllowedWhenRestricted;
 
 internal sealed class RetryFiscalDocumentHandler(IFiscalDocumentStore store, IOutbox outbox, IActorContext actor, IIdGenerator ids, IClock clock)
     : ICommandHandler<RetryFiscalDocumentCommand, FiscalDocumentDto>

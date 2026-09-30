@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -134,7 +135,7 @@ internal sealed class ActivatePrivacyPolicyHandler(ICustomerStore store, IActorC
 
 // ─────────────────────────────── Solicitudes de titulares ───────────────────────────────
 
-public sealed record CreateDataRequestCommand(Guid PartyId, DataRequestType Type, ConsentChannel Channel, string Detail) : ICommand<DataRequestDto>;
+public sealed record CreateDataRequestCommand(Guid PartyId, DataRequestType Type, ConsentChannel Channel, string Detail) : ICommand<DataRequestDto>, IAllowedWhenRestricted;
 
 internal sealed class CreateDataRequestHandler(
     IInstallationContext installation, ICustomerStore store, IPartyRegistry parties, IAuditWriter audit, IIdGenerator ids, IClock clock)
@@ -181,7 +182,7 @@ internal sealed class ListDataRequestsHandler(ICustomerStore store, IPartyRegist
 }
 
 /// <summary>Responde (resuelta) o rechaza una solicitud; supresión y exportación tienen sus propios casos de uso.</summary>
-public sealed record CloseDataRequestCommand(Guid RequestId, bool Resolved, string Response) : ICommand<DataRequestDto>;
+public sealed record CloseDataRequestCommand(Guid RequestId, bool Resolved, string Response) : ICommand<DataRequestDto>, IAllowedWhenRestricted;
 
 internal sealed class CloseDataRequestHandler(ICustomerStore store, IPartyRegistry parties, IActorContext actor, IClock clock)
     : ICommandHandler<CloseDataRequestCommand, DataRequestDto>
@@ -218,7 +219,7 @@ public sealed record CustomerExportDto(
     IReadOnlyList<CustomerHistoryEntryDto> History, DateTimeOffset GeneratedAt);
 
 /// <summary>Exporta los datos del titular (JSON), auditado.</summary>
-public sealed record ExportCustomerDataCommand(Guid PartyId) : ICommand<CustomerExportDto>;
+public sealed record ExportCustomerDataCommand(Guid PartyId) : ICommand<CustomerExportDto>, IAllowedWhenRestricted;
 
 internal sealed class ExportCustomerDataHandler(
     ICustomerStore store, CustomerService service, IDispatcher dispatcher, ICustomerSalesHistory history, IAuditWriter audit, IClock clock)
@@ -255,7 +256,7 @@ internal sealed class ExportCustomerDataHandler(
 /// Supresión (D8-08, RN-DAT-04): anonimiza el perfil del tercero, revoca las finalidades y deja el rol inactivo. La identificación,
 /// los documentos y los snapshots de las ventas se conservan durante la retención legal.
 /// </summary>
-public sealed record AnonymizeCustomerCommand(Guid PartyId, string Reason) : ICommand<CustomerDto>;
+public sealed record AnonymizeCustomerCommand(Guid PartyId, string Reason) : ICommand<CustomerDto>, IAllowedWhenRestricted;
 
 internal sealed class AnonymizeCustomerHandler(ICustomerStore store, IPartyRegistry parties, CustomerService service, IAuditWriter audit, IClock clock)
     : ICommandHandler<AnonymizeCustomerCommand, CustomerDto>

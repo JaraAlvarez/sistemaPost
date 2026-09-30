@@ -1,4 +1,5 @@
 using Pos.Application.Abstractions.Auditing;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Numbering;
 using Pos.Application.Abstractions.Security;
@@ -93,7 +94,7 @@ public sealed class ExchangeCompletion(ISalesStore store, SaleInventory inventor
 /// lo usa. El cliente lleva productos por igual o mayor valor y paga la diferencia; nunca sale dinero del cajón. Cancelar la
 /// venta nueva deja el cambio sin efecto. El endpoint exige el permiso o la autorización de supervisor.
 /// </summary>
-public sealed record StartExchangeCommand(Guid OriginalSaleId, IReadOnlyList<ReturnLineRequest> Lines, string Reason) : ICommand<ExchangeStartedDto>;
+public sealed record StartExchangeCommand(Guid OriginalSaleId, IReadOnlyList<ReturnLineRequest> Lines, string Reason) : ICommand<ExchangeStartedDto>, IAllowedWhenRestricted;
 
 internal sealed class StartExchangeHandler(
     ISalesStore store,
@@ -182,7 +183,7 @@ internal sealed class StartExchangeHandler(
 /// (<c>sales.refund.warranty</c>, sin autorización de supervisor), con motivo; el dinero sale en efectivo del cajón de la
 /// jornada abierta (RN-CSH-06) y queda auditado como crítico.
 /// </summary>
-public sealed record WarrantyRefundCommand(Guid OriginalSaleId, IReadOnlyList<ReturnLineRequest> Lines, string Reason) : ICommand<RefundReceiptDto>;
+public sealed record WarrantyRefundCommand(Guid OriginalSaleId, IReadOnlyList<ReturnLineRequest> Lines, string Reason) : ICommand<RefundReceiptDto>, IAllowedWhenRestricted;
 
 internal sealed class WarrantyRefundHandler(
     ISalesStore store,

@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
@@ -228,7 +229,7 @@ internal sealed class TestDestinationHandler(IBackupOperations operations) : IQu
 // ------------------------------------------------------------------------------------------------ Comandos
 
 /// <summary>Respaldar ahora (D11-05): se pone en cola; el resultado aparece en el historial.</summary>
-public sealed record RunBackupNowCommand : ICommand<string>;
+public sealed record RunBackupNowCommand : ICommand<string>, IAllowedWhenRestricted;
 
 internal sealed class RunBackupNowHandler(IBackupOperations operations, ICurrentUser user) : ICommandHandler<RunBackupNowCommand, string>
 {
@@ -245,7 +246,7 @@ internal sealed class RunBackupNowHandler(IBackupOperations operations, ICurrent
 }
 
 /// <summary>Descarga de un backup (queda en la auditoría): devuelve la ruta del archivo local.</summary>
-public sealed record DownloadBackupCommand(Guid RunId) : ICommand<string>;
+public sealed record DownloadBackupCommand(Guid RunId) : ICommand<string>, IAllowedWhenRestricted;
 
 internal sealed class DownloadBackupHandler(IBackupStore store, IBackupOperations operations, IAuditWriter audit) : ICommandHandler<DownloadBackupCommand, string>
 {
@@ -270,7 +271,7 @@ internal sealed class DownloadBackupHandler(IBackupStore store, IBackupOperation
     }
 }
 
-public sealed record SaveDestinationCommand(Guid? Id, DestinationInput Input) : ICommand<BackupDestinationDto>;
+public sealed record SaveDestinationCommand(Guid? Id, DestinationInput Input) : ICommand<BackupDestinationDto>, IAllowedWhenRestricted;
 
 internal sealed class SaveDestinationValidator : AbstractValidator<SaveDestinationCommand>
 {
@@ -341,7 +342,7 @@ internal sealed class SaveDestinationHandler(
 }
 
 /// <summary>Genera (o regenera) el código de recuperación (D11-04). Se muestra una sola vez.</summary>
-public sealed record GenerateRecoveryCodeCommand : ICommand<RecoveryCodeDto>;
+public sealed record GenerateRecoveryCodeCommand : ICommand<RecoveryCodeDto>, IAllowedWhenRestricted;
 
 internal sealed class GenerateRecoveryCodeHandler(IBackupStore store, IBackupOperations operations, ICurrentUser user, IAuditWriter audit, IClock clock)
     : ICommandHandler<GenerateRecoveryCodeCommand, RecoveryCodeDto>
@@ -363,7 +364,7 @@ internal sealed class GenerateRecoveryCodeHandler(IBackupStore store, IBackupOpe
 }
 
 /// <summary>El propietario escribe de nuevo el código para confirmar que lo guardó (se comprueba abriendo la clave envuelta).</summary>
-public sealed record ConfirmRecoveryCodeCommand(string Code) : ICommand;
+public sealed record ConfirmRecoveryCodeCommand(string Code) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class ConfirmRecoveryCodeHandler(IBackupStore store, IBackupOperations operations, ICurrentUser user, IAuditWriter audit, IClock clock)
     : ICommandHandler<ConfirmRecoveryCodeCommand>

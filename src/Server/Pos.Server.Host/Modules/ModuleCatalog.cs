@@ -8,6 +8,7 @@ using Pos.Modules.Customers.Api;
 using Pos.Modules.Expenses.Api;
 using Pos.Modules.Identity.Api;
 using Pos.Modules.Inventory.Api;
+using Pos.Modules.Licensing.Api;
 using Pos.Modules.Organization.Api;
 using Pos.Modules.Parties.Api;
 using Pos.Modules.Promotions.Api;
@@ -43,5 +44,6 @@ internal static class ModuleCatalog
         new CustomersModule(),
         new ReportingModule(),
         new BackupModule(),
+        new LicensingModule(),
     ];
 }

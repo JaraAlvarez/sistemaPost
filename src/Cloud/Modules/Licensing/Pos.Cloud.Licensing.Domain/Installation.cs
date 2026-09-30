@@ -309,6 +309,13 @@ public sealed class Checkin : Entity<Guid>
 
     public DateTimeOffset? TokenValidUntil { get; private set; }
 
+    /// <summary>Último sello de la auditoría del POS (ancla externa, ADR-0048; Fase 12-B). Los POS anteriores no lo envían.</summary>
+    public long? AuditSealNo { get; private set; }
+
+    public string? AuditSealCode { get; private set; }
+
+    public DateTimeOffset? AuditSealedAt { get; private set; }
+
     public static Checkin Issued(
         Guid id, Installation installation, Guid activationId, CheckinReport report, SubscriptionStatus status, DateTimeOffset validUntil, DateTimeOffset now)
     {
@@ -321,7 +328,7 @@ public sealed class Checkin : Entity<Guid>
             Result = CheckinResult.TokenIssued,
             SubscriptionStatus = status,
             TokenValidUntil = validUntil,
-        };
+        }.WithSeal(report);
     }
 
     public static Checkin Rejected(Guid id, Installation installation, CheckinReport report, string rejectionCode, DateTimeOffset now)
@@ -335,7 +342,19 @@ public sealed class Checkin : Entity<Guid>
             IpAddress = report.IpAddress,
             Result = CheckinResult.Rejected,
             RejectionCode = rejectionCode,
-        };
+        }.WithSeal(report);
+    }
+
+    private Checkin WithSeal(CheckinReport report)
+    {
+        if (report.AuditSealNo is { } no && !string.IsNullOrWhiteSpace(report.AuditSealCode) && report.AuditSealCode.Length <= 40)
+        {
+            AuditSealNo = no;
+            AuditSealCode = report.AuditSealCode;
+            AuditSealedAt = report.AuditSealedAt?.ToUniversalTime();
+        }
+
+        return this;
     }
 
     private static string Trim(string? version)
@@ -346,4 +365,11 @@ public sealed class Checkin : Entity<Guid>
 }
 
 /// <summary>Lo que el POS informa en el check-in.</summary>
-public sealed record CheckinReport(string AppVersion, int ActiveTerminals, DateTimeOffset ReportedClock, IPAddress? IpAddress);
+public sealed record CheckinReport(
+    string AppVersion,
+    int ActiveTerminals,
+    DateTimeOffset ReportedClock,
+    IPAddress? IpAddress,
+    long? AuditSealNo = null,
+    string? AuditSealCode = null,
+    DateTimeOffset? AuditSealedAt = null);

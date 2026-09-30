@@ -57,3 +57,5 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0050](0050-paquete-de-backup-cifrado-y-codigo-de-recuperacion.md) | Paquete de backup cifrado (.posbak) y código de recuperación | Aceptada | 2026-09-29 |
 | [0051](0051-destinos-programacion-y-retencion-de-backups.md) | Destinos, programación, retención y verificación de los backups | Aceptada | 2026-09-29 |
 | [0052](0052-restauracion-desde-la-consola.md) | Restauración solo desde la consola del servidor | Aceptada | 2026-09-29 |
+| [0053](0053-restricciones-de-licencia-por-lista-de-permitidos.md) | Restricciones de la licencia en el backend por lista de permitidos | Aceptada | 2026-09-29 |
+| [0054](0054-licencia-local-token-en-la-bd-y-reloj-confiable.md) | Licencia local: token en la BD, estado calculado, claves embebidas y reloj confiable | Aceptada | 2026-09-29 |

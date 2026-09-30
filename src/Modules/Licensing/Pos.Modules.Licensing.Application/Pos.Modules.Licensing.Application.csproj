@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Módulo Licensing · Reglas de los estados locales (función pura), puertos y casos de uso (activar, liberar, verificar). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Modules.Licensing.Application</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Application.Abstractions/Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="../../../Shared/Pos.Licensing.Contracts/Pos.Licensing.Contracts.csproj" />
+    <ProjectReference Include="../Pos.Modules.Licensing.Contracts/Pos.Modules.Licensing.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
+    <InternalsVisibleTo Include="Pos.Infrastructure.UnitTests" />
+  </ItemGroup>
+</Project>

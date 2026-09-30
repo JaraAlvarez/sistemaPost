@@ -84,7 +84,19 @@ public sealed record ActivationRequest(
 /// <param name="AppVersion">Versión del POS.</param>
 /// <param name="ActiveTerminals">Cajas activas en la tienda (detección de abuso; sin límite por edición).</param>
 /// <param name="ReportedClock">Reloj del equipo (detección de relojes atrasados).</param>
-public sealed record CheckinRequest(string Token, string Fingerprint, string AppVersion, int ActiveTerminals, DateTimeOffset ReportedClock);
+/// <param name="AuditSeal">Último sello de la auditoría del POS (ancla externa, ADR-0048). Opcional: los POS anteriores a 12-B no lo envían.</param>
+public sealed record CheckinRequest(
+    string Token, string Fingerprint, string AppVersion, int ActiveTerminals, DateTimeOffset ReportedClock, CheckinAuditSeal? AuditSeal = null);
+
+/// <summary>
+/// Sello de la bitácora de auditoría del POS (docs/fases/fase-12b-propuesta.md §8): si alguien reescribe la auditoría de la tienda, el
+/// último sello guardado en la nube deja de coincidir.
+/// </summary>
+/// <param name="NodeId">Nodo (cadena de auditoría) que selló.</param>
+/// <param name="SealNo">Número del sello.</param>
+/// <param name="SealCode">Código corto del sello (<c>7F3A-91C2-0B44-E1D8</c>).</param>
+/// <param name="SealedAt">Momento del sello.</param>
+public sealed record CheckinAuditSeal(Guid NodeId, long SealNo, string SealCode, DateTimeOffset SealedAt);
 
 /// <summary>Liberación del equipo desde el propio POS (p. ej. antes de cambiar de computador).</summary>
 public sealed record DeactivationRequest(string Token, string Fingerprint, string? Reason = null);
