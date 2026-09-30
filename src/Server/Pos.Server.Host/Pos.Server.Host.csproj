@@ -38,7 +38,8 @@
     <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Api\Pos.Modules.Reference.Api.csproj" />
     <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />
     <ProjectReference Include="..\..\Shared\Pos.Updates.Contracts\Pos.Updates.Contracts.csproj" />
-    <ProjectReference Include="..\..\Client\Pos.Client\Pos.Client.csproj" />
+    <!-- ReadyToRun es solo para el servidor (win-x64): la interfaz Blazor WebAssembly no lo admite (NETSDK1095). -->
+    <ProjectReference Include="..\..\Client\Pos.Client\Pos.Client.csproj" GlobalPropertiesToRemove="PublishReadyToRun" />
   </ItemGroup>
 
   <ItemGroup>
