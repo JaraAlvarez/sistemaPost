@@ -38,6 +38,7 @@
 | 13 · Instalador y actualizaciones | [propuesta](fases/fase-13-propuesta.md) · [informe](fases/fase-13-informe.md) · [guía de instalación](guia-instalacion.md) | Implementada — pendiente de tu validación (compilar el instalador) |
 | 14 · Endurecimiento y pruebas | [propuesta](fases/fase-14-propuesta.md) · [informe](fases/fase-14-informe.md) · [seguridad](seguridad-revision.md) | Herramientas implementadas — corridas largas pendientes (tú) |
 | 15 · Interfaz: caja y backoffice | [propuesta](fases/fase-15-propuesta.md) · [informe](fases/fase-15-informe.md) | Implementada — pendiente de tu validación |
+| 16 · Sincronización con la nube y portal del cliente | [propuesta](fases/fase-16-propuesta.md) · [informe](fases/fase-16-informe.md) | Implementada — pendiente de tu validación |
 
 Decisiones arquitectónicas: [ADRs](adr/README.md) · Dependencias: [licencias de terceros](licencias-terceros.md)
 

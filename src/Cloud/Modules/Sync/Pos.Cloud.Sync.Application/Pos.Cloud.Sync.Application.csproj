@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Sincronización · Casos de uso: recibir lotes de las tiendas y paquetes .possync, y las consultas del portal (ventas, cierres, existencias, estado). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Sync.Application</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.Application.Abstractions\Pos.Application.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\Pos.Cloud.Abstractions\Pos.Cloud.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\..\Shared\Pos.Sync.Contracts\Pos.Sync.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Cloud.IntegrationTests" />
+  </ItemGroup>
+</Project>

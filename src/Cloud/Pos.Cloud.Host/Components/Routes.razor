@@ -6,6 +6,11 @@
                 {
                     <RedirectToMyAccount />
                 }
+                else if (context.User.Identity?.IsAuthenticated == true && context.User.HasClaim(PortalClaims_Stage, "ACTIVE")
+                         && !context.User.HasPortalPermission(CloudPermissions.DashboardView) && context.User.HasPortalPermission(CloudPermissions.SyncDataView))
+                {
+                    <RedirectToStores />
+                }
                 else if (context.User.Identity?.IsAuthenticated == true && context.User.HasClaim(PortalClaims_Stage, "ACTIVE"))
                 {
                     <AccessDeniedNotice />

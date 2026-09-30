@@ -33,6 +33,7 @@
     <ProjectReference Include="..\..\Modules\Reporting\Pos.Modules.Reporting.Api\Pos.Modules.Reporting.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Backup\Pos.Modules.Backup.Api\Pos.Modules.Backup.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Licensing\Pos.Modules.Licensing.Api\Pos.Modules.Licensing.Api.csproj" />
+    <ProjectReference Include="..\..\Modules\Sync\Pos.Modules.Sync.Api\Pos.Modules.Sync.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Organization\Pos.Modules.Organization.Api\Pos.Modules.Organization.Api.csproj" />
     <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Api\Pos.Modules.Reference.Api.csproj" />
     <ProjectReference Include="..\Pos.Server.Migrations\Pos.Server.Migrations.csproj" />

@@ -25,7 +25,7 @@ namespace Pos.Cloud.Host;
 /// <summary>Composición del servidor de la nube: servicios (AddCloudHost) y pipeline HTTP (UseCloudHost).</summary>
 internal static class CloudHostSetup
 {
-    public static IReadOnlyList<IModule> Modules { get; } = [new PortalIdentityModule(), new LicensingModule()];
+    public static IReadOnlyList<IModule> Modules { get; } = [new PortalIdentityModule(), new LicensingModule(), new Sync.Api.SyncModule()];
 
     public static WebApplicationBuilder AddCloudHost(this WebApplicationBuilder builder)
     {

@@ -34,6 +34,7 @@ else
                 @if (Session.Has("audit.log.view")) { <MudNavLink Href="/admin/auditoria" Icon="@Icons.Material.Filled.Policy">Auditoría</MudNavLink> }
                 <MudDivider Class="my-2" />
                 @if (Session.Has("licensing.license.view")) { <MudNavLink Href="/admin/licencia" Icon="@Icons.Material.Filled.VerifiedUser">Licencia</MudNavLink> }
+                @if (Session.Has("sync.sync.view")) { <MudNavLink Href="/admin/sincronizacion" Icon="@Icons.Material.Filled.CloudSync">Sincronización</MudNavLink> }
                 @if (Session.Has("backup.backup.view")) { <MudNavLink Href="/admin/backups" Icon="@Icons.Material.Filled.Backup">Backups</MudNavLink> }
                 @if (Session.Has("system.update.view")) { <MudNavLink Href="/admin/actualizaciones" Icon="@Icons.Material.Filled.SystemUpdate">Actualizaciones</MudNavLink> }
                 @if (Session.Has("sales.sale.create")) { <MudNavLink Href="/caja" Icon="@Icons.Material.Filled.PointOfSale">Ir a la caja</MudNavLink> }

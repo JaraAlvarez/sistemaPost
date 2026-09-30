@@ -66,6 +66,8 @@ services:
       Cloud__TrustForwardedHeaders: "true"
       Licensing__Signing__PrivateKeyPath: /run/secrets/signing_key
       Licensing__LatestPosVersion: ${LATEST_POS_VERSION:-}
+      # Fase 16: clave X25519 que abre los paquetes .possync cargados en el portal (docs/despliegue-nube.md §17).
+      Sync__PrivateKeyPath: /run/secrets/sync_key
       TZ: America/Bogota
       # Registros: información propia; el detalle de ASP.NET Core y EF Core solo desde advertencias.
       Serilog__MinimumLevel__Default: Information
@@ -73,6 +75,7 @@ services:
       Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore: Warning
     secrets:
       - signing_key
+      - sync_key
     volumes:
       - dataprotection:/var/lib/pos-cloud/dataprotection
     read_only: true
@@ -132,6 +135,8 @@ services:
 secrets:
   signing_key:
     file: ${SIGNING_KEY_FILE:-./secrets/signing-key.pem}
+  sync_key:
+    file: ${SYNC_KEY_FILE:-./secrets/sync-key.txt}
 
 networks:
   backend:

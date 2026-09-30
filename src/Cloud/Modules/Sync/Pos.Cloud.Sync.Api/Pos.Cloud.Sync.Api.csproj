@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Nube · Sincronización · Endpoint de la API del POS (/v1/sync/batches, autenticado con el token de licencia y la huella). -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Cloud.Sync.Api</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\BuildingBlocks\Pos.Api.Abstractions\Pos.Api.Abstractions.csproj" />
+    <ProjectReference Include="..\Pos.Cloud.Sync.Infrastructure\Pos.Cloud.Sync.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

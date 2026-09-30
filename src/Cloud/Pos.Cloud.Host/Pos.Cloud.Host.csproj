@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Modules\Licensing\Pos.Cloud.Licensing.Api\Pos.Cloud.Licensing.Api.csproj" />
+    <ProjectReference Include="..\Modules\Sync\Pos.Cloud.Sync.Api\Pos.Cloud.Sync.Api.csproj" />
     <ProjectReference Include="..\Modules\PortalIdentity\Pos.Cloud.PortalIdentity.Api\Pos.Cloud.PortalIdentity.Api.csproj" />
   </ItemGroup>
 

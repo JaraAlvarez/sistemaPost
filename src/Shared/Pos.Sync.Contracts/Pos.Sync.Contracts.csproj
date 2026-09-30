@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Contrato de la sincronización tienda → nube (Fase 16): lote, acuse, rutas y el paquete .possync cifrado hacia la clave pública de
+       sincronización de la nube (X25519 + ChaCha20-Poly1305). Solo NSec: lo usan el POS y la nube sin depender el uno del otro. -->
+  <PropertyGroup>
+    <RootNamespace>Pos.Sync.Contracts</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NSec.Cryptography" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,131 @@
+@page "/admin/sincronizacion"
+@inject ApiClient Api
+@inject SessionState Session
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+<PageTitle>Sincronización · POS Supermercado</PageTitle>
+
+<Pagina Titulo="Sincronización con la nube" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Session.Has("sync.sync.manage"))
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.CloudUpload" Disabled="_busy" OnClick="SincronizarAsync">Sincronizar ahora</MudButton>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" Disabled="_busy" OnClick="ExportarAsync" Class="ml-2">Exportar paquete .possync</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        @if (_status.ValueKind == JsonValueKind.Object)
+        {
+            @if (!_status.Bool("configured"))
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-3">No se sincroniza: @_status.Str("notConfiguredReason")</MudAlert>
+            }
+            else if (_status.Str("lastError") is { Length: > 0 } lastError)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3">El último envío falló: @lastError</MudAlert>
+            }
+            <MudText Class="mb-3">
+                Último acuse de la nube: <b>@(_status.Date("lastAckAt") is { } ack ? Format.Date(ack) : "nunca")</b>.
+                Con Internet, la tienda sube sola lo pendiente cada minuto. Sin Internet, exporte el paquete y cárguelo en el portal desde otro equipo
+                (queda cifrado: solo la nube lo puede abrir).
+            </MudText>
+            <MudSimpleTable Dense="true" Outlined="true" Class="mb-4" Style="max-width:480px">
+                <thead><tr><th>Pendiente de subir</th><th class="num">Datos</th></tr></thead>
+                <tbody>
+                    @foreach (var p in _status.Prop("pending").EnumerateObject())
+                    {
+                        <tr><td>@Nombre(p.Name)</td><td class="num">@p.Value</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudText Typo="Typo.h6" Class="mb-2">Envíos recientes</MudText>
+            <MudTable Items="Envios" Dense="true" Striped="true">
+                <HeaderContent><MudTh>Fecha</MudTh><MudTh>Vía</MudTh><MudTh Class="num">Datos</MudTh><MudTh>Resultado</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@Format.Date(context.Date("createdAt"))</MudTd>
+                    <MudTd>@(context.Str("via") == "FILE" ? "Paquete" : "En línea")</MudTd>
+                    <MudTd Class="num">@context.Dec("items")</MudTd>
+                    <MudTd>@Resultado(context)</MudTd>
+                </RowTemplate>
+                <NoRecordsContent><MudText>Aún no hay envíos.</MudText></NoRecordsContent>
+            </MudTable>
+        }
+    </ChildContent>
+</Pagina>
+
+@code {
+    private JsonElement _status;
+    private bool _loading = true, _busy;
+    private string? _error;
+
+    private List<JsonElement> Envios => _status.Prop("batches").Items();
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private static string Nombre(string kind) => kind switch
+    {
+        "SALE" => "Ventas",
+        "CASH_SESSION" => "Cierres de caja",
+        "STOCK" => "Saldos de inventario",
+        "PRODUCT" => "Productos",
+        _ => kind,
+    };
+
+    private static string Resultado(JsonElement batch) => batch.Str("status") switch
+    {
+        "ACKED" => $"Confirmado ({batch.Dec("applied")} nuevos o actualizados, {batch.Dec("ignored")} ya estaban)",
+        "EXPORTED" => "Exportado en paquete",
+        "FAILED" => "Falló: " + batch.Str("error"),
+        var other => other,
+    };
+
+    private async Task CargarAsync()
+    {
+        try
+        {
+            _status = await Api.GetAsync<JsonElement>("api/v1/sync");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+
+        _loading = false;
+    }
+
+    private async Task SincronizarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var confirmed = (await Api.PostAsync<JsonElement>("api/v1/sync/push")).Dec("confirmed");
+            Snackbar.Add(confirmed > 0 ? $"La nube confirmó {confirmed} datos." : "No se subió nada: no hay pendientes o no hay conexión.", Severity.Info);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task ExportarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var (name, type, content) = await Api.DownloadAsync("api/v1/sync/export");
+            await Js.InvokeVoidAsync("pos.download", name, type, Convert.ToBase64String(content));
+            Snackbar.Add("Paquete descargado: cárguelo en el portal (Datos de las tiendas).", Severity.Success);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+
+        _busy = false;
+    }
+}

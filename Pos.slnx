@@ -88,6 +88,10 @@
     <Project Path="src/Modules/Licensing/Pos.Modules.Licensing.Application/Pos.Modules.Licensing.Application.csproj" />
     <Project Path="src/Modules/Licensing/Pos.Modules.Licensing.Infrastructure/Pos.Modules.Licensing.Infrastructure.csproj" />
     <Project Path="src/Modules/Licensing/Pos.Modules.Licensing.Api/Pos.Modules.Licensing.Api.csproj" />
+    <Project Path="src/Modules/Sync/Pos.Modules.Sync.Contracts/Pos.Modules.Sync.Contracts.csproj" />
+    <Project Path="src/Modules/Sync/Pos.Modules.Sync.Application/Pos.Modules.Sync.Application.csproj" />
+    <Project Path="src/Modules/Sync/Pos.Modules.Sync.Infrastructure/Pos.Modules.Sync.Infrastructure.csproj" />
+    <Project Path="src/Modules/Sync/Pos.Modules.Sync.Api/Pos.Modules.Sync.Api.csproj" />
   </Folder>
   <Folder Name="/src/Client/">
     <Project Path="src/Client/Pos.Client/Pos.Client.csproj" />
@@ -107,6 +111,9 @@
     <Project Path="src/Cloud/Modules/Licensing/Pos.Cloud.Licensing.Application/Pos.Cloud.Licensing.Application.csproj" />
     <Project Path="src/Cloud/Modules/Licensing/Pos.Cloud.Licensing.Infrastructure/Pos.Cloud.Licensing.Infrastructure.csproj" />
     <Project Path="src/Cloud/Modules/Licensing/Pos.Cloud.Licensing.Api/Pos.Cloud.Licensing.Api.csproj" />
+    <Project Path="src/Cloud/Modules/Sync/Pos.Cloud.Sync.Application/Pos.Cloud.Sync.Application.csproj" />
+    <Project Path="src/Cloud/Modules/Sync/Pos.Cloud.Sync.Infrastructure/Pos.Cloud.Sync.Infrastructure.csproj" />
+    <Project Path="src/Cloud/Modules/Sync/Pos.Cloud.Sync.Api/Pos.Cloud.Sync.Api.csproj" />
     <Project Path="src/Cloud/Modules/PortalIdentity/Pos.Cloud.PortalIdentity.Domain/Pos.Cloud.PortalIdentity.Domain.csproj" />
     <Project Path="src/Cloud/Modules/PortalIdentity/Pos.Cloud.PortalIdentity.Application/Pos.Cloud.PortalIdentity.Application.csproj" />
     <Project Path="src/Cloud/Modules/PortalIdentity/Pos.Cloud.PortalIdentity.Infrastructure/Pos.Cloud.PortalIdentity.Infrastructure.csproj" />
@@ -115,6 +122,7 @@
   <Folder Name="/src/Shared/">
     <Project Path="src/Shared/Pos.Licensing.Contracts/Pos.Licensing.Contracts.csproj" />
     <Project Path="src/Shared/Pos.Updates.Contracts/Pos.Updates.Contracts.csproj" />
+    <Project Path="src/Shared/Pos.Sync.Contracts/Pos.Sync.Contracts.csproj" />
   </Folder>
   <Folder Name="/src/Terminal/">
     <Project Path="src/Terminal/Pos.Terminal.Agent/Pos.Terminal.Agent.csproj" />

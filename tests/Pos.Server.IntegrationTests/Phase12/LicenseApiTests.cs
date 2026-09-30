@@ -96,7 +96,7 @@ internal sealed class ShiftableTime : TimeProvider
 }
 
 /// <summary>Caja Única conectada al servidor de licencias en memoria, con una huella fija y el reloj desplazable.</summary>
-public sealed class LicenseServerFactory : PosServerFactory
+public class LicenseServerFactory : PosServerFactory
 {
     internal FakeLicenseCloud Cloud { get; } = new();
 

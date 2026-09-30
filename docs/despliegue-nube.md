@@ -290,6 +290,7 @@ Mismo compose con `docker-compose.local.yml`: la aplicación se publica en `127.
 cd deploy/cloud
 mkdir -p secrets
 dotnet run --project ../../src/Cloud/Pos.Cloud.Host -- generate-signing-key --out "$PWD/secrets/signing-key.pem"
+dotnet run --project ../../src/Cloud/Pos.Cloud.Host -- generate-sync-key --out "$PWD/secrets/sync-key.txt"   # Fase 16
 cat > .env.local <<'EOF'
 DOMINIO=localhost
 ACME_EMAIL=admin@example.com
@@ -372,3 +373,28 @@ Caddy sirve la carpeta `deploy/cloud/updates` del VPS en `https://licencias.<DOM
 
 Para retirar una versión defectuosa, vuelva a subir el `stable.json` anterior: las tiendas que ya actualizaron se quedan en la nueva
 (la vuelta atrás automática solo actúa si la versión no arranca).
+
+## 17. Sincronización de las tiendas y portal del cliente (Fase 16)
+
+Las tiendas suben ventas, cierres, existencias y productos a `https://licencias.<DOMINIO>/v1/sync/batches`, identificadas con su token
+de licencia (no hay credenciales nuevas). Sin Internet, exportan un paquete `.possync` cifrado con la **clave pública de sincronización**
+de la nube, que se carga en el portal (**Datos de las tiendas**). La clave privada que los abre vive solo en el VPS (ADR-0058).
+
+**Antes de actualizar el contenedor a la versión de la Fase 16** (el `docker-compose.yml` exige el archivo):
+
+```bash
+cd /opt/pos/deploy/cloud
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/secrets:/out" pos-cloud:local generate-sync-key --out /out/sync-key.txt
+# Imprime la clave pública: anótela. Respaldo cifrado fuera del VPS, igual que la clave de firma:
+age -p -o sync-key.txt.age secrets/sync-key.txt
+sudo chown 1654:1654 secrets/sync-key.txt && sudo chmod 400 secrets/sync-key.txt
+docker compose up -d
+```
+
+1. Escriba la clave pública en `src/Modules/Sync/Pos.Modules.Sync.Infrastructure/sync-key.json` (`{"publicKey": "…"}`) antes de
+   compilar la versión para clientes. Sin ella la tienda sincroniza en línea pero no puede exportar paquetes.
+2. Si pierde la clave privada: genere otra, embeba la nueva pública y publique una versión; los paquetes ya exportados con la anterior
+   no se podrán abrir (la tienda los vuelve a exportar: el paquete siempre lleva lo que la nube aún no confirmó en línea).
+3. **Usuarios Cliente:** en el portal, Usuarios → rol **Cliente** y la **cuenta** del cliente. Entra con contraseña y autenticador como
+   los demás y solo ve las empresas de esa cuenta (ventas, cierres, existencias y cargar paquetes).
+4. Las migraciones `V2026.10.006` (rol Cliente) y `V2026.10.007` (esquema `sync`) se aplican solas al actualizar (§10).

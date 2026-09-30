@@ -1,0 +1,14 @@
+@inject NavigationManager Navigation
+
+@* El cliente (Fase 16) no tiene tablero de licencias: su inicio son los datos de sus tiendas. *@
+<MudText Typo="Typo.body2">Abriendo los datos de sus tiendas…</MudText>
+
+@code {
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Navigation.NavigateTo("/tiendas");
+        }
+    }
+}

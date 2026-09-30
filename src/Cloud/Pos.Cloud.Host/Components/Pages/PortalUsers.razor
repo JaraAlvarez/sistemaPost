@@ -27,8 +27,20 @@
             <MudSelect T="string" @bind-Value="_newRole" Label="Rol">
                 <MudSelectItem T="string" Value="@PortalRoles.Support">@RoleName(PortalRoles.Support)</MudSelectItem>
                 <MudSelectItem T="string" Value="@PortalRoles.Superadmin">@RoleName(PortalRoles.Superadmin)</MudSelectItem>
+                <MudSelectItem T="string" Value="@PortalRoles.Customer">@RoleName(PortalRoles.Customer)</MudSelectItem>
             </MudSelect>
         </MudItem>
+        @if (_newRole == PortalRoles.Customer)
+        {
+            <MudItem xs="12" md="8">
+                <MudSelect T="Guid?" @bind-Value="_newAccount" Label="Cuenta del cliente (solo verá las empresas de esta cuenta)">
+                    @foreach (var account in _accounts)
+                    {
+                        <MudSelectItem T="Guid?" Value="@account.Id">@account.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        }
     </MudGrid>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="Busy" OnClick="CreateAsync">Crear con contraseña temporal</MudButton>
 </MudPaper>
@@ -84,6 +96,10 @@
                     @if (selected.Role == PortalRoles.Reseller)
                     {
                         <MudSelectItem T="string" Value="@PortalRoles.Reseller">@RoleName(PortalRoles.Reseller)</MudSelectItem>
+                    }
+                    @if (selected.Role == PortalRoles.Customer)
+                    {
+                        <MudSelectItem T="string" Value="@PortalRoles.Customer">@RoleName(PortalRoles.Customer)</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
@@ -148,6 +164,8 @@
     private string? _newEmail;
     private string? _newName;
     private string _newRole = PortalRoles.Support;
+    private Guid? _newAccount;
+    private IReadOnlyList<AccountDto> _accounts = [];
     private string? _editName;
     private string _editRole = PortalRoles.Support;
     private bool _editActive;
@@ -158,6 +176,7 @@
         PortalRoles.Superadmin => "Superadministrador",
         PortalRoles.Support => "Soporte",
         PortalRoles.Reseller => "Distribuidor",
+        PortalRoles.Customer => "Cliente",
         _ => role ?? "—",
     };
 
@@ -175,6 +194,7 @@
     private async Task LoadAsync()
     {
         _users = await LoadAsync(new ListPortalUsersQuery()) ?? [];
+        _accounts = await LoadAsync(new ListAccountsQuery()) ?? [];
         if (_selected is not null)
         {
             _selected = _users.FirstOrDefault(u => u.Id == _selected.Id);
@@ -194,7 +214,9 @@
 
     private async Task CreateAsync()
     {
-        var created = await RunAsync(new CreatePortalUserCommand(_newEmail ?? string.Empty, _newName ?? string.Empty, _newRole), "Usuario creado.");
+        var created = await RunAsync(
+            new CreatePortalUserCommand(_newEmail ?? string.Empty, _newName ?? string.Empty, _newRole, _newRole == PortalRoles.Customer ? _newAccount : null),
+            "Usuario creado.");
         if (created.IsSuccess)
         {
             _temporary = created.Value;
@@ -207,7 +229,7 @@
     private async Task SaveAsync()
     {
         if (_selected is { } user
-            && await RunAsync(new UpdatePortalUserCommand(user.Id, _editName ?? string.Empty, _editRole, user.ResellerAccountId, _editActive), "Usuario actualizado."))
+            && await RunAsync(new UpdatePortalUserCommand(user.Id, _editName ?? string.Empty, _editRole, _editRole is PortalRoles.Reseller or PortalRoles.Customer ? user.ResellerAccountId : null, _editActive), "Usuario actualizado."))
         {
             await LoadAsync();
         }

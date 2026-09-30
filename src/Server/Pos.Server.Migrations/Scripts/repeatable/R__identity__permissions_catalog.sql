@@ -100,6 +100,8 @@ INSERT INTO identity.permissions (code, module, description, is_sensitive) VALUE
     ('settings.setting.manage',       'settings',     'Modificar la configuración general',                                            true),
     ('settings.setting.view',         'settings',     'Consultar la configuración general',                                            false),
     ('system.update.manage',          'system',       'Instalar ahora una actualización descargada (sin esperar la ventana nocturna)', true),
+    ('sync.sync.manage',              'sync',         'Sincronizar ahora y exportar el paquete de sincronización (.possync)',          true),
+    ('sync.sync.view',                'sync',         'Ver el estado de la sincronización con la nube',                                false),
     ('system.update.view',            'system',       'Ver la versión instalada, la actualización pendiente y el historial de actualizaciones', false)
 ON CONFLICT (code) DO UPDATE SET module = EXCLUDED.module, description = EXCLUDED.description,
     is_sensitive = EXCLUDED.is_sensitive, is_deprecated = false;
@@ -116,7 +118,7 @@ WHERE code NOT IN (
     'inventory.transfer.manage', 'organization.branch.manage', 'organization.branch.view',
     'organization.company.manage', 'organization.company.view', 'organization.device.manage',
     'organization.terminal.manage', 'organization.warehouse.manage', 'settings.setting.manage',
-    'settings.setting.view', 'system.update.manage', 'system.update.view', 'cash.payment_method.manage', 'parties.party.manage', 'parties.party.view',
+    'settings.setting.view', 'system.update.manage', 'system.update.view', 'sync.sync.manage', 'sync.sync.view', 'cash.payment_method.manage', 'parties.party.manage', 'parties.party.view',
     'purchasing.order.approve', 'purchasing.order.manage', 'purchasing.payable.pay', 'purchasing.payable.view',
     'purchasing.purchase.manage', 'purchasing.purchase.post', 'purchasing.purchase.view', 'purchasing.purchase.void',
     'purchasing.return.manage', 'purchasing.supplier.manage', 'purchasing.supplier.bank_manage', 'cash.drawer.open', 'cash.movement.withdraw', 'cash.report.view',

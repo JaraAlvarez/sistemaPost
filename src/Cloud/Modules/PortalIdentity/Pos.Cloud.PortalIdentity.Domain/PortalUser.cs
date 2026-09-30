@@ -10,6 +10,9 @@ public enum PortalRole
     Superadmin,
     Support,
     Reseller,
+
+    /// <summary>Cliente del producto (dueño del supermercado, Fase 16): ve solo los datos de las empresas de su cuenta.</summary>
+    Customer,
 }
 
 public enum PortalUserKind
@@ -56,7 +59,10 @@ public sealed partial class PortalUser : AggregateRoot<Guid>, IHasAuditLabel
 
     public PortalRole Role { get; private set; }
 
-    /// <summary>Cuenta del distribuidor (solo rol <see cref="PortalRole.Reseller"/>, sin pantallas en 12-A).</summary>
+    /// <summary>
+    /// Cuenta a la que está atado el usuario: la del distribuidor (<see cref="PortalRole.Reseller"/>) o la del cliente
+    /// (<see cref="PortalRole.Customer"/>, Fase 16). Los demás roles no la llevan.
+    /// </summary>
     public Guid? ResellerAccountId { get; private set; }
 
     public PortalUserStatus Status { get; private set; } = PortalUserStatus.Active;
@@ -101,7 +107,7 @@ public sealed partial class PortalUser : AggregateRoot<Guid>, IHasAuditLabel
             return PortalIdentityErrors.InvalidUser;
         }
 
-        if ((role == PortalRole.Reseller) != resellerAccountId.HasValue)
+        if (NeedsAccount(role) != resellerAccountId.HasValue)
         {
             return PortalIdentityErrors.ResellerAccountRequired;
         }
@@ -110,6 +116,9 @@ public sealed partial class PortalUser : AggregateRoot<Guid>, IHasAuditLabel
         user.SetPassword(passwordHash, now, mustChange: true);
         return user;
     }
+
+    /// <summary>Distribuidor y cliente van atados a una cuenta.</summary>
+    public static bool NeedsAccount(PortalRole role) => role is PortalRole.Reseller or PortalRole.Customer;
 
     public static string NormalizeEmail(string? email) => (email ?? string.Empty).Trim().ToLowerInvariant();
 
@@ -217,7 +226,7 @@ public sealed partial class PortalUser : AggregateRoot<Guid>, IHasAuditLabel
             return PortalIdentityErrors.InvalidUser;
         }
 
-        if ((role == PortalRole.Reseller) != resellerAccountId.HasValue)
+        if (NeedsAccount(role) != resellerAccountId.HasValue)
         {
             return PortalIdentityErrors.ResellerAccountRequired;
         }
@@ -389,7 +398,7 @@ public static class PortalIdentityErrors
         "PORTAL.INVALID_USER", "Datos del usuario inválidos: correo válido y nombre de 1 a 120 caracteres.");
 
     public static readonly Error ResellerAccountRequired = Error.Validation(
-        "PORTAL.RESELLER_ACCOUNT_REQUIRED", "El rol de distribuidor exige su cuenta (y solo ese rol la lleva).");
+        "PORTAL.RESELLER_ACCOUNT_REQUIRED", "Los roles de distribuidor y cliente exigen su cuenta (y solo esos roles la llevan).");
 
     public static readonly Error EmailDuplicated = Error.Conflict("PORTAL.EMAIL_DUPLICATED", "Ya existe un usuario con ese correo.");
 
