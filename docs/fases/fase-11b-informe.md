@@ -17,7 +17,7 @@
 | Rangos sincronizados, asignados por sucursal/caja y con alertas | ✅ (simulado) | `Rangos_sincronizados_desde_Factus_y_el_429_se_respeta`, `Sin_rango_vigente…`, pruebas unitarias de `FiscalNumberingRange` |
 | Tiquete con número, CUFE y QR cuando llegan a tiempo; reimpresión con los datos | ✅ | `FiscalTicketTests` (5) |
 | Rechazos visibles, corregibles y auditados; reporte de conciliación | ✅ | `Un_rechazo_queda_REJECTED…`, `Rechazo_DIAN_…se_borra_en_Factus_y_se_reenvia`, `FiscalReconciliationReportTests` |
-| `dotnet build` sin advertencias; doc 08; guía de activación; ADRs e informe | ✅ | {{PRUEBAS}} · doc 08 (notas de la Fase 11-B), guía Factus, ADR-0059 a 0061, este informe |
+| `dotnet build` sin advertencias; doc 08; guía de activación; ADRs e informe | ✅ | `build.ps1` en verde (1.240 pruebas, 0 fallos; cobertura de Billing.Domain 100 %) · doc 08 (notas de la Fase 11-B), guía Factus, ADR-0059 a 0061, este informe |
 
 ## 2. Qué se construyó
 
@@ -39,7 +39,7 @@
 | `Pos.Modules.Billing.Factus.Tests` | 55 | Cliente HTTP (token, 401, 409, 422, 429, red), mapeo (IVA, exento, excluido, INC, bolsa, descuentos, redondeo del efectivo, varios medios, crédito, pesables en sus 4 estrategias, consumidor final, proveedor con cédula), serialización JSON y `FactusFiscalProvider` (duplicado, rechazo que bloquea → borrar y reenviar) |
 | `Pos.Modules.Billing.UnitTests` | 50 | Dominio: estados del documento, reclamo, cancelación, reintento, corrección, rangos (selección, uso, alertas), modos, borradores y conciliación de totales |
 | `Pos.Server.IntegrationTests/Phase11B` | 15 + 5 del tiquete + 1 de conciliación | Emisión con el proveedor simulado (10) y de punta a punta contra el Factus simulado (5); tiquete (5); reporte de conciliación (1) |
-| Totales y `build.ps1` | {{PRUEBAS}} | |
+| Totales y `build.ps1` | 1.240 | `build.ps1` en verde, 0 fallos (Pos.Server.IntegrationTests 150; Billing.Factus.Tests 55; Billing.UnitTests 50) |
 
 ## 4. Decisiones y desviaciones respecto de la propuesta
 
