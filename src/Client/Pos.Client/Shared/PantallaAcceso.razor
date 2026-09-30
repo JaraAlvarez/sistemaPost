@@ -1,0 +1,39 @@
+@* Pantallas de acceso (ingresar, cambiar la contraseña, emparejar el equipo): panel de marca a la izquierda y el formulario a la derecha.
+   En pantallas angostas solo el formulario, con el logo arriba. docs/guia-diseno.md §5. *@
+<div class="acceso">
+    <section class="acceso-marca" aria-label="BusinessPost">
+        <Logo Tamano="44" SobreOscuro="true" />
+        <div>
+            <p class="acceso-lema">El punto de venta de su supermercado.</p>
+            <p class="acceso-texto">Caja rápida con lector y teclado, inventario al día y facturación electrónica ante la DIAN, todo desde el servidor de su tienda.</p>
+            <ul class="acceso-puntos">
+                <li><MudIcon Icon="@Icons.Material.Outlined.Bolt" Size="Size.Small" />Cobros en segundos, con atajos de teclado</li>
+                <li><MudIcon Icon="@Icons.Material.Outlined.Inventory2" Size="Size.Small" />Existencias, compras y promociones en un solo lugar</li>
+                <li><MudIcon Icon="@Icons.Material.Outlined.Shield" Size="Size.Small" />Auditoría sellada y backups automáticos</li>
+            </ul>
+        </div>
+        <div class="acceso-pie">BusinessPost · Hecho para supermercados de Colombia</div>
+    </section>
+    <main class="acceso-formulario">
+        <div class="acceso-tarjeta">
+            <div class="acceso-logo-movil"><Logo Tamano="36" /></div>
+            <MudText Typo="Typo.h4" HtmlTag="h1">@Titulo</MudText>
+            @if (Ayuda is not null)
+            {
+                <p class="acceso-ayuda">@Ayuda</p>
+            }
+            @ChildContent
+        </div>
+    </main>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Titulo { get; set; } = "";
+
+    [Parameter]
+    public string? Ayuda { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

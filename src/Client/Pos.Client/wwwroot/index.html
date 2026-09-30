@@ -3,21 +3,31 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#3341B0" />
     <title>BusinessPost</title>
-    <!-- ?v=… evita que el navegador use una copia vieja después de una actualización: súbalo con cada versión que cambie estos archivos. -->
+    <!-- ?v=… evita que el navegador use una copia vieja después de una actualización: súbalo con cada versión que cambie estos archivos.
+         Todo es local (fuentes incluidas en fonts/): la interfaz funciona sin Internet. -->
     <base href="/" />
-    <link href="_content/MudBlazor/MudBlazor.min.css?v=15" rel="stylesheet" />
-    <link href="css/app.css?v=15" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="img/businesspost.svg?v=18" />
+    <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link href="_content/MudBlazor/MudBlazor.min.css?v=18" rel="stylesheet" />
+    <link href="css/app.css?v=18" rel="stylesheet" />
+    <script src="js/pos.js?v=18"></script>
 </head>
 <body>
     <div id="app">
-        <div class="arranque">Cargando BusinessPost…</div>
+        <div class="arranque" role="status">
+            <img src="img/businesspost.svg?v=18" alt="" width="56" height="56" />
+            <div class="arranque-nombre">Business<span>Post</span></div>
+            <div class="arranque-barra" aria-hidden="true"><span></span></div>
+            <div class="arranque-texto">Cargando…</div>
+        </div>
     </div>
-    <div id="blazor-error-ui" class="hidden">
-        Ocurrió un error inesperado. <a href="" class="reload">Recargar</a>
+    <div id="blazor-error-ui" class="hidden" role="alert">
+        Ocurrió un error inesperado en la pantalla. <a href="" class="reload">Recargar</a>
     </div>
     <script src="_framework/blazor.webassembly.js"></script>
-    <script src="_content/MudBlazor/MudBlazor.min.js?v=15"></script>
-    <script src="js/pos.js?v=15"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js?v=18"></script>
 </body>
 </html>

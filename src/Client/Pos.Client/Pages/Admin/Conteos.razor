@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Conteos · BusinessPost</PageTitle>
 
@@ -21,7 +22,7 @@
             <MudSelectItem T="string" Value="@("POSTED")">Aprobado</MudSelectItem>
             <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
         </MudSelect>
-        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Bodega</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
             </HeaderContent>
@@ -32,7 +33,8 @@
                 <MudTd>@Estado(context.Str("status"))</MudTd>
                 <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context.GetProperty("id").GetGuid()))">Ver</MudButton></MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>No hay conteos.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay conteos." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
     </ChildContent>
 </Pagina>
@@ -40,7 +42,7 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Nuevo conteo</h2>
             <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
                 @foreach (var warehouse in Elegibles)
@@ -104,7 +106,7 @@
 @if (_conteo.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(1000px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(1000px, 96vw)">
             <h2>Conteo @_conteo.Str("number") · @Estado(Status)</h2>
             <MudText Typo="Typo.body2">
                 Bodega @Bodega(_conteo.Str("warehouseId")) · @(_conteo.Str("countType") == "FULL" ? "Completo" : "Parcial") ·
@@ -165,7 +167,7 @@
                         }
                     </MudTd>
                 </RowTemplate>
-                <NoRecordsContent><MudText>No hay productos para mostrar.</MudText></NoRecordsContent>
+                <NoRecordsContent><EstadoVacio Mensaje="No hay productos para mostrar." Compacto="true" /></NoRecordsContent>
                 <PagerContent><MudTablePager RowsPerPageString="Filas por página:" InfoFormat="{first_item}-{last_item} de {all_items}" /></PagerContent>
             </MudTable>
             @if (Status == "IN_REVIEW")
@@ -179,7 +181,7 @@
                 @if (Status is "DRAFT" or "IN_PROGRESS" or "IN_REVIEW" && Session.Has("inventory.count.manage"))
                 {
                     <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => AccionAsync("cancel", "Conteo anulado."))">
-                        @(_confirmar == "cancel" ? "Confirmar anulación" : "Anular")
+                        Anular
                     </MudButton>
                 }
                 @if (Status == "DRAFT" && Session.Has("inventory.count.manage"))
@@ -193,7 +195,7 @@
                 @if (Status == "IN_REVIEW" && Session.Has("inventory.count.approve"))
                 {
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("approve", "Conteo aprobado: las diferencias quedaron en el kardex."))">
-                        @(_confirmar == "approve" ? "Confirmar aprobación" : "Aprobar y ajustar")
+                        Aprobar y ajustar
                     </MudButton>
                 }
             </div>
@@ -211,7 +213,7 @@
     private MudTextField<string>? _escaner;
     private JsonElement _conteo;
     private string _estado = "", _tipo = "Full", _filtro = "";
-    private string? _error, _notas, _buscar, _codigo, _ubicacion, _ultimo, _confirmar;
+    private string? _error, _notas, _buscar, _codigo, _ubicacion, _ultimo;
     private Guid? _bodega, _categoria;
     private decimal _cantidad = 1;
     private bool _loading = true, _busy, _nuevo, _ciego = true;
@@ -254,7 +256,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Message}", Severity.Warning);
+            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
         }
     }
 
@@ -268,7 +270,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -316,7 +318,7 @@
         catch (ApiException ex)
         {
             _categorias = [];
-            Snackbar.Add($"No se pudieron cargar las categorías: {ex.Message}", Severity.Warning);
+            Snackbar.Add($"No se pudieron cargar las categorías: {ex.Texto}", Severity.Warning);
         }
 
         _nuevo = true;
@@ -359,7 +361,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -392,7 +394,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -404,19 +406,18 @@
         {
             _conteo = await Api.GetAsync<JsonElement>($"api/v1/inventory/counts/{id}");
             _filtro = "";
-            _codigo = _ultimo = _confirmar = null;
+            _codigo = _ultimo = null;
             _cantidad = 1;
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
     private void Cerrar()
     {
         _conteo = default;
-        _confirmar = null;
     }
 
     private async Task EscanerTeclaAsync(KeyboardEventArgs e)
@@ -459,7 +460,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -471,9 +472,9 @@
 
     private async Task AccionAsync(string action, string message)
     {
-        if (action is "approve" or "cancel" && _confirmar != action)
+        if (Confirmaciones.TryGetValue(action, out var confirmacion)
+            && !await Dialogs.ConfirmarAsync(confirmacion.Titulo, confirmacion.Mensaje, confirmacion.Accion, action == "cancel"))
         {
-            _confirmar = action;
             return;
         }
 
@@ -488,10 +489,16 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
-        _confirmar = null;
         _busy = false;
     }
+
+    /// <summary>Acciones que se confirman con el diálogo uniforme: título, mensaje y texto del botón.</summary>
+    private static readonly Dictionary<string, (string Titulo, string Mensaje, string Accion)> Confirmaciones = new()
+    {
+        ["cancel"] = ("Anular conteo", "El conteo quedará anulado y lo contado no se aplicará al inventario.", "Anular"),
+        ["approve"] = ("Aprobar conteo", "Las diferencias del conteo se aplicarán al inventario (kardex).", "Aprobar y ajustar"),
+    };
 }

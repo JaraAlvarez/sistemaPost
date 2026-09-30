@@ -44,7 +44,7 @@
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _batch.Dec("errorRows") > 0)" OnClick="AplicarAsync">Aplicar</MudButton>
                         </div>
                     }
-                    <MudTable Items="Filas" Dense="true" Striped="true" Height="420px" FixedHeader="true">
+                    <MudTable RowsPerPage="25" Items="Filas" Dense="true" Striped="true" Height="420px" FixedHeader="true">
                         <HeaderContent><MudTh>Fila</MudTh><MudTh>Acción</MudTh><MudTh>Producto</MudTh><MudTh>Errores y avisos</MudTh></HeaderContent>
                         <RowTemplate>
                             <MudTd>@context.Dec("rowNumber")</MudTd>
@@ -61,6 +61,8 @@
                                 }
                             </MudTd>
                         </RowTemplate>
+                        <PagerContent><Paginador /></PagerContent>
+                        <NoRecordsContent><EstadoVacio Mensaje="El archivo no trae filas para importar." /></NoRecordsContent>
                     </MudTable>
                 </MudPaper>
             }
@@ -111,7 +113,7 @@
             }
             catch (ApiException ex)
             {
-                Snackbar.Add(ex.Message, Severity.Error);
+                Snackbar.Add(ex.Texto, Severity.Error);
             }
         }
     }
@@ -142,7 +144,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -167,7 +169,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
         catch (IOException ex)
         {
@@ -191,7 +193,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -212,7 +214,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
         catch (IOException ex)
         {

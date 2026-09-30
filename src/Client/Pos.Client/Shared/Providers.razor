@@ -1,13 +1,48 @@
-@* Proveedores de MudBlazor (tema, ventanas emergentes, avisos). Van en cada diseño de página. *@
-<MudThemeProvider Theme="@Theme" />
+@* Proveedores de MudBlazor (tema, ventanas emergentes, avisos). Van en cada diseño de página. El tema es el de BusinessPost
+   (Services/Tema.cs, docs/guia-diseno.md); el modo claro u oscuro es la preferencia recordada del equipo o la del sistema. *@
+@implements IDisposable
+@inject Tema Tema
+@inject IJSRuntime Js
+
+<MudThemeProvider @ref="_provider" Theme="@TemaBusinessPost.Theme" IsDarkMode="@Tema.EsOscuro" />
 <MudPopoverProvider />
-<MudDialogProvider />
+<MudDialogProvider CloseOnEscapeKey="true" BackdropClick="false" MaxWidth="MaxWidth.Small" FullWidth="true" />
 <MudSnackbarProvider />
 
 @code {
-    private static readonly MudTheme Theme = new()
+    private MudThemeProvider? _provider;
+
+    protected override void OnInitialized() => Tema.Changed += Cambio;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        PaletteLight = new PaletteLight { Primary = "#1f6feb", Secondary = "#1a7f37", AppbarBackground = "#1f6feb" },
-        Typography = new Typography { Default = new DefaultTypography { FontFamily = ["Segoe UI", "system-ui", "sans-serif"] } },
-    };
+        if (!firstRender || _provider is null)
+        {
+            return;
+        }
+
+        await Tema.CargarAsync();
+        Tema.SistemaCambio(await _provider.GetSystemDarkModeAsync());
+        await _provider.WatchSystemDarkModeAsync(oscuro =>
+        {
+            Tema.SistemaCambio(oscuro);
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>Repinta con el tema nuevo y marca &lt;html data-tema&gt; (los estilos propios de app.css para el modo oscuro).</summary>
+    private void Cambio() => InvokeAsync(async () =>
+    {
+        StateHasChanged();
+        try
+        {
+            await Js.InvokeVoidAsync("pos.pref.aplicarTema", Tema.EsOscuro);
+        }
+        catch (JSException)
+        {
+            // Sin JavaScript disponible (prerenderizado): el tema de MudBlazor ya se aplicó.
+        }
+    });
+
+    public void Dispose() => Tema.Changed -= Cambio;
 }

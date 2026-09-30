@@ -44,7 +44,7 @@
             </MudPaper>
         }
         <MudText Typo="Typo.h6" Class="mb-2">Historial</MudText>
-        <MudTable Items="_runs" Dense="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_runs" Dense="true" Striped="true">
             <HeaderContent><MudTh>Fecha</MudTh><MudTh>Tipo</MudTh><MudTh>Resultado</MudTh><MudTh Class="num">Tamaño</MudTh><MudTh>Copias</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>@Format.Date(context.Date("startedAt"))</MudTd>
@@ -53,7 +53,8 @@
                 <MudTd Class="num">@(context.Dec("sizeBytes") > 0 ? (context.Dec("sizeBytes") / 1024 / 1024).ToString("0.0", Format.Colombia) + " MB" : "")</MudTd>
                 <MudTd>@string.Join(" · ", context.Prop("copies").Items().Select(c => $"{c.Str("destinationName")}: {c.Str("status")}"))</MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>Aún no hay backups.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="Aún no hay backups." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
         <MudText Typo="Typo.caption" Class="mt-2 d-block">La restauración se hace desde la consola del servidor (docs/guia-recuperacion.md), nunca desde el navegador.</MudText>
     </ChildContent>
@@ -76,7 +77,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -92,7 +93,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -106,7 +107,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -121,7 +122,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 }

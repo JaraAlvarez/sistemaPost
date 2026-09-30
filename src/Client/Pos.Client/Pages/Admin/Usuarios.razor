@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Usuarios · BusinessPost</PageTitle>
 
@@ -13,7 +14,7 @@
         }
     </Acciones>
     <ChildContent>
-        <MudTable Items="_users" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_users" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>Usuario</MudTh><MudTh>Nombre</MudTh><MudTh>Roles</MudTh><MudTh>Código de caja</MudTh><MudTh>Estado</MudTh><MudTh>Último ingreso</MudTh><MudTh></MudTh>
             </HeaderContent>
@@ -22,18 +23,18 @@
                 <MudTd>@context.Str("displayName")</MudTd>
                 <MudTd>@string.Join(", ", context.Prop("roles").Items().Select(r => NombreRol(r.Str("roleCode"))))</MudTd>
                 <MudTd>@context.Str("posCode")</MudTd>
-                <MudTd>@(context.Str("status") == "ACTIVE" ? "Activo" : context.Str("status") == "LOCKED" ? "Bloqueado" : "Inactivo")</MudTd>
+                <MudTd>@(Estado(context) == "ACTIVE" ? "Activo" : Estado(context) == "LOCKED" ? "Bloqueado" : "Inactivo")</MudTd>
                 <MudTd>@Format.Date(context.Date("lastLoginAt"))</MudTd>
                 <MudTd>
                     @if (Session.Has("identity.user.manage") && context.Str("username") != "system")
                     {
-                        @if (context.Str("status") == "LOCKED")
+                        @if (Estado(context) == "LOCKED")
                         {
                             <MudButton Size="Size.Small" OnClick="@(() => AccionAsync(context, "unlock", "Usuario desbloqueado."))">Desbloquear</MudButton>
                         }
-                        else if (context.Str("status") == "ACTIVE")
+                        else if (Estado(context) == "ACTIVE")
                         {
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => AccionAsync(context, "deactivate", "Usuario inactivado."))">Inactivar</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar usuario", $"{context.Str("displayName")} ya no podrá entrar a la caja ni a la administración. Puede activarlo de nuevo después.", "Inactivar", true)) { await AccionAsync(context, "deactivate", "Usuario inactivado."); } })">Inactivar</MudButton>
                         }
                         else
                         {
@@ -42,6 +43,8 @@
                     }
                 </MudTd>
             </RowTemplate>
+            <PagerContent><Paginador /></PagerContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay usuarios." /></NoRecordsContent>
         </MudTable>
     </ChildContent>
 </Pagina>
@@ -49,7 +52,7 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Nuevo usuario</h2>
             <MudTextField @bind-Value="_username" Label="Usuario" Immediate="true" />
             <MudTextField @bind-Value="_displayName" Label="Nombre completo" Immediate="true" />
@@ -89,11 +92,14 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
     }
+
+    /// <summary>Estado del usuario en mayúsculas (la API puede enviar "Active" o "ACTIVE").</summary>
+    private static string Estado(JsonElement user) => user.Str("status").ToUpperInvariant();
 
     private string NombreRol(string code) => _roles.FirstOrDefault(r => r.Str("code") == code).Str("name") is { Length: > 0 } name ? name : code;
 
@@ -121,7 +127,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -137,7 +143,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 }

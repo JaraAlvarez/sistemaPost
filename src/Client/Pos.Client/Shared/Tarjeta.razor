@@ -1,11 +1,13 @@
-<MudPaper Class="pa-4" Elevation="1">
-    <MudText Typo="Typo.caption">@Titulo</MudText>
-    <MudText Typo="Typo.h5">@Valor</MudText>
-    @if (Detalle is not null)
-    {
-        <MudText Typo="Typo.caption">@Detalle</MudText>
-    }
-</MudPaper>
+@* Tarjeta de indicador (docs/guia-diseno.md §6): título, cifra grande, detalle, icono con el color del significado y, si aplica, la
+   variación contra un valor de referencia y el enlace a la pantalla que la explica. *@
+@if (Href is not null)
+{
+    <a class="bp-tarjeta bp-indicador bp-tono-@Tono bp-tarjeta-enlace" href="@Href">@Contenido</a>
+}
+else
+{
+    <div class="bp-tarjeta bp-indicador bp-tono-@Tono">@Contenido</div>
+}
 
 @code {
     [Parameter, EditorRequired]
@@ -16,4 +18,44 @@
 
     [Parameter]
     public string? Detalle { get; set; }
+
+    [Parameter]
+    public string? Icono { get; set; }
+
+    /// <summary>primario, secundario, exito, advertencia, error, info o neutro.</summary>
+    [Parameter]
+    public string Tono { get; set; } = "primario";
+
+    /// <summary>Variación en porcentaje contra la referencia (p. ej. el mismo día de la semana anterior).</summary>
+    [Parameter]
+    public decimal? Variacion { get; set; }
+
+    [Parameter]
+    public string? Href { get; set; }
+
+    private RenderFragment Contenido => __builder =>
+    {
+        <div class="bp-indicador-cabeza">
+            <span class="bp-indicador-titulo">@Titulo</span>
+            @if (Icono is not null)
+            {
+                <span class="bp-indicador-icono" aria-hidden="true"><MudIcon Icon="@Icono" Size="Size.Small" /></span>
+            }
+        </div>
+        <div class="bp-indicador-valor">@Valor</div>
+        @if (Variacion is not null || Detalle is not null)
+        {
+            <div class="bp-indicador-detalle">
+                @if (Variacion is { } variacion)
+                {
+                    <span class="bp-variacion @(variacion > 0 ? "sube" : variacion < 0 ? "baja" : "igual")">
+                        <span aria-hidden="true">@(variacion > 0 ? "▲" : variacion < 0 ? "▼" : "■")</span>
+                        @Math.Abs(variacion).ToString("0.#", Format.Colombia) %
+                        <span class="visualmente-oculto">@(variacion > 0 ? "más" : variacion < 0 ? "menos" : "igual")</span>
+                    </span>
+                }
+                @Detalle
+            </div>
+        }
+    };
 }

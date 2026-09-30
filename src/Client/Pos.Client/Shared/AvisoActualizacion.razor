@@ -31,7 +31,7 @@
 @if (_confirmar)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Actualizar a la versión @_status.Str("availableVersion")</h2>
             <MudText Typo="Typo.body2" Class="mb-2">
                 La actualización se instala en el próximo minuto y <b>reinicia el servidor</b>: durante uno o dos minutos nadie podrá vender ni
@@ -107,7 +107,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
         catch (HttpRequestException)
         {

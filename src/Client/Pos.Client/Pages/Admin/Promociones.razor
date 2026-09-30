@@ -24,7 +24,7 @@
             <MudSelectItem T="string" Value="@("Paused")">Pausadas</MudSelectItem>
             <MudSelectItem T="string" Value="@("Ended")">Terminadas</MudSelectItem>
         </MudSelect>
-        <MudTable Items="_items" Dense="true" Hover="true" Striped="true">
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Estado</MudTh><MudTh>Desde</MudTh><MudTh>Hasta</MudTh><MudTh>Rige ahora</MudTh><MudTh></MudTh>
             </HeaderContent>
@@ -60,7 +60,8 @@
                     }
                 </MudTd>
             </RowTemplate>
-            <NoRecordsContent><MudText>No hay promociones.</MudText></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay promociones." /></NoRecordsContent>
+            <PagerContent><Paginador /></PagerContent>
         </MudTable>
     </ChildContent>
 </Pagina>
@@ -68,7 +69,7 @@
 @if (_form)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(760px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(760px, 96vw)">
             <h2>@(_editId is null ? "Nueva promoción" : "Editar promoción")</h2>
             <MudTextField @bind-Value="_name" Label="Nombre (3 a 80 caracteres)" Immediate="true" />
             <MudSelect T="string" @bind-Value="_type" Label="Tipo de promoción">
@@ -221,7 +222,7 @@
 @if (_terminar.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Terminar @_terminar.Str("name")</h2>
             <MudText>Una promoción terminada deja de aplicarse y no se puede volver a activar. ¿Terminarla?</MudText>
             <div class="acciones">
@@ -235,7 +236,7 @@
 @if (_simular.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width: min(860px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width: min(860px, 96vw)">
             <h2>Simular: @_simular.Str("name")</h2>
             <MudText Typo="Typo.body2">Venta de ejemplo calculada con el mismo motor de la caja. No se guarda nada.</MudText>
             <MudSimpleTable Dense="true" Class="mt-2">
@@ -356,7 +357,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -399,7 +400,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
             return false;
         }
     }
@@ -478,7 +479,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -511,7 +512,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -590,7 +591,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -607,7 +608,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -648,7 +649,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -682,7 +683,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

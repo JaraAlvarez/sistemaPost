@@ -24,6 +24,9 @@ public sealed class ApiException(HttpStatusCode status, string? code, string mes
     public Guid? TargetId { get; } = targetId;
 
     public bool NeedsSupervisor => Code == "AUTH.AUTHORIZATION_REQUIRED" && Permission is not null;
+
+    /// <summary>El mensaje para la pantalla: en lenguaje simple y con el código del error (para soporte), si lo hay.</summary>
+    public string Texto => Code is null ? Message : $"{Message} (código {Code})";
 }
 
 /// <summary>Cliente de la API del servidor de la tienda: sesión, credencial del equipo y autorizaciones de supervisor.</summary>
@@ -65,6 +68,24 @@ public sealed class ApiClient(HttpClient http, SessionState session)
         using var response = await http.SendAsync(request);
         await EnsureAsync(response);
         return (await response.Content.ReadFromJsonAsync<T>(Json))!;
+    }
+
+    /// <summary>¿Responde el servidor de la tienda? (indicador de conexión de la caja; no necesita sesión).</summary>
+    public async Task<bool> PingAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await http.GetAsync("health/live", cancellationToken);
+            return response.IsSuccessStatusCode;
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
     }
 
     public async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, Guid? grant = null, string? idempotencyKey = null)

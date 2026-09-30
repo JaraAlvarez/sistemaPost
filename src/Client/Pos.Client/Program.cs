@@ -14,10 +14,15 @@ builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.H
 builder.Services.AddScoped<SessionState>();
 builder.Services.AddScoped<ApiClient>();
 builder.Services.AddScoped<AgentPrinter>();
+builder.Services.AddScoped<Tema>();
 builder.Services.AddMudServices(options =>
 {
     options.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomCenter;
     options.SnackbarConfiguration.VisibleStateDuration = 6000;
+    options.SnackbarConfiguration.ShowCloseIcon = true;
+    options.SnackbarConfiguration.PreventDuplicates = true;
+    options.SnackbarConfiguration.SnackbarVariant = Variant.Filled;
+    options.SnackbarConfiguration.MaxDisplayedSnackbars = 3;
 });
 
 await builder.Build().RunAsync();

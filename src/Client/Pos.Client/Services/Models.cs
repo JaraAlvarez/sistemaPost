@@ -47,7 +47,9 @@ public sealed record Sale(
 
 public sealed record SaleSummary(Guid Id, string? Number, string Status, decimal Total, DateTimeOffset OpenedAt, string? HoldLabel, string CustomerName);
 
-public sealed record Receipt(Sale Sale, JsonElement Ticket, string TicketText, bool OpenDrawer);
+/// <summary>Resultado de cobrar o reimprimir. El documento fiscal (factura electrónica o tiquete interno) y su estado ante la DIAN.</summary>
+public sealed record Receipt(
+    Sale Sale, JsonElement Ticket, string TicketText, bool OpenDrawer, string? DocumentType = null, string? DocumentStatus = null, string? FiscalNumber = null);
 
 public sealed record PaymentMethod(Guid Id, string Code, string Name, string Kind, bool RequiresReference, bool AffectsCashDrawer, int SortOrder, string Status);
 

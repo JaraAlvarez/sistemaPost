@@ -7,24 +7,26 @@
 
 <PageTitle>Emparejar equipo · BusinessPost</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Small" Class="mt-12">
-    <MudPaper Class="pa-6" Elevation="3">
-        <MudText Typo="Typo.h5" Class="mb-2">Emparejar este equipo</MudText>
-        <MudText Typo="Typo.body2" Class="mb-4">
-            En la administración del servidor, un administrador genera un código de emparejamiento para esta caja (Usuarios → Equipos) y le muestra
-            la huella del certificado del servidor. Compare que la huella coincida con la que aparece en la barra de dirección del navegador antes de continuar.
-        </MudText>
-        <EditForm Model="this" OnSubmit="EmparejarAsync">
-            <MudTextField @bind-Value="_code" Label="Código de emparejamiento" Immediate="true" AutoFocus="true" />
-            <MudTextField @bind-Value="_name" Label="Nombre de este equipo" Immediate="true" Placeholder="CAJA-02" />
-            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="_busy">Emparejar</MudButton>
-        </EditForm>
-        @if (_error is not null)
-        {
-            <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
-        }
-    </MudPaper>
-</MudContainer>
+<PantallaAcceso Titulo="Emparejar este equipo" Ayuda="Conecte esta caja con el servidor de la tienda. Solo se hace una vez por equipo.">
+    <ol class="pasos-emparejar">
+        <li>En la administración, vaya a <b>Cajas e impresoras</b> y genere un <b>código de emparejamiento</b> para esta caja.</li>
+        <li>El administrador le muestra la huella del certificado del servidor: compruebe que coincide con la del navegador.</li>
+        <li>Escriba el código y el nombre de este equipo.</li>
+    </ol>
+    <EditForm Model="this" OnSubmit="EmparejarAsync">
+        <MudTextField @bind-Value="_code" Label="Código de emparejamiento" Variant="Variant.Outlined" Immediate="true" AutoFocus="true" autocomplete="off" Class="mt-2"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Key" />
+        <MudTextField @bind-Value="_name" Label="Nombre de este equipo" Variant="Variant.Outlined" Immediate="true" Placeholder="CAJA-02" Class="mt-3"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Computer" />
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true" Class="mt-5"
+                   Disabled="@(_busy || string.IsNullOrWhiteSpace(_code))" StartIcon="@Icons.Material.Outlined.Link">@(_busy ? "Emparejando…" : "Emparejar")</MudButton>
+        <MudButton Variant="Variant.Text" FullWidth="true" Class="mt-2" Href="/ingresar">Volver</MudButton>
+    </EditForm>
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-4" role="alert">@_error</MudAlert>
+    }
+</PantallaAcceso>
 
 @code {
     private string? _code, _name, _error;
@@ -49,7 +51,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
         finally
         {

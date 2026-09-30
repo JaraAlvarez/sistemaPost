@@ -40,7 +40,7 @@
                 </tbody>
             </MudSimpleTable>
             <MudText Typo="Typo.h6" Class="mb-2">Envíos recientes</MudText>
-            <MudTable Items="Envios" Dense="true" Striped="true">
+            <MudTable RowsPerPage="25" Items="Envios" Dense="true" Striped="true">
                 <HeaderContent><MudTh>Fecha</MudTh><MudTh>Vía</MudTh><MudTh Class="num">Datos</MudTh><MudTh>Resultado</MudTh></HeaderContent>
                 <RowTemplate>
                     <MudTd>@Format.Date(context.Date("createdAt"))</MudTd>
@@ -48,7 +48,8 @@
                     <MudTd Class="num">@context.Dec("items")</MudTd>
                     <MudTd>@Resultado(context)</MudTd>
                 </RowTemplate>
-                <NoRecordsContent><MudText>Aún no hay envíos.</MudText></NoRecordsContent>
+                <NoRecordsContent><EstadoVacio Mensaje="Aún no hay envíos." /></NoRecordsContent>
+                <PagerContent><Paginador /></PagerContent>
             </MudTable>
         }
     </ChildContent>
@@ -88,7 +89,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -105,7 +106,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -123,7 +124,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

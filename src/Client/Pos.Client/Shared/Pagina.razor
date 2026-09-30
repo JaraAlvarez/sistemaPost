@@ -1,22 +1,87 @@
-@* Encabezado común de las pantallas del backoffice con el indicador de carga y el error. *@
-<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-    <MudText Typo="Typo.h5">@Titulo</MudText>
-    <MudSpacer />
-    @Acciones
-</MudStack>
+@* Encabezado común de las pantallas de la administración (docs/guia-diseno.md §5): migas de pan (del mapa de Services/Navegacion.cs),
+   título (h1, recibe el foco al navegar), acciones a la derecha, indicador de carga y el error. Mientras carga por primera vez muestra
+   un esqueleto en lugar del contenido; en las recargas, una barra fina arriba para no mover la pantalla. *@
+@inject NavigationManager Navigation
+
+<header class="pagina-encabezado">
+    @if (_migas.Count > 0)
+    {
+        <nav aria-label="Migas de pan" class="pagina-migas">
+            <ol>
+                @for (var i = 0; i < _migas.Count; i++)
+                {
+                    var miga = _migas[i];
+                    <li>
+                        @if (miga.Href is not null)
+                        {
+                            <a href="@miga.Href">@miga.Text</a>
+                        }
+                        else
+                        {
+                            <span aria-current="@(i == _migas.Count - 1 ? "page" : null)">@miga.Text</span>
+                        }
+                    </li>
+                }
+            </ol>
+        </nav>
+    }
+    <div class="pagina-titulo">
+        @if (_icono is not null)
+        {
+            <span class="pagina-icono" aria-hidden="true"><MudIcon Icon="@_icono" /></span>
+        }
+        <div class="pagina-titulo-texto">
+            <MudText Typo="Typo.h5" HtmlTag="h1">@Titulo</MudText>
+            @if (Subtitulo is not null)
+            {
+                <MudText Typo="Typo.body2" Class="pagina-subtitulo">@Subtitulo</MudText>
+            }
+        </div>
+        @if (Acciones is not null)
+        {
+            <div class="pagina-acciones">@Acciones</div>
+        }
+    </div>
+</header>
+
+<div class="pagina-carga">
+    @if (Cargando && _cargoUnaVez)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" Size="Size.Small" />
+    }
+</div>
 @if (Cargando)
 {
-    <MudProgressLinear Indeterminate="true" Class="mb-3" />
+    <span class="visualmente-oculto" role="status">Cargando…</span>
 }
+
 @if (Error is not null)
 {
-    <MudAlert Severity="Severity.Error" Class="mb-3">@Error</MudAlert>
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4" Icon="@Icons.Material.Outlined.ErrorOutline">
+        <b>No se pudo completar.</b> @Error
+    </MudAlert>
 }
-@ChildContent
+
+@if (Cargando && !_cargoUnaVez && Error is null)
+{
+    <Esqueleto />
+}
+else
+{
+    @ChildContent
+}
 
 @code {
+    private readonly List<BreadcrumbItem> _migas = [];
+    private string? _icono;
+    private bool _cargoUnaVez;
+
     [Parameter, EditorRequired]
     public string Titulo { get; set; } = "";
+
+    /// <summary>Una línea que explica para qué sirve la pantalla (opcional).</summary>
+    [Parameter]
+    public string? Subtitulo { get; set; }
 
     [Parameter]
     public bool Cargando { get; set; }
@@ -29,4 +94,22 @@
 
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (!Cargando)
+        {
+            _cargoUnaVez = true;
+        }
+
+        var (grupo, opcion) = Navegacion.Buscar(Navigation.ToBaseRelativePath(Navigation.Uri));
+        _icono = opcion?.Icono;
+        _migas.Clear();
+        if (grupo is not null)
+        {
+            _migas.Add(new BreadcrumbItem("Inicio", Navegacion.Inicio));
+            _migas.Add(new BreadcrumbItem(grupo.Titulo, null));
+            _migas.Add(new BreadcrumbItem(opcion!.Titulo, null));
+        }
+    }
 }

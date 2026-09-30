@@ -1,10 +1,11 @@
-@* Conteo de efectivo por denominación (apertura y cierre de la jornada). *@
-<MudGrid Spacing="1">
+@* Conteo de efectivo por denominación (apertura y cierre de la jornada): cantidad de billetes y monedas de cada valor. *@
+<MudGrid Spacing="2">
     @foreach (var denomination in Denominaciones)
     {
         <MudItem xs="6" sm="4">
             <MudNumericField T="int" Value="@Cantidades.GetValueOrDefault(denomination.Id)" ValueChanged="@(v => Cambiar(denomination.Id, v))"
-                             Label="@Format.Money(denomination.Value)" Min="0" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                             Label="@($"{(string.Equals(denomination.Kind, "COIN", StringComparison.OrdinalIgnoreCase) ? "Moneda" : "Billete")} {Format.Money(denomination.Value)}")" Min="0" Variant="Variant.Outlined"
+                             Margin="Margin.Dense" Immediate="true" HelperText="@Subtotal(denomination)" />
         </MudItem>
     }
 </MudGrid>
@@ -18,6 +19,9 @@
 
     [Parameter]
     public EventCallback OnChanged { get; set; }
+
+    private string? Subtotal(Denomination denomination) =>
+        Cantidades.GetValueOrDefault(denomination.Id) is > 0 and var cantidad ? $"= {Format.Money(denomination.Value * cantidad)}" : null;
 
     private async Task Cambiar(Guid id, int value)
     {

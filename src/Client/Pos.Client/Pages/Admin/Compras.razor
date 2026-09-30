@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <PageTitle>Compras · BusinessPost</PageTitle>
 
@@ -25,7 +26,7 @@
                     <MudSelectItem T="string" Value="@("POSTED")">Contabilizada</MudSelectItem>
                     <MudSelectItem T="string" Value="@("VOIDED")">Anulada</MudSelectItem>
                 </MudSelect>
-                <MudTable Items="_compras" Dense="true" Hover="true" Striped="true">
+                <MudTable RowsPerPage="25" Items="_compras" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Factura del proveedor</MudTh><MudTh>Fecha</MudTh><MudTh Class="num">Total</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
@@ -48,7 +49,8 @@
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay facturas de compra.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay facturas de compra." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
             <MudTabPanel Text="Órdenes de compra">
@@ -62,7 +64,7 @@
                     <MudSelectItem T="string" Value="@("CLOSED")">Cerrada</MudSelectItem>
                     <MudSelectItem T="string" Value="@("CANCELLED")">Cancelada</MudSelectItem>
                 </MudSelect>
-                <MudTable Items="_ordenes" Dense="true" Hover="true" Striped="true">
+                <MudTable RowsPerPage="25" Items="_ordenes" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Fecha</MudTh><MudTh Class="num">Total</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
@@ -92,11 +94,12 @@
                             }
                             @if (context.Str("status") is "DRAFT" or "APPROVED" or "SENT" && Session.Has("purchasing.order.manage"))
                             {
-                                <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => OrdenAsync(context, "cancel", "Orden cancelada."))">Cancelar</MudButton>
+                                <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Cancelar orden de compra", $"La orden {context.Str("number")} de {context.Str("supplierName")} quedará cancelada y no admitirá recepciones.", "Cancelar orden", true)) { await OrdenAsync(context, "cancel", "Orden cancelada."); } })">Cancelar</MudButton>
                             }
                         </MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay órdenes de compra.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay órdenes de compra." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudTabPanel>
         </MudTabs>
@@ -106,7 +109,7 @@
 @if (_form is not null)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width:min(1100px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width:min(1100px, 96vw)">
             <h2>@(_form == Compra ? "Nueva factura de compra" : "Nueva orden de compra")</h2>
             @if (_ordenId is not null)
             {
@@ -242,7 +245,7 @@
 @if (_compra.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width:min(1000px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width:min(1000px, 96vw)">
             <h2>Compra @_compra.Str("number") · @EstadoCompra(_compra.Str("status"))</h2>
             <MudText Typo="Typo.body2" Class="mb-2">
                 @_compra.Str("supplierName") · factura @_compra.Str("supplierInvoiceNumber") del @Dia(_compra, "invoiceDate") · vence @Dia(_compra, "dueDate") ·
@@ -317,7 +320,7 @@
 @if (_anular.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Anular la compra @_anular.Str("number")</h2>
             <MudText Typo="Typo.body2">Se reversan las entradas al inventario y la cuenta por pagar. No se puede si ya tiene pagos o devoluciones, o si deja existencias negativas.</MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo (5 a 300 caracteres)" Immediate="true" AutoFocus="true" Lines="2" />
@@ -332,7 +335,7 @@
 @if (_orden.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
-        <div class="panel" style="width:min(900px, 96vw)">
+        <div class="panel" role="dialog" aria-modal="true" style="width:min(900px, 96vw)">
             <h2>Orden @_orden.Str("number") · @EstadoOrden(_orden.Str("status"))</h2>
             <MudText Typo="Typo.body2" Class="mb-2">
                 @_orden.Str("supplierName") · del @Dia(_orden, "orderDate") · entrega esperada @Dia(_orden, "expectedDate")
@@ -405,7 +408,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         if (Session.Me is { } me)
@@ -417,7 +420,7 @@
             }
             catch (ApiException ex)
             {
-                Snackbar.Add($"No se pudieron leer las bodegas: {ex.Message}", Severity.Warning);
+                Snackbar.Add($"No se pudieron leer las bodegas: {ex.Texto}", Severity.Warning);
             }
         }
 
@@ -477,7 +480,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -514,7 +517,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -532,7 +535,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -557,7 +560,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -614,7 +617,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -629,7 +632,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -669,7 +672,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -689,7 +692,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -704,7 +707,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -738,7 +741,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -752,7 +755,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -766,7 +769,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 

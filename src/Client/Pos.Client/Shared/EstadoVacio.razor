@@ -1,0 +1,36 @@
+@* Estado vacío de listas y tablas (docs/guia-diseno.md §6): ilustración, mensaje y, si aplica, la acción para empezar. *@
+<div class="estado-vacio @(Compacto ? "estado-vacio-compacto" : null)" role="status">
+    <svg class="estado-vacio-dibujo" viewBox="0 0 120 88" aria-hidden="true" focusable="false">
+        <ellipse cx="60" cy="80" rx="44" ry="5" class="ev-sombra" />
+        <rect x="22" y="14" width="76" height="58" rx="8" class="ev-caja" />
+        <path d="M22 34h76" class="ev-linea" />
+        <rect x="32" y="44" width="30" height="5" rx="2.5" class="ev-barra" />
+        <rect x="32" y="55" width="46" height="5" rx="2.5" class="ev-barra ev-barra-suave" />
+        <circle cx="86" cy="24" r="14" class="ev-lupa" />
+        <path d="M96 34l9 9" class="ev-mango" />
+    </svg>
+    <div class="estado-vacio-texto">
+        <p class="estado-vacio-mensaje">@Mensaje</p>
+        @if (Detalle is not null)
+        {
+            <p class="estado-vacio-detalle">@Detalle</p>
+        }
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Mensaje { get; set; } = "";
+
+    [Parameter]
+    public string? Detalle { get; set; }
+
+    /// <summary>Versión baja para tablas dentro de ventanas.</summary>
+    [Parameter]
+    public bool Compacto { get; set; }
+
+    /// <summary>Acción (p. ej. un botón "Nuevo…").</summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

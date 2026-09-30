@@ -33,7 +33,7 @@
 
         <MudGrid>
             <MudItem xs="12" md="5">
-                <MudTable Items="_sessions" Dense="true" Hover="true" Striped="true" OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => SeleccionarAsync(e.Item))">
+                <MudTable RowsPerPage="25" Items="_sessions" Dense="true" Hover="true" Striped="true" OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => SeleccionarAsync(e.Item))">
                     <HeaderContent>
                         <MudTh>Jornada</MudTh><MudTh>Caja</MudTh><MudTh>Cajero</MudTh><MudTh>Fecha</MudTh><MudTh>Estado</MudTh><MudTh Class="num">Diferencia</MudTh>
                     </HeaderContent>
@@ -51,7 +51,8 @@
                         </MudTd>
                         <MudTd Class="num">@(context.Prop("difference").ValueKind == JsonValueKind.Number ? Format.Money(context.Dec("difference")) : "")</MudTd>
                     </RowTemplate>
-                    <NoRecordsContent><MudText>No hay jornadas con esos filtros.</MudText></NoRecordsContent>
+                    <NoRecordsContent><EstadoVacio Mensaje="No hay jornadas con esos filtros." /></NoRecordsContent>
+                    <PagerContent><Paginador /></PagerContent>
                 </MudTable>
             </MudItem>
             <MudItem xs="12" md="7">
@@ -174,7 +175,7 @@
 @if (_revisar)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Revisar la jornada @_detalle.Str("number")</h2>
             <MudText Typo="Typo.body2" Class="mb-2">Diferencia: @Format.Money(Opcional(_detalle, "difference")). Deje constancia de lo que se decidió (p. ej. se descuenta al cajero o se corrige en la jornada siguiente).</MudText>
             <MudTextField @bind-Value="_nota" Label="Nota de la revisión" Lines="3" Immediate="true" AutoFocus="true" />
@@ -189,7 +190,7 @@
 @if (_cerrar)
 {
     <div class="panel-fondo">
-        <div class="panel">
+        <div class="panel" role="dialog" aria-modal="true">
             <h2>Cerrar como supervisor la jornada @_detalle.Str("number")</h2>
             <MudText Typo="Typo.body2" Class="mb-2">
                 Para jornadas que el cajero dejó abiertas. Cuente el efectivo del cajón por denominación y escriba el total de los demás medios.
@@ -264,7 +265,7 @@
         }
         catch (ApiException ex)
         {
-            _error = ex.Message;
+            _error = ex.Texto;
         }
 
         _loading = false;
@@ -278,7 +279,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -294,7 +295,7 @@
         }
         catch (ApiException ex)
         {
-            _reporteError = ex.Message;
+            _reporteError = ex.Texto;
         }
     }
 
@@ -318,7 +319,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
@@ -338,7 +339,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
     }
 
@@ -368,7 +369,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Message, Severity.Error);
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;
