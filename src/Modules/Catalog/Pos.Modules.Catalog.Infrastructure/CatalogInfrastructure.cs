@@ -442,6 +442,13 @@ internal sealed class CatalogStore(PosDbContext context) : ICatalogStore
             RETURNING last_value AS "Value"
             """).ToListAsync(cancellationToken)).Single();
 
+    public async Task<long> ReserveCodeSequencesAsync(Guid nodeId, string kind, int count, CancellationToken cancellationToken) =>
+        (await context.Database.SqlQuery<long>($"""
+            INSERT INTO catalog.code_sequences (node_id, kind, last_value) VALUES ({nodeId}, {kind}, {count})
+            ON CONFLICT (node_id, kind) DO UPDATE SET last_value = catalog.code_sequences.last_value + {count}
+            RETURNING last_value AS "Value"
+            """).ToListAsync(cancellationToken)).Single();
+
     private sealed record UnitRow(string Code, string Dimension);
 }
 

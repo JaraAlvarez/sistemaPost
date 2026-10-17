@@ -307,26 +307,30 @@ public static class PurchasingInfrastructureRegistration
     }
 }
 
-/// <summary>Contrato <see cref="Contracts.IPurchaseReceipts"/>: compra por número con sus unidades recibidas por producto.</summary>
-internal sealed class PurchaseReceipts(PosDbContext context, Pos.Application.Abstractions.Installation.IInstallationContext installation)
-    : Contracts.IPurchaseReceipts
+/// <summary>Contrato <see cref="Contracts.IPurchaseReceipts"/>: compra de la sucursal por número o Id con sus unidades recibidas por producto.</summary>
+internal sealed class PurchaseReceipts(PosDbContext context) : Contracts.IPurchaseReceipts
 {
-    public async Task<Contracts.ReceivedPurchase?> FindAsync(string number, CancellationToken cancellationToken = default)
+    public async Task<Contracts.ReceivedPurchase?> FindAsync(string numberOrId, Guid branchId, CancellationToken cancellationToken = default)
     {
-        var text = (number ?? string.Empty).Trim();
+        var text = (numberOrId ?? string.Empty).Trim();
         if (text.Length == 0)
         {
             return null;
         }
 
-        // ILIKE sin comodines: compara sin distinguir mayúsculas.
-        var pattern = text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
-        var branchId = installation.BranchId;
-        var candidates = context.Set<Purchase>().AsNoTracking();
-        var purchase = await candidates.Where(p => EF.Functions.ILike(p.Number, pattern))
-                .OrderByDescending(p => p.BranchId == branchId).ThenByDescending(p => p.InvoiceDate).FirstOrDefaultAsync(cancellationToken)
-            ?? await candidates.Where(p => EF.Functions.ILike(p.SupplierInvoiceNumber, pattern))
-                .OrderByDescending(p => p.BranchId == branchId).ThenByDescending(p => p.InvoiceDate).FirstOrDefaultAsync(cancellationToken);
+        var candidates = context.Set<Purchase>().AsNoTracking().Where(p => p.BranchId == branchId);
+        Purchase? purchase;
+        if (Guid.TryParse(text, out var id))
+        {
+            purchase = await candidates.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        }
+        else
+        {
+            // ILIKE sin comodines: compara sin distinguir mayúsculas.
+            var pattern = text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
+            purchase = await candidates.Where(p => EF.Functions.ILike(p.Number, pattern)).OrderByDescending(p => p.InvoiceDate).FirstOrDefaultAsync(cancellationToken);
+        }
+
         if (purchase is null)
         {
             return null;

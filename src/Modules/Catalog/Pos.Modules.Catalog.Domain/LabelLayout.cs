@@ -47,6 +47,9 @@ public sealed record LabelTemplate(
 /// <summary>Lugar de una etiqueta: página (desde 0), columna y fila, y la esquina superior izquierda en milímetros.</summary>
 public sealed record LabelSlot(int Page, int Column, int Row, decimal X, decimal Y);
 
+/// <summary>Cómo se dibuja un código: ancho del módulo y del área (mm) y si ocupa todo el ancho de la etiqueta.</summary>
+public sealed record BarcodeFit(decimal Module, decimal AreaWidth, bool FullWidth);
+
 /// <summary>Reparte etiquetas en páginas: llena cada hoja por filas (izquierda a derecha, arriba a abajo) y pasa a la siguiente.</summary>
 public static class LabelLayout
 {
@@ -64,7 +67,57 @@ public static class LabelLayout
         new(LabelTemplateKind.Sticker50x30, "Adhesivo 50 × 30 mm (impresora de etiquetas)", 50m, 30m, 1, 1, 50m, 30m, 0m, 0m, 0m, 0m),
     ];
 
+    /// <summary>Módulo (barra más delgada) mínimo legible: 0,25 mm = 2 puntos de una impresora térmica de 203 ppp.</summary>
+    public const decimal MinModule = 0.25m;
+
+    /// <summary>Un punto de una impresora térmica de 203 ppp: el módulo se ajusta a puntos enteros para que todas las barras salgan iguales.</summary>
+    public const decimal Dot = 0.125m;
+
+    /// <summary>Módulo máximo (más ancho no mejora la lectura y se sale de la etiqueta).</summary>
+    public const decimal MaxModule = 0.5m;
+
     public static LabelTemplate Get(LabelTemplateKind kind) => Templates.Single(t => t.Kind == kind);
+
+    /// <summary>Margen interior de la etiqueta en milímetros (crece con el alto de la etiqueta).</summary>
+    public static decimal Padding(LabelTemplate template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        return template.IsSticker ? 1.2m * template.LabelHeight / 25m : 2m * template.LabelHeight / 35m;
+    }
+
+    /// <summary>Ancho interior de la etiqueta (sin márgenes).</summary>
+    public static decimal InnerWidth(LabelTemplate template) => template.LabelWidth - (2 * Padding(template));
+
+    /// <summary>Ancho normal del código en góndola (58 %, con los datos menores a la derecha); en adhesivos, todo el ancho.</summary>
+    public static decimal BarcodeAreaWidth(LabelTemplate template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        return template.IsSticker ? InnerWidth(template) : decimal.Round(InnerWidth(template) * 0.58m, 3);
+    }
+
+    /// <summary>
+    /// Cómo cabe un código de <paramref name="totalModules"/> módulos (con zonas en blanco): módulo = mayor múltiplo de un punto que cabe, hasta
+    /// 0,5 mm y nunca menos de 0,25 mm. En góndola, si no cabe en el 58 % usa todo el ancho (<c>FullWidth</c>; los datos menores suben a la
+    /// fila del precio). Null si ni así cabe: el código es demasiado largo para esta etiqueta.
+    /// </summary>
+    public static BarcodeFit? FitBarcode(LabelTemplate template, int totalModules)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentOutOfRangeException.ThrowIfLessThan(totalModules, 1);
+        foreach (var (area, full) in new[] { (BarcodeAreaWidth(template), template.IsSticker), (InnerWidth(template), true) })
+        {
+            var snapped = decimal.Floor(area / totalModules / Dot) * Dot;
+            if (snapped >= MinModule)
+            {
+                return new BarcodeFit(Math.Min(snapped, MaxModule), area, full);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Ancho del módulo en milímetros, o null si el código no cabe legible (ver <see cref="FitBarcode"/>).</summary>
+    public static decimal? ModuleWidth(LabelTemplate template, int totalModules) => FitBarcode(template, totalModules)?.Module;
 
     /// <summary>Número de páginas para <paramref name="labels"/> etiquetas (al menos una).</summary>
     public static int PageCount(LabelTemplate template, int labels)

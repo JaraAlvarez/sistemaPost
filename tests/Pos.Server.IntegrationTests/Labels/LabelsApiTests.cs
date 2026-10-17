@@ -1,9 +1,12 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Pos.Modules.Catalog.Contracts;
+using Pos.Modules.Catalog.Domain;
+using Pos.Server.IntegrationTests.Phase3;
 using Pos.Server.IntegrationTests.Phase5;
 using static Pos.Server.IntegrationTests.Phase2.ApiClient;
 
@@ -12,6 +15,8 @@ namespace Pos.Server.IntegrationTests.Labels;
 /// <summary>Etiquetas de góndola: lista por compra, categoría y cambios de precio; PDF por plantilla; tiquete; códigos internos auditados.</summary>
 public class LabelsApiTests
 {
+    private static readonly string[] OnlyView = ["catalog.product.view"];
+
     [Fact]
     public async Task Etiquetas_de_una_compra_en_PDF_tiquete_y_codigos_internos()
     {
@@ -38,7 +43,7 @@ public class LabelsApiTests
             new { productId = soda.Id, packagingId = boxId, quantity = 2, unitCost = 18_000 },
             new { productId = scenario.Rice, quantity = 50, unitCost = 2_000 });
 
-        // Por número interno (sin distinguir mayúsculas) o por la factura del proveedor: cantidad = unidades recibidas.
+        // Por número interno (sin distinguir mayúsculas) o por Id: cantidad = unidades recibidas. La factura del proveedor no sirve (se repite).
         var preview = await PreviewAsync(owner, new { source = "PURCHASE", purchaseNumber = purchase.Number.ToLowerInvariant() });
         preview.Reference.ShouldBe(purchase.Number);
         preview.Items.Single(i => i.ProductId == soda.Id).Quantity.ShouldBe(24);
@@ -47,7 +52,9 @@ public class LabelsApiTests
         rice.Price.ShouldBe(3_000m);
         rice.HasBarcode.ShouldBeFalse();
         preview.Warnings.ShouldContain(w => w.Contains("código de barras", StringComparison.Ordinal));
-        (await PreviewAsync(owner, new { source = "PURCHASE", purchaseNumber = "fe-etq-1" })).Items.Count.ShouldBe(2);
+        (await PreviewAsync(owner, new { source = "PURCHASE", purchaseNumber = purchase.Id.ToString() })).Items.Count.ShouldBe(2);
+        await owner.PostAsJsonAsync("/api/v1/catalog/labels/preview", new { source = "PURCHASE", purchaseNumber = "FE-ETQ-1" }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.NotFound, "CATALOG.LABELS_PURCHASE_NOT_FOUND");
 
         // Hoja A4 de 24: 74 etiquetas → 4 páginas.
         var pdf = await owner.PostAsJsonAsync("/api/v1/catalog/labels/pdf",
@@ -65,35 +72,87 @@ public class LabelsApiTests
         sticker.StatusCode.ShouldBe(HttpStatusCode.OK, await sticker.Content.ReadAsStringAsync(Ct));
         Pages(await sticker.Content.ReadAsByteArrayAsync(Ct)).ShouldBe(3);
 
+        // Topes: 500 copias por producto, 2.000 etiquetas por PDF y 200 en la impresora de tiquetes.
         await owner.PostAsJsonAsync("/api/v1/catalog/labels/pdf",
                 new { template = "Shelf3x8", items = new[] { new { productId = soda.Id, quantity = 501 } } }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "VALIDATION.FAILED");
+        var extra1 = (await scenario.Catalog.ProductAsync("EXT-1", "Extra uno", drinks, price: 1_000m)).Id;
+        var extra2 = (await scenario.Catalog.ProductAsync("EXT-2", "Extra dos", drinks, price: 1_000m)).Id;
+        Guid[] five = [soda.Id, scenario.Rice, scenario.Yogurt, extra1, extra2];
+        await owner.PostAsJsonAsync("/api/v1/catalog/labels/pdf",
+                new { template = "Shelf3x8", items = five.Select(id => new { productId = id, quantity = 500 }) }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "CATALOG.LABELS_TOO_MANY");
+        await owner.PostAsJsonAsync("/api/v1/catalog/labels/ticket", new { items = new[] { new { productId = soda.Id, quantity = 201 } } }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "CATALOG.LABELS_TOO_MANY");
 
-        // Tiquete neutro para la impresora de la caja (CODE128 con el código del producto).
+        // Un código que quedaría ilegible (barras de menos de 0,25 mm) se rechaza con un mensaje claro.
+        var longSku = (await scenario.Catalog.ProductAsync("PRODUCTO-ABCDEFGHIJKLMNOP", "Producto de SKU largo", drinks, price: 1_000m)).Id;
+        await owner.PostAsJsonAsync("/api/v1/catalog/labels/pdf",
+                new { template = "Shelf3x8", items = new[] { new { productId = longSku, quantity = 1 } } }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "CATALOG.LABELS_BARCODE_TOO_LONG");
+
+        // Tiquete neutro para la impresora de la caja (EAN-13 con la función EAN de la impresora).
         var ticket = await owner.PostAsJsonAsync("/api/v1/catalog/labels/ticket", new { items = new[] { new { productId = soda.Id, quantity = 2 } } }, Json, Ct);
         ticket.StatusCode.ShouldBe(HttpStatusCode.OK, await ticket.Content.ReadAsStringAsync(Ct));
         var elements = (await ticket.Content.ReadFromJsonAsync<JsonElement>(Json, Ct)).GetProperty("elements").EnumerateArray().ToList();
-        elements.Count(e => e.GetProperty("type").GetString() == "barcode" && e.GetProperty("data").GetString() == "7702177000014").ShouldBe(2);
+        elements.Count(e => e.GetProperty("type").GetString() == "barcode" && e.GetProperty("data").GetString() == "7702177000014"
+            && e.GetProperty("symbology").GetString() == "EAN13").ShouldBe(2);
 
-        // Categoría y cambios de precio desde hoy.
-        (await PreviewAsync(owner, new { source = "CATEGORY", categoryId = drinks })).Items.Select(i => i.ProductId).ShouldBe([soda.Id]);
+        // Categoría y cambios de precio desde hoy; los descontinuados no salen.
+        (await PreviewAsync(owner, new { source = "CATEGORY", categoryId = drinks })).Items.Select(i => i.ProductId).ShouldContain(soda.Id);
         (await PreviewAsync(owner, new { source = "PRICE_CHANGES", since = PurchasingScenario.Today.AddDays(-1) })).Items.Select(i => i.ProductId)
             .ShouldContain(soda.Id);
         (await PreviewAsync(owner, new { source = "PRICE_CHANGES", since = PurchasingScenario.Today.AddDays(1) })).Items.ShouldBeEmpty();
+        (await owner.PostAsJsonAsync($"/api/v1/catalog/products/{extra2}/status", new { status = "Discontinued" }, Json, Ct)).IsSuccessStatusCode.ShouldBeTrue();
+        var withDiscontinued = await PreviewAsync(owner, new { source = "PRODUCTS", productIds = new[] { extra1, extra2 } });
+        withDiscontinued.Items.Select(i => i.ProductId).ShouldBe([extra1]);
+        withDiscontinued.Warnings.ShouldContain(w => w.Contains("descontinuados", StringComparison.Ordinal));
 
-        // Código interno 29 para el que no tiene código (una sola vez) y queda en la auditoría.
+        // Código interno 29 para el que no tiene código (una sola vez) y queda en la auditoría; resultado producto por producto.
         var withoutCode = await PreviewAsync(owner, new { source = "WITHOUT_BARCODE" });
         withoutCode.Items.ShouldContain(i => i.ProductId == scenario.Rice);
         withoutCode.Items.ShouldNotContain(i => i.ProductId == soda.Id);
         var generated = await PostAsync<List<GeneratedLabelCodeDto>>(owner, "/api/v1/catalog/labels/internal-codes", new { productIds = new[] { scenario.Rice, soda.Id } });
-        var code = generated.ShouldHaveSingleItem();
+        var code = generated.Single(g => g.Generated);
         code.ProductId.ShouldBe(scenario.Rice);
-        code.Barcode.ShouldStartWith("29");
+        code.Barcode!.ShouldStartWith("29");
         code.Barcode.Length.ShouldBe(13);
-        (await PostAsync<List<GeneratedLabelCodeDto>>(owner, "/api/v1/catalog/labels/internal-codes", new { productIds = new[] { scenario.Rice } })).ShouldBeEmpty();
+        generated.Single(g => g.ProductId == soda.Id).ShouldSatisfyAllConditions(g => g.Generated.ShouldBeFalse(), g => g.Barcode.ShouldBe("7702177000014"));
+        (await PostAsync<List<GeneratedLabelCodeDto>>(owner, "/api/v1/catalog/labels/internal-codes", new { productIds = new[] { scenario.Rice } }))
+            .ShouldHaveSingleItem().Generated.ShouldBeFalse();
         (await scenario.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'PRODUCT_INTERNAL_CODES_GENERATED'")).ShouldBe(1);
         (await PreviewAsync(owner, new { source = "PRODUCTS", productIds = new[] { scenario.Rice } })).Items.Single().Barcode.ShouldBe(code.Barcode);
         (await scenario.Catalog.ScanAsync(code.Barcode)).ProductId.ShouldBe(scenario.Rice);
+
+        // Si el siguiente número del consecutivo ya existe (escrito a mano), se salta; un descontinuado no detiene el lote.
+        var node = short.Parse(code.Barcode[2..5], CultureInfo.InvariantCulture);
+        var sequence = long.Parse(code.Barcode[5..12], CultureInfo.InvariantCulture);
+        await scenario.Catalog.ProductAsync("A-MANO", "Código escrito a mano", drinks, barcode: Barcodes.Internal(node, sequence + 1), price: 1_000m);
+        var next = (await scenario.Catalog.ProductAsync("SIN-COD", "Sin código", drinks, price: 1_000m)).Id;
+        var batch = await PostAsync<List<GeneratedLabelCodeDto>>(owner, "/api/v1/catalog/labels/internal-codes", new { productIds = new[] { extra2, next } });
+        batch.Single(g => g.ProductId == extra2).Message.ShouldBe("El producto está descontinuado.");
+        batch.Single(g => g.ProductId == next).Barcode.ShouldBe(Barcodes.Internal(node, sequence + 2));
+    }
+
+    [Fact]
+    public async Task Quien_solo_consulta_productos_no_genera_codigos_ni_ve_compras()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await PurchasingScenario.CreateAsync(factory);
+        var purchase = await scenario.BuyAsync("FE-ETQ-9", new { productId = scenario.Rice, quantity = 5, unitCost = 2_000 });
+        var role = await scenario.Owner.PostAsJsonAsync("/api/v1/identity/roles", new { code = "ETIQUETAS", name = "Etiquetas", permissions = OnlyView }, Json, Ct);
+        role.StatusCode.ShouldBe(HttpStatusCode.Created, await role.Content.ReadAsStringAsync(Ct));
+        var security = SecurityScenario.ForExisting(factory, scenario.Owner, scenario.Catalog.Setup);
+        await security.CreateUserAsync("etiquetas", "ETIQUETAS");
+        var user = await security.LocalClientAsync("etiquetas");
+
+        (await PreviewAsync(user, new { source = "PRODUCTS", productIds = new[] { scenario.Rice } })).Items.ShouldHaveSingleItem();
+        (await user.PostAsJsonAsync("/api/v1/catalog/labels/internal-codes", new { productIds = new[] { scenario.Rice } }, Json, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        await user.PostAsJsonAsync("/api/v1/catalog/labels/preview", new { source = "PURCHASE", purchaseNumber = purchase.Number }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "CATALOG.LABELS_PURCHASE_FORBIDDEN");
+        await user.PostAsJsonAsync("/api/v1/catalog/labels/preview", new { source = "PRODUCTS", productIds = Enumerable.Range(0, 501).Select(_ => Guid.NewGuid()) }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "VALIDATION.FAILED");
     }
 
     private static async Task<LabelPreviewDto> PreviewAsync(HttpClient client, object request) =>

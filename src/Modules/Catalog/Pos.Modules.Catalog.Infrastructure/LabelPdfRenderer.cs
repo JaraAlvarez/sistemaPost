@@ -36,12 +36,12 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
                 var box = new XRect(Mm(slot.X), Mm(slot.Y), Mm(template.LabelWidth), Mm(template.LabelHeight));
                 if (template.IsSticker)
                 {
-                    DrawSticker(gfx, box, labels[i]);
+                    DrawSticker(gfx, box, labels[i], template);
                 }
                 else
                 {
                     gfx.DrawRectangle(new XPen(XColor.FromArgb(200, 200, 200), 0.3), box);
-                    DrawShelf(gfx, box, labels[i]);
+                    DrawShelf(gfx, box, labels[i], template);
                 }
             }
         }
@@ -52,16 +52,19 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
     }
 
     /// <summary>Etiqueta de góndola: nombre, precio grande (oferta con el precio normal tachado), código de barras y datos menores.</summary>
-    private static void DrawShelf(XGraphics gfx, XRect box, LabelContent label)
+    private static void DrawShelf(XGraphics gfx, XRect box, LabelContent label, LabelTemplate template)
     {
         var scale = box.Height / Mm(35m);
-        var pad = Mm(2m) * scale;
+        var pad = Mm(LabelLayout.Padding(template));
         var inner = new XRect(box.X + pad, box.Y + pad, box.Width - (2 * pad), box.Height - (2 * pad));
 
         // Nombre: hasta dos líneas.
         var nameFont = Font(8.5 * scale, bold: true);
         var nameHeight = nameFont.GetHeight() * 2;
         DrawLines(gfx, Wrap(gfx, label.Name, nameFont, inner.Width, 2), nameFont, new XRect(inner.X, inner.Y, inner.Width, nameHeight), XStringAlignment.Near);
+
+        // Código largo (p. ej. un SKU en CODE128): usa todo el ancho y los datos menores suben a la derecha del precio.
+        var fullWidth = label.Barcode is { } code && LabelLayout.FitBarcode(template, code.TotalModules) is { FullWidth: true };
 
         // Precio grande (y la oferta).
         var priceTop = inner.Y + nameHeight + (Mm(0.5m) * scale);
@@ -88,7 +91,7 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
         if (label.PriceText is { } price)
         {
             var unit = label.PriceUnit is { } u ? $" /{u}" : string.Empty;
-            var priceFont = FitFont(gfx, price, inner.Width * 0.85, priceHeight, bold: true);
+            var priceFont = FitFont(gfx, price, inner.Width * (fullWidth ? 0.6 : 0.85), priceHeight, bold: true);
             var unitFont = Font(Math.Max(6d, priceFont.Size * 0.4), bold: true);
             var priceWidth = gfx.MeasureString(price, priceFont).Width;
             gfx.DrawString(price, priceFont, XBrushes.Black, new XRect(inner.X, priceTop, priceWidth, priceHeight), XStringFormats.CenterLeft);
@@ -111,17 +114,17 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
             return;
         }
 
-        var barcodeWidth = inner.Width * 0.58;
+        var barcodeWidth = fullWidth ? inner.Width : Mm(LabelLayout.BarcodeAreaWidth(template));
         if (label.Barcode is { } barcode)
         {
-            DrawBarcode(gfx, barcode, new XRect(inner.X, bottomTop, barcodeWidth, bottomHeight), Font(5.5 * scale, bold: false));
+            DrawBarcode(gfx, barcode, new XRect(inner.X, bottomTop, barcodeWidth, bottomHeight), Font(5.5 * scale, bold: false), template, center: false);
         }
 
         var smallFont = Font(5.5 * scale, bold: false);
         var lines = new List<string>();
         if (label.UnitMeasurePrice is { } perUnit)
         {
-            lines.AddRange(Wrap(gfx, perUnit, smallFont, inner.Width - barcodeWidth - Mm(1m), 2));
+            lines.AddRange(Wrap(gfx, perUnit, smallFont, fullWidth ? inner.Width * 0.38 : inner.Width - barcodeWidth - Mm(1m), 2));
         }
 
         lines.Add($"SKU {label.Sku}");
@@ -130,14 +133,17 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
             lines.Add(date);
         }
 
-        DrawLines(gfx, lines, smallFont, new XRect(inner.X + barcodeWidth + Mm(1m), bottomTop, inner.Width - barcodeWidth - Mm(1m), bottomHeight), XStringAlignment.Far);
+        var side = fullWidth
+            ? new XRect(inner.X + (inner.Width * 0.62), priceTop, inner.Width * 0.38, priceHeight)
+            : new XRect(inner.X + barcodeWidth + Mm(1m), bottomTop, inner.Width - barcodeWidth - Mm(1m), bottomHeight);
+        DrawLines(gfx, lines, smallFont, side, XStringAlignment.Far);
     }
 
     /// <summary>Adhesivo pequeño: nombre (dos líneas), precio y el código de barras a todo el ancho.</summary>
-    private static void DrawSticker(XGraphics gfx, XRect box, LabelContent label)
+    private static void DrawSticker(XGraphics gfx, XRect box, LabelContent label, LabelTemplate template)
     {
         var scale = box.Height / Mm(25m);
-        var pad = Mm(1.2m) * scale;
+        var pad = Mm(LabelLayout.Padding(template));
         var inner = new XRect(box.X + pad, box.Y + pad, box.Width - (2 * pad), box.Height - (2 * pad));
         var nameFont = Font(6.5 * scale, bold: true);
         var nameHeight = nameFont.GetHeight() * 2;
@@ -155,17 +161,28 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
 
         if (label.Barcode is { } barcode && inner.Bottom - top > Mm(4m))
         {
-            DrawBarcode(gfx, barcode, new XRect(inner.X, top + Mm(0.3m), inner.Width, inner.Bottom - top - Mm(0.3m)), Font(5 * scale, bold: false));
+            DrawBarcode(gfx, barcode, new XRect(inner.X, top + Mm(0.3m), inner.Width, inner.Bottom - top - Mm(0.3m)), Font(5 * scale, bold: false), template, center: true);
         }
     }
 
-    /// <summary>Barras como rectángulos (un rectángulo por cada tramo negro) y el texto centrado debajo.</summary>
-    private static void DrawBarcode(XGraphics gfx, BarcodeDrawing barcode, XRect area, XFont textFont)
+    /// <summary>
+    /// Barras como rectángulos (un rectángulo por cada tramo negro) y el texto centrado debajo. El módulo es un número entero de puntos de
+    /// 203 ppp y nunca menor de 0,25 mm (LabelLayout.ModuleWidth); si el código no cabe, se imprime solo su texto.
+    /// </summary>
+    private static void DrawBarcode(XGraphics gfx, BarcodeDrawing barcode, XRect area, XFont textFont, LabelTemplate template, bool center)
     {
         var textHeight = textFont.GetHeight();
         var barsHeight = Math.Max(area.Height - textHeight, area.Height * 0.6);
-        var module = area.Width / barcode.TotalModules;
-        var start = area.X + (barcode.QuietZone * module);
+        if (LabelLayout.ModuleWidth(template, barcode.TotalModules) is not { } moduleMm)
+        {
+            gfx.DrawString(barcode.Text, textFont, XBrushes.Black, area, XStringFormats.Center);
+            return;
+        }
+
+        var module = Mm(moduleMm);
+        var width = module * barcode.TotalModules;
+        var left = center ? area.X + ((area.Width - width) / 2) : area.X;
+        var start = left + (barcode.QuietZone * module);
         var i = 0;
         while (i < barcode.Modules.Count)
         {
@@ -187,7 +204,7 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
 
         if (area.Height - barsHeight >= textHeight * 0.8)
         {
-            gfx.DrawString(barcode.Text, textFont, XBrushes.Black, new XRect(area.X, area.Y + barsHeight, area.Width, textHeight), XStringFormats.TopCenter);
+            gfx.DrawString(barcode.Text, textFont, XBrushes.Black, new XRect(left, area.Y + barsHeight, width, textHeight), XStringFormats.TopCenter);
         }
     }
 

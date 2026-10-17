@@ -104,13 +104,13 @@ public sealed class ProductWriter(
         Result<NormalizedBarcode> normalized;
         if (generate)
         {
-            var sequence = await store.NextCodeSequenceAsync(installation.NodeId, "BARCODE", cancellationToken);
-            if (sequence > Barcodes.MaxInternalSequence)
+            var reserved = await ReserveInternalCodesAsync(1, cancellationToken);
+            if (reserved.IsFailure)
             {
-                return CatalogErrors.InternalCodesExhausted;
+                return reserved.Error;
             }
 
-            normalized = Barcodes.Normalize(Barcodes.Internal(await directory.GetLocalNodeNumberAsync(cancellationToken), sequence), BarcodeType.Internal);
+            normalized = reserved.Value[0];
         }
         else
         {
@@ -143,6 +143,35 @@ public sealed class ProductWriter(
         var barcode = ProductBarcode.Create(ids.NewId(), product, packaging, normalized.Value, primary);
         store.Add(barcode);
         return barcode;
+    }
+
+    /// <summary>
+    /// Reserva <paramref name="count"/> códigos internos EAN-13 (29 + nodo + consecutivo) que NO estén ya usados: si un número del consecutivo
+    /// ya existe (p. ej. escrito a mano o importado), se salta y se toma el siguiente, en la misma transacción.
+    /// </summary>
+    public async Task<Result<IReadOnlyList<NormalizedBarcode>>> ReserveInternalCodesAsync(int count, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
+        var node = await directory.GetLocalNodeNumberAsync(cancellationToken);
+        var codes = new List<NormalizedBarcode>(count);
+        for (var attempt = 0; attempt < 20 && codes.Count < count; attempt++)
+        {
+            var missing = count - codes.Count;
+            var last = await store.ReserveCodeSequencesAsync(installation.NodeId, "BARCODE", missing, cancellationToken);
+            if (last > Barcodes.MaxInternalSequence)
+            {
+                return CatalogErrors.InternalCodesExhausted;
+            }
+
+            var candidates = Enumerable.Range(0, missing)
+                .Select(i => Barcodes.Normalize(Barcodes.Internal(node, last - missing + 1 + i), BarcodeType.Internal).Value)
+                .ToList();
+            var taken = (await store.FindBarcodesAsync([.. candidates.Select(c => c.NormalizedCode)], cancellationToken))
+                .Select(b => b.NormalizedCode).ToHashSet(StringComparer.Ordinal);
+            codes.AddRange(candidates.Where(c => !taken.Contains(c.NormalizedCode)));
+        }
+
+        return codes.Count == count ? codes : CatalogErrors.InternalCodesExhausted;
     }
 
     /// <summary>Reemplaza los impuestos del producto (máximo un IVA). Sin lista: el IVA por defecto de la empresa.</summary>

@@ -20,9 +20,10 @@ public static class LabelSources
 }
 
 /// <summary>
-/// Una etiqueta lista para revisar antes de imprimir. <c>Price</c>: precio al público vigente (por kilo si se vende por peso);
-/// <c>PromoPrice</c>/<c>PromoText</c>: la promoción que rige hoy en la sucursal; <c>UnitMeasurePrice</c>: precio por kilo o litro
-/// (contenido neto); <c>Barcode</c> null = el producto no tiene código y la etiqueta lleva el SKU en CODE128.
+/// Una etiqueta lista para revisar antes de imprimir. <c>Price</c>: precio al público vigente, igual al que cobra la caja (por kilo si se
+/// vende por peso); <c>PromoPrice</c>/<c>PromoText</c>: la promoción que rige hoy en la sucursal (sin las de días u horario) y
+/// <c>PromoValidUntil</c> su último día; <c>UnitMeasurePrice</c>: precio por kilo o litro (contenido neto); <c>Barcode</c> null = el
+/// producto no tiene código y la etiqueta lleva el SKU en CODE128; <c>IsActive</c> false = producto inactivo (se avisa).
 /// </summary>
 public sealed record LabelItemDto(
     Guid ProductId,
@@ -36,7 +37,9 @@ public sealed record LabelItemDto(
     string? PromoText,
     string? UnitMeasurePrice,
     bool IsWeighed,
-    int Quantity);
+    int Quantity,
+    DateOnly? PromoValidUntil = null,
+    bool IsActive = true);
 
 /// <summary>Resultado de armar la lista de etiquetas. <c>Reference</c>: número de la compra o fecha desde la que se buscaron cambios.</summary>
 public sealed record LabelPreviewDto(string Source, string? Reference, IReadOnlyList<LabelItemDto> Items, IReadOnlyList<string> Warnings, bool Truncated);
@@ -47,5 +50,8 @@ public sealed record LabelTemplateDto(string Code, string Name, int PerPage, boo
 /// <summary>Producto y número de copias a imprimir.</summary>
 public sealed record LabelPrintItem(Guid ProductId, int Quantity);
 
-/// <summary>Código interno generado para un producto sin código de barras.</summary>
-public sealed record GeneratedLabelCodeDto(Guid ProductId, string Sku, string Name, string Barcode);
+/// <summary>
+/// Resultado por producto al generar códigos internos: <c>Generated</c> true con el código nuevo; false con <c>Message</c> (ya tenía código,
+/// descontinuado, no existe…) y, si ya tenía, su código en <c>Barcode</c>.
+/// </summary>
+public sealed record GeneratedLabelCodeDto(Guid ProductId, string Sku, string Name, string? Barcode, bool Generated, string? Message = null);

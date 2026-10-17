@@ -212,18 +212,25 @@ puede usar quien consulta productos; generar códigos internos exige poder modif
 - **Una categoría**: todos sus productos activos, incluidas las subcategorías.
 - **Cambios de precio desde una fecha**: los productos cuyo precio nuevo ya rige y empezó desde ese día (para cambiar las etiquetas
   después de subir o bajar precios).
-- **Productos de una compra** (si Compras está encendida): escriba el número de la compra o el de la factura del proveedor. La cantidad
-  de cada producto es lo que llegó en unidades (2 cajas × 12 = 24 etiquetas). Lo que se vende por peso lleva una sola. También está el
-  botón **Imprimir etiquetas** en la compra confirmada.
+- **Productos de una compra** (si Compras está encendida y tiene el permiso de consultar compras): escriba el **número interno** de la
+  compra de esta sucursal (no el de la factura del proveedor, que se repite entre proveedores). La cantidad de cada producto es lo que
+  llegó en unidades (2 cajas × 12 = 24 etiquetas). Lo que se vende por peso lleva una sola. También está el botón **Imprimir etiquetas**
+  en la compra confirmada.
 - **Productos sin código de barras**.
 
-**2. Revise**: precio al público (con IVA), oferta vigente hoy en la sucursal (precio especial o porcentaje con el precio normal
-tachado; "Lleve 3 pague 2" o "Desde 3 und" como texto), precio por kilo o por litro cuando el producto tiene contenido neto
-(500 g, 750 ml) y la cantidad de copias (0 = no se imprime).
+Los productos **descontinuados** no salen (se avisa cuántos se omitieron); los **inactivos** salen marcados para que decida. Si la empresa
+tiene varias sucursales, elija arriba la **sucursal**: los precios y las promociones dependen de ella.
+
+**2. Revise**: precio al público, calculado **igual que en la caja** (con IVA e impuestos fijos como la bolsa o el IBUA, también si la lista
+de precios no incluye impuestos; los centavos se suben al peso para que la góndola nunca diga menos de lo que se cobra); oferta vigente
+hoy en la sucursal (precio especial o porcentaje con el precio normal tachado y "hasta dd/mm" si la promoción tiene fecha final;
+"Lleve 3 pague 2" o "Desde 3 und" como texto); precio por kilo o por litro cuando el producto tiene contenido neto (500 g, 750 ml) y la
+cantidad de copias (0 = no se imprime). Las promociones que solo rigen ciertos días u horas **no** se imprimen en la góndola.
 
 Si un producto **no tiene código de barras**, la etiqueta lleva el SKU (la caja también lo lee). Con el botón **Generar código interno**
-el sistema le crea un código EAN-13 que empieza por 29; pide confirmación, queda guardado en el producto y en la **Auditoría**
-("Códigos internos generados para etiquetas").
+el sistema le crea un código EAN-13 que empieza por 29 (si ese número ya lo tiene otro producto, toma el siguiente); pide confirmación,
+queda guardado en el producto y en la **Auditoría** ("Códigos internos generados para etiquetas"). Si algún producto no se pudo (ya tenía
+código, está descontinuado), se informa sin detener los demás.
 
 **3. Imprima**:
 - **Hoja A4 · 24 etiquetas (66 × 35 mm)** u **Hoja A4 · 14 etiquetas grandes (100 × 40 mm)**: imprima al **100 %** (sin "ajustar a la
@@ -233,4 +240,9 @@ el sistema le crea un código EAN-13 que empieza por 29; pide confirmación, que
 - **Imprimir en la impresora de tiquetes** (solo en un computador de caja): nombre, precio y código de barras CODE128 una tras otra en
   el papel de 80 mm, para recortar a mano. Sirve para salir del paso; para la góndola es mejor el PDF.
 
-Máximo 2.000 etiquetas por archivo y 500 copias por producto: si es más, imprima por partes (por ejemplo, por categoría).
+Las barras nunca se imprimen más delgadas de 0,25 mm (2 puntos de una impresora de 203 ppp). Un código largo (un SKU de muchas
+letras) usa todo el ancho de la etiqueta; si aun así no cabe, el sistema lo dice: use la hoja de 14 etiquetas o genere el código interno.
+En la impresora de tiquetes los EAN-13 salen como EAN y el ancho de las barras se ajusta al papel (58 u 80 mm); si un código no cabe,
+se imprime su texto.
+
+Máximo 2.000 etiquetas por archivo, 200 en la impresora de tiquetes y 500 copias por producto: si es más, imprima por partes.

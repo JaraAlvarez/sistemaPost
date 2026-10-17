@@ -106,6 +106,9 @@ public interface ICatalogStore
 
     /// <summary>Siguiente consecutivo del nodo para códigos internos (SKU o BARCODE), dentro de la transacción.</summary>
     Task<long> NextCodeSequenceAsync(Guid nodeId, string kind, CancellationToken cancellationToken);
+
+    /// <summary>Reserva <paramref name="count"/> consecutivos seguidos del nodo y devuelve el último (el primero es último − count + 1).</summary>
+    Task<long> ReserveCodeSequencesAsync(Guid nodeId, string kind, int count, CancellationToken cancellationToken);
 }
 
 /// <summary>Lecturas del catálogo optimizadas (SQL directo), sin seguimiento de cambios.</summary>

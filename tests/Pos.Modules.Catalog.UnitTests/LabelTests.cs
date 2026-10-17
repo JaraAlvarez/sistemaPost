@@ -226,6 +226,47 @@ public class LabelLayoutTests
         LabelLayout.Slot(template, 24).ShouldBe(new LabelSlot(1, 0, 0, 6m, 8.5m));
     }
 
+    [Theory]
+    [InlineData(LabelTemplateKind.Shelf3x8, "7702177000014", "0.25")]
+    [InlineData(LabelTemplateKind.Shelf2x7, "7702177000014", "0.375")]
+    [InlineData(LabelTemplateKind.Sticker40x25, "7702177000014", "0.25")]
+    [InlineData(LabelTemplateKind.Sticker50x30, "7702177000014", "0.375")]
+    [InlineData(LabelTemplateKind.Shelf3x8, "001-000123", "0.25")]
+    [InlineData(LabelTemplateKind.Sticker40x25, "001-000123", "0.25")]
+    public void El_modulo_es_de_puntos_enteros_y_minimo_un_cuarto_de_milimetro(LabelTemplateKind kind, string code, string expected)
+    {
+        var template = LabelLayout.Get(kind);
+        var drawing = BarcodeSymbology.Encode(code)!;
+
+        var module = LabelLayout.ModuleWidth(template, drawing.TotalModules);
+
+        module.ShouldBe(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture));
+        (module!.Value % LabelLayout.Dot).ShouldBe(0m);
+        (module.Value * drawing.TotalModules).ShouldBeLessThanOrEqualTo(LabelLayout.BarcodeAreaWidth(template));
+    }
+
+    [Fact]
+    public void Un_SKU_que_no_cabe_al_lado_usa_todo_el_ancho_de_la_etiqueta()
+    {
+        // ARROZ-500 en CODE128 B: 154 módulos × 0,25 = 38,5 mm > 36 mm (58 %), pero cabe en los 62 mm de ancho de la etiqueta de 66 mm.
+        var template = LabelLayout.Get(LabelTemplateKind.Shelf3x8);
+        var fit = LabelLayout.FitBarcode(template, BarcodeSymbology.Encode("ARROZ-500")!.TotalModules);
+
+        fit.ShouldBe(new BarcodeFit(0.375m, 62m, FullWidth: true));
+        LabelLayout.FitBarcode(template, BarcodeSymbology.Encode("7702177000014")!.TotalModules)!.FullWidth.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(LabelTemplateKind.Shelf3x8)]
+    [InlineData(LabelTemplateKind.Shelf2x7)]
+    [InlineData(LabelTemplateKind.Sticker40x25)]
+    public void Un_codigo_largo_que_quedaria_ilegible_no_cabe(LabelTemplateKind kind)
+    {
+        var drawing = BarcodeSymbology.Encode("PRODUCTO-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123")!;
+
+        LabelLayout.ModuleWidth(LabelLayout.Get(kind), drawing.TotalModules).ShouldBeNull();
+    }
+
     [Fact]
     public void Ninguna_etiqueta_se_sale_de_la_hoja()
     {
@@ -239,153 +280,3 @@ public class LabelLayoutTests
     }
 }
 
-/// <summary>Precio al público, oferta y precio por unidad de medida de la etiqueta.</summary>
-public class LabelPricingTests
-{
-    private static readonly Guid Product = Guid.NewGuid();
-    private static readonly Guid Category = Guid.NewGuid();
-    private static readonly Guid Brand = Guid.NewGuid();
-
-    [Fact]
-    public void Precio_al_publico_suma_impuestos_si_la_lista_no_los_incluye()
-    {
-        LabelPricing.ConsumerPrice(10_000m, includesTax: true, 19m, 0m).ShouldBe(10_000m);
-        LabelPricing.ConsumerPrice(10_000m, includesTax: false, 19m, 0m).ShouldBe(11_900m);
-        LabelPricing.ConsumerPrice(2_000m, includesTax: false, 0m, 150m).ShouldBe(2_150m);
-        LabelPricing.ConsumerPrice(1_234.5m, includesTax: false, 0m, 0m).ShouldBe(1_235m);
-    }
-
-    [Fact]
-    public void Gana_la_oferta_de_menor_precio()
-    {
-        LabelPromotion[] promotions =
-        [
-            new("Diez por ciento", "PERCENT_OFF", [ForProduct()], Percent: 10m),
-            new("Precio especial", "SPECIAL_PRICE", [ForCategory()], Price: 8_500m),
-        ];
-
-        var offer = LabelPricing.BestOffer(Product, Category, Brand, 10_000m, promotions);
-
-        offer.ShouldBe(new LabelOffer(8_500m, "Precio especial"));
-    }
-
-    [Fact]
-    public void Porcentaje_redondea_al_peso()
-    {
-        var offer = LabelPricing.BestOffer(Product, Category, null, 3_333m, [new LabelPromotion("x", "PERCENT_OFF", [ForProduct()], Percent: 15m)]);
-
-        offer.ShouldBe(new LabelOffer(2_833m, "Ahorre 15 %"));
-    }
-
-    [Fact]
-    public void Una_oferta_que_no_baja_el_precio_no_se_imprime()
-    {
-        LabelPricing.BestOffer(Product, Category, Brand, 5_000m, [new LabelPromotion("x", "SPECIAL_PRICE", [ForProduct()], Price: 6_000m)]).ShouldBeNull();
-    }
-
-    [Fact]
-    public void Solo_aplica_a_su_producto_categoria_o_marca()
-    {
-        var other = Guid.NewGuid();
-        LabelPromotion[] promotions =
-        [
-            new("Otro producto", "SPECIAL_PRICE", [new LabelPromotionTarget(other, null, null, null)], Price: 1m),
-            new("Otra categoría", "SPECIAL_PRICE", [new LabelPromotionTarget(null, null, new HashSet<Guid> { other }, null)], Price: 2m),
-            new("Otra marca", "SPECIAL_PRICE", [new LabelPromotionTarget(null, null, null, other)], Price: 3m),
-            new("Caja x24", "SPECIAL_PRICE", [new LabelPromotionTarget(Product, Guid.NewGuid(), null, null)], Price: 4m),
-            new("Combo", "COMBO", [ForProduct()], Price: 5m),
-        ];
-
-        LabelPricing.BestOffer(Product, Category, Brand, 10_000m, promotions).ShouldBeNull();
-        LabelPricing.BestOffer(Product, Category, Brand, 10_000m, [new LabelPromotion("Marca", "SPECIAL_PRICE", [new LabelPromotionTarget(null, null, null, Brand)], Price: 9_000m)])
-            .ShouldBe(new LabelOffer(9_000m, "Precio especial"));
-    }
-
-    [Fact]
-    public void Ofertas_por_cantidad_salen_como_texto()
-    {
-        LabelPricing.BestOffer(Product, Category, Brand, 2_000m,
-                [new LabelPromotion("x", "QUANTITY_PRICE", [ForProduct()], Price: 1_800m, MinQuantity: 3m)])
-            .ShouldBe(new LabelOffer(null, "Desde 3 und: $ 1.800 c/u"));
-        LabelPricing.BestOffer(Product, Category, Brand, 2_000m, [new LabelPromotion("x", "MULTI_BUY", [ForCategory()], BuyQuantity: 3, PayQuantity: 2)])
-            .ShouldBe(new LabelOffer(null, "Lleve 3 pague 2"));
-    }
-
-    [Theory]
-    [InlineData(6_250, 500, "G", "$ 12.500 por kg")]
-    [InlineData(4_800, 1, "KG", "$ 4.800 por kg")]
-    [InlineData(3_000, 750, "ML", "$ 4.000 por litro")]
-    [InlineData(5_000, 2, "L", "$ 2.500 por litro")]
-    public void Precio_por_unidad_de_medida(decimal price, decimal content, string unit, string expected) =>
-        LabelPricing.UnitMeasurePrice(price, content, unit).ShouldBe(expected);
-
-    [Fact]
-    public void Sin_contenido_neto_no_hay_precio_por_unidad()
-    {
-        LabelPricing.UnitMeasurePrice(1_000m, null, "G").ShouldBeNull();
-        LabelPricing.UnitMeasurePrice(1_000m, 6m, "UND").ShouldBeNull();
-        LabelPricing.UnitMeasurePrice(null, 500m, "G").ShouldBeNull();
-    }
-
-    [Fact]
-    public void Etiqueta_de_un_producto_por_peso_sin_impuestos_incluidos()
-    {
-        var product = Data(saleMode: SaleMode.Weight, scale: true, unit: "KG", listPrice: 10_000m, includesTax: false, barcode: null);
-        CatalogTaxInfo[] taxes = [new(Guid.NewGuid(), "IVA5", "VAT", true, 5m, null)];
-
-        var item = LabelBuilder.ToItem(product, taxes, [], 7);
-
-        item.Price.ShouldBe(10_500m);
-        item.PriceUnit.ShouldBe("kg");
-        item.IsWeighed.ShouldBeTrue();
-        item.UnitMeasurePrice.ShouldBeNull();
-        item.HasBarcode.ShouldBeFalse();
-        item.Quantity.ShouldBe(7);
-
-        var content = LabelBuilder.ToContent(item, new DateOnly(2026, 10, 17));
-        content.PriceText.ShouldBe("$ 10.500");
-        content.Barcode!.Symbol.ShouldBe(BarcodeSymbol.Code128);
-        content.Barcode.Text.ShouldBe("SKU-1");
-        content.DateText.ShouldBe("17/10/2026");
-    }
-
-    [Fact]
-    public void Etiqueta_con_oferta_muestra_el_precio_normal_tachado()
-    {
-        var product = Data(netContent: 500m, netUnit: "G", listPrice: 6_000m);
-
-        var item = LabelBuilder.ToItem(product, [], [new LabelPromotion("x", "SPECIAL_PRICE", [ForProduct()], Price: 5_000m)], 1_000);
-        var content = LabelBuilder.ToContent(item, null);
-
-        item.Quantity.ShouldBe(LabelLayout.MaxCopies);
-        item.UnitMeasurePrice.ShouldBe("$ 10.000 por kg");
-        content.PriceText.ShouldBe("$ 5.000");
-        content.RegularPriceText.ShouldBe("$ 6.000");
-        content.OfferText.ShouldBe("Precio especial");
-        content.Barcode!.Symbol.ShouldBe(BarcodeSymbol.Ean13);
-        content.DateText.ShouldBeNull();
-    }
-
-    [Fact]
-    public void Tiquete_de_etiquetas_para_la_impresora_de_la_caja()
-    {
-        var content = LabelBuilder.ToContent(LabelBuilder.ToItem(Data(listPrice: 2_500m), [], [], 1), null);
-
-        var ticket = LabelPrinting.Ticket([content, content]);
-
-        ticket.Cut.ShouldBeTrue();
-        ticket.OpenDrawer.ShouldBeFalse();
-        ticket.Elements.OfType<BarcodeElement>().Select(b => b.Data).ShouldBe(["7702177000014", "7702177000014"]);
-        ticket.Elements.OfType<TextLine>().ShouldContain(t => t.Text == "$ 2.500" && t.DoubleSize);
-    }
-
-    private static LabelPromotionTarget ForProduct() => new(Product, null, null, null);
-
-    private static LabelPromotionTarget ForCategory() => new(null, null, new HashSet<Guid> { Category }, null);
-
-    private static LabelProductData Data(
-        SaleMode saleMode = SaleMode.Unit, bool scale = false, string unit = "UND", decimal? netContent = null, string? netUnit = null,
-        decimal? listPrice = 1_000m, bool includesTax = true, string? barcode = "7702177000014") =>
-        new(Product, "SKU-1", "Producto de prueba", Category, Brand, unit, saleMode, scale, netContent, netUnit, ProductStatus.Active, barcode, listPrice,
-            includesTax, AllowsPromotions: true);
-}

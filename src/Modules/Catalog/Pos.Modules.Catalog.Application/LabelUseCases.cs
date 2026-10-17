@@ -3,19 +3,21 @@ using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Messaging;
+using Pos.Application.Abstractions.Security;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Catalog.Domain;
 using Pos.Modules.Promotions.Contracts;
 using Pos.Modules.Purchasing.Contracts;
 using Pos.Printing;
+using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
 
 namespace Pos.Modules.Catalog.Application;
 
 /// <summary>
-/// Lo que se dibuja en una etiqueta: nombre, precio grande (el de oferta si hay), precio normal tachado, texto de la oferta, precio por kilo
-/// o litro, código de barras (o el SKU en CODE128 si no tiene) y la fecha.
+/// Lo que se dibuja en una etiqueta: nombre, precio grande (el de oferta si hay), precio normal tachado, texto de la oferta (con su último día),
+/// precio por kilo o litro, código de barras (o el SKU en CODE128 si no tiene) y la fecha.
 /// </summary>
 public sealed record LabelContent(
     string Name,
@@ -46,69 +48,92 @@ public static class LabelErrors
     public static readonly Error MissingFilter = Error.Validation(
         "CATALOG.LABELS_MISSING_FILTER", "Falta el dato para buscar: los productos, la categoría, la fecha o el número de la compra.");
 
-    public static readonly Error PurchaseNotFound = Error.NotFound("CATALOG.LABELS_PURCHASE_NOT_FOUND", "No se encontró una compra con ese número.");
+    public static readonly Error BranchRequired = Error.Validation(
+        "CATALOG.LABELS_BRANCH_REQUIRED", "Elija la sucursal: los precios y las promociones dependen de ella.");
+
+    public static readonly Error PurchaseNotFound = Error.NotFound(
+        "CATALOG.LABELS_PURCHASE_NOT_FOUND", "No se encontró una compra con ese número en la sucursal (use el número interno de la compra, no el de la factura).");
 
     public static readonly Error PurchaseNotPosted = Error.BusinessRule(
         "CATALOG.LABELS_PURCHASE_NOT_POSTED", "La compra todavía no está contabilizada (o fue anulada): solo se imprimen etiquetas de mercancía recibida.");
 
+    public static readonly Error PurchaseForbidden = Error.Forbidden(
+        "CATALOG.LABELS_PURCHASE_FORBIDDEN", "Para traer los productos de una compra necesita el permiso de consultar compras.");
+
     public static readonly Error TooManyLabels = Error.Validation(
         "CATALOG.LABELS_TOO_MANY",
-        $"Máximo {LabelLayout.MaxLabels} etiquetas por archivo y {LabelLayout.MaxCopies} copias por producto: divida la impresión.");
+        $"Máximo {LabelLayout.MaxLabels} etiquetas por archivo, {LabelTicketHandler.MaxTicketLabels} en la impresora de tiquetes y " +
+        $"{LabelLayout.MaxCopies} copias por producto: divida la impresión.");
 
     public static readonly Error NothingToPrint = Error.Validation("CATALOG.LABELS_EMPTY", "No hay etiquetas para imprimir: agregue productos y cantidades.");
+
+    public static Error BarcodeTooLong(IEnumerable<string> names) => Error.Validation(
+        "CATALOG.LABELS_BARCODE_TOO_LONG",
+        $"El código de barras de {string.Join(", ", names)} es demasiado largo para esta etiqueta y no se podría leer: elija la hoja de 14 " +
+        "etiquetas o genere el código interno (EAN-13, más corto).");
 }
 
+/// <summary>Sucursal de la etiqueta: la pedida, la del usuario o la del equipo (igual que al leer un código en la caja).</summary>
+public sealed class LabelBranch(ICurrentUser currentUser, IInstallationContext installation)
+{
+    public Guid? Resolve(Guid? requested) => requested ?? currentUser.BranchId ?? installation.BranchId;
+}
+
+/// <summary>Resultado de armar etiquetas: las que salen y cuántos productos se omitieron (descontinuados o inexistentes).</summary>
+public sealed record LabelBuild(IReadOnlyList<LabelItemDto> Items, int Omitted);
+
 /// <summary>
-/// Arma las etiquetas de una lista de productos: precio al público vigente de la lista por defecto (con impuestos), la promoción que rige hoy
-/// en la sucursal, el precio por kilo o litro y el código de barras.
+/// Arma las etiquetas de una lista de productos: precio al público vigente de la lista por defecto calculado como en la caja, la promoción que
+/// rige hoy en la sucursal (sin las de días u horario), el precio por kilo o litro y el código de barras.
 /// </summary>
-public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader, IActivePromotions promotions, IInstallationContext installation, IClock clock)
+public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader, IActivePromotions promotions, IClock clock)
 {
     /// <summary>Máximo de productos distintos en una lista de etiquetas.</summary>
     public const int MaxProducts = 500;
 
-    public async Task<IReadOnlyList<LabelItemDto>> BuildAsync(IReadOnlyList<(Guid ProductId, int Quantity)> requested, CancellationToken cancellationToken)
+    public async Task<LabelBuild> BuildAsync(IReadOnlyList<(Guid ProductId, int Quantity)> requested, Guid branchId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(requested);
         var ids = requested.Select(r => r.ProductId).Distinct().ToList();
         if (ids.Count == 0)
         {
-            return [];
+            return new LabelBuild([], 0);
         }
 
         var now = clock.UtcNow;
-        var products = (await queries.GetLabelProductsAsync(ids, installation.BranchId, now, cancellationToken)).ToDictionary(p => p.Id);
+        var products = (await queries.GetLabelProductsAsync(ids, branchId, now, cancellationToken)).ToDictionary(p => p.Id);
         var taxes = await reader.GetTaxesAsync(ids, clock.Today, cancellationToken);
-        var active = installation.BranchId is { } branchId
-            ? (await promotions.GetActiveAsync(branchId, now, cancellationToken)).Select(ToLabelPromotion).ToList()
-            : [];
+        var active = (await promotions.GetActiveAsync(branchId, now, cancellationToken)).Select(ToLabelPromotion).ToList();
 
         var items = new List<LabelItemDto>(requested.Count);
+        var omitted = 0;
         foreach (var (productId, quantity) in requested)
         {
-            if (products.GetValueOrDefault(productId) is not { } product)
+            if (products.GetValueOrDefault(productId) is not { Status: not ProductStatus.Discontinued } product)
             {
+                omitted++;
                 continue;
             }
 
-            var productTaxes = taxes.GetValueOrDefault(productId) ?? [];
-            items.Add(ToItem(product, productTaxes, product.AllowsPromotions ? active : [], quantity));
+            var productTaxes = (taxes.GetValueOrDefault(productId) ?? []).Select(t => new LabelTax(t.Rate, t.FixedAmount)).ToList();
+            items.Add(ToItem(product, productTaxes, product.AllowsPromotions ? active : [], quantity, clock.BusinessTimeZone));
         }
 
-        return items;
+        return new LabelBuild(items, omitted);
     }
 
     /// <summary>Etiqueta de un producto con sus impuestos y las promociones vigentes (puro: se prueba sin base de datos).</summary>
-    public static LabelItemDto ToItem(LabelProductData product, IReadOnlyList<CatalogTaxInfo> taxes, IReadOnlyList<LabelPromotion> promotions, int quantity)
+    public static LabelItemDto ToItem(
+        LabelProductData product, IReadOnlyList<LabelTax> taxes, IReadOnlyList<LabelPromotion> promotions, int quantity, TimeZoneInfo zone)
     {
         ArgumentNullException.ThrowIfNull(product);
         ArgumentNullException.ThrowIfNull(taxes);
+        ArgumentNullException.ThrowIfNull(zone);
         var weighed = product.IsSoldByScale || product.SaleMode == SaleMode.Weight;
-        decimal? price = product.ListPrice is { } list
-            ? LabelPricing.ConsumerPrice(list, product.IncludesTax, taxes.Sum(t => t.Rate ?? 0m), taxes.Sum(t => t.FixedAmount ?? 0m))
-            : null;
-        var offer = LabelPricing.BestOffer(product.Id, product.CategoryId, product.BrandId, price, promotions);
+        decimal? price = product.ListPrice is { } list ? LabelPricing.RegularPrice(list, product.IncludesTax, taxes) : null;
+        var offer = LabelPricing.BestOffer(product.Id, product.CategoryId, product.BrandId, product.ListPrice, product.IncludesTax, taxes, promotions);
         var unit = weighed ? (product.BaseUnitCode == "KG" ? "kg" : product.BaseUnitCode.ToLowerInvariant()) : null;
+        DateOnly? until = offer?.ValidTo is { } to ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(to.AddTicks(-1), zone).DateTime) : null;
         return new LabelItemDto(
             product.Id,
             product.Sku,
@@ -121,7 +146,9 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
             offer?.Text,
             weighed ? null : LabelPricing.UnitMeasurePrice(offer?.Price ?? price, product.NetContent, product.NetContentUnit),
             weighed,
-            Math.Clamp(quantity, 1, LabelLayout.MaxCopies));
+            Math.Clamp(quantity, 1, LabelLayout.MaxCopies),
+            until,
+            product.Status == ProductStatus.Active);
     }
 
     /// <summary>Contenido dibujable de una etiqueta (con la fecha si se pide).</summary>
@@ -130,6 +157,9 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
         ArgumentNullException.ThrowIfNull(item);
         var hasOffer = item.PromoPrice is { } promo && (item.Price is null || promo < item.Price);
         var shown = hasOffer ? item.PromoPrice : item.Price;
+        var offer = item.PromoText is { } text
+            ? item.PromoValidUntil is { } until ? $"{text} hasta {until.ToString("dd/MM", CultureInfo.InvariantCulture)}" : text
+            : null;
         return new LabelContent(
             item.Name,
             item.Sku,
@@ -137,7 +167,7 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
             shown is { } value ? LabelPricing.Money(value) : null,
             item.PriceUnit,
             hasOffer && item.Price is { } regular ? LabelPricing.Money(regular) : null,
-            item.PromoText,
+            offer,
             item.UnitMeasurePrice,
             date?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture));
     }
@@ -150,24 +180,43 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
         d.PayQuantity,
         d.Price,
         d.Percent,
-        d.MinQuantity);
+        d.MinQuantity,
+        d.ValidTo,
+        d.HasSchedule);
 }
 
 // ─────────────────────────────── Armar la lista ───────────────────────────────
 
 /// <summary>
 /// Arma la lista de etiquetas para revisarla antes de imprimir. <c>Source</c>: PRODUCTS (con <c>ProductIds</c>), CATEGORY (con
-/// <c>CategoryId</c>), PRICE_CHANGES (con <c>Since</c>), PURCHASE (con <c>PurchaseNumber</c>; cantidad = unidades recibidas) o WITHOUT_BARCODE.
+/// <c>CategoryId</c>), PRICE_CHANGES (con <c>Since</c>), PURCHASE (con <c>PurchaseNumber</c>: número interno o Id; cantidad = unidades
+/// recibidas; exige consultar compras) o WITHOUT_BARCODE. <c>BranchId</c>: sucursal de los precios (por defecto la del usuario o del equipo).
 /// </summary>
 public sealed record PreviewLabelsQuery(string Source, IReadOnlyList<Guid>? ProductIds = null, Guid? CategoryId = null, DateOnly? Since = null,
-    string? PurchaseNumber = null) : IQuery<LabelPreviewDto>;
+    string? PurchaseNumber = null, Guid? BranchId = null) : IQuery<LabelPreviewDto>;
+
+internal sealed class PreviewLabelsValidator : AbstractValidator<PreviewLabelsQuery>
+{
+    public PreviewLabelsValidator()
+    {
+        RuleFor(x => x.Source).NotEmpty().MaximumLength(30);
+        RuleFor(x => x.ProductIds!.Count).LessThanOrEqualTo(LabelBuilder.MaxProducts).When(x => x.ProductIds is not null)
+            .WithMessage($"Máximo {LabelBuilder.MaxProducts} productos por lista.");
+        RuleFor(x => x.PurchaseNumber).MaximumLength(60);
+    }
+}
 
 internal sealed class PreviewLabelsHandler(
-    ICatalogQueries queries, IPurchaseReceipts purchases, LabelBuilder builder, IInstallationContext installation, IClock clock)
+    ICatalogQueries queries, IPurchaseReceipts purchases, IPermissionChecker permissions, LabelBuilder builder, LabelBranch branches, IClock clock)
     : IQueryHandler<PreviewLabelsQuery, LabelPreviewDto>
 {
     public async Task<Result<LabelPreviewDto>> Handle(PreviewLabelsQuery request, CancellationToken cancellationToken)
     {
+        if (branches.Resolve(request.BranchId) is not { } branchId)
+        {
+            return LabelErrors.BranchRequired;
+        }
+
         var source = (request.Source ?? string.Empty).Trim().ToUpperInvariant();
         List<(Guid ProductId, int Quantity)> requested;
         string? reference = null;
@@ -197,12 +246,17 @@ internal sealed class PreviewLabelsHandler(
                 }
 
                 var ids = await queries.FindLabelProductIdsAsync(
-                    new LabelFilter(source, request.CategoryId, since, clock.UtcNow, installation.BranchId), LabelBuilder.MaxProducts + 1, cancellationToken);
+                    new LabelFilter(source, request.CategoryId, since, clock.UtcNow, branchId), LabelBuilder.MaxProducts + 1, cancellationToken);
                 requested = [.. ids.Select(id => (id, 1))];
                 break;
 
             case LabelSources.Purchase:
-                var purchase = await purchases.FindAsync(request.PurchaseNumber!, cancellationToken);
+                if (!await permissions.HasPermissionAsync(PurchasingPermissions.PurchaseView, branchId, cancellationToken))
+                {
+                    return LabelErrors.PurchaseForbidden;
+                }
+
+                var purchase = await purchases.FindAsync(request.PurchaseNumber!, branchId, cancellationToken);
                 if (purchase is null)
                 {
                     return LabelErrors.PurchaseNotFound;
@@ -224,17 +278,18 @@ internal sealed class PreviewLabelsHandler(
         }
 
         var truncated = requested.Count > LabelBuilder.MaxProducts;
-        var items = (await builder.BuildAsync([.. requested.Take(LabelBuilder.MaxProducts)], cancellationToken)).ToList();
+        var build = await builder.BuildAsync([.. requested.Take(LabelBuilder.MaxProducts)], branchId, cancellationToken);
+        var items = build.Items.ToList();
         if (source == LabelSources.Purchase)
         {
             // Lo que se vende por peso lleva una sola etiqueta de góndola (no una por kilo).
             items = [.. items.Select(i => i.IsWeighed ? i with { Quantity = 1 } : i)];
         }
 
-        return new LabelPreviewDto(source, reference, items, Warnings(items, truncated), truncated);
+        return new LabelPreviewDto(source, reference, items, Warnings(items, build.Omitted, truncated), truncated);
     }
 
-    private static List<string> Warnings(List<LabelItemDto> items, bool truncated)
+    private static List<string> Warnings(List<LabelItemDto> items, int omitted, bool truncated)
     {
         var warnings = new List<string>();
         if (items.Count == 0)
@@ -245,6 +300,17 @@ internal sealed class PreviewLabelsHandler(
         if (truncated)
         {
             warnings.Add($"Se muestran los primeros {LabelBuilder.MaxProducts} productos; imprima por partes (por ejemplo, por categoría).");
+        }
+
+        if (omitted > 0)
+        {
+            warnings.Add($"{omitted} producto(s) no se incluyeron porque están descontinuados o ya no existen.");
+        }
+
+        var inactive = items.Count(i => !i.IsActive);
+        if (inactive > 0)
+        {
+            warnings.Add($"{inactive} producto(s) están inactivos (no se venden en la caja): revise si de verdad quiere su etiqueta.");
         }
 
         var withoutPrice = items.Count(i => i.Price is null);
@@ -267,7 +333,8 @@ internal sealed class PreviewLabelsHandler(
 // ─────────────────────────────── Imprimir ───────────────────────────────
 
 /// <summary>PDF de etiquetas con la plantilla elegida; las cantidades repiten la etiqueta de cada producto.</summary>
-public sealed record RenderLabelsQuery(LabelTemplateKind Template, IReadOnlyList<LabelPrintItem> Items, bool ShowDate = true) : IQuery<LabelFile>;
+public sealed record RenderLabelsQuery(LabelTemplateKind Template, IReadOnlyList<LabelPrintItem> Items, bool ShowDate = true, Guid? BranchId = null)
+    : IQuery<LabelFile>;
 
 internal sealed class LabelItemsValidator : AbstractValidator<IReadOnlyList<LabelPrintItem>>
 {
@@ -291,17 +358,31 @@ internal sealed class RenderLabelsValidator : AbstractValidator<RenderLabelsQuer
     }
 }
 
-internal sealed class RenderLabelsHandler(LabelBuilder builder, ILabelRenderer renderer, IClock clock) : IQueryHandler<RenderLabelsQuery, LabelFile>
+internal sealed class RenderLabelsHandler(LabelBuilder builder, LabelBranch branches, ILabelRenderer renderer, IClock clock)
+    : IQueryHandler<RenderLabelsQuery, LabelFile>
 {
     public async Task<Result<LabelFile>> Handle(RenderLabelsQuery request, CancellationToken cancellationToken)
     {
-        var contents = await LabelPrinting.ContentsAsync(builder, request.Items, request.ShowDate ? clock.Today : null, LabelLayout.MaxLabels, cancellationToken);
+        if (branches.Resolve(request.BranchId) is not { } branchId)
+        {
+            return LabelErrors.BranchRequired;
+        }
+
+        var contents = await LabelPrinting.ContentsAsync(builder, request.Items, branchId, request.ShowDate ? clock.Today : null, LabelLayout.MaxLabels,
+            cancellationToken);
         if (contents.IsFailure)
         {
             return contents.Error;
         }
 
         var template = LabelLayout.Get(request.Template);
+        var tooLong = contents.Value.Where(c => c.Barcode is { } b && LabelLayout.ModuleWidth(template, b.TotalModules) is null)
+            .Select(c => c.Name).Distinct().ToList();
+        if (tooLong.Count > 0)
+        {
+            return LabelErrors.BarcodeTooLong(tooLong.Take(5));
+        }
+
         var pdf = renderer.RenderPdf(template, contents.Value, "Etiquetas");
         var stamp = clock.ToBusinessTime(clock.UtcNow).ToString("yyyyMMdd_HHmm", CultureInfo.InvariantCulture);
         return new LabelFile($"etiquetas_{stamp}.pdf", "application/pdf", pdf, contents.Value.Count, LabelLayout.PageCount(template, contents.Value.Count));
@@ -309,24 +390,29 @@ internal sealed class RenderLabelsHandler(LabelBuilder builder, ILabelRenderer r
 }
 
 /// <summary>
-/// Etiquetas sencillas para la impresora de tiquetes de la caja (ESC/POS, papel continuo): nombre, precio y código de barras CODE128, una
-/// tras otra con una línea para cortar a mano. La interfaz se lo entrega al agente de la caja.
+/// Etiquetas sencillas para la impresora de tiquetes de la caja (ESC/POS, papel continuo): nombre, precio y código de barras (EAN-13 o
+/// CODE128 ajustado al ancho del papel), una tras otra con una línea para cortar a mano. La interfaz se lo entrega al agente de la caja.
 /// </summary>
-public sealed record LabelTicketQuery(IReadOnlyList<LabelPrintItem> Items) : IQuery<TicketDocument>;
+public sealed record LabelTicketQuery(IReadOnlyList<LabelPrintItem> Items, Guid? BranchId = null) : IQuery<TicketDocument>;
 
 internal sealed class LabelTicketValidator : AbstractValidator<LabelTicketQuery>
 {
     public LabelTicketValidator() => RuleFor(x => x.Items).NotNull().SetValidator(new LabelItemsValidator());
 }
 
-internal sealed class LabelTicketHandler(LabelBuilder builder, IClock clock) : IQueryHandler<LabelTicketQuery, TicketDocument>
+internal sealed class LabelTicketHandler(LabelBuilder builder, LabelBranch branches, IClock clock) : IQueryHandler<LabelTicketQuery, TicketDocument>
 {
     /// <summary>En papel de tiquete se limita la cantidad (cada etiqueta gasta unos 4 cm).</summary>
     public const int MaxTicketLabels = 200;
 
     public async Task<Result<TicketDocument>> Handle(LabelTicketQuery request, CancellationToken cancellationToken)
     {
-        var contents = await LabelPrinting.ContentsAsync(builder, request.Items, clock.Today, MaxTicketLabels, cancellationToken);
+        if (branches.Resolve(request.BranchId) is not { } branchId)
+        {
+            return LabelErrors.BranchRequired;
+        }
+
+        var contents = await LabelPrinting.ContentsAsync(builder, request.Items, branchId, clock.Today, MaxTicketLabels, cancellationToken);
         return contents.IsSuccess ? LabelPrinting.Ticket(contents.Value) : contents.Error;
     }
 }
@@ -334,7 +420,7 @@ internal sealed class LabelTicketHandler(LabelBuilder builder, IClock clock) : I
 internal static class LabelPrinting
 {
     public static async Task<Result<IReadOnlyList<LabelContent>>> ContentsAsync(
-        LabelBuilder builder, IReadOnlyList<LabelPrintItem> items, DateOnly? date, int max, CancellationToken cancellationToken)
+        LabelBuilder builder, IReadOnlyList<LabelPrintItem> items, Guid branchId, DateOnly? date, int max, CancellationToken cancellationToken)
     {
         var requested = items.Where(i => i.Quantity > 0).GroupBy(i => i.ProductId).Select(g => (g.Key, g.Sum(i => i.Quantity))).ToList();
         if (requested.Count == 0)
@@ -347,13 +433,13 @@ internal static class LabelPrinting
             return LabelErrors.TooManyLabels;
         }
 
-        var built = await builder.BuildAsync(requested, cancellationToken);
-        if (built.Count == 0)
+        var built = await builder.BuildAsync(requested, branchId, cancellationToken);
+        if (built.Items.Count == 0)
         {
             return CatalogErrors.ProductNotFound;
         }
 
-        return built.SelectMany(i => Enumerable.Repeat(LabelBuilder.ToContent(i, date), i.Quantity)).ToList();
+        return built.Items.SelectMany(i => Enumerable.Repeat(LabelBuilder.ToContent(i, date), i.Quantity)).ToList();
     }
 
     public static TicketDocument Ticket(IReadOnlyList<LabelContent> labels)
@@ -379,7 +465,12 @@ internal static class LabelPrinting
 
             if (label.Barcode is { } barcode)
             {
-                elements.Add(new BarcodeElement(barcode.Text));
+                elements.Add(new BarcodeElement(barcode.Text, barcode.Symbol switch
+                {
+                    BarcodeSymbol.Ean13 => BarcodeElement.Ean13,
+                    BarcodeSymbol.Ean8 => BarcodeElement.Ean8,
+                    _ => BarcodeElement.Code128,
+                }));
             }
 
             elements.Add(new SeparatorLine('-'));
@@ -393,8 +484,9 @@ internal static class LabelPrinting
 // ─────────────────────────────── Códigos internos ───────────────────────────────
 
 /// <summary>
-/// Genera el código interno EAN-13 (prefijo 29 + nodo + consecutivo) a los productos que no tienen código de barras propio, para que la
-/// etiqueta lleve un código que la caja lee. Los que ya tienen código no cambian. Queda en la auditoría.
+/// Genera el código interno EAN-13 (prefijo 29 + nodo + consecutivo, saltando los números que ya existan) a los productos que no tienen código de
+/// barras propio, para que la etiqueta lleve un código que la caja lee. Responde producto por producto: los que ya tienen código, los
+/// descontinuados o los que no existen se informan sin detener el resto. Queda en la auditoría.
 /// </summary>
 public sealed record GenerateLabelCodesCommand(IReadOnlyList<Guid> ProductIds) : ICommand<IReadOnlyList<GeneratedLabelCodeDto>>;
 
@@ -404,36 +496,56 @@ internal sealed class GenerateLabelCodesValidator : AbstractValidator<GenerateLa
         .WithMessage($"Elija de 1 a {LabelBuilder.MaxProducts} productos.");
 }
 
-internal sealed class GenerateLabelCodesHandler(ICatalogStore store, ProductWriter writer, IAuditWriter audit)
+internal sealed class GenerateLabelCodesHandler(ICatalogStore store, ProductWriter writer, IAuditWriter audit, IIdGenerator ids)
     : ICommandHandler<GenerateLabelCodesCommand, IReadOnlyList<GeneratedLabelCodeDto>>
 {
     public async Task<Result<IReadOnlyList<GeneratedLabelCodeDto>>> Handle(GenerateLabelCodesCommand request, CancellationToken cancellationToken)
     {
-        var generated = new List<GeneratedLabelCodeDto>();
-        foreach (var productId in request.ProductIds.Distinct())
+        var requested = request.ProductIds.Distinct().ToList();
+        var products = (await store.GetProductsByIdsAsync(requested, cancellationToken)).ToDictionary(p => p.Id);
+        var barcodes = (await store.GetBarcodesAsync(requested, cancellationToken)).ToLookup(b => b.ProductId);
+        var results = new Dictionary<Guid, GeneratedLabelCodeDto>();
+        var targets = new List<Product>();
+        foreach (var id in requested)
         {
-            var product = await store.GetProductAsync(productId, cancellationToken);
-            if (product is null || product.Status == ProductStatus.Discontinued)
+            if (products.GetValueOrDefault(id) is not { } product)
             {
-                continue;
+                results[id] = new GeneratedLabelCodeDto(id, string.Empty, string.Empty, null, false, "El producto no existe.");
             }
-
-            if ((await store.GetBarcodesAsync(product.Id, cancellationToken)).Any(b => b.PackagingId is null))
+            else if (product.Status == ProductStatus.Discontinued)
             {
-                continue;
+                results[id] = new GeneratedLabelCodeDto(id, product.Sku, product.Name, null, false, "El producto está descontinuado.");
             }
-
-            var barcode = await writer.AddBarcodeAsync(product, null, null, BarcodeType.Internal, generate: true, isPrimary: true, cancellationToken);
-            if (barcode.IsFailure)
+            else if (barcodes[id].FirstOrDefault(b => b.PackagingId is null) is { } existing)
             {
-                return barcode.Error;
+                results[id] = new GeneratedLabelCodeDto(id, product.Sku, product.Name, existing.Code, false, "Ya tenía código de barras.");
             }
-
-            generated.Add(new GeneratedLabelCodeDto(product.Id, product.Sku, product.Name, barcode.Value.Code));
+            else
+            {
+                targets.Add(product);
+            }
         }
 
-        if (generated.Count > 0)
+        if (targets.Count > 0)
         {
+            // Una sola reserva para todo el lote (saltando números ya usados), sin consultas por producto.
+            var codes = await writer.ReserveInternalCodesAsync(targets.Count, cancellationToken);
+            if (codes.IsFailure)
+            {
+                return codes.Error;
+            }
+
+            for (var i = 0; i < targets.Count; i++)
+            {
+                var product = targets[i];
+                // Sin código propio de la unidad: es principal solo si ninguna presentación tiene la marca (no se le quita a otra).
+                var primary = barcodes[product.Id].All(b => !b.IsPrimary);
+                var barcode = ProductBarcode.Create(ids.NewId(), product, null, codes.Value[i], primary);
+                store.Add(barcode);
+                results[product.Id] = new GeneratedLabelCodeDto(product.Id, product.Sku, product.Name, barcode.Code, true);
+            }
+
+            var generated = targets.Select(t => results[t.Id]).ToList();
             var detail = string.Join(", ", generated.Take(20).Select(g => $"{g.Sku} → {g.Barcode}"));
             await audit.WriteAsync(
                 new AuditEntry("catalog", "PRODUCT_INTERNAL_CODES_GENERATED", "Product", generated.Count == 1 ? generated[0].ProductId : null,
@@ -443,6 +555,6 @@ internal sealed class GenerateLabelCodesHandler(ICatalogStore store, ProductWrit
                 cancellationToken);
         }
 
-        return generated;
+        return requested.Select(id => results[id]).ToList();
     }
 }

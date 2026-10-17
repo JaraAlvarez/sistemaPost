@@ -58,6 +58,8 @@ public static class TicketValidator
         SeparatorLine s when char.IsControl(s.Character) || (char.IsWhiteSpace(s.Character) && s.Character != ' ') => "carácter de separación inválido.",
         BarcodeElement b when string.IsNullOrEmpty(b.Data) || b.Data.Length > MaxBarcodeLength || b.Data.Any(c => c is < ' ' or > '~') =>
             $"el código de barras debe tener de 1 a {MaxBarcodeLength} caracteres ASCII imprimibles.",
+        BarcodeElement b when b.Symbology is not (null or BarcodeElement.Ean13 or BarcodeElement.Ean8 or BarcodeElement.Code128) =>
+            "simbología del código de barras inválida (EAN13, EAN8 o CODE128).",
         QrElement q when string.IsNullOrEmpty(q.Data) || Encoding.UTF8.GetByteCount(q.Data) > MaxQrBytes => $"el QR debe tener de 1 a {MaxQrBytes} bytes.",
         FeedElement f when f.Lines is < 0 or > 10 => "el avance de papel debe ser de 0 a 10 líneas.",
         _ => null,

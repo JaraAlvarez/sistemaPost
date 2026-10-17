@@ -1,11 +1,16 @@
 using System.Globalization;
+using Pos.SharedKernel.Finance;
 
 namespace Pos.Modules.Catalog.Domain;
 
 /// <summary>A qué aplica una promoción vista desde la etiqueta: un producto (sin presentación), un conjunto de categorías o una marca.</summary>
 public sealed record LabelPromotionTarget(Guid? ProductId, Guid? PackagingId, IReadOnlySet<Guid>? CategoryIds, Guid? BrandId);
 
-/// <summary>Promoción que rige hoy (tipos del módulo de promociones: MULTI_BUY, SPECIAL_PRICE, PERCENT_OFF, QUANTITY_PRICE o COMBO).</summary>
+/// <summary>
+/// Promoción que rige hoy (tipos del módulo de promociones: MULTI_BUY, SPECIAL_PRICE, PERCENT_OFF, QUANTITY_PRICE o COMBO). Los precios de la
+/// regla están en los términos de la lista (con o sin impuestos, igual que el precio de lista). <c>ValidTo</c>: fin de la vigencia
+/// (exclusivo); <c>HasSchedule</c>: solo rige algunos días u horas.
+/// </summary>
 public sealed record LabelPromotion(
     string Name,
     string Kind,
@@ -14,65 +19,102 @@ public sealed record LabelPromotion(
     int? PayQuantity = null,
     decimal? Price = null,
     decimal? Percent = null,
-    decimal? MinQuantity = null);
+    decimal? MinQuantity = null,
+    DateTimeOffset? ValidTo = null,
+    bool HasSchedule = false);
 
-/// <summary>Oferta que se imprime: precio de oferta por unidad base (null si la oferta es solo un texto, p. ej. "Lleve 3 pague 2") y el texto corto.</summary>
-public sealed record LabelOffer(decimal? Price, string Text);
+/// <summary>Impuesto del producto: porcentual (<c>Rate</c>, p. ej. 19) o valor fijo por unidad base (<c>FixedAmount</c>, p. ej. IBUA).</summary>
+public sealed record LabelTax(decimal? Rate, decimal? FixedAmount);
 
 /// <summary>
-/// Precios de la etiqueta: precio al público con impuestos, oferta vigente y precio por unidad de medida (kilo o litro, según el contenido
-/// neto del empaque). Puro y determinista para probarlo sin base de datos.
+/// Oferta que se imprime: precio de oferta al público por unidad base (null si la oferta es solo un texto, p. ej. "Lleve 3 pague 2"), el texto
+/// corto y el fin de la vigencia.
+/// </summary>
+public sealed record LabelOffer(decimal? Price, string Text, DateTimeOffset? ValidTo = null);
+
+/// <summary>
+/// Precios de la etiqueta calculados EXACTAMENTE como los cobra la caja para una unidad base (motor <c>SaleCalculator</c> del módulo de
+/// ventas: bruto redondeado → promoción en términos de la lista → impuestos sobre el neto). Si la lista no incluye impuestos, el IVA se
+/// calcula sobre el neto ya descontado y el impuesto fijo (IBUA, ICUI) se suma sin descuento. Una prueba compara contra el motor real.
+/// Las promociones con días u horario no van en la etiqueta (la góndola no puede decir "solo martes de 2 a 5").
 /// </summary>
 public static class LabelPricing
 {
     private static readonly CultureInfo Colombia = CultureInfo.GetCultureInfo("es-CO");
+    private static readonly RoundingPolicy Rounding = RoundingPolicy.Colombia;
 
-    /// <summary>Precio al público: si la lista no incluye impuestos se suman los porcentuales y los valores fijos por unidad.</summary>
-    public static decimal ConsumerPrice(decimal listPrice, bool includesTax, decimal ratePercent, decimal fixedPerUnit) =>
-        includesTax ? listPrice : RoundPeso((listPrice * (1m + (ratePercent / 100m))) + fixedPerUnit);
+    /// <summary>Lo que paga el cliente por una unidad base con el neto <paramref name="net"/> en términos de la lista.</summary>
+    public static decimal CheckoutPrice(decimal net, bool includesTax, IReadOnlyList<LabelTax> taxes)
+    {
+        ArgumentNullException.ThrowIfNull(taxes);
+        if (includesTax)
+        {
+            return net;
+        }
+
+        var fixedTotal = taxes.Where(t => t.Rate is null && t.FixedAmount is not null).Sum(t => Rounding.RoundMoney(t.FixedAmount!.Value));
+        var percentTotal = taxes.Where(t => t.Rate is not null).Sum(t => Rounding.RoundMoney(net * t.Rate!.Value / 100m));
+        return net + fixedTotal + percentTotal;
+    }
+
+    /// <summary>Precio normal al público por unidad base.</summary>
+    public static decimal RegularPrice(decimal listPrice, bool includesTax, IReadOnlyList<LabelTax> taxes) =>
+        CheckoutPrice(Rounding.RoundMoney(listPrice), includesTax, taxes);
 
     /// <summary>
-    /// Mejor oferta para el producto: entre las promociones de precio especial y de porcentaje gana la de menor precio (solo si queda por debajo
-    /// del precio normal); si no hay, se informa la de cantidad ("Desde 3 und") o la de lleve N pague M. Los combos no van en la etiqueta.
+    /// Mejor oferta para el producto: entre las de precio especial y porcentaje gana la que deja el menor precio al público (solo si baja el
+    /// normal); si no hay, se informa la de cantidad ("Desde 3 und: $ X c/u") o la de lleve N pague M. Los combos y las promociones con días u
+    /// horario no van en la etiqueta.
     /// </summary>
-    public static LabelOffer? BestOffer(Guid productId, Guid categoryId, Guid? brandId, decimal? regularPrice, IEnumerable<LabelPromotion> promotions)
+    public static LabelOffer? BestOffer(
+        Guid productId, Guid categoryId, Guid? brandId, decimal? listPrice, bool includesTax, IReadOnlyList<LabelTax> taxes,
+        IEnumerable<LabelPromotion> promotions)
     {
         ArgumentNullException.ThrowIfNull(promotions);
-        var applicable = promotions.Where(p => p.Targets.Any(t => Matches(t, productId, categoryId, brandId))).ToList();
-        var priced = new List<(decimal Price, string Text)>();
+        ArgumentNullException.ThrowIfNull(taxes);
+        var applicable = promotions.Where(p => !p.HasSchedule && p.Targets.Any(t => Matches(t, productId, categoryId, brandId))).ToList();
+        if (listPrice is not { } list)
+        {
+            var onlyText = applicable.Where(p => p is { Kind: "MULTI_BUY", BuyQuantity: > 0, PayQuantity: >= 0 } && p.BuyQuantity > p.PayQuantity).FirstOrDefault();
+            return onlyText is null ? null : new LabelOffer(null, MultiBuyText(onlyText), onlyText.ValidTo);
+        }
+
+        var gross = Rounding.RoundMoney(list);
+        var regular = CheckoutPrice(gross, includesTax, taxes);
+        var priced = new List<(decimal Price, string Text, DateTimeOffset? ValidTo)>();
         foreach (var promotion in applicable)
         {
             switch (promotion.Kind)
             {
                 case "SPECIAL_PRICE" when promotion.Price is { } price && price > 0m:
-                    priced.Add((price, "Precio especial"));
+                    priced.Add((CheckoutPrice(gross - Math.Clamp(gross - Rounding.RoundMoney(price), 0m, gross), includesTax, taxes), "Precio especial",
+                        promotion.ValidTo));
                     break;
-                case "PERCENT_OFF" when promotion.Percent is { } percent && regularPrice is { } regular && percent > 0m:
-                    priced.Add((RoundPeso(regular * (1m - (Math.Min(percent, 100m) / 100m))), $"Ahorre {percent.ToString("0.##", Colombia)} %"));
+                case "PERCENT_OFF" when promotion.Percent is { } percent && percent > 0m:
+                    var discount = Math.Clamp(Rounding.RoundMoney(gross * percent / 100m), 0m, gross);
+                    priced.Add((CheckoutPrice(gross - discount, includesTax, taxes), $"Ahorre {percent.ToString("0.##", Colombia)} %", promotion.ValidTo));
                     break;
                 default:
                     break;
             }
         }
 
-        if (priced.Where(p => regularPrice is null || p.Price < regularPrice).OrderBy(p => p.Price).ThenBy(p => p.Text, StringComparer.Ordinal).FirstOrDefault()
-            is { Text: not null } best)
+        if (priced.Where(p => p.Price < regular).OrderBy(p => p.Price).ThenBy(p => p.Text, StringComparer.Ordinal).FirstOrDefault() is { Text: not null } best)
         {
-            return new LabelOffer(best.Price, best.Text);
+            return new LabelOffer(best.Price, best.Text, best.ValidTo);
         }
 
-        var quantity = applicable.Where(p => p is { Kind: "QUANTITY_PRICE", Price: > 0m, MinQuantity: > 0m })
+        var quantity = applicable.Where(p => p is { Kind: "QUANTITY_PRICE", Price: > 0m, MinQuantity: > 0m } && Rounding.RoundMoney(p.Price!.Value) < gross)
             .OrderBy(p => p.Price).FirstOrDefault();
-        if (quantity is not null && (regularPrice is null || quantity.Price < regularPrice))
+        if (quantity is not null)
         {
-            return new LabelOffer(null, $"Desde {quantity.MinQuantity!.Value.ToString("0.###", Colombia)} und: {Money(quantity.Price!.Value)} c/u");
+            var each = CheckoutPrice(Rounding.RoundMoney(quantity.Price!.Value), includesTax, taxes);
+            return new LabelOffer(null, $"Desde {quantity.MinQuantity!.Value.ToString("0.###", Colombia)} und: {Money(each)} c/u", quantity.ValidTo);
         }
 
         var multi = applicable.Where(p => p is { Kind: "MULTI_BUY", BuyQuantity: > 0, PayQuantity: >= 0 } && p.BuyQuantity > p.PayQuantity)
             .OrderByDescending(p => (decimal)(p.BuyQuantity!.Value - p.PayQuantity!.Value) / p.BuyQuantity.Value).FirstOrDefault();
-        return multi is null
-            ? null
-            : new LabelOffer(null, string.Create(Colombia, $"Lleve {multi.BuyQuantity} pague {multi.PayQuantity}"));
+        return multi is null ? null : new LabelOffer(null, MultiBuyText(multi), multi.ValidTo);
     }
 
     /// <summary>
@@ -94,13 +136,16 @@ public static class LabelPricing
             "L" => (1m, "litro"),
             _ => (0m, string.Empty),
         };
-        return factor == 0m ? null : $"{Money(RoundPeso(value / netContent.Value * factor))} por {unit}";
+        return factor == 0m ? null : $"{Money(value / netContent.Value * factor)} por {unit}";
     }
 
-    /// <summary>Dinero en pesos colombianos sin decimales: <c>$ 12.500</c>.</summary>
-    public static string Money(decimal value) => "$ " + RoundPeso(value).ToString("N0", Colombia);
+    /// <summary>
+    /// Dinero en pesos sin decimales: <c>$ 12.500</c>. Los centavos se redondean HACIA ARRIBA para que el precio exhibido nunca quede por
+    /// debajo de lo que cobra la caja.
+    /// </summary>
+    public static string Money(decimal value) => "$ " + decimal.Ceiling(value).ToString("N0", Colombia);
 
-    public static decimal RoundPeso(decimal value) => decimal.Round(value, 0, MidpointRounding.AwayFromZero);
+    private static string MultiBuyText(LabelPromotion multi) => string.Create(Colombia, $"Lleve {multi.BuyQuantity} pague {multi.PayQuantity}");
 
     private static bool Matches(LabelPromotionTarget target, Guid productId, Guid categoryId, Guid? brandId)
     {

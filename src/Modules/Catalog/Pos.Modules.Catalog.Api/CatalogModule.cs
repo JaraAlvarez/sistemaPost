@@ -33,6 +33,7 @@ public sealed class CatalogModule : IModule
         services.AddScoped<PriceService>();
         services.AddScoped<CatalogImportService>();
         services.AddScoped<LabelBuilder>();
+        services.AddScoped<LabelBranch>();
         services.AddScoped<ICompanyInitializer, CatalogInitializer>();
         services.AddScoped<IBusinessStarterData, CatalogStarterData>();
         services.AddSingleton<ISettingDefinitionProvider, CatalogSettingsProvider>();

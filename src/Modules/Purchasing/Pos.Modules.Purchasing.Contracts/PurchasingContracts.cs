@@ -330,8 +330,8 @@ public sealed record ReceivedPurchase(Guid Id, string Number, string Status, str
 public interface IPurchaseReceipts
 {
     /// <summary>
-    /// Compra por su número interno (sin distinguir mayúsculas) o, si no hay, por el número de la factura del proveedor; la más reciente de
-    /// la sucursal de este equipo primero. Null si no existe.
+    /// Compra de la sucursal por su número interno (sin distinguir mayúsculas) o por su Id. No busca por la factura del proveedor: ese
+    /// número se repite entre proveedores. Null si no existe en esa sucursal.
     /// </summary>
-    Task<ReceivedPurchase?> FindAsync(string number, CancellationToken cancellationToken = default);
+    Task<ReceivedPurchase?> FindAsync(string numberOrId, Guid branchId, CancellationToken cancellationToken = default);
 }

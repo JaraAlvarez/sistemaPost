@@ -138,6 +138,40 @@ public class EscPosEncoderTests
     }
 
     [Fact]
+    public void Codigo_EAN13_usa_la_funcion_EAN_de_la_impresora()
+    {
+        Body(new BarcodeElement("7702177000014", BarcodeElement.Ean13)).ShouldBe(Concat(
+            [0x1B, 0x61, 0x01],
+            [0x1D, 0x68, 80, 0x1D, 0x77, 0x03, 0x1D, 0x48, 0x02],
+            [0x1D, 0x6B, 67, 13],
+            Ascii("7702177000014"),
+            [0x0A, 0x1B, 0x61, 0x00]));
+
+        // Dígito de control inválido: no se manda como EAN (la impresora lo rechazaría) sino en CODE128.
+        Body(new BarcodeElement("7702177000015", BarcodeElement.Ean13))[12..15].ShouldBe([0x1D, 0x6B, 73]);
+    }
+
+    [Fact]
+    public void Codigo128_numerico_par_va_en_el_subconjunto_C()
+    {
+        var bytes = Body(new BarcodeElement("12345678", BarcodeElement.Code128));
+
+        bytes[12..16].ShouldBe([0x1D, 0x6B, 73, 6]);
+        bytes[16..22].ShouldBe([(byte)'{', (byte)'C', 12, 34, 56, 78]);
+    }
+
+    [Fact]
+    public void El_ancho_de_las_barras_se_ajusta_al_papel_y_si_no_cabe_se_imprime_el_texto()
+    {
+        // 20 caracteres en CODE128 B = 11 × 22 + 13 + 20 = 275 módulos: a 2 puntos cabe en 80 mm (576) pero no en 58 mm (384).
+        var code = "ABCDEFGHIJKLMNOPQRST";
+        Body(new BarcodeElement(code, BarcodeElement.Code128))[6..9].ShouldBe([0x1D, 0x77, 0x02]);
+
+        var narrow = Body(new BarcodeElement(code, BarcodeElement.Code128), new PrinterOptions(TicketLayout.Columns58Mm));
+        narrow.ShouldBe(Concat([0x1B, 0x61, 0x01], Ascii(code), [0x0A, 0x1B, 0x61, 0x00]));
+    }
+
+    [Fact]
     public void Codigo_de_barras_largo_o_con_tildes()
     {
         var bytes = Body(new BarcodeElement(new string('9', 300)));
