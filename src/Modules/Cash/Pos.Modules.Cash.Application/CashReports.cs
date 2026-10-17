@@ -107,17 +107,19 @@ public static class CashReports
             Center(text, "CIERRE POR SUPERVISOR");
         }
 
-        // Créditos de Sistecrédito aprobados que no se usaron en la venta: no son plata de la caja; se reversan en el portal.
+        // Cobros de Sistecrédito por revisar (no usados, aprobados tarde, de ventas anuladas…): no son plata de la caja.
         if (r.SistecreditoNotUsed is { Count: > 0 } notUsed)
         {
             Line(text, '-');
-            Pair(text, $"SISTECRÉDITO NO USADO ({notUsed.Count.ToString(CultureInfo.InvariantCulture)})", Money(notUsed.Sum(n => n.Amount)));
+            Pair(text, $"SISTECREDITO A REVISAR ({notUsed.Count.ToString(CultureInfo.InvariantCulture)})", Money(notUsed.Sum(n => n.Amount)));
             foreach (var n in notUsed)
             {
-                Pair(text, $"  {n.MaskedDocument} {(n.Reviewed ? "revisado" : "por reversar")}", Money(n.Amount));
+                // El documento con "*" (no "•"): las impresoras de tiquetes no siempre tienen ese carácter.
+                var document = n.MaskedDocument.Replace('•', '*');
+                Pair(text, $"  {document} {(n.Reviewed ? "revisado" : n.Released ? "no usado" : "por revisar")}", Money(n.Amount));
             }
 
-            Wrap(text, "No es plata de la caja: la administración lo reversa en el portal de Sistecrédito.");
+            Wrap(text, "No es plata de la caja: la administración lo revisa y lo reversa en el portal de Sistecrédito.");
         }
 
         if (r.Kind == "Z")
@@ -177,11 +179,37 @@ public static class CashReports
         text.Append(Fit(label, Math.Max(room, 1))).Append(' ').Append(value).Append('\n');
     }
 
+    /// <summary>Parte el texto por palabras en renglones del ancho del papel; una palabra más larga que el renglón se corta.</summary>
     private static void Wrap(StringBuilder text, string value)
     {
-        for (var i = 0; i < value.Length; i += Width)
+        var line = new StringBuilder();
+        foreach (var word in value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            text.Append(value.AsSpan(i, Math.Min(Width, value.Length - i))).Append('\n');
+            var rest = word;
+            while (rest.Length > 0)
+            {
+                var room = line.Length == 0 ? Width : Width - line.Length - 1;
+                if (rest.Length <= room)
+                {
+                    line.Append(line.Length == 0 ? string.Empty : " ").Append(rest);
+                    rest = string.Empty;
+                }
+                else if (line.Length > 0)
+                {
+                    text.Append(line).Append('\n');
+                    line.Clear();
+                }
+                else
+                {
+                    text.Append(rest.AsSpan(0, Width)).Append('\n');
+                    rest = rest[Width..];
+                }
+            }
+        }
+
+        if (line.Length > 0)
+        {
+            text.Append(line).Append('\n');
         }
     }
 }

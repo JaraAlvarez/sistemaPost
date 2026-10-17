@@ -148,10 +148,10 @@ else
                             var porReversar = noUsados.Where(n => !n.Reviewed).ToList();
                             var revisados = noUsados.Where(n => n.Reviewed).ToList();
                             <MudAlert Severity="@(porReversar.Count > 0 ? Severity.Warning : Severity.Info)" Dense="true" Class="mt-2">
-                                Créditos de Sistecrédito aprobados que NO se usaron en este turno (no son plata de la caja).
+                                Cobros con Sistecrédito de este turno que la administración debe revisar (no usados en la venta, aprobados tarde…): no son plata de la caja.
                                 @if (porReversar.Count > 0)
                                 {
-                                    <div>Por reversar en el portal de Sistecrédito: @string.Join(", ", porReversar.Select(n => $"{Format.Money(n.Amount)} ({n.MaskedDocument})")).</div>
+                                    <div>Por revisar y reversar en el portal de Sistecrédito: @string.Join(", ", porReversar.Select(n => $"{Format.Money(n.Amount)} ({n.MaskedDocument})")).</div>
                                 }
                                 @if (revisados.Count > 0)
                                 {
