@@ -79,6 +79,16 @@ public class CatalogInventorySchemaTests(PostgresFixture postgres)
                 """,
                 app)))
             .ConstraintName.ShouldBe("ck_products__decimals");
+
+        // Fase 7-C: la tara (g) solo en productos por peso.
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                $"""
+                INSERT INTO catalog.products (id, company_id, sku, name, short_name, category_id, base_unit_code, sale_mode, product_type, tare_grams,
+                    search_text, status, created_at, created_by)
+                VALUES (gen_random_uuid(), '{Company}', 'P3', 'Jabón', 'Jabón', '{category}', 'UND', 'UNIT', 'STOCKABLE', 10, 'jabon', 'ACTIVE', now(), '{User}')
+                """,
+                app)))
+            .ConstraintName.ShouldBe("ck_products__tare");
     }
 
     [Fact]

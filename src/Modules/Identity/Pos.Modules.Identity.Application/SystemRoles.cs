@@ -47,7 +47,7 @@ public static class SystemRoles
              CashPermissions.SessionOperate, CashPermissions.MovementWithdraw, CashPermissions.DrawerOpen, CashPermissions.SessionCloseAny,
              CashPermissions.SessionReview, CashPermissions.ReportView, InventoryPermissions.AdjustmentQuick,
              SalesPermissions.SaleCreate, SalesPermissions.LineVoid, SalesPermissions.DiscountApply, SalesPermissions.PriceOverride, SalesPermissions.SaleCancel,
-             SalesPermissions.SaleVoid, SalesPermissions.ExpiredSell, SalesPermissions.ExchangeCreate, SalesPermissions.SaleReprint, SalesPermissions.SaleView,
+             SalesPermissions.SaleVoid, SalesPermissions.ExpiredSell, SalesPermissions.ManualWeight, SalesPermissions.ExchangeCreate, SalesPermissions.SaleReprint, SalesPermissions.SaleView,
              PromotionsPermissions.PromotionView, CustomersPermissions.CustomerView, CustomersPermissions.CustomerQuickCreate, CustomersPermissions.CustomerManage,
              CustomersPermissions.HistoryView, ReportingPermissions.SalesBasic, ReportingPermissions.CashView, ReportingPermissions.AntifraudView,
              BillingPermissions.DocumentView, BillingPermissions.DocumentManage]),

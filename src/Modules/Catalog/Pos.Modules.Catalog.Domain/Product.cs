@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Pos.SharedKernel;
 using Pos.SharedKernel.Domain;
 using Pos.SharedKernel.Finance;
+using Pos.SharedKernel.Measurement;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Text;
 
@@ -49,7 +50,8 @@ public sealed record ProductData(
     bool TracksExpiry,
     string? PluCode,
     decimal? NetContent,
-    string? NetContentUnit);
+    string? NetContentUnit,
+    int TareGrams = 0);
 
 /// <summary>
 /// Producto (doc 04 §H.5). El SKU y el PLU son únicos en la empresa; la unidad base y el tipo quedan fijos cuando el
@@ -61,6 +63,9 @@ public sealed partial class Product : AggregateRoot<Guid>, ICompanyOwned, ISoftD
     public const string ScaleUnit = "KG";
 
     public const int MaxNameLength = 200;
+
+    /// <summary>Tara máxima de un empaque (bandeja grande).</summary>
+    public const int MaxTareGrams = 5000;
 
     public const int MaxShortNameLength = 40;
 
@@ -108,6 +113,11 @@ public sealed partial class Product : AggregateRoot<Guid>, ICompanyOwned, ISoftD
     public decimal? NetContent { get; private set; }
 
     public string? NetContentUnit { get; private set; }
+
+    /// <summary>
+    /// Tara del empaque (bolsa, bandeja) en gramos que se descuenta sola al leer la báscula conectada (Fase 7-C). Solo productos por peso.
+    /// </summary>
+    public int TareGrams { get; private set; }
 
     [NotAudited]
     public string SearchText { get; private set; } = string.Empty;
@@ -200,9 +210,16 @@ public sealed partial class Product : AggregateRoot<Guid>, ICompanyOwned, ISoftD
             return CatalogErrors.InvalidPlu;
         }
 
-        if (data.IsSoldByScale && (data.SaleMode != SaleMode.Weight || baseUnit != ScaleUnit || plu is null))
+        // Fase 7-C: "Se vende por báscula" = la caja lee la báscula conectada al registrarlo. Basta que se venda por peso (kg, g, libra de
+        // 500 g o libra); el PLU solo hace falta para las etiquetas de la báscula etiquetadora.
+        if (data.IsSoldByScale && (data.SaleMode != SaleMode.Weight || !WeightUnits.IsWeight(baseUnit)))
         {
             return CatalogErrors.ScaleRequiresWeight;
+        }
+
+        if (data.TareGrams is < 0 or > MaxTareGrams || (data.TareGrams > 0 && data.SaleMode != SaleMode.Weight))
+        {
+            return CatalogErrors.InvalidTare;
         }
 
         if (data.ProductType == ProductType.Service && (data.TracksLots || data.TracksExpiry))
@@ -236,6 +253,7 @@ public sealed partial class Product : AggregateRoot<Guid>, ICompanyOwned, ISoftD
         TracksLots = data.TracksLots;
         TracksExpiry = data.TracksExpiry;
         PluCode = plu;
+        TareGrams = data.TareGrams;
         NetContent = data.NetContent;
         NetContentUnit = string.IsNullOrWhiteSpace(data.NetContentUnit) ? null : data.NetContentUnit.Trim().ToUpperInvariant();
         SearchText = Truncate(TextNormalization.ForSearch($"{name} {shortName} {sku}"), 400);

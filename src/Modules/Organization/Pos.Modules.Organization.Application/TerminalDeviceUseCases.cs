@@ -63,3 +63,58 @@ internal sealed class SetReceiptPrinterHandler(IOrganizationStore store, IIdGene
         return device.ToDto(configured: true);
     }
 }
+
+internal static class TerminalScaleMapping
+{
+    public static TerminalScaleDto ToDto(this TerminalScale s, bool configured) => new(
+        s.PosTerminalId, configured, s.Enabled, s.Driver, s.Port, s.BaudRate, s.DataBits, s.Parity, s.StopBits, s.ReadMode, s.RequestCommand, s.TimeoutMs,
+        s.Decimals, s.Brand, s.Model, s.CatalogCode, s.StableWaitSeconds, s.EmptyWaitSeconds, s.AllowManualWeight);
+}
+
+/// <summary>Báscula de la caja (Fase 7-C). Sin fila: <c>Configured</c> = false y la caja trabaja sin báscula.</summary>
+public sealed record GetTerminalScaleQuery(Guid PosTerminalId) : IQuery<TerminalScaleDto>;
+
+internal sealed class GetTerminalScaleHandler(IOrganizationStore store) : IQueryHandler<GetTerminalScaleQuery, TerminalScaleDto>
+{
+    public async Task<Result<TerminalScaleDto>> Handle(GetTerminalScaleQuery request, CancellationToken cancellationToken)
+    {
+        var terminal = await store.GetTerminalAsync(request.PosTerminalId, cancellationToken);
+        if (terminal is null)
+        {
+            return OrganizationErrors.TerminalNotFound;
+        }
+
+        var scale = await store.GetTerminalScaleAsync(terminal.Id, cancellationToken);
+        return scale is null ? TerminalScale.Defaults(Guid.Empty, terminal.CompanyId, terminal.Id).ToDto(configured: false) : scale.ToDto(configured: true);
+    }
+}
+
+public sealed record SetTerminalScaleCommand(Guid PosTerminalId, ScaleConfiguration Configuration) : ICommand<TerminalScaleDto>;
+
+internal sealed class SetTerminalScaleHandler(IOrganizationStore store, IIdGenerator ids) : ICommandHandler<SetTerminalScaleCommand, TerminalScaleDto>
+{
+    public async Task<Result<TerminalScaleDto>> Handle(SetTerminalScaleCommand request, CancellationToken cancellationToken)
+    {
+        var terminal = await store.GetTerminalAsync(request.PosTerminalId, cancellationToken);
+        if (terminal is null)
+        {
+            return OrganizationErrors.TerminalNotFound;
+        }
+
+        var scale = await store.GetTerminalScaleAsync(terminal.Id, cancellationToken);
+        var isNew = scale is null;
+        scale ??= TerminalScale.Defaults(ids.NewId(), terminal.CompanyId, terminal.Id);
+        var configured = scale.Configure(request.Configuration);
+        if (configured.IsFailure)
+        {
+            return configured.Error;
+        }
+
+        if (isNew)
+        {
+            store.Add(scale);
+        }
+
+        return scale.ToDto(configured: true);
+    }
+}

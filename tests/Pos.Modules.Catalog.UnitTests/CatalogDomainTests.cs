@@ -124,9 +124,9 @@ public class ProductTests
 {
     private static ProductData Data(
         string sku = "LECHE-1", string unit = "UND", string dimension = "UNIT", SaleMode mode = SaleMode.Unit, bool scale = false, string? plu = null,
-        ProductType type = ProductType.Stockable, bool lots = false, bool expiry = false, decimal? content = null, string? contentUnit = null) =>
+        ProductType type = ProductType.Stockable, bool lots = false, bool expiry = false, decimal? content = null, string? contentUnit = null, int tare = 0) =>
         new(sku, " Leche entera Alquería 1100 ml ", null, null, Guid.CreateVersion7(), null, unit, dimension, mode, type, scale, false, false, lots, expiry, plu,
-            content, contentUnit);
+            content, contentUnit, tare);
 
     [Fact]
     public void Un_producto_normaliza_sku_nombre_corto_y_texto_de_busqueda()
@@ -142,16 +142,33 @@ public class ProductTests
     }
 
     [Fact]
-    public void Peso_permite_decimales_y_bascula_exige_kilos_y_PLU()
+    public void Peso_permite_decimales_y_bascula_exige_venta_por_peso()
     {
         var weighed = Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "KG", dimension: "WEIGHT", mode: SaleMode.Weight, scale: true, plu: "00123")).Value;
         weighed.AllowsDecimalQuantity.ShouldBeTrue();
         weighed.PluCode.ShouldBe("123");
 
+        // Fase 7-C: la báscula conectada no necesita PLU y acepta gramos o libra de 500 g.
+        Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "LB500", dimension: "WEIGHT", mode: SaleMode.Weight, scale: true))
+            .IsSuccess.ShouldBeTrue();
         Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "G", dimension: "WEIGHT", mode: SaleMode.Weight, scale: true, plu: "1"))
+            .IsSuccess.ShouldBeTrue();
+        Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "L", dimension: "VOLUME", mode: SaleMode.Volume, scale: true))
             .Error.ShouldBe(CatalogErrors.ScaleRequiresWeight);
         Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(scale: true, plu: "1")).Error.ShouldBe(CatalogErrors.ScaleRequiresWeight);
         Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "KG", dimension: "WEIGHT")).Error.ShouldBe(CatalogErrors.UnitDoesNotMatchSaleMode);
+    }
+
+    [Fact]
+    public void Tara_en_gramos_solo_para_productos_por_peso()
+    {
+        Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "KG", dimension: "WEIGHT", mode: SaleMode.Weight, scale: true, tare: 15))
+            .Value.TareGrams.ShouldBe(15);
+        Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(tare: 15)).Error.ShouldBe(CatalogErrors.InvalidTare);
+        Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "KG", dimension: "WEIGHT", mode: SaleMode.Weight, tare: 5001))
+            .Error.ShouldBe(CatalogErrors.InvalidTare);
+        Product.Create(Guid.CreateVersion7(), Guid.CreateVersion7(), Data(unit: "KG", dimension: "WEIGHT", mode: SaleMode.Weight, tare: -1))
+            .Error.ShouldBe(CatalogErrors.InvalidTare);
     }
 
     [Theory]

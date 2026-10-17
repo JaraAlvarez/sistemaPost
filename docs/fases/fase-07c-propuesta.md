@@ -135,3 +135,24 @@ La lectura de la báscula es **automática** según el producto, no por un botó
 5. La línea guarda si el peso fue **leído de la báscula**, **de la etiqueta** o **digitado** (auditoría y reportes).
 
 Esto reemplaza en §4 el botón "Pesar" y el "agregar automáticamente al estabilizar" opcional.
+
+## Informe 7-C (partes B y C) — 2026-10-17
+
+**Hecho** (rama `basculas`; migraciones V2026.10.040–042, numeradas para no chocar con la 035 de otra rama):
+
+| Parte | Qué quedó |
+|---|---|
+| B · Agente | Drivers **Toledo 8217** (pide "W"; `STX 00.700 CR` o `STX ? estado CR`), **CAS 22 bytes** (`ST/US/OL,GS/NT,…kg`) y **genérico**; simulador en memoria; endpoints `/scale/status`, `/scale/weight`, `/scale/stream` (SSE), `/scale/tare`, `/scale/config`, `/scale/test` y `/scale/simulator` (solo desarrollo). Configuración guardada en `C:\ProgramData\BusinessPost\agent\scale.json`. |
+| B · Servidor | Tabla `org.terminal_scales` (una por caja): driver, puerto y opciones serie, marca, modelo y código de catálogo (listo para la parte D), tiempos de espera (3 s / 5 s) y "permitir digitar el peso". `GET/PUT /organization/terminals/{id}/scale`. La caja la entrega a su agente al abrir. |
+| B · Administración | Configuración → Cajas e impresoras → **Báscula**: marca/protocolo, puerto (lista del agente), opciones avanzadas, **Probar báscula** con peso en vivo, "Estable", tara y quitar tara. |
+| C · Producto | "Se vende por báscula" ya no exige PLU ni kilos (cualquier unidad de peso); campo **Tara (g)**; unidad **Libra (500 g)** (`LB500`), que la factura electrónica envía en kilos (KGM). |
+| C · Caja | Lectura automática al registrar (sin botón Pesar): espera peso estable, avisa báscula vacía, sobrepeso o negativo; sin báscula, peso digitado con permiso `sales.weight.manual` o supervisor; tecla **Ins** = tara manual. |
+| C · Venta y tiquete | Origen del peso por línea: **SCALE** (báscula), **LABEL** (etiqueta) o **MANUAL** (digitado, auditado `SALE_MANUAL_WEIGHT`); cada pesada en su línea; tiquete "0,700 kg x $3.000/kg" y "(digitado)". |
+
+**Pruebas**: agente 107/107 · Sales 76/76 · Catalog 41/41 · Organization 37/37 · SharedKernel 103/103 · Factus 56/56 ·
+ArchitectureTests 23/23 · Database.Tests 79/79 · integración (báscula, ventas y catálogo, filtradas) correctas. Servidor y agente
+compilan en Release sin advertencias.
+
+**Pendiente (necesita una báscula real)**: confirmar con el equipo el formato exacto de su protocolo (decimales, STX, paridad), la
+estabilidad en modo continuo de CAS y el comportamiento del cable USB-serial; afinar los tiempos de espera en la tienda. La galería y
+el catálogo de básculas (parte D) y los perfiles de negocio (parte A) siguen pendientes.

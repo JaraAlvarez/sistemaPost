@@ -22,6 +22,7 @@ builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.H
 builder.Services.AddScoped<SessionState>();
 builder.Services.AddScoped<ApiClient>();
 builder.Services.AddScoped<AgentPrinter>();
+builder.Services.AddScoped<AgentScale>();
 builder.Services.AddScoped<Tema>();
 builder.Services.AddScoped<Bodegas>();
 builder.Services.AddMudServices(options =>

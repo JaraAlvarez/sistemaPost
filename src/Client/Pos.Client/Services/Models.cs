@@ -33,7 +33,7 @@ public sealed record DeviceCredential(Guid DeviceId, string DeviceSecret, string
 
 public sealed record SaleLine(
     Guid Id, int LineNo, Guid ProductId, string Sku, string Name, decimal Quantity, decimal UnitPrice, decimal Gross, string? PromotionName,
-    decimal PromotionDiscount, decimal LineDiscount, decimal Total, string Status);
+    decimal PromotionDiscount, decimal LineDiscount, decimal Total, string Status, string? BaseUnitCode = null, string? WeightSource = null);
 
 public sealed record SalePayment(Guid Id, Guid PaymentMethodId, string MethodCode, decimal Tendered, decimal Applied, decimal Change, string? Reference);
 
@@ -93,6 +93,8 @@ public sealed record ScanResult(
     bool PriceIncludesTax,
     IReadOnlyList<ScanTax> Taxes,
     bool IsSellable,
-    IReadOnlyList<string> NotSellableReasons);
+    IReadOnlyList<string> NotSellableReasons,
+    bool IsSoldByScale = false,
+    int TareGrams = 0);
 
 public sealed record ScanTax(string Code, string Kind, decimal? Rate, decimal? FixedAmount);
