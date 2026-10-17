@@ -125,6 +125,23 @@ public class ScaleDriverTests
     }
 
     [Theory]
+    [InlineData("ST,GS,10" + "0000.700" + "kg", 0.700)]   // id '1' y lámparas '0': antes se leía 100000,7 kg
+    [InlineData("ST,GS,1\u00C1" + "  +0.700" + "  kg", 0.700)] // con los bytes vacíos antes de la unidad
+    [InlineData("ST,GS,1\u00C1," + "  +1.250" + "kg", 1.250)]  // con coma después de las lámparas
+    [InlineData("ST,GS,\u0001\u00C1" + "-  0.120" + "kg", -0.120)]
+    [InlineData("ST,GS,7A" + "   2.500" + "kg", 2.500)]
+    public void Cas_22_bytes_lee_el_peso_por_posicion_sin_pegar_identificador_ni_lamparas(string frame, decimal kg) =>
+        Cas.Parse(frame, 3)!.WeightKg.ShouldBe(kg);
+
+    [Fact]
+    public void Cas_variante_corta_con_signo_sigue_leyendo_el_cuerpo_entero()
+    {
+        Cas.Parse("ST,GS,-00000.120kg", 3)!.WeightKg.ShouldBe(-0.120m);
+        Cas.Parse("ST,GS,     0.700kg", 3)!.WeightKg.ShouldBe(0.700m);
+        Cas.Parse("ST,GS,1\u00C1+0.7x00kg", 3).ShouldBeNull();
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("GS,+0000.700kg")]
     [InlineData(",+0000.700kg")]
@@ -142,6 +159,26 @@ public class ScaleDriverTests
     [InlineData("+0700 g", 0.700)]
     [InlineData("1.5 lb", 0.680)]
     public void Generico_toma_el_ultimo_numero_y_su_unidad(string frame, decimal kg) => Generic.Parse(frame, 3)!.WeightKg.ShouldBe(kg);
+
+    [Theory]
+    [InlineData("NET   0.000 kg")]
+    [InlineData("N.W.  1.250kg")]
+    [InlineData("PESO NETO 0.500 kg")]
+    [InlineData("NT0.500kg")]
+    [InlineData("NETO 0.500 kg")]
+    [InlineData("NET0.500kg")]
+    [InlineData("0.500NET kg")]
+    [InlineData("0.500kg NT")]
+    [InlineData("ST,NT,+0000.500kg")]
+    public void Generico_reconoce_el_peso_neto_de_la_tara_fisica(string frame) => Generic.Parse(frame, 3)!.Net.ShouldBeTrue();
+
+    [Theory]
+    [InlineData("  0.500 kg")]
+    [InlineData("G.W.  0.500kg")]
+    [InlineData("PESO BRUTO 0.500 kg")]
+    [InlineData("UNIT 0.500 kg")]
+    [InlineData("NETWORK 0.500 kg")]
+    public void Generico_sin_marca_de_neto_es_bruto(string frame) => Generic.Parse(frame, 3)!.Net.ShouldBeFalse();
 
     [Fact]
     public void Generico_reconoce_US_y_OL_y_rechaza_texto_sin_numero()
@@ -228,6 +265,105 @@ public class ScaleDriverTests
     }
 
     [Fact]
+    public void Toledo_continuo_se_sincroniza_con_STX_y_descarta_la_trama_cortada()
+    {
+        // "0.700\r" es la cola de "STX 10.700 CR" (el búfer se vació a mitad de trama): antes se leía 0,700 kg.
+        var device = new SimulatedScale();
+        device.Set(10.700m);
+        using var connection = new SimulatedScaleConnection(device, SimulatedProtocol.Toledo8217, continuous: true)
+        {
+            Noise = "0.700\r"u8.ToArray(),
+        };
+
+        var reading = ScaleProtocolReader.Read(connection, Toledo, Target(ScaleDrivers.Toledo8217Code, ScaleReadMode.Continuous));
+
+        reading.WeightKg.ShouldBe(10.700m);
+        connection.Received.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Toledo_continuo_toma_desde_el_ultimo_STX_aunque_llegue_con_el_bit_de_paridad()
+    {
+        var device = new SimulatedScale();
+        device.Set(10.700m);
+        using var connection = new SimulatedScaleConnection(device, SimulatedProtocol.Toledo8217, continuous: true)
+        {
+            Noise = [.. "5.1"u8, 0x82, .. "02.500"u8, 0x0D],
+        };
+
+        ScaleProtocolReader.Read(connection, Toledo, Target(ScaleDrivers.Toledo8217Code, ScaleReadMode.Continuous)).WeightKg.ShouldBe(2.500m);
+    }
+
+    [Fact]
+    public void Un_peso_fuera_de_rango_es_una_trama_con_error_y_no_revienta()
+    {
+        // Genérico con decimales mal configurados o basura con muchos dígitos.
+        var reading = Generic.Parse("99999999999999999999 kg", 3).ShouldNotBeNull();
+
+        var weight = ScaleService.Build(reading, stable: true, tareKg: 0m, zeroBandKg: 0.02m, DateTimeOffset.UnixEpoch);
+
+        weight.Status.ShouldBe(ScaleWeightDto.Error);
+        (weight.WeightKg, weight.Grams, weight.Stable).ShouldBe(((decimal?)null, (int?)null, false));
+        ScaleService.Build(new ScaleReading(ScaleService.MaxReadableKg, Stable: true), true, 0m, 0.02m, DateTimeOffset.UnixEpoch).Grams.ShouldBe(99_999_000);
+    }
+
+    [Theory]
+    [InlineData(0.002, 0.020, ScaleWeightDto.ZeroWeight)]
+    [InlineData(-0.005, 0.020, ScaleWeightDto.ZeroWeight)]
+    [InlineData(-0.030, 0.020, ScaleWeightDto.NegativeWeight)]
+    [InlineData(0.020, 0.020, ScaleWeightDto.ZeroWeight)]
+    [InlineData(0.021, 0.020, ScaleWeightDto.Ok)]
+    [InlineData(0.001, 0, ScaleWeightDto.Ok)]
+    [InlineData(0, 0, ScaleWeightDto.ZeroWeight)]
+    public void Banda_de_cero(decimal kg, decimal band, string expected) =>
+        ScaleService.Build(new ScaleReading(kg, Stable: true, UnderZero: kg < 0m), true, 0m, band, DateTimeOffset.UnixEpoch).Status.ShouldBe(expected);
+
+    [Fact]
+    public void Toledo_continuo_con_velocidad_o_paridad_equivocada_dice_que_respondio_en_otro_formato()
+    {
+        // Con la velocidad equivocada llegan bytes sin STX (y a veces sin fin de línea): antes decía "no respondió".
+        using var connection = new NoiseConnection([0x6B, 0x33, 0x0D, 0x7F, 0x66, 0x0A, 0x31]);
+
+        var error = Should.Throw<TimeoutException>(() => ScaleProtocolReader.Read(
+            connection, Toledo, Target(ScaleDrivers.Toledo8217Code, ScaleReadMode.Continuous, timeoutMs: 200)));
+
+        error.Message.ShouldContain("respondió, pero no en el formato");
+        error.Message.ShouldContain("velocidad");
+    }
+
+    [Fact]
+    public void Basura_sin_ningun_fin_de_linea_tambien_cuenta_como_respuesta()
+    {
+        using var connection = new NoiseConnection([0x00, 0x7F, 0x55, 0x55]);
+
+        Should.Throw<TimeoutException>(() => ScaleProtocolReader.Read(connection, Cas, Target(ScaleDrivers.CasCode, timeoutMs: 200)))
+            .Message.ShouldContain("respondió, pero no en el formato");
+    }
+
+    /// <summary>Puerto que solo entrega ruido (velocidad o paridad equivocadas).</summary>
+    private sealed class NoiseConnection(byte[] noise) : IScaleConnection
+    {
+        public void Write(ReadOnlySpan<byte> data)
+        {
+        }
+
+        public int Read(byte[] buffer, int timeoutMs)
+        {
+            Thread.Sleep(20);
+            noise.CopyTo(buffer, 0);
+            return noise.Length;
+        }
+
+        public void DiscardInput()
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    [Fact]
     public void Si_la_bascula_no_responde_avisa_al_cumplir_el_tiempo()
     {
         var device = new SimulatedScale();
@@ -276,6 +412,15 @@ public class ScaleDriverTests
     {
         ScaleSettingsResolver.TryResolve(new ScaleSettings { Driver = driver, Port = port }, simulatorAllowed: false, out var error).ShouldBeNull();
         error.ShouldContain(message);
+    }
+
+    [Fact]
+    public void Peso_minimo_por_defecto_20_g_y_configurable()
+    {
+        Target(ScaleDrivers.CasCode).ZeroBandKg.ShouldBe(0.020m);
+        ScaleSettingsResolver.TryResolve(new ScaleSettings { Driver = "CAS", Port = "COM1", MinWeightGrams = 0 }, false, out _)!.ZeroBandKg.ShouldBe(0m);
+        ScaleSettingsResolver.TryResolve(new ScaleSettings { Driver = "CAS", Port = "COM1", MinWeightGrams = -1 }, false, out var error).ShouldBeNull();
+        error.ShouldContain("peso mínimo");
     }
 
     [Fact]

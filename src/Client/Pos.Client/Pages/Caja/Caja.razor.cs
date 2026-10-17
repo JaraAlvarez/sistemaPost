@@ -130,6 +130,7 @@ public sealed partial class Caja
     private ScaleRead? _pesoLectura;
     private CancellationTokenSource? _pesoCts;
     private decimal _pesoDigitado;
+    private bool _pesoRetirar;
 
     [Inject]
     private ApiClient Api { get; set; } = default!;
@@ -265,6 +266,7 @@ public sealed partial class Caja
         switch (key)
         {
             case "Escape":
+                CancelarPesaje();
                 await CerrarPanel();
                 break;
             case "F1":
@@ -426,14 +428,34 @@ public sealed partial class Caja
     /// <summary>
     /// Lee la báscula y agrega la línea con el peso estable (decisión del propietario): espera hasta "Espera peso estable" segundos a
     /// que se quede quieto y hasta "Espera producto" a que pongan el producto; con sobrepeso, negativo o sin báscula avisa. Esc cancela.
+    /// <para>Retorno a cero (D1): después de cada pesada la báscula debe quedar vacía antes de la siguiente. Si el agente todavía no la ha
+    /// visto vacía, muestra "Retire el producto de la báscula" y espera (como con el peso inestable). El servidor exige lo mismo con la
+    /// lectura firmada por el agente (D3), así que recargar la página no lo salta.</para>
     /// </summary>
     private async Task PesarAsync(ScanResult producto, Guid productId)
     {
-        _pesoCts?.Cancel();
+        // BQ4/BS6: con otro panel abierto no se empieza a pesar (la lectura quedaría detrás del panel); el aviso dice cuál cerrar.
+        if (_panel != Panel.None)
+        {
+            var cerrar = _panel switch
+            {
+                Panel.Cobro => "cierre el cobro (Esc)",
+                Panel.Cliente => "cierre la búsqueda de cliente (Esc)",
+                Panel.Suspendidas => "cierre la lista de ventas suspendidas (Esc)",
+                Panel.Consulta => "cierre la consulta de precio (Esc)",
+                Panel.Pesando or Panel.PesoDigitado => "termine la pesada en curso o cancélela (Esc)",
+                _ => "cierre la ventana abierta (Esc)",
+            };
+            Snackbar.Add($"{producto.Name} se vende por báscula: {cerrar} antes de pesarlo.", Severity.Warning);
+            return;
+        }
+
+        CancelarPesada();
         var cts = _pesoCts = new CancellationTokenSource();
         _pesoProducto = producto;
         _pesoProductoId = productId;
         _pesoLectura = null;
+        _pesoRetirar = false;
         _pesoMensaje = "Leyendo la báscula…";
         _pesoTono = "info";
         _panel = Panel.Pesando;
@@ -442,7 +464,7 @@ public sealed partial class Caja
         var config = Scale.Config!;
         var inicio = DateTime.UtcNow;
         DateTime? inestableDesde = null;
-        var tara = producto.TareGrams / 1000m;
+        DateTime? retirarDesde = null;
         try
         {
             while (!cts.IsCancellationRequested)
@@ -460,15 +482,48 @@ public sealed partial class Caja
                 }
 
                 var ahora = DateTime.UtcNow;
-                if (lectura.IsOk && lectura.WeightKg - tara > 0m)
+
+                // Tara (una sola regla): la del producto solo cuenta si no hubo tara manual (Ins) ni la báscula envió un peso neto.
+                var tara = lectura.TareKg == 0m && !lectura.ScaleNet ? producto.TareGrams / 1000m : 0m;
+                if (lectura.IsOk && !lectura.EmptiedSinceLastAccepted)
                 {
-                    _panel = Panel.None;
-                    await AgregarAsync(new { productId, weightKg = lectura.WeightKg, weightSource = "SCALE" });
+                    retirarDesde ??= ahora;
+                    // BB1: con la trama neta (tara puesta con la tecla de la báscula) el agente no puede ver la báscula vacía.
+                    (_pesoMensaje, _pesoTono) = (lectura.ScaleNet ? "Quite la tara de la báscula (tecla de tara) para continuar" : "Retire el producto de la báscula", "alerta");
+                    _pesoRetirar = true;
+                    if (ahora - retirarDesde > TimeSpan.FromSeconds(config.EmptyWaitSeconds))
+                    {
+                        TerminarPesaje("La báscula no quedó vacía después de la pesada anterior: no se agregó. Retire el producto y vuelva a registrarlo.");
+                        return;
+                    }
+                }
+                else if (lectura.IsOk && lectura.SignedReading is null)
+                {
+                    // La báscula responde, pero el agente no firma: no está vinculado con esta caja o (BS1/BS3) perdió su número de arranque.
+                    BasculaSinRespuesta(
+                        lectura.SigningProblem ?? "Báscula no vinculada: vincule con F1 → Vincular báscula (con la autorización de un supervisor).",
+                        config.AllowManualWeight);
                     return;
                 }
-
-                if (lectura.Status == "UNSTABLE")
+                else if (lectura.IsOk && lectura.SignedReading is { } firmada && lectura.WeightKg - tara > 0m)
                 {
+                    _panel = Panel.None;
+                    var lecturaId = lectura.ReadingId;
+                    var taraManual = lectura.TareKg;
+                    await AgregarAsync(
+                        new
+                        {
+                            productId,
+                            weightKg = lectura.WeightKg,
+                            weightSource = "SCALE",
+                            scale = new { payload = firmada.Payload, signature = firmada.Signature },
+                        },
+                        () => PesadaAgregada(lecturaId, taraManual));
+                    return;
+                }
+                else if (lectura.Status == "UNSTABLE")
+                {
+                    retirarDesde = null;
                     inestableDesde ??= ahora;
                     (_pesoMensaje, _pesoTono) = ("Esperando peso estable…", "info");
                     if (ahora - inestableDesde > TimeSpan.FromSeconds(config.StableWaitSeconds))
@@ -480,6 +535,7 @@ public sealed partial class Caja
                 else
                 {
                     inestableDesde = null;
+                    retirarDesde = null;
                     (_pesoMensaje, _pesoTono) = lectura.Status switch
                     {
                         "OK" => ($"El peso no supera la tara del producto ({producto.TareGrams} g): ponga el producto en la báscula.", "alerta"),
@@ -496,12 +552,201 @@ public sealed partial class Caja
                 }
 
                 await InvokeAsync(StateHasChanged);
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 await Task.Delay(150, cts.Token);
             }
         }
-        catch (TaskCanceledException)
+        catch (Exception ex) when (ex is TaskCanceledException or ObjectDisposedException)
         {
-            // El cajero canceló con Esc.
+            // El cajero canceló con Esc (o empezó otra pesada / abrió el cobro, que cancelan y desechan esta).
+        }
+    }
+
+    /// <summary>
+    /// Se agregó la línea pesada: el agente anota la pesada (la siguiente exige ver la báscula vacía; su vigilante la lee hasta verla
+    /// vacía) y se quita la tara manual, que solo valía para esta pesada (D2).
+    /// </summary>
+    private static void PesadaAgregada(Guid? lecturaId, decimal taraManual) => _ = TrasPesadaAsync(lecturaId, taraManual > 0m);
+
+    private static async Task TrasPesadaAsync(Guid? lecturaId, bool quitarTara)
+    {
+        if (lecturaId is { } id)
+        {
+            await AgentScale.AcceptedAsync(id);
+        }
+
+        if (quitarTara)
+        {
+            await AgentScale.TareAsync(clear: true);
+        }
+    }
+
+    /// <summary>Si el servidor ya no espera que se retire el producto, el agente tampoco (BN1).</summary>
+    private async Task SincronizarRetornoACeroAsync()
+    {
+        try
+        {
+            if (!(await Api.GetAsync<Pos.Modules.Sales.Contracts.ScaleInterlockDto>("api/v1/sales/scale/interlock")).AwaitingEmpty)
+            {
+                await AgentScale.ReleaseAcceptedAsync();
+                Snackbar.Add("Pesada eliminada: puede volver a pesar el producto.", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add("Pesada eliminada. La última pesada de la caja era otra: retire el producto de la báscula antes de pesar el siguiente.", Severity.Info);
+            }
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            // BQ7: la línea sí se eliminó; sin respuesta del servidor el agente se deja como está (el servidor decide al pesar).
+            Snackbar.Add("Pesada eliminada. No se pudo confirmar la báscula con el servidor: si al pesar pide retirar el producto, retírelo.", Severity.Warning);
+        }
+    }
+
+    /// <summary>
+    /// "Reiniciar báscula" (BB5): con permiso o la autorización de un supervisor (queda auditado), libera la espera de "retire el producto"
+    /// en el servidor y luego en el agente.
+    /// </summary>
+    private async Task ReiniciarBasculaAsync()
+    {
+        CancelarPesaje();
+        CancelarPesada();
+        _panel = Panel.None;
+        await RunAsync(async grant =>
+        {
+            var estado = await Api.SendAsync<Pos.Modules.Sales.Contracts.ScaleInterlockDto>(HttpMethod.Post, "api/v1/sales/scale/reset", null, grant);
+            if (!estado.AwaitingEmpty)
+            {
+                await AgentScale.ReleaseAcceptedAsync();
+            }
+
+            Snackbar.Add("Báscula reiniciada: ya puede pesar el siguiente producto.", Severity.Info);
+        });
+    }
+
+    /// <summary>
+    /// "Vincular báscula" (D3/BB2): en ESTA caja, el agente crea la clave que firma las lecturas y el servidor registra la pública. Exige el
+    /// permiso o la autorización de un supervisor; el servidor solo lo acepta desde la sesión de esta caja en su propio equipo.
+    /// </summary>
+    private async Task VincularBasculaAsync()
+    {
+        if (Session.Me?.PosTerminalId is not { } caja)
+        {
+            return;
+        }
+
+        _panel = Panel.None;
+        var url = $"api/v1/organization/terminals/{caja}/scale/reading-key";
+        await RunAsync(async grant =>
+        {
+            // BK1: primero el permiso o la autorización del supervisor. Sin el permiso, esta consulta sin clave hace que el servidor pida
+            // el supervisor (RunAsync muestra el panel y repite con la autorización) ANTES de tocar el agente.
+            if (grant is null && !Session.Has("organization.scale.link"))
+            {
+                await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(HttpMethod.Put, url, new { });
+            }
+
+            // El agente prepara una clave PENDIENTE (la vigente sigue firmando); solo se activa si el servidor la registró.
+            var (vinculo, error) = await AgentScale.PairAsync(caja);
+            if (vinculo is null)
+            {
+                Snackbar.Add(error ?? "El agente de esta caja no respondió.", Severity.Error);
+                return;
+            }
+
+            await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(
+                HttpMethod.Put, url, new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, grant);
+            await ConfirmarVinculoAsync(caja, vinculo.KeyId);
+        });
+    }
+
+    /// <summary>Detiene la pesada en curso: primero Cancel y luego Dispose (su bucle revisa la cancelación antes de usar el token).</summary>
+    private void CancelarPesada()
+    {
+        var cts = _pesoCts;
+        _pesoCts = null;
+        cts?.Cancel();
+        cts?.Dispose();
+    }
+
+    /// <summary>Botón Cancelar de la pesada (BQ6): igual que Esc, quita la tara manual de esta pesada y cierra el panel.</summary>
+    private async Task CancelarPesajeYCerrarAsync()
+    {
+        CancelarPesaje();
+        await CerrarPanel();
+    }
+
+    /// <summary>
+    /// BS2: confirma en el agente la clave que el servidor ya registró. Solo se reintenta la confirmación con la MISMA clave (sin volver a
+    /// preparar ni a registrar). Si no se logra, la pendiente queda en disco y "Completar vinculación" la confirma después.
+    /// </summary>
+    private async Task ConfirmarVinculoAsync(Guid caja, Guid keyId)
+    {
+        string? fallo = null;
+        for (var intento = 1; intento <= 4; intento++)
+        {
+            (var viejo, fallo) = await AgentScale.CommitPairingAsync(keyId);
+            if (viejo)
+            {
+                Snackbar.Add(fallo!, Severity.Error);
+                return;
+            }
+
+            // Ronda 7: antes de reintentar se pregunta al agente cómo quedó: la clave ya puede estar activa (la confirmación llegó pero la
+            // respuesta se perdió) o otra vinculación pudo reemplazar la pendiente.
+            var estado = fallo is null ? null : await AgentScale.PendingAsync();
+            if (fallo is null || estado?.KeyId == keyId)
+            {
+                var aviso = await Scale.LoadAsync(caja);
+                Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
+                return;
+            }
+
+            if (estado is { PendingKeyId: { } otra } && otra != keyId)
+            {
+                Snackbar.Add(
+                    "Se inició otra vinculación de la báscula en esta caja mientras se confirmaba esta: vuelva a pulsar F1 → Vincular báscula.",
+                    Severity.Warning);
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(400 * intento));
+        }
+
+        Snackbar.Add(
+            $"El servidor ya tiene la clave nueva; reinicie el programa de la caja y pulse F1 → Completar vinculación. ({fallo})", Severity.Error);
+    }
+
+    /// <summary>BS2: "Completar vinculación": confirma la clave pendiente que coincide con la registrada en el servidor (sin supervisor).</summary>
+    private async Task CompletarVinculoAsync()
+    {
+        _panel = Panel.None;
+        if (Session.Me?.PosTerminalId is not { } caja)
+        {
+            return;
+        }
+
+        // Se vuelve a consultar: solo se confirma si la pendiente del agente es la misma clave que tiene registrada el servidor.
+        await Scale.LoadAsync(caja);
+        if (Scale.PendingToComplete is not { } keyId)
+        {
+            Snackbar.Add("No hay una vinculación a medias: si la báscula no firma, pulse F1 → Vincular báscula.", Severity.Info);
+            return;
+        }
+
+        await ConfirmarVinculoAsync(caja, keyId);
+    }
+
+    /// <summary>Esc durante la pesada: la tara manual tomada para ella se quita (D2).</summary>
+    private void CancelarPesaje()
+    {
+        if (_panel is Panel.Pesando or Panel.PesoDigitado && _pesoLectura is { TareKg: > 0m })
+        {
+            _ = AgentScale.TareAsync(clear: true);
         }
     }
 
@@ -559,7 +804,10 @@ public sealed partial class Caja
         });
     }
 
-    /// <summary>Tara manual (tecla Insert): toma el peso actual (bolsa o bandeja que no está en el producto) y lo descuenta.</summary>
+    /// <summary>
+    /// Tara manual (tecla Insert): toma el peso actual (bolsa o bandeja) y lo descuenta de la SIGUIENTE pesada; reemplaza la tara del
+    /// producto. Se quita sola al agregar la línea o cuando la báscula queda vacía.
+    /// </summary>
     private async Task TaraManualAsync()
     {
         var lectura = await AgentScale.TareAsync(clear: false);
@@ -653,7 +901,10 @@ public sealed partial class Caja
         await Js.InvokeVoidAsync("pos.scrollIntoView", $"linea-{_selected}");
     }
 
-    private async Task AgregarAsync(object line)
+    /// <summary>Agrega una línea a la venta en curso (la crea si no hay).</summary>
+    /// <param name="line">Cuerpo de <c>POST /sales/{id}/lines</c>.</param>
+    /// <param name="alAgregar">Se llama cuando el servidor agregó la línea (también si la agregó después de autorizar un supervisor).</param>
+    private async Task AgregarAsync(object line, Action? alAgregar = null)
     {
         await RunAsync(async grant =>
         {
@@ -664,6 +915,12 @@ public sealed partial class Caja
                 try
                 {
                     _sale = await Api.PostAsync<Sale>($"api/v1/sales/{_sale.Id}/lines", line);
+                }
+                catch (ApiException ex) when (ex.Code == Pos.Modules.Sales.Contracts.PosClientBuild.OutdatedCode)
+                {
+                    // Fase 7-C (BN10): el servidor pide una versión más nueva de esta pantalla: se recarga.
+                    Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+                    return;
                 }
                 catch (ApiException ex) when (ex.Code == "SALES.EXPIRED_LOT_REQUIRES_AUTHORIZATION")
                 {
@@ -676,6 +933,7 @@ public sealed partial class Caja
             {
                 _sale = await Api.PostAsync<Sale>($"api/v1/sales/{_sale.Id}/lines/expired", line, grant);
             }
+            alAgregar?.Invoke();
             _selected = _sale.ActiveLines.LastOrDefault()?.Id;
             _nueva = _selected;
         });
@@ -700,7 +958,15 @@ public sealed partial class Caja
             return;
         }
 
-        _quantity = _sale.Lines.First(l => l.Id == _selected).Quantity;
+        var linea = _sale.Lines.First(l => l.Id == _selected);
+        if (linea.WeightSource is not null)
+        {
+            // Una línea pesada conserva su peso (báscula, etiqueta o digitado): se elimina y se vuelve a pesar.
+            Snackbar.Add("La cantidad de un producto pesado no se cambia: elimine la línea (Supr) y vuelva a pesarlo.", Severity.Warning);
+            return;
+        }
+
+        _quantity = linea.Quantity;
         _panel = Panel.Cantidad;
     }
 
@@ -725,10 +991,17 @@ public sealed partial class Caja
             return;
         }
 
+        // BN1: eliminar la última pesada de la caja (para volver a pesar) libera el retorno a cero en el servidor; la caja libera también el
+        // agente SOLO si el servidor lo liberó (si la última pesada fue otra, p. ej. en otra venta, los dos siguen esperando).
+        var pesada = _sale.ActiveLines.Any(l => l.Id == line && l.WeightSource == "SCALE");
         await RunAsync(async grant =>
         {
             _sale = await Api.PostAsync<Sale>($"api/v1/sales/{_sale.Id}/lines/{line}/void", null, grant);
             _selected = _sale.ActiveLines.LastOrDefault()?.Id;
+            if (pesada)
+            {
+                await SincronizarRetornoACeroAsync();
+            }
         });
     }
 
@@ -1217,8 +1490,7 @@ public sealed partial class Caja
     {
         _scCts?.Cancel();
         _scCts?.Dispose();
-        _pesoCts?.Cancel();
-        _pesoCts?.Dispose();
+        CancelarPesada();
         _scCts = null;
         _sc = null;
         _scQr = null;
@@ -1760,7 +2032,7 @@ public sealed partial class Caja
 
         _panel = Panel.None;
         _pending = null;
-        _pesoCts?.Cancel();
+        CancelarPesada();
         NuevoSistecredito();
         await FocusScannerAsync();
     }
