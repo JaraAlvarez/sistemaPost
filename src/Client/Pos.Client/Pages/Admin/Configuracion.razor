@@ -52,6 +52,65 @@
                 }
             </MudTabPanel>
         }
+        @if (Session.Has("organization.company.view"))
+        {
+            <MudTabPanel Text="Funciones del negocio">
+                @if (_errorFunciones is not null)
+                {
+                    <MudAlert Severity="Severity.Error">@_errorFunciones</MudAlert>
+                }
+                else if (_funciones is not null)
+                {
+                    <MudText Typo="Typo.body2" Class="mb-3">
+                        Elija qué funciones usa su negocio. Apagar una función solo la quita de los menús y formularios: <b>no se borra ningún dato</b>,
+                        y al encenderla de nuevo todo vuelve a aparecer. Todas las funciones vienen en Caja Única y en Multicaja.
+                    </MudText>
+                    <MudGrid Spacing="2" Class="mb-2">
+                        <MudItem xs="12" sm="7" md="5">
+                            <MudSelect T="string" @bind-Value="_perfilElegido" Label="Tipo de negocio" ReadOnly="@(!PuedeEmpresa)">
+                                @foreach (var perfil in BusinessCatalog.Profiles)
+                                {
+                                    <MudSelectItem T="string" Value="@perfil.Code">@perfil.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudText Typo="Typo.caption" Class="d-block mt-1">@(BusinessCatalog.Profile(_perfilElegido)?.Description)</MudText>
+                        </MudItem>
+                        @if (PuedeEmpresa && _perfilElegido != _funciones.Profile)
+                        {
+                            <MudItem xs="12" sm="5" Class="d-flex align-center">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CambiarPerfilAsync">Cambiar el tipo de negocio</MudButton>
+                                <MudButton Class="ml-2" Disabled="_busy" OnClick="@(() => _perfilElegido = _funciones.Profile)">Cancelar</MudButton>
+                            </MudItem>
+                        }
+                    </MudGrid>
+                    <MudDivider Class="my-3" />
+                    @foreach (var funcion in BusinessCatalog.Features)
+                    {
+                        var encendida = _funciones.Has(funcion.Code);
+                        <div class="d-flex align-start gap-3 mb-3">
+                            <MudSwitch T="bool" Value="@(encendida && !funcion.ComingSoon)" ValueChanged="@(v => CambiarFuncionAsync(funcion.Code, v))" Color="Color.Primary"
+                                       Disabled="@(!PuedeEmpresa || _busy || funcion.ComingSoon)" aria-label="@funcion.Name" />
+                            <div>
+                                <MudText Typo="Typo.subtitle2">@funcion.Name</MudText>
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">@funcion.Description</MudText>
+                                @if (funcion.ComingSoon)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Info">Disponible en una próxima versión.</MudText>
+                                }
+                                else if (!encendida && Pantalla(funcion.Code) is { } pantalla)
+                                {
+                                    <MudText Typo="Typo.caption">Apagada: no sale en el menú; los datos se conservan. <MudLink Href="@pantalla.Ruta" Typo="Typo.caption">@pantalla.Texto</MudLink></MudText>
+                                }
+                                @if (funcion.Code == BusinessCatalog.Promotions && encendida)
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block">Si la apaga, las promociones activas siguen aplicándose en la caja: desactívelas antes si no las quiere.</MudText>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </MudTabPanel>
+        }
         @if (Session.Has("organization.branch.view"))
         {
             <MudTabPanel Text="Sucursales y bodegas">
@@ -330,6 +389,10 @@
     private string? _cRazonSocial, _cNombreComercial, _cRegimen, _cResponsabilidades, _cMunicipio, _cDireccion, _cTelefono, _cCorreo;
     private string _cTipoPersona = "Legal";
 
+    // Funciones del negocio (Fase 7-C parte A)
+    private BusinessFeaturesDto? _funciones;
+    private string? _perfilElegido, _errorFunciones;
+
     // Sucursales y bodegas
     private List<BranchDto> _sucursales = [];
     private List<WarehouseDto> _bodegas = [];
@@ -371,6 +434,7 @@
             if (Session.Has("organization.company.view"))
             {
                 await CargarEmpresaAsync();
+                await CargarFuncionesAsync();
             }
 
             if (Session.Has("organization.branch.view"))
@@ -444,6 +508,96 @@
             });
             Snackbar.Add("Datos de la empresa guardados.", Severity.Success);
             await CargarEmpresaAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    // ------------------------------------------------------------------------------------------ Funciones del negocio
+
+    private async Task CargarFuncionesAsync()
+    {
+        try
+        {
+            MostrarFunciones(await Api.GetAsync<BusinessFeaturesDto>("api/v1/organization/business-features"));
+            _errorFunciones = null;
+        }
+        catch (ApiException ex)
+        {
+            _errorFunciones = ex.Texto;
+        }
+    }
+
+    /// <summary>Muestra lo guardado y lo lleva a la sesión: menús y formularios se ajustan sin volver a ingresar.</summary>
+    private void MostrarFunciones(BusinessFeaturesDto funciones)
+    {
+        _funciones = funciones;
+        _perfilElegido = funciones.Profile;
+        Session.RefreshBusiness(funciones);
+    }
+
+    /// <summary>Pantalla donde quedan los datos de una función apagada que tiene su propio menú.</summary>
+    private static (string Ruta, string Texto)? Pantalla(string funcion) => funcion switch
+    {
+        BusinessCatalog.Purchasing => ("/admin/compras", "Ver las compras guardadas"),
+        BusinessCatalog.Promotions => ("/admin/promociones", "Ver las promociones guardadas"),
+        _ => null,
+    };
+
+    private async Task CambiarPerfilAsync()
+    {
+        var nuevo = BusinessCatalog.Profile(_perfilElegido);
+        if (nuevo is null || _funciones is null)
+        {
+            return;
+        }
+
+        if (!await Dialogs.ConfirmarAsync(
+                "Cambiar el tipo de negocio",
+                $"Su negocio pasará a ser «{nuevo.Name}» y los interruptores de las funciones vuelven a los valores recomendados para ese tipo. " +
+                "Apagar una función solo la oculta: no se borra ningún dato. Después puede encender o apagar cada función.",
+                "Cambiar"))
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            MostrarFunciones(await Api.PutAsync<BusinessFeaturesDto>("api/v1/organization/business-profile", new { profile = nuevo.Code }));
+            Snackbar.Add($"Tipo de negocio: {nuevo.Name}.", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task CambiarFuncionAsync(string funcion, bool encender)
+    {
+        if (_funciones is null)
+        {
+            return;
+        }
+
+        var encendidas = _funciones.EnabledFeatures.Where(f => f != funcion).ToList();
+        if (encender)
+        {
+            encendidas.Add(funcion);
+        }
+
+        _busy = true;
+        try
+        {
+            MostrarFunciones(await Api.PutAsync<BusinessFeaturesDto>("api/v1/organization/business-features", new { enabledFeatures = encendidas }));
+            var nombre = BusinessCatalog.Feature(funcion)?.Name ?? funcion;
+            Snackbar.Add(encender ? $"«{nombre}» encendida." : $"«{nombre}» apagada. Los datos se conservan.", Severity.Success);
         }
         catch (ApiException ex)
         {

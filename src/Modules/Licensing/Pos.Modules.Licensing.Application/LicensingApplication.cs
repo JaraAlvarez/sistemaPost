@@ -79,7 +79,8 @@ public static class LicensePaymentLink
 // ------------------------------------------------------------------------------------------------ Puertos
 
 /// <summary>Datos de la empresa y la tienda que se declaran al activar y en el check-in.</summary>
-public sealed record LicenseSiteInfo(string OrganizationNit, string OrganizationName, string? BranchName, int OpenCashSessions);
+/// <summary>Datos de la tienda que viajan a la nube. <c>BusinessProfile</c> (Fase 7-C parte A): tipo de negocio (SUPERMARKET…).</summary>
+public sealed record LicenseSiteInfo(string OrganizationNit, string OrganizationName, string? BranchName, int OpenCashSessions, string? BusinessProfile = null);
 
 public interface ILicenseStateStore
 {
@@ -287,7 +288,7 @@ public sealed class LicenseService(
         var started = clock.UtcNow;
         var result = await cloud.ActivateAsync(
             new ActivationRequest(key, installation.NodeId, fingerprint.ToString(), LocalDeviceRole, device.AppVersion, site.OrganizationNit,
-                site.BranchName, device.DeviceName, device.OperatingSystem),
+                site.BranchName, device.DeviceName, device.OperatingSystem, site.BusinessProfile),
             cancellationToken);
         await RecordAsync("ACTIVATION", started, result, cancellationToken);
         if (result.Response is not { } response)
@@ -329,7 +330,7 @@ public sealed class LicenseService(
         var started = clock.UtcNow;
         var result = await cloud.CheckinAsync(
             new CheckinRequest(token, device.Fingerprint?.ToString() ?? string.Empty, device.AppVersion, site?.OpenCashSessions ?? 0, started,
-                seal is null ? null : new CheckinAuditSeal(installation.NodeId, seal.SealNo, seal.ShortCode, seal.SealedAt)),
+                seal is null ? null : new CheckinAuditSeal(installation.NodeId, seal.SealNo, seal.ShortCode, seal.SealedAt), site?.BusinessProfile),
             cancellationToken);
         await RecordAsync(kind, started, result, cancellationToken);
         if (result.Response is { } response && VerifyForThisDevice(response.Token) is { } claims)

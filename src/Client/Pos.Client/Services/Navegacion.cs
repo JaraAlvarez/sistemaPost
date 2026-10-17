@@ -1,8 +1,12 @@
 using MudBlazor;
+using Pos.Modules.Organization.Contracts;
 
 namespace Pos.Client.Services;
 
-/// <summary>Opción del menú de la administración: título, ruta, icono y quién la ve (cada opción aparece solo con su permiso, D17-04).</summary>
+/// <summary>
+/// Opción del menú de la administración: título, ruta, icono y quién la ve (cada opción aparece solo con su permiso, D17-04, y si su función
+/// del negocio está encendida, Fase 7-C parte A).
+/// </summary>
 public sealed record OpcionMenu(string Titulo, string Ruta, string Icono, Func<SessionState, bool> Visible);
 
 /// <summary>Grupo del menú lateral.</summary>
@@ -41,14 +45,14 @@ public static class Navegacion
         ]),
         new("Compras y proveedores", Icons.Material.Outlined.ShoppingCart,
         [
-            new("Compras", "/admin/compras", Icons.Material.Outlined.ShoppingCart, s => s.Has("purchasing.purchase.view")),
-            new("Proveedores", "/admin/proveedores", Icons.Material.Outlined.Store, s => s.Has("purchasing.purchase.view")),
-            new("Cuentas por pagar", "/admin/cuentas-por-pagar", Icons.Material.Outlined.AccountBalance, s => s.Has("purchasing.payable.view")),
+            new("Compras", "/admin/compras", Icons.Material.Outlined.ShoppingCart, s => s.Has("purchasing.purchase.view") && s.Feature(BusinessCatalog.Purchasing)),
+            new("Proveedores", "/admin/proveedores", Icons.Material.Outlined.Store, s => s.Has("purchasing.purchase.view") && s.Feature(BusinessCatalog.Purchasing)),
+            new("Cuentas por pagar", "/admin/cuentas-por-pagar", Icons.Material.Outlined.AccountBalance, s => s.Has("purchasing.payable.view") && s.Feature(BusinessCatalog.Purchasing)),
         ]),
         new("Clientes y promociones", Icons.Material.Outlined.Groups,
         [
             new("Clientes", "/admin/clientes", Icons.Material.Outlined.Groups, s => s.Has("customers.customer.view")),
-            new("Promociones", "/admin/promociones", Icons.Material.Outlined.LocalOffer, s => s.Has("promotions.promotion.view")),
+            new("Promociones", "/admin/promociones", Icons.Material.Outlined.LocalOffer, s => s.Has("promotions.promotion.view") && s.Feature(BusinessCatalog.Promotions)),
         ]),
         new("Administración", Icons.Material.Outlined.AdminPanelSettings,
         [

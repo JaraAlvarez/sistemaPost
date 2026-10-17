@@ -24,6 +24,14 @@
             }
             <MudSelectItem T="string" Value="@("NONE")">Sin suscripción</MudSelectItem>
         </MudSelect>
+        <MudSelect T="string" @bind-Value="_profile" Label="Tipo de negocio" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Dense="true">
+            <MudSelectItem T="string" Value="@string.Empty">Todos</MudSelectItem>
+            @foreach (var profile in BusinessProfileCodes.All)
+            {
+                <MudSelectItem T="string" Value="@profile">@BusinessProfileCodes.Name(profile) (@Count(profile))</MudSelectItem>
+            }
+            <MudSelectItem T="string" Value="@("NONE")">Sin informar (@Count(null))</MudSelectItem>
+        </MudSelect>
         @if (_rows is not null)
         {
             <span class="bp-toolbar-count" role="status">@Filtered.Count de @_rows.Count empresas</span>
@@ -45,13 +53,22 @@
     private IReadOnlyList<OrganizationRowDto>? _rows;
     private string? _search;
     private string _status = string.Empty;
+    private string _profile = string.Empty;
 
     private List<OrganizationRowDto> Filtered => (_rows ?? []).Where(o => _status switch
     {
         "" => true,
         "NONE" => o.Subscription is null,
         _ => o.Subscription?.EffectiveStatus == _status,
+    }).Where(o => _profile switch
+    {
+        "" => true,
+        "NONE" => o.BusinessProfile is null,
+        _ => o.BusinessProfile == _profile,
     }).ToList();
+
+    /// <summary>Empresas de cada tipo de negocio (la tienda lo informa en su check-in, Fase 7-C parte A).</summary>
+    private int Count(string? profile) => (_rows ?? []).Count(o => o.BusinessProfile == profile);
 
     protected override Task OnInitializedAsync() => LoadAsync();
 

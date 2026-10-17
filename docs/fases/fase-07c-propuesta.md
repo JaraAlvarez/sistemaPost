@@ -1,6 +1,6 @@
 # Fase 7-C · Perfiles de negocio y básculas (catálogo de compatibles) — Propuesta
 
-> Estado: **APROBADA en lo conceptual** · 2026-10-17 (seis tipos de negocio aprobados; báscula de etiqueta + báscula conectada;
+> Estado: **APROBADA en lo conceptual** · 2026-10-17 · **parte A implementada** (ver "Informe 7-C parte A") (seis tipos de negocio aprobados; báscula de etiqueta + báscula conectada;
 > catálogo de básculas con imagen y referencia, cambio de báscula por daño o mejora). Empieza cuando termine la Fase 13-B.
 > Base: [doc 01](../01-analisis-producto.md) (peso variable, báscula conectada), [doc 02](../02-modulos.md) §Devices,
 > [doc 03](../03-arquitectura.md) (periféricos como interfaz + driver), [ADR-0036](../adr/0036-agente-de-caja.md) (agente de caja),
@@ -156,3 +156,74 @@ compilan en Release sin advertencias.
 **Pendiente (necesita una báscula real)**: confirmar con el equipo el formato exacto de su protocolo (decimales, STX, paridad), la
 estabilidad en modo continuo de CAS y el comportamiento del cable USB-serial; afinar los tiempos de espera en la tienda. La galería y
 el catálogo de básculas (parte D) y los perfiles de negocio (parte A) siguen pendientes.
+
+## Informe 7-C parte A (perfiles de negocio y funciones activables) — 2026-10-17
+
+**Hecho** (rama `perfiles`; migraciones POS **V2026.10.043** y nube **V2026.10.010**).
+
+**Funciones activables** (las que existen hoy en el programa; se eligió un conjunto pequeño):
+
+| Código | Nombre en pantalla | Qué oculta cuando está apagada |
+|---|---|---|
+| `SCALE` | Báscula y PLU | Producto: PLU, "Se vende por báscula" y tara. Cajas e impresoras: botón Báscula. Caja: no lee la báscula (el servidor responde `featureEnabled = false` en `/terminals/{id}/scale`) |
+| `LOTS_EXPIRY` | Lotes y vencimientos | Producto: "Maneja lotes" y "Maneja fecha de vencimiento" |
+| `FRACTIONAL_SALE` | Venta por metro o fracción | Producto por unidad: "Permite cantidades con decimales" (peso y volumen siguen con decimales) |
+| `OPEN_PRICE` | Precio abierto | Producto: "Permite precio abierto" |
+| `PROMOTIONS` | Promociones | Menú Promociones (las promociones activas siguen aplicándose; se avisa en el interruptor) |
+| `PURCHASING` | Compras y proveedores | Menú Compras, Proveedores y Cuentas por pagar |
+| `VARIANTS` | Tallas y colores | Próximamente: se guarda, la interfaz la muestra deshabilitada ("Disponible en una próxima versión") |
+
+No se incluyó el crédito a clientes (cartera): está repartido en clientes, caja y medios de pago y lo usan todos los tipos de negocio.
+
+**Valores iniciales por tipo de negocio** (✓ = encendida):
+
+| Tipo (código) | Báscula y PLU | Lotes y venc. | Fracción | Precio abierto | Promociones | Compras | Tallas y colores | Categorías de ejemplo |
+|---|---|---|---|---|---|---|---|---|
+| Supermercado / minimercado (`SUPERMARKET`) | ✓ | ✓ | | | ✓ | ✓ | | Abarrotes, Lácteos y huevos, Bebidas, Frutas y verduras, Carnes, Aseo y hogar, Cuidado personal |
+| Fruver / carnicería (`FRESH_MARKET`) | ✓ | | | | ✓ | ✓ | | Frutas, Verduras, Carnes, Pollo, Pescado, Abarrotes |
+| Droguería (`PHARMACY`) | | ✓ | | | ✓ | ✓ | | Medicamentos, Cuidado personal, Bebés y maternidad, Primeros auxilios, Vitaminas y suplementos |
+| Ropa / calzado / deportes (`APPAREL`) | | | | | ✓ | ✓ | ✓ (próximamente) | Hombre, Mujer, Niños, Calzado, Accesorios |
+| Ferretería / papelería / miscelánea (`HARDWARE`) | | | ✓ | ✓ | ✓ | ✓ | | Herramientas, Eléctricos, Plomería, Pinturas, Tornillería, Papelería |
+| Otro (`OTHER`) | | | | | ✓ | ✓ | | (solo "General") |
+
+**Decisiones**
+
+- **D7CA-01 · Almacenamiento:** dos columnas en `org.companies`: `business_profile` (MAYÚSCULAS_CON_GUION, con CHECK) y
+  `enabled_features` (códigos ordenados separados por coma). Sin tablas nuevas; la empresa ya viaja con su `xmin`.
+- **D7CA-02 · Compatibilidad al actualizar:** las empresas existentes quedan como `SUPERMARKET` con **todas** las funciones que ya
+  veían (báscula, lotes, fracción, precio abierto, promociones y compras): nada desaparece después de la actualización.
+- **D7CA-03 · Asistente sin tipo:** `POST /api/v1/setup` acepta `businessProfile` opcional. Si no viene (instaladores anteriores,
+  scripts) se usa `SUPERMARKET` y **no** se crean categorías de ejemplo (todo queda como antes de 7-C). Un código desconocido se
+  rechaza (400). Las categorías de ejemplo solo se crean si el instalador eligió el tipo y el catálogo no tiene más que "General".
+  Las unidades no cambian: el catálogo de unidades es común (KG, Libra 500 g, metro, centímetro…).
+- **D7CA-04 · Apagar = ocultar:** apagar una función nunca borra ni modifica datos. Si un producto ya tiene datos de una función
+  apagada, el campo se sigue viendo con el aviso *"Esta función está apagada; los datos se conservan"*; las pantallas de compras y
+  promociones muestran el mismo aviso y se abren desde un enlace en el interruptor. Al guardar el producto, los valores ocultos se
+  envían sin cambios.
+- **D7CA-05 · Validación en el servidor (ligera):** solo la báscula: con `SCALE` apagada, `GET /organization/terminals/{id}/scale`
+  devuelve `featureEnabled = false` y la caja no lee ni configura el agente (la configuración guardada no se toca). Las ventas con
+  etiqueta de báscula y los productos con precio abierto o fracción ya creados siguen funcionando: no se rompe nada existente.
+- **D7CA-06 · API:** `GET /organization/business-features` (cualquier sesión), `PUT /organization/business-features` y
+  `PUT /organization/business-profile` (permiso `organization.company.manage`, el mismo de los datos de la empresa). `/auth/me` trae
+  `business` (tipo y funciones) para ocultar menús y campos. Cambiar el tipo deja los interruptores en los valores de ese tipo.
+- **D7CA-07 · Auditoría:** acción explícita `BUSINESS_FEATURES_CHANGED` (severidad WARNING) con un resumen legible
+  ("Encendidas: …", "Apagadas (se ocultan, los datos se conservan): …") y valores antes/después. El asistente inicial anota el tipo y
+  las funciones en `SETUP_COMPLETED`.
+- **D7CA-08 · Nube:** campo opcional `BusinessProfile` en `ActivationRequest` y `CheckinRequest` (contratos compatibles: los POS
+  anteriores no lo envían y la nube conserva el último dato; un código desconocido se ignora sin rechazar el check-in). La nube lo
+  guarda en `licensing.organizations.business_profile`; el portal muestra **"Tipo de negocio"** en la ficha de la empresa y en la
+  tabla, y en **Empresas** hay un filtro con el número de empresas de cada tipo. Se eligió el check-in de la licencia (diario y
+  siempre activo) en lugar de la sincronización (opcional).
+- **D7CA-09 · Instalador premium:** nueva pantalla "¿Qué tipo de negocio tienes?" con seis tarjetas (mismo estilo de "Este equipo",
+  dos filas de tres) antes del formulario de "Tu negocio", dentro del mismo paso del panel izquierdo. El asistente clásico
+  (`/instalacion`) pregunta lo mismo con seis opciones.
+
+**Pruebas:** unidades de Organization 56/56 (presets, códigos, empresa, textos de la interfaz), Catalog 42/42 (categorías de ejemplo),
+Licensing.Contracts 57/57, Identity 33/33, Installer.Setup 32/32 (tipos y tarjetas de la página), ArchitectureTests 23/23,
+Database.Tests 80/80 (valores de las empresas existentes y CHECK), Cloud.Database.Tests 30/30, Cloud.IntegrationTests 69/69 (la tienda
+informa el tipo al activar y en el check-in; un POS anterior no lo borra) e integración del POS: `Phase7C` 9/9 (asistente con cada
+tipo, sin tipo, tipo inválido, encender/apagar con auditoría y permisos, cambio de tipo, báscula apagada en la caja) y las afectadas
+`Phase2` 15/15, `Phase4` 15/15, `Phase7` 9/9, `Phase10`, `Phase12`, `Phase13` 4/4, `ServerEndpointsTests` 9/9, `ErrorHandlingTests` 9/9.
+
+**Pendiente:** tallas y colores (fase de variantes); palabras propias por tipo ("prenda") cuando exista esa fase; la estadística por
+tipo en el tablero del portal (hoy: filtro con conteo en Empresas).

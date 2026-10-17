@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Pos.Licensing.Contracts;
 using Pos.SharedKernel.Domain;
 using Pos.SharedKernel.Fiscal;
 using Pos.SharedKernel.Results;
@@ -138,6 +139,12 @@ public sealed class Organization : AggregateRoot<Guid>, IHasAuditLabel
 
     public string? City { get; private set; }
 
+    /// <summary>
+    /// Tipo de negocio que informa la tienda al activar y en cada check-in (Fase 7-C parte A): SUPERMARKET, FRESH_MARKET, PHARMACY,
+    /// APPAREL, HARDWARE u OTHER. Nulo mientras ninguna tienda lo haya informado (POS anteriores).
+    /// </summary>
+    public string? BusinessProfile { get; private set; }
+
     public RecordStatus Status { get; private set; } = RecordStatus.Active;
 
     public NitNumber NitNumber => new(Nit, NitCheckDigit);
@@ -169,6 +176,21 @@ public sealed class Organization : AggregateRoot<Guid>, IHasAuditLabel
         City = Account.Clean(city);
         Status = isActive ? RecordStatus.Active : RecordStatus.Inactive;
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Guarda el tipo de negocio que informó la tienda. Un código desconocido o vacío no cambia nada (un POS anterior no borra el dato).
+    /// </summary>
+    public bool ReportBusinessProfile(string? code)
+    {
+        var normalized = BusinessProfileCodes.Normalize(code);
+        if (normalized is null || normalized == BusinessProfile)
+        {
+            return false;
+        }
+
+        BusinessProfile = normalized;
+        return true;
     }
 
     /// <summary>¿El NIT que declara el POS es el de esta empresa?</summary>

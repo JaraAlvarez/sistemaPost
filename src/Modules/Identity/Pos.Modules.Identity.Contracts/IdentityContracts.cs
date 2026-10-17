@@ -1,5 +1,6 @@
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Licensing.Contracts;
+using Pos.Modules.Organization.Contracts;
 
 namespace Pos.Modules.Identity.Contracts;
 
@@ -108,7 +109,10 @@ public sealed record UserDto(
     IReadOnlyList<UserRoleDto> Roles,
     IReadOnlyList<UserOverrideDto> Overrides);
 
-/// <summary>Perfil del usuario autenticado con sus permisos efectivos en la sucursal de la sesión.</summary>
+/// <summary>
+/// Perfil del usuario autenticado con sus permisos efectivos en la sucursal de la sesión. <c>Business</c> (Fase 7-C parte A): tipo de
+/// negocio y funciones encendidas de la empresa (nulo si la instalación no está configurada).
+/// </summary>
 public sealed record MeDto(
     Guid UserId,
     string Username,
@@ -122,7 +126,8 @@ public sealed record MeDto(
     int OpenIntegrityIncidents = 0,
     int BackupAlerts = 0,
     LicenseSummaryDto? License = null,
-    int SistecreditoReviews = 0);
+    int SistecreditoReviews = 0,
+    BusinessFeaturesDto? Business = null);
 
 public sealed record LoginResultDto(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeDto User);
 

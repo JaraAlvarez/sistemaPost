@@ -78,10 +78,6 @@ Si está reemplazando un computador dañado o robado, use el enlace **Recuperar 
 
 ![Paso 2 · Este equipo: elija cómo usará el computador.](imagenes/instalacion/02-instalador-este-equipo.png)
 
-> **Tipo de negocio (próximamente):** en una próxima versión el instalador también le preguntará qué tipo de negocio tiene
-> (supermercado, minimercado, droguería…) para dejar BusinessPost ajustado a él. Si su instalador ya lo pregunta, elija el que
-> más se parezca a su negocio; lo puede cambiar después.
-
 ### Paso 3: Licencia
 
 Escriba su clave (`POS-XXXXX-XXXXX-XXXXX-XXXXX`). Con Internet, el instalador muestra enseguida la **razón social, el NIT, el plan
@@ -104,6 +100,13 @@ y hasta cuándo está vigente**. Revise que sea su empresa y pulse **Continuar**
 ![Paso 4 · Tu cuenta: el correo y la contraseña de su portal.](imagenes/instalacion/04-instalador-tu-cuenta.png)
 
 ### Paso 5: Tu negocio
+
+Primero el instalador pregunta **"¿Qué tipo de negocio tienes?"**: elija la tarjeta que se parece a su negocio: **Supermercado o
+minimercado**, **Fruver o carnicería**, **Droguería**, **Ropa, calzado o deportes**, **Ferretería, papelería o miscelánea** u **Otro
+tipo de negocio**. Con eso BusinessPost deja encendidas las funciones que su negocio usa (la báscula en un fruver, los lotes y
+vencimientos en una droguería, la venta por metro en una ferretería) y crea unas pocas categorías de ejemplo. **No cambia su plan ni
+su precio**: todas las funciones vienen en Caja Única y en Multicaja. Puede cambiarlo cuando quiera en **Configuración → Funciones
+del negocio**.
 
 Con la clave, la razón social y el NIT ya vienen llenos. Complete el **nombre comercial** (el de su aviso), el **tipo de persona**,
 si es **responsable de IVA**, el **municipio** (escriba y elíjalo de la lista que aparece), la **dirección**, el teléfono y el correo
@@ -168,7 +171,8 @@ revisar y cambiar después en **Administración → Configuración** (pestaña *
 ![Administración → Configuración: los datos de su empresa, listos desde la instalación.](imagenes/instalacion/18-pos-configuracion.png)
 
 Solo si instaló con el **instalador clásico** (equipos sin WebView2), al terminar se abre en el navegador la **Configuración
-inicial**: complete la empresa, la sucursal, la caja y el propietario; luego la licencia (o **Seguir en demostración**) y, por
+inicial**: elija **qué tipo de negocio tiene** (las mismas seis opciones del paso 8), complete la empresa, la sucursal, la caja y el
+propietario; luego la licencia (o **Seguir en demostración**) y, por
 último, genere el **código de recuperación**, guárdelo fuera del local y confírmelo.
 
 ### Su usuario de propietario

@@ -86,6 +86,17 @@ public sealed class Company : AggregateRoot<Guid>, ISyncVersioned, IHasAuditLabe
 
     public RecordStatus Status { get; private set; } = RecordStatus.Active;
 
+    /// <summary>Tipo de negocio (Fase 7-C parte A). Lo audita <c>BUSINESS_FEATURES_CHANGED</c> con un resumen legible.</summary>
+    [NotAudited]
+    public BusinessProfile BusinessProfile { get; private set; } = BusinessProfiles.Default;
+
+    /// <summary>Funciones encendidas, como se guardan (<c>LOTS_EXPIRY,SCALE</c>). Use <see cref="Features"/>.</summary>
+    [NotAudited]
+    public string EnabledFeatures { get; private set; } = BusinessProfiles.Format(BusinessProfiles.Preset(BusinessProfiles.Default));
+
+    /// <summary>Funciones encendidas.</summary>
+    public IReadOnlySet<BusinessFeature> Features => BusinessProfiles.Parse(EnabledFeatures);
+
     public IReadOnlyCollection<FiscalResponsibility> FiscalResponsibilities => _fiscalResponsibilities.AsReadOnly();
 
     public string AuditLabel => $"{TradeName} ({IdentificationType} {IdentificationNumber}{(CheckDigit is null ? string.Empty : "-" + CheckDigit)})";
@@ -95,6 +106,23 @@ public sealed class Company : AggregateRoot<Guid>, ISyncVersioned, IHasAuditLabe
         var company = new Company(id);
         var result = company.Apply(data, identityChangeAllowed: true);
         return result.IsSuccess ? company : result.Error;
+    }
+
+    /// <summary>¿La función está encendida?</summary>
+    public bool Has(BusinessFeature feature) => Features.Contains(feature);
+
+    /// <summary>Cambia el tipo de negocio y deja los interruptores en los valores de ese tipo. No borra datos.</summary>
+    public void ApplyProfile(BusinessProfile profile)
+    {
+        BusinessProfile = profile;
+        EnabledFeatures = BusinessProfiles.Format(BusinessProfiles.Preset(profile));
+    }
+
+    /// <summary>Enciende exactamente estas funciones (las demás quedan apagadas: se ocultan, sus datos se conservan).</summary>
+    public void SetFeatures(IEnumerable<BusinessFeature> features)
+    {
+        Guard.NotNull(features);
+        EnabledFeatures = BusinessProfiles.Format(features);
     }
 
     /// <summary>Actualiza los datos. La identificación (tipo, número y DV) no se cambia: define a la empresa.</summary>

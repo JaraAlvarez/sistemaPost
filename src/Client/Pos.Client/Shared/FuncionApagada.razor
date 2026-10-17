@@ -1,0 +1,32 @@
+@* Aviso de una función del negocio apagada (Fase 7-C parte A): se muestra donde hay datos de esa función para que no queden
+   inaccesibles. Apagar una función solo la oculta; los datos se conservan. *@
+@using Pos.Modules.Organization.Contracts
+@inject SessionState Session
+
+@if (!Session.Feature(Funcion))
+{
+    @if (Compacto)
+    {
+        <MudText Typo="Typo.caption" Class="d-flex align-center gap-1 funcion-apagada" role="note">
+            <MudIcon Icon="@Icons.Material.Outlined.ToggleOff" Size="Size.Small" aria-hidden="true" />
+            Esta función está apagada; los datos se conservan.
+        </MudText>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3" Icon="@Icons.Material.Outlined.ToggleOff">
+            Esta función está apagada («@(BusinessCatalog.Feature(Funcion)?.Name ?? Funcion)»); los datos se conservan. Esta pantalla ya no sale en el
+            menú. Para volver a verla, enciéndala en Configuración → Funciones del negocio.
+        </MudAlert>
+    }
+}
+
+@code {
+    /// <summary>Código de la función (<c>BusinessCatalog.Scale</c>, <c>BusinessCatalog.Purchasing</c>…).</summary>
+    [Parameter, EditorRequired]
+    public string Funcion { get; set; } = "";
+
+    /// <summary>Una línea pequeña (dentro de un formulario) en lugar del aviso completo.</summary>
+    [Parameter]
+    public bool Compacto { get; set; }
+}

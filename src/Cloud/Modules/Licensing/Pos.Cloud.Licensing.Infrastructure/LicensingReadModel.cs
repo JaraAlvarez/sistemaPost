@@ -153,7 +153,8 @@ internal sealed class LicensingReadModel(CloudDbContext context) : ILicensingRea
             o.Id, o.AccountId, accounts.GetValueOrDefault(o.AccountId) ?? string.Empty, o.LegalName, o.NitNumber.ToString(), o.City, Code(o.Status),
             subscriptions.TryGetValue(o.Id, out var s) ? Summary(s, now) : null,
             licenses.GetValueOrDefault(o.Id),
-            installed.GetValueOrDefault(o.Id)))];
+            installed.GetValueOrDefault(o.Id),
+            o.BusinessProfile))];
     }
 
     internal static SubscriptionSummaryDto Summary(Subscription s, DateTimeOffset now) => new(

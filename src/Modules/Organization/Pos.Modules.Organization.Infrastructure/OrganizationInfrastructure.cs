@@ -24,6 +24,8 @@ internal sealed class OrganizationModelContributor : IModelContributor
             b.Property(x => x.Id).ValueGeneratedNever();
             b.Property(x => x.PersonType).HasUpperSnakeConversion();
             b.Property(x => x.Status).HasUpperSnakeConversion();
+            b.Property(x => x.BusinessProfile).HasUpperSnakeConversion();
+            b.Ignore(x => x.Features);
             b.HasControlColumns();
             b.HasXminConcurrency();
             b.OwnsMany(x => x.FiscalResponsibilities, r =>

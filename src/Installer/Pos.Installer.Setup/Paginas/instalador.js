@@ -34,7 +34,7 @@ if (webview) {
 // ───────────────────────────── Estado ─────────────────────────────
 const S = {
   modo: "unica", recuperar: false, prueba: false, clave: null, vista: null, cuenta: null, google: null, googleCuenta: null,
-  backup: null, instalando: false, terminado: false, desinstalar: false, maqueta: false, nube: true,
+  backup: null, instalando: false, terminado: false, desinstalar: false, maqueta: false, nube: true, tipoNegocio: "SUPERMARKET",
 };
 
 const nombres = {
@@ -51,7 +51,7 @@ function pasosVisibles() {
 }
 
 // Pantallas que se muestran dentro de otro paso del panel izquierdo.
-const pasoDe = { codigo: "instalando", error: "instalando" };
+const pasoDe = { codigo: "instalando", error: "instalando", tipo: "negocio" };
 
 function ir(pantalla) {
   todas(".pantalla").forEach((p) => p.classList.toggle("activa", p.dataset.s === pantalla));
@@ -339,7 +339,7 @@ $("btnCuenta").onclick = async () => {
     if (contrasena !== $("cuentaConfirmar").value) { aviso("avisoCuenta", "Las dos contraseñas no coinciden.", "error"); return; }
     S.cuenta = { usuario: correo, nombre, contrasena, enlace: null };
     prepararNegocio();
-    ir("negocio");
+    ir("tipo");
     return;
   }
 
@@ -351,12 +351,25 @@ $("btnCuenta").onclick = async () => {
     S.cuenta = { usuario: r.email, nombre: r.displayName, contrasena, enlace: true };
     aviso("avisoCuenta", "");
     prepararNegocio();
-    ir("negocio");
+    ir("tipo");
   } catch (e) {
     if (e.codigo === "LICENSE.OWNER_TOTP_REQUIRED") $("campoTotp").classList.remove("oculto");
     aviso("avisoCuenta", e.message, "error");
   } finally { ocupado(boton, false); }
 };
+
+// ───────────────────────────── Tipo de negocio (Fase 7-C parte A) ─────────────────────────────
+function elegirTipo(tarjeta) {
+  todas(".tipo-negocio").forEach((x) => { x.classList.remove("sel"); x.setAttribute("aria-checked", "false"); });
+  tarjeta.classList.add("sel");
+  tarjeta.setAttribute("aria-checked", "true");
+  S.tipoNegocio = tarjeta.dataset.tipo;
+}
+todas(".tipo-negocio").forEach((t) => {
+  t.addEventListener("click", () => elegirTipo(t));
+  t.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); elegirTipo(t); } });
+});
+$("btnTipo").onclick = () => ir("negocio");
 
 // ───────────────────────────── Tu negocio ─────────────────────────────
 let municipioElegido = null;
@@ -434,7 +447,7 @@ $("btnInstalar").onclick = () => {
     negocio: {
       razonSocial: $("razonSocial").value.trim(), nombreComercial: $("nombreComercial").value.trim(), tipoPersona: persona,
       tipoDocumento: "NIT", numero, dv, regimen: $("regimen").value, municipio: municipioElegido, direccion: $("direccion").value.trim(),
-      telefono: $("telefono").value.trim() || null, correo: correo || null,
+      telefono: $("telefono").value.trim() || null, correo: correo || null, tipoNegocio: S.tipoNegocio,
     },
     propietario: { usuario: S.cuenta.usuario, nombre: S.cuenta.nombre, contrasena: S.cuenta.contrasena, enlace: null },
   });
@@ -610,6 +623,7 @@ async function maqueta(p) {
   if (p === "licencia") { $("clave").value = "POS-ABCDE-FGHJK-LMNPQ-RSTUV"; ir("licencia"); await vistaPrevia(); return; }
   if (p === "cuenta-prueba") { S.prueba = true; prepararCuenta(); ir("cuenta"); return; }
   if (p === "cuenta-google") { S.clave = "POS-X"; S.prueba = false; prepararCuenta(); ir("cuenta"); $("btnGoogle").click(); return; }
+  if (p === "tipo") { S.cuenta = { usuario: "dueno@correo.co" }; ir("tipo"); return; }
   if (p === "negocio") { S.vista = { legalName: "Supermercado La Economía SAS", nit: "900123456-8", city: "Medellín" }; S.cuenta = { usuario: "dueno@correo.co" }; prepararNegocio(); ir("negocio"); return; }
   // Pantallas completas con datos de ejemplo (capturas del manual de instalación: docs/imagenes/instalacion).
   const ejemplo = { legalName: "Supermercado La Economía SAS", nit: "900123456-8", edition: "SINGLE", subscriptionStatus: "ACTIVE", validUntil: "2026-11-16T00:00:00Z", city: "Medellín" };

@@ -46,7 +46,8 @@ public sealed record ReceiptPrinterDto(
 /// <summary>
 /// Báscula conectada a la caja (Fase 7-C). <c>Driver</c>: TOLEDO_8217, CAS, GENERIC o SIMULATED (solo desarrollo). Los campos del puerto
 /// serie vacíos toman el valor de fábrica del driver. La interfaz de caja lo entrega tal cual al agente (<c>PUT /scale/config</c>).
-/// <c>Configured</c> = false: la caja no tiene báscula.
+/// <c>Configured</c> = false: la caja no tiene báscula. <c>FeatureEnabled</c> = false (Fase 7-C parte A): la función "Báscula y PLU" está apagada
+/// en Funciones del negocio; la caja no lee la báscula aunque esté configurada (la configuración se conserva).
 /// </summary>
 public sealed record TerminalScaleDto(
     Guid PosTerminalId,
@@ -67,7 +68,8 @@ public sealed record TerminalScaleDto(
     string? CatalogCode,
     int StableWaitSeconds,
     int EmptyWaitSeconds,
-    bool AllowManualWeight);
+    bool AllowManualWeight,
+    bool FeatureEnabled = true);
 
 /// <summary>Sucursal con sus bodegas y cajas.</summary>
 public sealed record BranchDetailDto(BranchDto Branch, IReadOnlyList<WarehouseDto> Warehouses, IReadOnlyList<TerminalDto> Terminals);

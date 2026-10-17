@@ -21,6 +21,22 @@ public class SchemaTests(PostgresFixture postgres)
         """;
 
     [Fact]
+    public async Task Las_empresas_existentes_quedan_como_supermercado_con_todo_lo_que_veian()
+    {
+        // V2026.10.043 (Fase 7-C parte A): una empresa creada antes de los perfiles no pierde ninguna pantalla al actualizar.
+        var db = await postgres.CreateDatabaseAsync(migrate: true);
+        await db.ExecuteAsync(SeedCompanyAndBranches);
+
+        (await db.ScalarAsync<string>("SELECT business_profile FROM org.companies")).ShouldBe("SUPERMARKET");
+        (await db.ScalarAsync<string>("SELECT enabled_features FROM org.companies"))
+            .ShouldBe("FRACTIONAL_SALE,LOTS_EXPIRY,OPEN_PRICE,PROMOTIONS,PURCHASING,SCALE");
+
+        await Should.ThrowAsync<PostgresException>(() => db.ExecuteAsync("UPDATE org.companies SET business_profile = 'PANADERIA'"));
+        await Should.ThrowAsync<PostgresException>(() => db.ExecuteAsync("UPDATE org.companies SET enabled_features = 'scale;lotes'"));
+        await db.ExecuteAsync("UPDATE org.companies SET business_profile = 'PHARMACY', enabled_features = ''");
+    }
+
+    [Fact]
     public async Task Todas_las_claves_foraneas_tienen_indice()
     {
         var db = await postgres.CreateDatabaseAsync(migrate: true);

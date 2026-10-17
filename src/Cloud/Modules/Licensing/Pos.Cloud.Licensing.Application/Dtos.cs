@@ -43,7 +43,8 @@ public sealed record OrganizationRowDto(
     string Status,
     SubscriptionSummaryDto? Subscription,
     string? LicensePrefix,
-    int ActiveInstallations);
+    int ActiveInstallations,
+    string? BusinessProfile = null);
 
 public sealed record SubscriptionEventDto(
     Guid Id,

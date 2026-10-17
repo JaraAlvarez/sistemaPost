@@ -85,7 +85,11 @@ internal sealed class GetTerminalScaleHandler(IOrganizationStore store) : IQuery
         }
 
         var scale = await store.GetTerminalScaleAsync(terminal.Id, cancellationToken);
-        return scale is null ? TerminalScale.Defaults(Guid.Empty, terminal.CompanyId, terminal.Id).ToDto(configured: false) : scale.ToDto(configured: true);
+        var dto = scale is null ? TerminalScale.Defaults(Guid.Empty, terminal.CompanyId, terminal.Id).ToDto(configured: false) : scale.ToDto(configured: true);
+
+        // Fase 7-C parte A: con "Báscula y PLU" apagada la caja no lee la báscula; la configuración guardada no se toca.
+        var company = await store.GetCompanyAsync(terminal.CompanyId, cancellationToken);
+        return company is null || company.Has(BusinessFeature.Scale) ? dto : dto with { FeatureEnabled = false };
     }
 }
 
