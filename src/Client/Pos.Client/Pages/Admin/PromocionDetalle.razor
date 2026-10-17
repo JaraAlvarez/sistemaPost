@@ -103,18 +103,18 @@
                     <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_pay" Label="Pague (unidades)" Min="0" /></MudItem>
                     break;
                 case "SpecialPrice":
-                    <MudItem xs="12" sm="6"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio especial por unidad (IVA incluido)" Min="0" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_price" Label="Precio especial por unidad (IVA incluido)" Min="0" /></MudItem>
                     break;
                 case "PercentOff":
-                    <MudItem xs="12" sm="6"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_percent" Label="Porcentaje de descuento" Min="0" Max="100" Adornment="Adornment.End" AdornmentText="%" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoPorcentaje" T="decimal" @bind-Value="_percent" Label="Porcentaje de descuento" Min="0" Max="100" Adornment="Adornment.End" AdornmentText="%" /></MudItem>
                     break;
                 case "QuantityPrice":
-                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_minQty" Label="Desde (cantidad)" Min="0" /></MudItem>
-                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio por unidad (IVA incluido)" Min="0" /></MudItem>
+                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="_minQty" Label="Desde (cantidad)" Min="0" /></MudItem>
+                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_price" Label="Precio por unidad (IVA incluido)" Min="0" /></MudItem>
                     break;
                 case "Combo":
                     <MudItem xs="12" sm="6">
-                        <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio del combo (IVA incluido)" Min="0" />
+                        <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_price" Label="Precio del combo (IVA incluido)" Min="0" />
                         <MudText Typo="Typo.caption">El combo lleva dos o más productos distintos; la cantidad de cada uno se indica en la lista.</MudText>
                     </MudItem>
                     break;
@@ -138,7 +138,7 @@
                             <td style="width: 130px">
                                 @if (_type == "Combo")
                                 {
-                                    <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="item.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" />
+                                    <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="item.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" />
                                 }
                             </td>
                             <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Quitar" OnClick="@(() => _itemsForm.Remove(item))" /></td>
@@ -288,7 +288,7 @@
                 {
                     <tr>
                         <td>@line.Label</td>
-                        <td style="width: 140px"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="line.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" /></td>
+                        <td style="width: 140px"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="line.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" /></td>
                         <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Quitar" OnClick="@(() => _lineas.Remove(line))" /></td>
                     </tr>
                 }

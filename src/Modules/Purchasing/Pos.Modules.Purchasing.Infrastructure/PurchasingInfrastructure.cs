@@ -303,5 +303,46 @@ public static class PurchasingInfrastructureRegistration
         services.AddSingleton<IConstraintErrorProvider, PurchasingConstraintErrors>();
         services.AddScoped<IPurchasingStore, PurchasingStore>();
         services.AddScoped<IPurchasingQueries, PurchasingQueries>();
+        services.AddScoped<ISuggestedOrderGate, SuggestedOrderGate>();
+        services.AddScoped<Contracts.IPurchaseReceipts, PurchaseReceipts>();
+    }
+}
+
+/// <summary>Contrato <see cref="Contracts.IPurchaseReceipts"/>: compra de la sucursal por número o Id con sus unidades recibidas por producto.</summary>
+internal sealed class PurchaseReceipts(PosDbContext context) : Contracts.IPurchaseReceipts
+{
+    public async Task<Contracts.ReceivedPurchase?> FindAsync(string numberOrId, Guid branchId, CancellationToken cancellationToken = default)
+    {
+        var text = (numberOrId ?? string.Empty).Trim();
+        if (text.Length == 0)
+        {
+            return null;
+        }
+
+        var candidates = context.Set<Purchase>().AsNoTracking().Where(p => p.BranchId == branchId);
+        Purchase? purchase;
+        if (Guid.TryParse(text, out var id))
+        {
+            purchase = await candidates.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        }
+        else
+        {
+            // ILIKE sin comodines: compara sin distinguir mayúsculas.
+            var pattern = text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
+            purchase = await candidates.Where(p => EF.Functions.ILike(p.Number, pattern)).OrderByDescending(p => p.InvoiceDate).FirstOrDefaultAsync(cancellationToken);
+        }
+
+        if (purchase is null)
+        {
+            return null;
+        }
+
+        var lines = await context.Set<PurchaseLine>().AsNoTracking().Where(l => EF.Property<Guid>(l, "PurchaseId") == purchase.Id)
+            .OrderBy(l => l.LineNumber)
+            .Select(l => new { l.ProductId, l.BaseQuantity, l.ReturnedBaseQuantity })
+            .ToListAsync(cancellationToken);
+        return new Contracts.ReceivedPurchase(
+            purchase.Id, purchase.Number, purchase.Status.ToString().ToUpperInvariant(), purchase.SupplierInvoiceNumber, purchase.InvoiceDate,
+            [.. lines.Select(l => new Contracts.ReceivedPurchaseLine(l.ProductId, Math.Max(0m, l.BaseQuantity - l.ReturnedBaseQuantity)))]);
     }
 }

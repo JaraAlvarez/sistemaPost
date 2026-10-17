@@ -38,6 +38,7 @@ public sealed class CashModule : IModule
 
         // Fase 7-B: cobrar con Sistecrédito.
         services.AddScoped<SistecreditoConnections>();
+        services.AddScoped<SistecreditoAccess>();
         services.AddScoped<SistecreditoSettingsViews>();
         services.AddScoped<SistecreditoReconciler>();
         services.AddScoped<ISistecreditoPayments, SistecreditoPaymentsService>();
@@ -93,6 +94,10 @@ public sealed class CashModule : IModule
                 (await d.Send(command, ct)).ToHttpResult())
             .RequirePermission(CashPermissions.SessionOperate)
             .WithSummary("Crea el cobro en Sistecrédito para la venta en curso (requiere internet) y devuelve la URL de pago para el QR");
+        group.MapGet("/sales/{saleId:guid}/open", async (Guid saleId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListOpenSistecreditoPaymentsQuery(saleId), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.SessionOperate)
+            .WithSummary("Cobros abiertos de la venta en curso de esta caja: aprobados sin usar (vuelven como pago) y pendientes (se siguen vigilando)");
         group.MapGet("/payments/{attemptId:guid}", async (Guid attemptId, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new GetSistecreditoPaymentQuery(attemptId), ct)).ToHttpResult())
             .RequirePermission(CashPermissions.SessionOperate);

@@ -23,7 +23,8 @@ public sealed record PromotionTargetDefinition(Guid? ProductId, Guid? PackagingI
 
 /// <summary>
 /// Promoción que rige, lista para el motor de la venta. <c>Kind</c>: MULTI_BUY, SPECIAL_PRICE, PERCENT_OFF,
-/// QUANTITY_PRICE o COMBO.
+/// QUANTITY_PRICE o COMBO. <c>ValidTo</c>: fin de la vigencia (exclusivo); <c>HasSchedule</c>: solo rige algunos días u horas
+/// (las etiquetas de góndola no la imprimen).
 /// </summary>
 public sealed record PromotionDefinition(
     Guid Id,
@@ -36,7 +37,9 @@ public sealed record PromotionDefinition(
     decimal? Percent,
     decimal? MinQuantity,
     int? MaxApplications,
-    string? TicketText);
+    string? TicketText,
+    DateTimeOffset? ValidTo = null,
+    bool HasSchedule = false);
 
 /// <summary>Promociones vigentes para la venta (las consulta el módulo de ventas en cada recálculo).</summary>
 public interface IActivePromotions

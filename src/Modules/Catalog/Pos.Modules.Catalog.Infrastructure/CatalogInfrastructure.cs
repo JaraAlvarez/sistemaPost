@@ -442,6 +442,53 @@ internal sealed class CatalogStore(PosDbContext context) : ICatalogStore
             RETURNING last_value AS "Value"
             """).ToListAsync(cancellationToken)).Single();
 
+    public async Task<IReadOnlyList<long>> ReserveFreeInternalSequencesAsync(
+        Guid nodeId, Guid companyId, string prefix, int count, CancellationToken cancellationToken)
+    {
+        // 1) La fila del consecutivo existe y queda bloqueada hasta el fin de la transacción.
+        await context.Database.ExecuteSqlAsync($"""
+            INSERT INTO catalog.code_sequences (node_id, kind, last_value) VALUES ({nodeId}, 'BARCODE', 0)
+            ON CONFLICT (node_id, kind) DO UPDATE SET last_value = catalog.code_sequences.last_value
+            """, cancellationToken);
+
+        // 2) Una sola consulta: los primeros números libres después del último usado. El rango basta con count + los ocupados por encima.
+        // Se compara como texto (prefijo + consecutivo de 7 dígitos + cualquier dígito de control): sin conversiones que fallen con códigos
+        // alfanuméricos. El NOT EXISTS usa un rango (no LIKE con g, que no es constante) para que sí aproveche el índice de normalized_code;
+        // ':' es el carácter siguiente a '9' en la collation C.
+        var pattern = prefix + "%";
+        var free = await context.Database.SqlQuery<long>($"""
+            WITH cur AS (
+                SELECT last_value FROM catalog.code_sequences WHERE node_id = {nodeId} AND kind = 'BARCODE'
+            ), above AS (
+                SELECT count(*) AS n
+                FROM catalog.product_barcodes b, cur
+                WHERE b.company_id = {companyId} AND b.deleted_at IS NULL AND b.normalized_code LIKE {pattern} AND length(b.normalized_code) = 13
+                  AND substring(b.normalized_code FROM 6 FOR 7) > lpad(cur.last_value::text, 7, '0')
+            )
+            SELECT g AS "Value"
+            FROM cur, above, generate_series(cur.last_value + 1, LEAST(9999999, cur.last_value + {count} + above.n)) AS g
+            WHERE NOT EXISTS (
+                SELECT 1 FROM catalog.product_barcodes b
+                WHERE b.company_id = {companyId} AND b.deleted_at IS NULL
+                  AND b.normalized_code >= {prefix} || lpad(g::text, 7, '0')
+                  AND b.normalized_code < {prefix} || lpad(g::text, 7, '0') || ':'
+                  AND length(b.normalized_code) = 13)
+            ORDER BY g
+            LIMIT {count}
+            """).ToListAsync(cancellationToken);
+
+        // 3) El consecutivo avanza hasta el mayor reservado (los saltados quedan atrás).
+        if (free.Count > 0)
+        {
+            var last = free[^1];
+            await context.Database.ExecuteSqlAsync(
+                $"UPDATE catalog.code_sequences SET last_value = GREATEST(last_value, {last}) WHERE node_id = {nodeId} AND kind = 'BARCODE'",
+                cancellationToken);
+        }
+
+        return free;
+    }
+
     private sealed record UnitRow(string Code, string Dimension);
 }
 
@@ -484,5 +531,6 @@ public static class CatalogInfrastructureRegistration
         services.AddScoped<ICatalogQueries, CatalogQueries>();
         services.AddScoped<ICatalogImportRepository, CatalogImportRepository>();
         services.AddScoped<ICatalogReader, CatalogReader>();
+        services.AddSingleton<ILabelRenderer, LabelPdfRenderer>();
     }
 }

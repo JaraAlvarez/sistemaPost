@@ -39,7 +39,7 @@
                             @foreach (var method in _medios.Where(m => !m.AffectsCashDrawer))
                             {
                                 <MudItem xs="6" sm="4">
-                                    <MudNumericField Culture="@Format.Colombia" T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0"
+                                    <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0"
                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
                                 </MudItem>
                             }
@@ -112,6 +112,30 @@
                         </tbody>
                     </MudSimpleTable>
                 </MudTabPanel>
+                @if (detalle.SistecreditoNotUsed is { Count: > 0 } noUsados)
+                {
+                    <MudTabPanel Text="@($"Sistecrédito no usado ({noUsados.Count})")">
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                            Créditos aprobados por Sistecrédito que, con autorización de supervisor, no se usaron en la venta: no son plata de la caja.
+                            Reverse cada uno en el portal de Sistecrédito y ciérrelo en Configuración → Sistecrédito.
+                        </MudAlert>
+                        <MudSimpleTable Dense="true" Striped="true">
+                            <thead><tr><th>Hora</th><th>Transacción</th><th>Cliente</th><th class="num">Valor</th><th>Estado</th></tr></thead>
+                            <tbody>
+                                @foreach (var noUsado in noUsados)
+                                {
+                                    <tr>
+                                        <td>@Format.Date(noUsado.ReleasedAt)</td>
+                                        <td>@noUsado.TransactionId</td>
+                                        <td>@noUsado.MaskedDocument</td>
+                                        <td class="num">@Format.Money(noUsado.Amount)</td>
+                                        <td>@(noUsado.Reviewed ? "Revisado" : "Por reversar en el portal")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudTabPanel>
+                }
                 <MudTabPanel Text="@($"Movimientos ({detalle.Movements.Count})")">
                     <div style="overflow-x: auto">
                         <MudSimpleTable Dense="true" Striped="true">

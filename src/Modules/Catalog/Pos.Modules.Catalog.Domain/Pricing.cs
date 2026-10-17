@@ -37,13 +37,20 @@ public sealed partial class PriceList : AggregateRoot<Guid>, ICompanyOwned, ISof
     /// <summary>Múltiplo al que se redondea el precio derivado (p. ej. $50); 0 = al centavo.</summary>
     public decimal RoundingIncrement { get; private set; } = 50m;
 
-    /// <summary>Las promociones aplican sobre el precio de esta lista (D8-10); si no, la lista ya es el precio final.</summary>
+    /// <summary>
+    /// Las promociones aplican sobre el precio de esta lista (D8-10); si no, la lista ya es el precio final. La lista general SIEMPRE admite
+    /// promociones (la caja y las etiquetas no miran este valor para ella): <see cref="ConfigureRules"/> rechaza apagarlo de forma explícita en la
+    /// general; el valor guardado se conserva (vuelve a contar si la lista deja de ser la general).
+    /// </summary>
     public bool AllowsPromotions { get; private set; } = true;
 
     public string AuditLabel => $"Lista de precios {Code} · {Name}";
 
     /// <summary>Reglas de la lista (D8-11): la general no tiene porcentaje; porcentaje entre −90 y +100; redondeo de 0 a 1.000.</summary>
-    public Result ConfigureRules(decimal? adjustmentPercent, decimal roundingIncrement, bool allowsPromotions)
+    /// <param name="adjustmentPercent">Porcentaje sobre la general (null en la general).</param>
+    /// <param name="roundingIncrement">Redondeo del precio derivado (0 a 1.000).</param>
+    /// <param name="allowsPromotions">Nuevo valor; null = conservar el guardado.</param>
+    public Result ConfigureRules(decimal? adjustmentPercent, decimal roundingIncrement, bool? allowsPromotions)
     {
         if ((IsDefault && adjustmentPercent is not null) || adjustmentPercent is < -90m or > 100m or 0m
             || (adjustmentPercent is { } p && decimal.Round(p, 2) != p) || roundingIncrement is < 0m or > 1_000m)
@@ -53,9 +60,14 @@ public sealed partial class PriceList : AggregateRoot<Guid>, ICompanyOwned, ISof
                 "Reglas inválidas: la lista general no tiene porcentaje; el porcentaje va de −90 a +100 (distinto de 0) y el redondeo de 0 a 1.000.");
         }
 
+        if (IsDefault && allowsPromotions == false)
+        {
+            return CatalogErrors.DefaultListAllowsPromotions;
+        }
+
         AdjustmentPercent = adjustmentPercent;
         RoundingIncrement = roundingIncrement;
-        AllowsPromotions = allowsPromotions;
+        AllowsPromotions = allowsPromotions ?? AllowsPromotions;
         return Result.Success();
     }
 

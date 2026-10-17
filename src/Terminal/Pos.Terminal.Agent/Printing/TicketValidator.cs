@@ -12,6 +12,9 @@ public static class TicketValidator
     public const int MaxElements = 2_000;
     public const int MaxTextLength = 2_000;
     public const int MaxBarcodeLength = 80;
+
+    /// <summary>Largo máximo del nombre de la simbología (EAN13, CODE128…); una desconocida se imprime en CODE128.</summary>
+    public const int MaxSymbologyLength = 20;
     public const int MaxQrBytes = 2_000;
 
     /// <summary>Mensaje del primer problema encontrado, o <c>null</c> si el tiquete es válido.</summary>
@@ -58,6 +61,8 @@ public static class TicketValidator
         SeparatorLine s when char.IsControl(s.Character) || (char.IsWhiteSpace(s.Character) && s.Character != ' ') => "carácter de separación inválido.",
         BarcodeElement b when string.IsNullOrEmpty(b.Data) || b.Data.Length > MaxBarcodeLength || b.Data.Any(c => c is < ' ' or > '~') =>
             $"el código de barras debe tener de 1 a {MaxBarcodeLength} caracteres ASCII imprimibles.",
+        BarcodeElement b when b.Symbology is { Length: > MaxSymbologyLength } =>
+            $"la simbología del código de barras tiene más de {MaxSymbologyLength} caracteres.",
         QrElement q when string.IsNullOrEmpty(q.Data) || Encoding.UTF8.GetByteCount(q.Data) > MaxQrBytes => $"el QR debe tener de 1 a {MaxQrBytes} bytes.",
         FeedElement f when f.Lines is < 0 or > 10 => "el avance de papel debe ser de 0 a 10 líneas.",
         _ => null,

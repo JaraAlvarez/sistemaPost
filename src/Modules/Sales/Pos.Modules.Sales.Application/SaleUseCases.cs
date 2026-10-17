@@ -3,6 +3,7 @@ using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
+using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Sales.Contracts;
 using Pos.Modules.Sales.Domain;
@@ -14,8 +15,33 @@ using Pos.SharedKernel.Time;
 namespace Pos.Modules.Sales.Application;
 
 /// <summary>Carga una venta de esta caja para editarla y la recalcula con las promociones vigentes.</summary>
-public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, PromotionRules promotions)
+public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, PromotionRules promotions, ISistecreditoPayments sistecredito)
 {
+    /// <summary>Lo que faltaba por pagar de cada venta al cargarla (antes del cambio), para saber si el cambio la baja.</summary>
+    private readonly Dictionary<Guid, decimal> _loadedDue = [];
+
+    /// <summary>
+    /// Sistecrédito (revisión TP1/SC3): con un crédito ya aprobado y sin usar, un cambio que BAJA la venta (eliminar o bajar cantidades,
+    /// descuentos, precio, promociones al recuperarla…) no puede dejarla por debajo de ese crédito: no se podría completar ni con el crédito
+    /// ni sin él. Un cambio que no la baja (p. ej. agregar productos o asignar cliente) siempre pasa.
+    /// </summary>
+    public async Task<Result> GuardApprovedCreditAsync(Sale sale, CancellationToken cancellationToken)
+    {
+        var due = Math.Max(0m, sale.Total - sale.ExchangeCredit);
+        if (_loadedDue.TryGetValue(sale.Id, out var before) && due >= before)
+        {
+            return Result.Success();
+        }
+
+        var approved = (await sistecredito.ListUsableAsync(sale.Id, cancellationToken)).Sum(a => a.Amount);
+        return approved > 0m && approved > due
+            ? Error.BusinessRule(
+                "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL",
+                $"Esta venta tiene un crédito de Sistecrédito ya aprobado por {approved:N0} y quedaría en {due:N2}: no puede quedar por debajo del crédito. "
+                + "Primero use «No usar este crédito» (con autorización de supervisor) o reabra el cobro.")
+            : Result.Success();
+    }
+
     public async Task<Result<(Sale Sale, TerminalScope Scope)>> LoadAsync(Guid saleId, CancellationToken cancellationToken)
     {
         var scope = await terminals.ResolveAsync(requireOpenSession: false, cancellationToken);
@@ -31,11 +57,21 @@ public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, Pr
         }
 
         var same = TerminalResolver.EnsureSameTerminal(sale, scope.Value);
-        return same.IsSuccess ? (sale, scope.Value) : same.Error;
+        if (same.IsFailure)
+        {
+            return same.Error;
+        }
+
+        _loadedDue.TryAdd(sale.Id, Math.Max(0m, sale.Total - sale.ExchangeCredit));
+        return (sale, scope.Value);
     }
 
-    public async Task RecalculateAsync(Sale sale, CancellationToken cancellationToken) =>
+    /// <summary>Recalcula con las promociones vigentes y verifica que no quede por debajo de un crédito de Sistecrédito aprobado.</summary>
+    public async Task<Result> RecalculateAsync(Sale sale, CancellationToken cancellationToken)
+    {
         sale.Recalculate(await promotions.ActiveAsync(sale.BranchId, cancellationToken));
+        return await GuardApprovedCreditAsync(sale, cancellationToken);
+    }
 }
 
 // ─────────────────────────────── Iniciar y consultar la venta en curso ───────────────────────────────
@@ -189,7 +225,11 @@ internal sealed class AddLineHandler(
                 cancellationToken);
         }
 
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
         return sale.ToDto(item.UnitPrice is null ? [$"{item.Name}: fije el precio (precio abierto) antes de cobrar."] : null);
     }
 
@@ -262,7 +302,11 @@ internal sealed class ChangeQuantityHandler(SaleEditor editor, StockGuard stock)
             return available.Error;
         }
 
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
         return sale.ToDto();
     }
 }
@@ -294,7 +338,11 @@ internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IC
             new AuditEntry("sales", "SALE_LINE_VOIDED", nameof(Sale), sale.Id, sale.AuditLabel,
                 $"Línea eliminada: {line.Quantity:0.####} × {line.Name} ({line.Gross:N2}).", AuthorizedBy: authorization.Current?.AuthorizedBy),
             cancellationToken);
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
         return sale.ToDto();
     }
 }
@@ -325,7 +373,11 @@ internal sealed class OverridePriceHandler(SaleEditor editor, IAuthorizationScop
                 $"Precio de {line.Value.Sku} · {line.Value.Name} fijado en {request.Price:N2} (lista: {line.Value.OriginalUnitPrice:N2}).",
                 AuthorizedBy: authorization.Current?.AuthorizedBy, Severity: AuditSeverity.Warning),
             cancellationToken);
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
         return sale.ToDto();
     }
 }
@@ -358,7 +410,11 @@ internal sealed class ApplyDiscountHandler(
             return applied.Error;
         }
 
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
 
         // Un descuento en valor no puede superar el neto (el motor lo recorta): se rechaza en lugar de aplicarlo a medias.
         var effective = request.LineId is { } lineId
@@ -398,7 +454,11 @@ internal sealed class RemoveDiscountHandler(SaleEditor editor) : ICommandHandler
             return removed.Error;
         }
 
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
         return sale.ToDto();
     }
 }
@@ -446,7 +506,11 @@ internal sealed class SetCustomerHandler(SaleEditor editor, CustomerResolver cus
             }
         }
 
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
         return sale.ToDto(warnings);
     }
 }
@@ -501,7 +565,11 @@ internal sealed class ResumeSaleHandler(SaleEditor editor, ISalesStore store) : 
             return resumed.Error;
         }
 
-        await editor.RecalculateAsync(sale, cancellationToken);
+        var guarded = await editor.RecalculateAsync(sale, cancellationToken);
+        if (guarded.IsFailure)
+        {
+            return guarded.Error;
+        }
         return sale.ToDto();
     }
 }
@@ -510,7 +578,7 @@ internal sealed class ResumeSaleHandler(SaleEditor editor, ISalesStore store) : 
 public sealed record CancelSaleCommand(Guid SaleId, string Reason) : ICommand<SaleDto>, IAllowedWhenRestricted;
 
 internal sealed class CancelSaleHandler(
-    SaleEditor editor, ISalesStore store, IAuthorizationScope authorization, IActorContext actor, IAuditWriter audit, IClock clock)
+    SaleEditor editor, ISalesStore store, IAuthorizationScope authorization, IActorContext actor, IAuditWriter audit, ISistecreditoPayments sistecredito, IClock clock)
     : ICommandHandler<CancelSaleCommand, SaleDto>
 {
     public async Task<Result<SaleDto>> Handle(CancelSaleCommand request, CancellationToken cancellationToken)
@@ -522,6 +590,15 @@ internal sealed class CancelSaleHandler(
         }
 
         var sale = loaded.Value.Sale;
+
+        // Con un crédito de Sistecrédito aprobado y sin usar, cancelar la venta dejaría al cliente cobrado: primero «No usar este crédito».
+        if ((await sistecredito.ListUsableAsync(sale.Id, cancellationToken)).Sum(a => a.Amount) is > 0m and var credit)
+        {
+            return Error.BusinessRule(
+                "SALES.SISTECREDITO_CREDIT_APPROVED",
+                $"Esta venta tiene un crédito de Sistecrédito ya aprobado por {credit:N0}: primero use «No usar este crédito» (con autorización de supervisor) o complete la venta con él.");
+        }
+
         var now = clock.UtcNow;
         var cancelled = sale.Cancel(request.Reason, actor.ActorId!.Value, authorization.Current?.AuthorizedBy, now);
         if (cancelled.IsFailure)

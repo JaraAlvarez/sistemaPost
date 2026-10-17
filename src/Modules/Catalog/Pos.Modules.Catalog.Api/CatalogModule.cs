@@ -32,6 +32,8 @@ public sealed class CatalogModule : IModule
         services.AddScoped<ICatalogSaleItems, CatalogSaleItems>();
         services.AddScoped<PriceService>();
         services.AddScoped<CatalogImportService>();
+        services.AddScoped<LabelBuilder>();
+        services.AddScoped<LabelBranch>();
         services.AddScoped<ICompanyInitializer, CatalogInitializer>();
         services.AddScoped<IBusinessStarterData, CatalogStarterData>();
         services.AddSingleton<ISettingDefinitionProvider, CatalogSettingsProvider>();
@@ -44,6 +46,7 @@ public sealed class CatalogModule : IModule
         MapMasters(group);
         MapProducts(group.MapGroup("/products"));
         MapImports(group.MapGroup("/imports"));
+        MapLabels(group.MapGroup("/labels"));
 
         group.MapGet("/scan/{code}", async (string code, Guid? branchId, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new ScanCodeQuery(code, branchId), ct)).ToHttpResult())
@@ -231,6 +234,36 @@ public sealed class CatalogModule : IModule
         group.MapPost("/{importId:guid}/discard", async (Guid importId, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new DiscardImportCommand(importId), ct)).ToHttpResult())
             .RequirePermission(CatalogPermissions.ImportRun);
+    }
+
+    /// <summary>Etiquetas de góndola y adhesivos con código de barras (consultar productos basta para imprimir; generar códigos exige administrarlos).</summary>
+    private static void MapLabels(RouteGroupBuilder group)
+    {
+        group.MapGet("/templates", () => Results.Ok(LabelLayout.Templates.Select(t =>
+                new LabelTemplateDto(t.Kind.ToString(), t.Name, t.PerPage, t.IsSticker, t.LabelWidth, t.LabelHeight))))
+            .RequirePermission(CatalogPermissions.ProductView)
+            .WithSummary("Plantillas disponibles: hojas A4 de góndola y adhesivos para impresora de etiquetas");
+
+        group.MapPost("/preview", async (PreviewLabelsQuery query, IDispatcher d, CancellationToken ct) => (await d.Send(query, ct)).ToHttpResult())
+            .RequirePermission(CatalogPermissions.ProductView)
+            .WithSummary("Arma la lista de etiquetas por productos, categoría, cambios de precio desde una fecha, compra o productos sin código");
+
+        group.MapPost("/pdf", async (RenderLabelsQuery query, IDispatcher d, CancellationToken ct) =>
+            {
+                var file = await d.Send(query, ct);
+                return file.IsFailure ? file.Error.ToProblem() : Results.File(file.Value.Content, file.Value.ContentType, file.Value.FileName);
+            })
+            .RequirePermission(CatalogPermissions.ProductView)
+            .WithSummary("PDF de etiquetas con la plantilla elegida (al tamaño exacto de la hoja o del adhesivo)");
+
+        group.MapPost("/ticket", async (LabelTicketQuery query, IDispatcher d, CancellationToken ct) => (await d.Send(query, ct)).ToHttpResult())
+            .RequirePermission(CatalogPermissions.ProductView)
+            .WithSummary("Etiquetas sencillas (nombre, precio y CODE128) como tiquete neutro para la impresora de la caja");
+
+        group.MapPost("/internal-codes", async (GenerateLabelCodesCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(CatalogPermissions.ProductManage)
+            .WithSummary("Genera el código interno EAN-13 (prefijo 29) a los productos elegidos que no tienen código de barras");
     }
 
     private static ImportKind? ParseKind(string kind) => kind?.Trim().ToUpperInvariant() switch
