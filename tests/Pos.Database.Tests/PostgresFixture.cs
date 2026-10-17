@@ -19,7 +19,9 @@ public sealed class PostgresFixture : IAsyncLifetime
         App: "app-test-password-123",
         Backup: "backup-test-password");
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image).Build();
+    // Muchas pruebas corren en paralelo y cada una crea su BD con su propio pool: con el límite de fábrica (100) se agotaban
+    // las conexiones (53300) en las pruebas de concurrencia.
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(Image).WithCommand("-c", "max_connections=300").Build();
     private readonly SemaphoreSlim _createLock = new(1, 1);
 
     public string SuperuserConnectionString => _container.GetConnectionString();
