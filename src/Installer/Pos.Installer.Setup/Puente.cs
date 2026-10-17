@@ -25,12 +25,19 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
     private string? _enlace;
     private string? _correoEnlace;
 
+    // "Continuar con Google": la espera en curso (una a la vez) y la dirección para "Abrir el navegador otra vez".
+    private CancellationTokenSource? _google;
+    private string? _direccionGoogle;
+    private bool _enlaceDeGoogle;
+
     public bool Trabajando { get; private set; }
 
     public void Cancelar() => _cierre.Cancel();
 
     public void Dispose()
     {
+        _google?.Cancel();
+        _google?.Dispose();
         _cierre.Dispose();
         _instalacion?.Dispose();
     }
@@ -114,8 +121,24 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
 
                 _enlace = respuesta.Dato!.Token;
                 _correoEnlace = respuesta.Dato.Email;
+                _enlaceDeGoogle = false;
                 return (new { email = respuesta.Dato.Email, displayName = respuesta.Dato.DisplayName }, null, null);
             }
+
+            case "googleIniciar":
+                return await IniciarGoogleAsync(Texto(datos, "clave") ?? string.Empty, ct);
+
+            case "googleAbrir":
+                if (_direccionGoogle is not null && !opciones.Maqueta)
+                {
+                    Sistema.AbrirComoUsuario(_direccionGoogle);
+                }
+
+                return (null, null, null);
+
+            case "googleCancelar":
+                CancelarGoogle();
+                return (null, null, null);
 
             case "buscarPrincipal":
             {
@@ -190,9 +213,85 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
         }
     }
 
+    /// <summary>
+    /// "Continuar con Google" (Fase 13-B, parte E): Google no permite su ingreso dentro de un WebView, así que la nube crea una solicitud
+    /// y el instalador abre el portal en el NAVEGADOR DEL SISTEMA (con el usuario normal, no como administrador). Solo se abre una dirección
+    /// HTTPS del mismo servidor de licencias. Luego consulta en segundo plano y avisa a la página con <c>{ evento: "google", … }</c>.
+    /// </summary>
+    private async Task<(object?, string?, string?)> IniciarGoogleAsync(string clave, CancellationToken ct)
+    {
+        CancelarGoogle();
+        _enlace = null;
+        if (opciones.Maqueta)
+        {
+            await Task.Delay(500, ct);
+            Esperar((_, _) => Task.FromResult(new ResultadoConsulta(OwnerLinkRequestStatuses.Approved, 5,
+                new OwnerLinkResponse("enlace-de-maqueta", "dueno@gmail.com", "Dueño de prueba", DateTimeOffset.UtcNow.AddHours(2)))), TimeSpan.FromMinutes(10), TimeSpan.FromSeconds(5));
+            return (new { codigo = "K7QF-M2XP", venceEn = 600 }, null, null);
+        }
+
+        var respuesta = await _nube.IniciarGoogleAsync(clave, ct);
+        if (!respuesta.Ok)
+        {
+            return (null, respuesta.Mensaje, respuesta.Codigo);
+        }
+
+        var inicio = respuesta.Dato!;
+        if (!IngresoGoogle.EsDireccionSegura(inicio.BrowserUrl, _nube.Servidor))
+        {
+            return (null, "El servidor de licencias devolvió una dirección que no es la suya. Usa tu correo y contraseña del portal.", null);
+        }
+
+        _direccionGoogle = inicio.BrowserUrl;
+        Sistema.AbrirComoUsuario(inicio.BrowserUrl);
+        Esperar((_, token) => _nube.ConsultarGoogleAsync(inicio.RequestId, inicio.PollToken, token),
+            TimeSpan.FromSeconds(inicio.ExpiresIn), TimeSpan.FromSeconds(inicio.Interval));
+        return (new { codigo = inicio.UserCode, venceEn = inicio.ExpiresIn }, null, null);
+    }
+
+    /// <summary>Lanza la espera en segundo plano (el resultado llega a la página como aviso).</summary>
+    private void Esperar(Func<EsperaAutorizacion, CancellationToken, Task<ResultadoConsulta>> consultar, TimeSpan vigencia, TimeSpan intervalo)
+    {
+        var cancelacion = CancellationTokenSource.CreateLinkedTokenSource(_cierre.Token);
+        _google = cancelacion;
+        var espera = new EsperaAutorizacion(DateTimeOffset.UtcNow, vigencia, intervalo);
+        _ = Task.Run(async () =>
+        {
+            var estado = await espera.EjecutarAsync(token => consultar(espera, token), Task.Delay, () => DateTimeOffset.UtcNow, null, cancelacion.Token);
+            if (estado == EstadoEspera.Autorizada && !cancelacion.IsCancellationRequested)
+            {
+                _enlace = espera.Enlace!.Token;
+                _correoEnlace = espera.Enlace.Email;
+                _enlaceDeGoogle = true;
+                Avisar(new { evento = "google", estado = "autorizada", email = espera.Enlace.Email, displayName = espera.Enlace.DisplayName });
+                return;
+            }
+
+            if (estado != EstadoEspera.Cancelada)
+            {
+                Avisar(new { evento = "google", estado = estado.ToString().ToLowerInvariant(), mensaje = espera.Mensaje });
+            }
+        });
+    }
+
+    private void CancelarGoogle()
+    {
+        var actual = _google;
+        _google = null;
+        _direccionGoogle = null;
+        actual?.Cancel();
+    }
+
     private (object?, string?, string?) Instalar(JsonElement datos)
     {
         var solicitud = datos.Deserialize<SolicitudInstalacion>(Json)!;
+        if (solicitud.Propietario is { } conGoogle && _enlace is not null && _enlaceDeGoogle && !string.IsNullOrWhiteSpace(solicitud.Clave)
+            && IngresoGoogle.ValidarContrasenaLocal(conGoogle.Contrasena, conGoogle.Contrasena, _correoEnlace) is { } problema)
+        {
+            // Con Google no hay contraseña del portal: la contraseña LOCAL que eligió el dueño debe cumplir la política del portal.
+            return (null, problema, null);
+        }
+
         if (solicitud.Propietario is { } propietario && _enlace is not null && !string.IsNullOrWhiteSpace(solicitud.Clave))
         {
             // Con la cuenta del portal: el usuario es el correo VALIDADO por la nube (no el que quede escrito en la página).

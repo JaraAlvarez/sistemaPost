@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Pos.Installer.Setup.Logica;
 using Pos.Licensing.Contracts;
 
 namespace Pos.Installer.Setup.Servicios;
@@ -59,6 +60,20 @@ public sealed class NubeLicencias(Uri? servidor)
     public Task<Respuesta<OwnerLinkResponse>> CuentaAsync(string clave, string correo, string contrasena, string? codigo, CancellationToken cancellationToken) =>
         EnviarAsync<OwnerLinkResponse>(LicensingRoutes.OwnerLinks, new OwnerLinkRequest(clave, correo, contrasena, codigo), cancellationToken);
 
+    /// <summary>Servidor de licencias configurado (la dirección del navegador debe ser de este mismo servidor).</summary>
+    public Uri? Servidor => servidor;
+
+    /// <summary>"Continuar con Google": crea la solicitud que el dueño autoriza en el navegador del sistema.</summary>
+    public Task<Respuesta<OwnerLinkRequestStarted>> IniciarGoogleAsync(string clave, CancellationToken cancellationToken) =>
+        EnviarAsync<OwnerLinkRequestStarted>(LicensingRoutes.OwnerLinkRequests, new OwnerLinkRequestStart(clave), cancellationToken);
+
+    /// <summary>Una consulta del estado de la solicitud (el secreto va en el cuerpo, nunca en la URL).</summary>
+    public async Task<ResultadoConsulta> ConsultarGoogleAsync(Guid solicitud, string secreto, CancellationToken cancellationToken)
+    {
+        var respuesta = await EnviarAsync<OwnerLinkPollResponse>(LicensingRoutes.OwnerLinkRequestPoll(solicitud), new OwnerLinkPoll(secreto), cancellationToken);
+        return respuesta is { Ok: true, Dato: { } dato } ? ResultadoConsulta.Con(dato) : ResultadoConsulta.Fallo(respuesta.Codigo, respuesta.Mensaje);
+    }
+
     private async Task<Respuesta<T>> EnviarAsync<T>(string ruta, object cuerpo, CancellationToken cancellationToken)
     {
         if (_http is null)
@@ -77,7 +92,7 @@ public sealed class NubeLicencias(Uri? servidor)
             var (codigo, detalle) = await Http.ProblemaAsync(response, cancellationToken);
             return new(default, Mensaje(codigo, detalle, response.StatusCode), codigo);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return new(default, "No hay conexión con BusinessPost en internet. Revisa el internet de este equipo e intenta de nuevo, o elige \"Probar gratis 30 días\".");
         }
@@ -90,6 +105,8 @@ public sealed class NubeLicencias(Uri? servidor)
         LicenseErrorCodes.SubscriptionInactive => "La suscripción de esta clave no está al día. Entra a tu portal de cliente o comunícate con soporte.",
         LicenseErrorCodes.TooManyRequests or "SECURITY.TOO_MANY_REQUESTS" => "Hubo demasiados intentos seguidos. Espera unos minutos e intenta de nuevo.",
         LicenseErrorCodes.SigningUnavailable => "El servidor de licencias está en mantenimiento. Intenta en unos minutos.",
+        LicenseErrorCodes.OwnerLinkRequestUsed => "Esa autorización ya se usó. Pulsa de nuevo \"Continuar con Google\".",
+        LicenseErrorCodes.OwnerLinkRequestNotFound => "La solicitud ya no existe. Pulsa de nuevo \"Continuar con Google\".",
         _ when !string.IsNullOrWhiteSpace(detalle) => detalle,
         _ => $"El servidor de licencias respondió con un error ({(int)estado}). Intenta de nuevo en unos minutos.",
     };

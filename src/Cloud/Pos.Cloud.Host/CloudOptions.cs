@@ -57,4 +57,7 @@ internal sealed class CloudSecurityOptions
 
     /// <summary>Eventos por minuto y por IP al webhook de la pasarela de pagos (/v1/payments/wompi/events).</summary>
     public int PaymentEventsPermitsPerMinute { get; set; } = 120;
+
+    /// <summary>Peticiones por minuto y por IP a las páginas de Sistecrédito (/sistecredito/respuesta y /sistecredito/confirmacion).</summary>
+    public int SistecreditoPermitsPerMinute { get; set; } = 60;
 }

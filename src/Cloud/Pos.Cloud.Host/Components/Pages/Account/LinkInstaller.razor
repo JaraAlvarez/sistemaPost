@@ -1,0 +1,165 @@
+@page "/cuenta/vincular-instalador"
+@layout AccountLayout
+@using System.Globalization
+@using Pos.Application.Abstractions.Messaging
+@using Pos.Cloud.Infrastructure.Persistence
+@using Pos.SharedKernel.Time
+@inject IDispatcher Dispatcher
+@inject NavigationManager Navigation
+@inject IClock Clock
+
+@* "Continuar con Google" del instalador premium (Fase 13-B, parte E). El instalador abre esta página en el navegador del sistema (Google
+   no permite su ingreso dentro de un WebView). El dueño entra al portal como siempre (contraseña o Google, misma sesión y cookie) y
+   aquí autoriza o cancela. Formulario POST con token antifalsificación, renderizado en el servidor y sin scripts. *@
+
+<PageTitle>Autorizar la instalación · BusinessPost</PageTitle>
+
+<h1 class="auth-title">Autorizar la instalación</h1>
+
+@if (_signedIn)
+{
+    @* El formulario se dibuja SIEMPRE con sesión (aunque no esté pendiente): en un POST, Blazor solo atiende un formulario que esté en
+       la página; así una pestaña vieja que envía "Autorizar" ve el estado actual y no un error. *@
+    <EditForm Model="Input" method="post" OnSubmit="DecideAsync" FormName="vincular-instalador" class="auth-form">
+        @if (_view is { State: OwnerLinkRequestPageState.Pending })
+        {
+            <p class="auth-lead">
+                ¿Autorizar la instalación de BusinessPost para <strong>@_view.LegalName</strong> (NIT @FormatNit(_view.Nit))?
+            </p>
+            <p class="auth-hint">Compare este código con el que muestra el instalador. Si no coincide, o si usted no está instalando BusinessPost en este momento, cancele.</p>
+            <div class="auth-usercode" aria-label="Código de la solicitud">@_view.UserCode</div>
+            <div class="auth-actions">
+                <button type="submit" name="Input.Decision" value="cancelar" class="auth-button auth-button-secondary">Cancelar</button>
+                <button type="submit" name="Input.Decision" value="autorizar" class="auth-button auth-button-primary">Autorizar</button>
+            </div>
+            <p class="auth-hint">Entrará a BusinessPost como Propietario con su correo @_email. La solicitud vence en @Minutes(_view.ExpiresAt) minutos.</p>
+        }
+    </EditForm>
+}
+
+@switch (_view?.State)
+{
+    case OwnerLinkRequestPageState.Approved:
+    case OwnerLinkRequestPageState.Used:
+        <p class="auth-lead"><strong>Listo: la instalación quedó autorizada.</strong> Vuelva al instalador; ya puede continuar. Puede cerrar esta pestaña.</p>
+        break;
+
+    case OwnerLinkRequestPageState.Denied:
+        <AuthAlert>Solicitud cancelada. El instalador no recibe acceso a su cuenta. Si fue un error, en el instalador pulse otra vez "Continuar con Google".</AuthAlert>
+        break;
+
+    case OwnerLinkRequestPageState.Expired:
+        <AuthAlert>La solicitud venció. En el instalador, pulse otra vez "Continuar con Google" para empezar de nuevo.</AuthAlert>
+        break;
+
+    case OwnerLinkRequestPageState.NotOwner:
+        <AuthAlert>Su usuario del portal no es el dueño (Cliente) de la cuenta de esta licencia. Salga e ingrese con el correo del dueño.</AuthAlert>
+        <form method="post" action="@PortalLinks.Local("/cuenta/salir")" class="auth-form">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@CurrentUrl" />
+            <button type="submit" class="auth-button auth-button-primary">Salir y entrar con otra cuenta</button>
+        </form>
+        break;
+
+    case OwnerLinkRequestPageState.NotFound:
+        <AuthAlert>No encontramos esta solicitud. Revise que abrió el enlace completo desde el instalador o vuelva a empezar allí.</AuthAlert>
+        break;
+
+    default:
+        @if (_error is not null)
+        {
+            <AuthAlert>@_error</AuthAlert>
+        }
+        else if (_mustChangePassword)
+        {
+            <AuthAlert Warning="true">Primero cambie su contraseña temporal en "Mi cuenta". Después vuelva a abrir el enlace del instalador (sigue esperando unos minutos).</AuthAlert>
+            <div class="auth-foot"><a href="@PortalLinks.Local(MustChangePasswordMiddleware.MyAccountPath)">Ir a Mi cuenta</a></div>
+        }
+        break;
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery(Name = "r")]
+    private string? RequestId { get; set; }
+
+    [SupplyParameterFromForm(FormName = "vincular-instalador")]
+    private DecisionInput Input { get; set; } = default!;
+
+    private OwnerLinkRequestView? _view;
+    private string? _error;
+    private string? _email;
+    private bool _mustChangePassword;
+    private bool _signedIn;
+
+    private string CurrentUrl => $"{PortalCookie.InstallerLinkPath}?r={Uri.EscapeDataString(RequestId ?? string.Empty)}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        var user = HttpContext.User;
+        if (user.Identity?.IsAuthenticated != true || !user.HasClaim(PortalClaims.Stage, PortalClaims.ActiveStage))
+        {
+            // Sin sesión: al ingreso de siempre (contraseña o Google) y de vuelta aquí.
+            Navigation.NavigateTo(
+                $"{PortalLinks.Local(PortalAuthenticationHandler.LoginPath)}?returnUrl={Uri.EscapeDataString(PortalCookie.SafeReturnUrl(CurrentUrl))}", forceLoad: true);
+            return;
+        }
+
+        if (user.MustChangePassword())
+        {
+            _mustChangePassword = true;
+            return;
+        }
+
+        _signedIn = true;
+        _email = user.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+        if (HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            await LoadAsync(null);
+        }
+    }
+
+    private Task DecideAsync() => LoadAsync(Input.Decision switch { "autorizar" => true, "cancelar" => false, _ => null });
+
+    private async Task LoadAsync(bool? approve)
+    {
+        if (!Guid.TryParse(RequestId, out var id))
+        {
+            _view = new OwnerLinkRequestView(OwnerLinkRequestPageState.NotFound);
+            return;
+        }
+
+        var result = await Dispatcher.Send(new DecideOwnerLinkRequestCommand(id, approve, HttpContext.Connection.RemoteIpAddress));
+        var error = result.IsFailure ? result.Error : result.Value.Error;
+        if (error is not null)
+        {
+            _error = error.Message;
+            return;
+        }
+
+        _view = result.Value.Value;
+    }
+
+    private int Minutes(DateTimeOffset? expiresAt) => expiresAt is { } at ? Math.Max(1, (int)Math.Ceiling((at - Clock.UtcNow).TotalMinutes)) : 0;
+
+    private static string FormatNit(string? nit)
+    {
+        if (nit is null)
+        {
+            return string.Empty;
+        }
+
+        var parts = nit.Split('-');
+        return long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+            ? number.ToString("#,0", CultureInfo.GetCultureInfo("es-CO")) + (parts.Length > 1 ? "-" + parts[1] : string.Empty)
+            : nit;
+    }
+
+    private sealed class DecisionInput
+    {
+        public string? Decision { get; set; }
+    }
+}

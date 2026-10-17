@@ -177,6 +177,14 @@ public interface IPortalCustomerVerifier
 {
     Task<PortalCustomerVerification> VerifyAsync(
         string email, string password, string? totpCode, Guid accountId, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// "Continuar con Google" del instalador: el usuario YA entró al portal (contraseña o Google, con su sesión normal) y autoriza en el
+    /// navegador. Las mismas reglas de pertenencia: humano, activo, sin bloqueo, rol CLIENTE y atado a la cuenta dueña de la empresa.
+    /// <c>NotOwner</c> queda en la auditoría.
+    /// </summary>
+    Task<PortalCustomerVerification> VerifySignedInAsync(
+        Guid userId, Guid accountId, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
 }
 
 /// <summary>Instalación del POS autenticada con su token de licencia y la huella de su equipo (sincronización, Fase 16, D16-03).</summary>

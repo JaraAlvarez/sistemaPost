@@ -79,14 +79,17 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next)
                     : null)
                 : context.Request.Path.StartsWithSegments("/cuenta")
                     ? AccountPagesPolicy
-                    : ContentSecurityPolicy;
+                    : context.Request.Path.StartsWithSegments("/sistecredito")
+                        ? SistecreditoEndpoints.ContentSecurityPolicy
+                        : ContentSecurityPolicy;
             headers.XContentTypeOptions = "nosniff";
             headers.XFrameOptions = "DENY";
             headers["Referrer-Policy"] = "no-referrer";
             headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()";
             headers["Cross-Origin-Opener-Policy"] = "same-origin";
             if (context.Request.Path.StartsWithSegments("/v1") || context.Request.Path.StartsWithSegments("/admin")
-                || context.Request.Path.StartsWithSegments("/cuenta") || context.Request.Path.StartsWithSegments("/pagar"))
+                || context.Request.Path.StartsWithSegments("/cuenta") || context.Request.Path.StartsWithSegments("/pagar")
+                || context.Request.Path.StartsWithSegments("/sistecredito"))
             {
                 headers.CacheControl = "no-store";
             }
@@ -103,7 +106,9 @@ internal sealed class DatabaseGateMiddleware(RequestDelegate next)
     public Task InvokeAsync(HttpContext context, DatabaseReadiness readiness)
     {
         var path = context.Request.Path;
-        if (!readiness.IsReady && !path.StartsWithSegments("/health") && !path.StartsWithSegments("/_framework") && !path.StartsWithSegments("/_content"))
+        // Sistecrédito no usa la BD: su aviso y su página responden aunque la BD esté iniciando.
+        if (!readiness.IsReady && !path.StartsWithSegments("/health") && !path.StartsWithSegments("/_framework") && !path.StartsWithSegments("/_content")
+            && !path.StartsWithSegments("/sistecredito"))
         {
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             return Error.Unexpected("SYSTEM.DATABASE_NOT_READY", $"El servidor está iniciando o la base de datos no está lista: {readiness.Detail}")
