@@ -24,7 +24,7 @@
             <MudSelectItem T="string" Value="@("Paused")">Pausadas</MudSelectItem>
             <MudSelectItem T="string" Value="@("Ended")">Terminadas</MudSelectItem>
         </MudSelect>
-        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowStyle="cursor: pointer"
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Estado</MudTh><MudTh>Desde</MudTh><MudTh>Hasta</MudTh><MudTh>Rige ahora</MudTh>

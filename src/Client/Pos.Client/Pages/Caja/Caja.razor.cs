@@ -1010,6 +1010,23 @@ public sealed partial class Caja
         {
             _zReport = await Api.PostAsync<CashReport>($"api/v1/cash/sessions/{_session!.Id}/close", new { count, differenceNote = _closingNote });
         });
+
+        // El reporte Z sale impreso al cerrar (se guarda con el efectivo); si la impresora falla, se puede reimprimir.
+        if (_zReport is not null)
+        {
+            await ImprimirZAsync();
+        }
+    }
+
+    private async Task ImprimirZAsync()
+    {
+        if (_zReport is null || Session.Me?.PosTerminalId is not { } caja)
+        {
+            return;
+        }
+
+        var problema = await Printer.PrintTextAsync(caja, $"Reporte Z {_zReport.Number}", _zReport.Text);
+        Snackbar.Add(problema ?? "Reporte Z enviado a la impresora.", problema is null ? Severity.Success : Severity.Warning);
     }
 
     // ------------------------------------------------------------------------------------------ Comunes

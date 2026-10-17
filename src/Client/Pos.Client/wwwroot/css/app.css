@@ -239,6 +239,9 @@ html[data-tema="oscuro"] .arranque-nombre span { color: #8B9CFF; }
 .mud-simple-table { border-radius: var(--bp-radio-l); }
 .mud-simple-table.mud-table-outlined { overflow: hidden; }
 .mud-simple-table table tbody tr:hover td { background: var(--mud-palette-table-hover); }
+/* Listas cuya fila abre el detalle (Class="fila-clic" en el MudTable con OnRowClick). */
+.fila-clic tbody tr { cursor: pointer; }
+.fila-clic tbody tr:hover td { background: var(--mud-palette-table-hover); }
 .mud-table-container { overflow-x: auto; }
 .mud-tabs .mud-tabs-tabbar { background: transparent; border-bottom: 1px solid var(--mud-palette-lines-default); }
 .mud-tab { text-transform: none; font-weight: 600; min-height: 46px; }

@@ -18,7 +18,7 @@
                           Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => FiltrarAsync(_inactivos))" />
             <MudCheckBox T="bool" Value="_inactivos" ValueChanged="@(v => FiltrarAsync(v))" Label="Incluir inactivos" />
         </MudStack>
-        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowStyle="cursor:pointer"
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> fila) => Abrir(fila.Item))">
             <HeaderContent>
                 <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Identificación</MudTh><MudTh Class="num">Plazo</MudTh><MudTh>Factura electrónica</MudTh>

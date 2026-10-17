@@ -112,13 +112,25 @@ en pantallas de menos de 900 px solo el formulario con el logo arriba. Campos de
 
 ### Encabezado de pantalla (`Shared/Pagina.razor`)
 
-`<Pagina Titulo="…" Subtitulo="…" Cargando="…" Error="…"><Acciones>…</Acciones>…</Pagina>`
+`<Pagina Titulo="…" Miga="…" Subtitulo="…" Cargando="…" Error="…"><Acciones>…</Acciones>…</Pagina>`
 
-- **Migas de pan** automáticas desde `Navegacion.cs` (Inicio › Grupo › Pantalla).
+- **Migas de pan** automáticas desde `Navegacion.cs` (Inicio › Grupo › Pantalla). En una página de detalle la lista queda como enlace y el
+  último paso es `Miga` (p. ej. "Compra S01-000001"; si falta, el título).
 - Icono de la sección, título `<h1>` (recibe el foco al navegar), subtítulo opcional y las acciones a la derecha (la principal en
   botón relleno, las demás delineadas).
 - **Carga:** la primera vez muestra un **esqueleto** (`Shared/Esqueleto.razor`); al recargar, una barra fina que no mueve la pantalla.
 - **Error:** aviso rojo "No se pudo completar." con el mensaje y el código.
+
+### Listas y detalles
+
+- **Lista → página de detalle.** Cada registro se abre en su propia página `/admin/<lista>/{id}` y se crea en `/admin/<lista>/nuevo`
+  (`/nueva` si el nombre es femenino); una misma página sirve las dos rutas. Las acciones del documento (guardar, publicar, anular…) van
+  en `Acciones` y se vuelve a la lista por las migas o con Atrás.
+- **Filtros en la dirección** (`Services/Filtros.cs`): al cambiar búsqueda, estado o fechas se reescribe la consulta de la URL
+  (`?estado=DRAFT`) y la página la lee con `[SupplyParameterFromQuery]`; al volver de un detalle, recargar o compartir el enlace, la lista
+  aparece igual.
+- **Ventanas solo para lo corto:** confirmaciones (`Dialogs.ConfirmarAsync`) y formularios de 1 a 4 campos (motivo de anulación, ajuste
+  rápido, una bodega o un medio de pago). Un formulario más largo o con líneas es una página.
 
 ## 6. Componentes
 
@@ -131,13 +143,18 @@ en pantallas de menos de 900 px solo el formulario con el logo arriba. Campos de
 | `Confirmacion` + `Dialogs.ConfirmarAsync(título, mensaje, acción, peligro)` | Diálogo de confirmación uniforme. Con `peligro: true` el botón es rojo (anular, inactivar, bloquear, cancelar, liberar). El foco empieza en **Cancelar**; Esc cierra |
 | `Logo` | Logo en SVG |
 | `Conteo` | Conteo de efectivo por billete y moneda con el subtotal de cada uno |
-| Paneles (`div.panel-fondo > div.panel`) | Ventanas de formularios y de la caja: título con línea, contenido con desplazamiento y **barra de acciones fija abajo** (`div.acciones`: Cancelar a la izquierda de la acción principal). Llevan `role="dialog"` y `aria-modal`. En pantallas pequeñas ocupan toda la pantalla |
+| `LineasProductos` | Productos de una orden o factura de compra nueva: búsqueda por nombre, SKU o código de barras y tabla de líneas (presentación, cantidad, costo; con `Compra="true"` también descuento, lote y vencimiento) |
+| Paneles (`div.panel-fondo > div.panel`) | Ventanas cortas (§5, Listas y detalles): título con línea, contenido con desplazamiento y **barra de acciones fija abajo** (`div.acciones`: Cancelar a la izquierda de la acción principal). Llevan `role="dialog"` y `aria-modal`. En pantallas pequeñas ocupan toda la pantalla |
+
+Las bodegas de la sucursal se leen una vez por sesión con el servicio `Bodegas` (`Elegibles`, `Nombre(id)` → "CÓDIGO · Nombre"); sin
+permiso para verlas se avisa y la pantalla sigue con "—".
 
 ### Tablas
 
 Una sola apariencia en toda la administración (estilos globales en `app.css`): borde de 1 px con radio de 12 px, encabezado en sobrelínea
 gris, filas densas con resaltado al pasar el mouse, cifras a la derecha con números tabulares, paginador abajo y estado vacío con
-ilustración. La búsqueda y los filtros van arriba de la tabla (texto con icono de lupa y selects de estado).
+ilustración. La búsqueda y los filtros van arriba de la tabla (texto con icono de lupa y selects de estado). Si la fila abre el detalle
+(`OnRowClick`), la tabla lleva `Class="fila-clic"` (cursor de mano y resaltado); el botón "Ver" de la fila no navega por su cuenta.
 
 ### Formularios
 
@@ -166,8 +183,11 @@ Diseñada para **1024×768 a 1920×1080**, teclado, lector de código de barras 
   lector nunca pierde una lectura.
 - Después de cobrar, la columna derecha muestra **"Venta N cobrada" y el CAMBIO** en grande (verde) y el estado de la **factura
   electrónica** (validada por la DIAN, en proceso, en contingencia o con problema).
+- **Columna derecha:** cobro, cliente de la venta y ventas suspendidas se abren en la columna del total (no tapan las líneas); Esc
+  vuelve al total.
+- **Apertura y cierre de la jornada** ocupan toda la pantalla (conteo de la base o del efectivo), no una ventana.
 - **Estados:** "En línea"/"Sin conexión" (se revisa cada 15 s; barra roja con instrucciones si se cae), licencia (demostración, gracia,
-  restringida), ventas suspendidas (clic para recuperarlas), sin jornada abierta (ventana de apertura con el conteo de la base).
+  restringida), ventas suspendidas (clic para recuperarlas), sin jornada abierta (pantalla de apertura).
 - **Cobro:** total, recibido y **cambio/falta** en cifras grandes; medios de pago como botones grandes con icono; valores rápidos de
   billetes (exacto, 10.000, 20.000, 50.000…); referencia del datáfono cuando el medio la pide; pago mixto.
 
@@ -188,7 +208,7 @@ Diseñada para **1024×768 a 1920×1080**, teclado, lector de código de barras 
 | **F10** | Cobrar; dentro del cobro, confirmar |
 | **Supr** | Anular la línea seleccionada |
 | **Esc** | Cerrar la ventana abierta |
-| F5 | Bloqueada en la caja (recargar cerraría la sesión) |
+| **F5** | Consultar precio sin vender (no recarga la página) |
 
 ## 8. Accesibilidad
 

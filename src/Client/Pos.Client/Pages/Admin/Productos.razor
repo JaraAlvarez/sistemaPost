@@ -16,7 +16,7 @@
     <ChildContent>
         <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                       Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => FiltrarAsync())" Class="mb-3" />
-        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowStyle="cursor:pointer"
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> fila) => Abrir(fila.Item))">
             <HeaderContent>
                 <MudTh>SKU</MudTh><MudTh>Nombre</MudTh><MudTh>Categoría</MudTh><MudTh>Código de barras</MudTh><MudTh Class="num">Precio</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>

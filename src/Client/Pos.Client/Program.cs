@@ -23,6 +23,7 @@ builder.Services.AddScoped<SessionState>();
 builder.Services.AddScoped<ApiClient>();
 builder.Services.AddScoped<AgentPrinter>();
 builder.Services.AddScoped<Tema>();
+builder.Services.AddScoped<Bodegas>();
 builder.Services.AddMudServices(options =>
 {
     options.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomCenter;

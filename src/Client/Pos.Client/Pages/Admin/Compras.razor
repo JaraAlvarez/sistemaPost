@@ -27,7 +27,7 @@
                     <MudSelectItem T="string" Value="@("POSTED")">Contabilizada</MudSelectItem>
                     <MudSelectItem T="string" Value="@("VOIDED")">Anulada</MudSelectItem>
                 </MudSelect>
-                <MudTable RowsPerPage="25" Items="_compras" Dense="true" Hover="true" Striped="true" RowClass="cursor-pointer"
+                <MudTable RowsPerPage="25" Items="_compras" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                           OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => VerCompra(e.Item))">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Factura del proveedor</MudTh><MudTh>Fecha</MudTh><MudTh Class="num">Total</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
@@ -64,7 +64,7 @@
                     <MudSelectItem T="string" Value="@("CLOSED")">Cerrada</MudSelectItem>
                     <MudSelectItem T="string" Value="@("CANCELLED")">Cancelada</MudSelectItem>
                 </MudSelect>
-                <MudTable RowsPerPage="25" Items="_ordenes" Dense="true" Hover="true" Striped="true" RowClass="cursor-pointer"
+                <MudTable RowsPerPage="25" Items="_ordenes" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                           OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => VerOrden(e.Item))">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Fecha</MudTh><MudTh Class="num">Total</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>

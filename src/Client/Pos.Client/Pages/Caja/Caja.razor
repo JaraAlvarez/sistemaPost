@@ -154,7 +154,10 @@ else
                         <h1 id="t-cierre">Jornada cerrada · Reporte Z</h1>
                         <p class="caja-paso-ayuda">La jornada quedó cerrada y sellada. Guarde el reporte con el efectivo.</p>
                         <div class="tiquete">@_zReport.Text</div>
-                        <div class="acciones"><MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="SalirAsync">Terminar</MudButton></div>
+                        <div class="acciones">
+                            <MudButton Variant="Variant.Outlined" Size="Size.Large" StartIcon="@Icons.Material.Outlined.Print" OnClick="ImprimirZAsync">Reimprimir Z</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" OnClick="SalirAsync">Terminar</MudButton>
+                        </div>
                     }
                 </div>
             </section>

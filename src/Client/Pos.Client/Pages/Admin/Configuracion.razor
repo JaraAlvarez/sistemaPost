@@ -1,6 +1,7 @@
 @page "/admin/configuracion"
 @inject ApiClient Api
 @inject SessionState Session
+@inject Bodegas Bodegas
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 
@@ -577,6 +578,7 @@
             }
 
             _panelBodega = false;
+            Bodegas.Invalidar();
             await CargarBodegasAsync(branchId);
         }
         catch (ApiException ex)
@@ -593,6 +595,7 @@
         {
             await Api.PostAsync($"api/v1/organization/warehouses/{warehouse.GetProperty("id").GetGuid()}/deactivate");
             Snackbar.Add("Bodega inactivada.", Severity.Success);
+            Bodegas.Invalidar();
             await CargarBodegasAsync(_sucursalBodegas.GetProperty("id").GetGuid());
         }
         catch (ApiException ex)

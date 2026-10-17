@@ -30,7 +30,7 @@
                         <MudSelectItem T="string" Value="@("BLOCKED")">Bloqueados</MudSelectItem>
                     </MudSelect>
                 </MudStack>
-                <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowStyle="cursor: pointer"
+                <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                           OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
                     <HeaderContent>
                         <MudTh>Identificación</MudTh><MudTh>Nombre</MudTh><MudTh>Celular</MudTh><MudTh>Correo</MudTh><MudTh>Grupo</MudTh><MudTh>Estado</MudTh><MudTh>Autorizó datos</MudTh>

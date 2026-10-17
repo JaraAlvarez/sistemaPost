@@ -29,7 +29,7 @@
             </MudItem>
         </MudGrid>
 
-        <MudTable RowsPerPage="25" Items="_sessions" Dense="true" Hover="true" Striped="true" RowStyle="cursor: pointer"
+        <MudTable RowsPerPage="25" Items="_sessions" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
             <HeaderContent>
                 <MudTh>Jornada</MudTh><MudTh>Caja</MudTh><MudTh>Cajero</MudTh><MudTh>Fecha</MudTh><MudTh>Estado</MudTh><MudTh Class="num">Diferencia</MudTh>

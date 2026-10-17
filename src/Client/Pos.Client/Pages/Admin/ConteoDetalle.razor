@@ -2,6 +2,7 @@
 @page "/admin/conteos/{Id:guid}"
 @inject ApiClient Api
 @inject SessionState Session
+@inject Bodegas Bodegas
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
@@ -46,9 +47,9 @@
                 <MudGrid>
                     <MudItem xs="12" md="6">
                         <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
-                            @foreach (var warehouse in Elegibles)
+                            @foreach (var warehouse in Bodegas.Elegibles)
                             {
-                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(warehouse)</MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
@@ -177,7 +178,6 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _bodegas = [];
     private List<JsonElement> _categorias = [];
     private List<JsonElement> _resultados = [];
     private readonly Dictionary<Guid, string> _alcanceCategorias = [];
@@ -207,13 +207,11 @@
                 return null;
             }
 
-            var texto = $"{Estado(Status)} · Bodega {Bodega(_conteo.Str("warehouseId"))} · {(_conteo.Str("countType") == "FULL" ? "Completo" : "Parcial")} · "
+            var texto = $"{Estado(Status)} · Bodega {Bodegas.Nombre(_conteo.Str("warehouseId"))} · {(_conteo.Str("countType") == "FULL" ? "Completo" : "Parcial")} · "
                 + $"{(_conteo.Bool("isBlind") ? "Ciego" : "Con teórico visible")} · Contados {_conteo.Dec("countedProducts")} de {_conteo.Dec("productCount")} producto(s)";
             return _conteo.Date("startedAt") is { } started ? $"{texto} · Iniciado {Format.Date(started)}" : texto;
         }
     }
-
-    private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
 
     private IEnumerable<JsonElement> LineasFiltradas
     {
@@ -232,7 +230,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await CargarBodegasAsync();
+        await Bodegas.CargarAsync();
     }
 
     protected override async Task OnParametersSetAsync()
@@ -255,29 +253,6 @@
         }
     }
 
-    private async Task CargarBodegasAsync()
-    {
-        if (Session.Me is not { } me)
-        {
-            return;
-        }
-
-        try
-        {
-            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
-        }
-    }
-
-    private string Bodega(string id)
-    {
-        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
-        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
-    }
-
     private static string Estado(string status) => status switch
     {
         "DRAFT" => "Borrador",
@@ -294,7 +269,7 @@
     private async Task NuevoAsync()
     {
         _loading = true;
-        _bodega = Elegibles.Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
+        _bodega = Bodegas.Primera(Bodegas.Elegibles);
         _tipo = "Full";
         _ciego = true;
         _notas = _buscar = null;
