@@ -127,13 +127,18 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
     }
 }
 
+/// <summary>
+/// Restablecer la contraseña de OTRO usuario. <paramref name="Confirmation"/>: contraseña o código TOTP del superadministrador que actúa;
+/// hace falta si su ingreso no es reciente y SIEMPRE el TOTP si el afectado es otro superadministrador (ver <see cref="AdminResetPolicy"/>).
+/// Es un <see cref="Outcome{T}"/>: una confirmación fallida queda registrada (intento fallido y auditoría) aunque se rechace.
+/// </summary>
 [RequiresPermission(CloudPermissions.PortalUserManage)]
-public sealed record ResetPortalUserPasswordCommand(Guid UserId) : ICommand<TemporaryPasswordDto>;
+public sealed record ResetPortalUserPasswordCommand(Guid UserId, string? Confirmation = null) : ICommand<Outcome<TemporaryPasswordDto>>;
 
-internal sealed class ResetPortalUserPasswordHandler(IPortalIdentityStore store, PortalAuthServices auth, IAuditWriter audit)
-    : ICommandHandler<ResetPortalUserPasswordCommand, TemporaryPasswordDto>
+internal sealed class ResetPortalUserPasswordHandler(IPortalIdentityStore store, PortalAuthServices auth, IPortalUserContext current, IAuditWriter audit)
+    : ICommandHandler<ResetPortalUserPasswordCommand, Outcome<TemporaryPasswordDto>>
 {
-    public async Task<Result<TemporaryPasswordDto>> Handle(ResetPortalUserPasswordCommand request, CancellationToken cancellationToken)
+    public async Task<Result<Outcome<TemporaryPasswordDto>>> Handle(ResetPortalUserPasswordCommand request, CancellationToken cancellationToken)
     {
         var user = await store.GetUserAsync(request.UserId, cancellationToken);
         if (user is not { Kind: PortalUserKind.Human })
@@ -141,25 +146,37 @@ internal sealed class ResetPortalUserPasswordHandler(IPortalIdentityStore store,
             return PortalIdentityErrors.UserNotFound;
         }
 
-        var password = TemporaryPasswords.Create();
-        var now = auth.Clock.UtcNow;
-        user.SetPassword(await auth.Hasher.HashAsync(password, SecretKind.Password, cancellationToken), now, mustChange: true);
+        var confirmed = await AdminReauthentication.CheckAsync(current, auth, user, request.Confirmation, "restablecer la contraseña", cancellationToken);
+        if (confirmed.IsFailure)
+        {
+            return Outcome.Fail<TemporaryPasswordDto>(confirmed.Error);
+        }
+
+        var (password, now) = await AdminReauthentication.NewTemporaryPasswordAsync(auth, user, cancellationToken);
         await PortalUserUseCaseMapping.RevokeAllAsync(store, user.Id, "Contraseña restablecida", now, cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("portal", "PORTAL_PASSWORD_RESET", nameof(PortalUser), user.Id, user.AuditLabel,
-                $"Contraseña de {user.Email} restablecida (temporal); se cerraron sus sesiones.", Severity: AuditSeverity.Critical),
+                $"Contraseña de {user.Email} restablecida (temporal) por {confirmed.Value.Email}; se cerraron sus sesiones.", Severity: AuditSeverity.Critical),
             cancellationToken);
-        return new TemporaryPasswordDto(user.Id, user.Email, password);
+        return Outcome.Ok(new TemporaryPasswordDto(user.Id, user.Email, password));
     }
 }
 
-/// <summary>Recuperación manual del doble factor (teléfono perdido): el usuario vuelve a escanear un QR en su próximo ingreso.</summary>
-[RequiresPermission(CloudPermissions.PortalUserManage)]
-public sealed record ResetPortalUserTotpCommand(Guid UserId, string Reason) : ICommand;
+/// <summary>Resultado de restablecer el doble factor: la contraseña temporal nueva si también se restableció (lo predeterminado).</summary>
+public sealed record TotpResetDto(Guid UserId, string Email, string? TemporaryPassword);
 
-internal sealed class ResetPortalUserTotpHandler(IPortalIdentityStore store, PortalAuthServices auth, IAuditWriter audit) : ICommandHandler<ResetPortalUserTotpCommand>
+/// <summary>
+/// Recuperación manual del doble factor (teléfono perdido): el usuario vuelve a escanear un QR en su próximo ingreso. Por defecto
+/// TAMBIÉN se restablece la contraseña (temporal, a cambiar en el próximo ingreso): quitar solo el segundo factor dejaría la cuenta
+/// protegida únicamente por una contraseña que quizá también se filtró. Mismas confirmaciones que restablecer la contraseña.
+/// </summary>
+[RequiresPermission(CloudPermissions.PortalUserManage)]
+public sealed record ResetPortalUserTotpCommand(Guid UserId, string Reason, bool AlsoResetPassword = true, string? Confirmation = null) : ICommand<Outcome<TotpResetDto>>;
+
+internal sealed class ResetPortalUserTotpHandler(IPortalIdentityStore store, PortalAuthServices auth, IPortalUserContext current, IAuditWriter audit)
+    : ICommandHandler<ResetPortalUserTotpCommand, Outcome<TotpResetDto>>
 {
-    public async Task<Result> Handle(ResetPortalUserTotpCommand request, CancellationToken cancellationToken)
+    public async Task<Result<Outcome<TotpResetDto>>> Handle(ResetPortalUserTotpCommand request, CancellationToken cancellationToken)
     {
         var user = await store.GetUserAsync(request.UserId, cancellationToken);
         if (user is not { Kind: PortalUserKind.Human })
@@ -173,13 +190,106 @@ internal sealed class ResetPortalUserTotpHandler(IPortalIdentityStore store, Por
             return Error.Validation("PORTAL.REASON_REQUIRED", "Indique el motivo (de 5 a 300 caracteres).");
         }
 
+        var confirmed = await AdminReauthentication.CheckAsync(current, auth, user, request.Confirmation, "restablecer el doble factor", cancellationToken);
+        if (confirmed.IsFailure)
+        {
+            return Outcome.Fail<TotpResetDto>(confirmed.Error);
+        }
+
         user.ResetTotp();
-        await PortalUserUseCaseMapping.RevokeAllAsync(store, user.Id, "Doble factor restablecido", auth.Clock.UtcNow, cancellationToken);
+        string? password = null;
+        var now = auth.Clock.UtcNow;
+        if (request.AlsoResetPassword)
+        {
+            (password, now) = await AdminReauthentication.NewTemporaryPasswordAsync(auth, user, cancellationToken);
+        }
+
+        await PortalUserUseCaseMapping.RevokeAllAsync(store, user.Id, "Doble factor restablecido", now, cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("portal", "PORTAL_TOTP_RESET", nameof(PortalUser), user.Id, user.AuditLabel,
-                $"Doble factor de {user.Email} restablecido: {reason}.", Severity: AuditSeverity.Critical),
+                $"Doble factor de {user.Email} restablecido por {confirmed.Value.Email}{(password is null ? " (la contraseña NO se restableció)" : " junto con la contraseña (temporal)")}: {reason}.",
+                Severity: AuditSeverity.Critical),
             cancellationToken);
-        return Result.Success();
+        return Outcome.Ok(new TotpResetDto(user.Id, user.Email, password));
+    }
+}
+
+/// <summary>Confirmación del superadministrador para las acciones delicadas sobre otro usuario (<see cref="AdminResetPolicy"/>).</summary>
+internal static class AdminReauthentication
+{
+    public static readonly Error ReauthenticationRequired = Error.Forbidden(
+        "PORTAL.REAUTH_REQUIRED",
+        "Por seguridad, confirme con su contraseña o con el código de su aplicación autenticadora (su ingreso no es reciente).");
+
+    public static readonly Error TotpConfirmationRequired = Error.Forbidden(
+        "PORTAL.TOTP_CONFIRMATION_REQUIRED", "Para restablecer a otro superadministrador, escriba el código de su aplicación autenticadora.");
+
+    public static readonly Error ActorTotpRequired = Error.BusinessRule(
+        "PORTAL.ACTOR_TOTP_REQUIRED", "Para restablecer a otro superadministrador, primero active su propio doble factor en \"Mi cuenta\".");
+
+    public static readonly Error CannotResetSelf = Error.BusinessRule(
+        "PORTAL.CANNOT_RESET_SELF", "No puede restablecer su propia contraseña o doble factor desde aquí: hágalo en \"Mi cuenta\".");
+
+    public static readonly Error InvalidConfirmation = Error.Unauthorized("PORTAL.INVALID_CONFIRMATION", "La contraseña o el código no son correctos.");
+
+    /// <summary>Devuelve al superadministrador que actúa si puede hacerlo; cuenta los intentos fallidos (bloqueo) y los audita.</summary>
+    public static async Task<Result<PortalUser>> CheckAsync(
+        IPortalUserContext current, PortalAuthServices auth, PortalUser target, string? confirmation, string action, CancellationToken cancellationToken)
+    {
+        if (await OwnAccount.ResolveAsync(current, auth, cancellationToken) is not { } own)
+        {
+            return PortalIdentityErrors.SessionInvalid;
+        }
+
+        var (actor, session) = own;
+        if (actor.Id == target.Id)
+        {
+            return CannotResetSelf;
+        }
+
+        var now = auth.Clock.UtcNow;
+        var secret = actor.TotpEnabled && actor.TotpSecretProtected is { } stored ? auth.Protector.Unprotect(stored) : null;
+        var code = confirmation?.Trim();
+        if (AdminResetPolicy.RequiresTotp(target))
+        {
+            if (secret is null)
+            {
+                return ActorTotpRequired;
+            }
+
+            if (string.IsNullOrEmpty(code))
+            {
+                return TotpConfirmationRequired;
+            }
+        }
+        else if (string.IsNullOrEmpty(code))
+        {
+            return AdminResetPolicy.AllowsWithoutConfirmation(session, actor, target, now) ? actor : ReauthenticationRequired;
+        }
+
+        // Código TOTP (6 dígitos) o, si el afectado no es superadministrador, la contraseña.
+        if (secret is not null && code!.Length == 6 && code.All(char.IsAsciiDigit) && Totp.Verify(secret, code, now, actor.TotpLastStep) is { } step)
+        {
+            actor.UseTotpStep(step);
+            return actor;
+        }
+
+        if (!AdminResetPolicy.RequiresTotp(target) && await auth.VerifyPasswordAsync(actor, code!, cancellationToken))
+        {
+            return actor;
+        }
+
+        var failed = await auth.FailAsync(actor, "PORTAL_REAUTH_FAILED",
+            $"{actor.Email} no confirmó su identidad para {action} de {target.Email}.", cancellationToken);
+        return failed.Code == PortalIdentityErrors.UserLocked.Code ? failed : InvalidConfirmation;
+    }
+
+    public static async Task<(string Password, DateTimeOffset Now)> NewTemporaryPasswordAsync(PortalAuthServices auth, PortalUser user, CancellationToken cancellationToken)
+    {
+        var password = TemporaryPasswords.Create();
+        var now = auth.Clock.UtcNow;
+        user.SetPassword(await auth.Hasher.HashAsync(password, SecretKind.Password, cancellationToken), now, mustChange: true);
+        return (password, now);
     }
 }
 

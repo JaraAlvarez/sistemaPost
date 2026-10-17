@@ -189,6 +189,10 @@ internal static class ServerSetup
         app.MapGet("/instalacion", (IWebHostEnvironment environment) =>
                 Results.File(Path.Combine(environment.WebRootPath, "instalacion", "index.html"), "text/html; charset=utf-8"))
             .ExcludeFromDescription();
+        // Su script va aparte: la política de seguridad de /instalacion no admite scripts en línea.
+        app.MapGet("/instalacion/asistente.js", (IWebHostEnvironment environment) =>
+                Results.File(Path.Combine(environment.WebRootPath, "instalacion", "asistente.js"), "text/javascript; charset=utf-8"))
+            .ExcludeFromDescription();
 
         var api = app.MapGroup("/api/v1");
         api.MapSystemEndpoints();

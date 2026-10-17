@@ -38,6 +38,34 @@ public class OwnerLinkAuthorizationPolicyTests
     }
 
     [Fact]
+    public void N4_desactivar_el_TOTP_con_un_codigo_conserva_el_ultimo_paso_usado()
+    {
+        var user = Users.WithTotp();
+        user.UseTotpStep(150);
+        user.ResetTotp(keepLastStep: true);
+        (user.TotpEnabled, user.TotpLastStep).ShouldBe((false, 150L));
+
+        var restablecido = Users.WithTotp();
+        restablecido.ResetTotp();
+        restablecido.TotpLastStep.ShouldBeNull("El restablecimiento administrativo empieza de cero.");
+    }
+
+    [Fact]
+    public void Afectar_a_otro_superadministrador_siempre_exige_el_TOTP_y_un_ingreso_antiguo_exige_confirmar()
+    {
+        var actor = Users.WithTotp();
+        var session = Session(actor, SessionAuthMethod.Password, Start);
+        var support = Users.Support("otro@ejemplo.co");
+        var superadmin = PortalUser.Create(Guid.CreateVersion7(), "jefe@ejemplo.co", "Jefe", PortalRole.Superadmin, null, "hash", Start).Value;
+
+        AdminResetPolicy.RequiresTotp(superadmin).ShouldBeTrue();
+        AdminResetPolicy.RequiresTotp(support).ShouldBeFalse();
+        AdminResetPolicy.AllowsWithoutConfirmation(session, actor, support, Start.AddMinutes(5)).ShouldBeTrue();
+        AdminResetPolicy.AllowsWithoutConfirmation(session, actor, support, Start.AddMinutes(11)).ShouldBeFalse();
+        AdminResetPolicy.AllowsWithoutConfirmation(session, actor, superadmin, Start.AddMinutes(1)).ShouldBeFalse();
+    }
+
+    [Fact]
     public void Una_sesion_revocada_o_de_otro_usuario_no_cuenta_como_ingreso_reciente()
     {
         var user = Users.Support();

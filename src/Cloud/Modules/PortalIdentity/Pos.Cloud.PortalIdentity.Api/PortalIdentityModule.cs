@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -80,10 +81,10 @@ public sealed class PortalIdentityModule : IModule
             (await d.Send(command, ct)).ToCreatedResult(u => $"/admin/users/{u.UserId}"));
         users.MapPut("/{id:guid}", async (Guid id, UpdateUserRequest r, IDispatcher d, CancellationToken ct) =>
             (await d.Send(new UpdatePortalUserCommand(id, r.DisplayName, r.Role, r.ResellerAccountId, r.IsActive), ct)).ToHttpResult());
-        users.MapPost("/{id:guid}/reset-password", async (Guid id, IDispatcher d, CancellationToken ct) =>
-            (await d.Send(new ResetPortalUserPasswordCommand(id), ct)).ToHttpResult());
-        users.MapPost("/{id:guid}/reset-totp", async (Guid id, ReasonBody r, IDispatcher d, CancellationToken ct) =>
-            (await d.Send(new ResetPortalUserTotpCommand(id, r.Reason), ct)).ToHttpResult());
+        users.MapPost("/{id:guid}/reset-password", async (Guid id, [FromBody] ConfirmationBody? r, IDispatcher d, CancellationToken ct) =>
+            ToHttp(await d.Send(new ResetPortalUserPasswordCommand(id, r?.Confirmation), ct)));
+        users.MapPost("/{id:guid}/reset-totp", async (Guid id, TotpResetBody r, IDispatcher d, CancellationToken ct) =>
+            ToHttp(await d.Send(new ResetPortalUserTotpCommand(id, r.Reason, r.AlsoResetPassword ?? true, r.Confirmation), ct)));
         users.MapPost("/{id:guid}/unlock", async (Guid id, IDispatcher d, CancellationToken ct) =>
             (await d.Send(new UnlockPortalUserCommand(id), ct)).ToHttpResult());
 
@@ -121,3 +122,9 @@ public sealed record ChangePasswordRequest(string CurrentPassword, string NewPas
 public sealed record UpdateUserRequest(string DisplayName, string Role, Guid? ResellerAccountId, bool IsActive);
 
 public sealed record ReasonBody(string Reason);
+
+/// <summary>Confirmación del superadministrador (su contraseña o su código TOTP) para restablecer a otro usuario.</summary>
+public sealed record ConfirmationBody(string? Confirmation);
+
+/// <summary>Restablecer el doble factor: por defecto también la contraseña (temporal).</summary>
+public sealed record TotpResetBody(string Reason, bool? AlsoResetPassword = null, string? Confirmation = null);

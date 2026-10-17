@@ -310,6 +310,26 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
         poll.Code.ShouldBe(LicenseErrorCodes.SubscriptionInactive);
     }
 
+    /// <summary>N2: con un ingreso de hace más de 10 minutos, restablecer a otro usuario pide confirmar con la contraseña (o el TOTP).</summary>
+    [Fact]
+    public async Task Restablecer_a_otro_usuario_con_un_ingreso_antiguo_pide_confirmar_la_identidad()
+    {
+        var (_, support) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "SUPPORT");
+        var id = (await PortalApi.GetAsync<List<Pos.Cloud.PortalIdentity.Application.PortalUserDto>>(cloud.Superadmin, "/admin/users")).Single(u => u.Email == support.Email).Id;
+        using var admin = await PortalApi.SignInAsync(cloud.Factory, new PortalCredentials("dueno@licencias.co", PortalApi.NewPassword));
+        var url = $"/admin/users/{id}/reset-password";
+
+        for (var i = 0; i < 3; i++)
+        {
+            cloud.Factory.Clock.Advance(TimeSpan.FromMinutes(4));
+            (await PortalApi.SendAsync(admin, HttpMethod.Get, "/admin/users")).Status.ShouldBe(HttpStatusCode.OK, "La sesión sigue abierta.");
+        }
+
+        (await PortalApi.SendAsync(admin, HttpMethod.Post, url)).Code.ShouldBe("PORTAL.REAUTH_REQUIRED");
+        (await PortalApi.SendAsync(admin, HttpMethod.Post, url, new { confirmation = "otra-contrasena-123" })).Code.ShouldBe("PORTAL.INVALID_CONFIRMATION");
+        (await PortalApi.SendAsync(admin, HttpMethod.Post, url, new { confirmation = PortalApi.NewPassword })).Status.ShouldBe(HttpStatusCode.OK);
+    }
+
     private async Task<int> RejectedAuditAsync(string email) =>
         (await PortalApi.GetAsync<List<CloudAuditEntryDto>>(cloud.Superadmin, $"/admin/audit?action=PORTAL_OWNER_LINK_REJECTED&text={Uri.EscapeDataString(email)}")).Count;
 

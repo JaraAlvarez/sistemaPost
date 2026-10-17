@@ -2,6 +2,8 @@
 @attribute [Authorize(Policy = CloudPermissions.PortalUserManage)]
 @inherits PortalPageBase
 @inject IDialogService Dialogs
+@using Pos.Application.Abstractions.Messaging
+@using Pos.SharedKernel.Results
 
 <PageTitle>Usuarios del portal · BusinessPost</PageTitle>
 <PageHeader Title="Usuarios del portal" Section="Administración"
@@ -312,10 +314,10 @@
             return;
         }
 
-        var reset = await RunAsync(new ResetPortalUserPasswordCommand(user.Id), "Contraseña restablecida.");
-        if (reset.IsSuccess)
+        var reset = await WithConfirmationAsync(confirmation => new ResetPortalUserPasswordCommand(user.Id, confirmation), "Contraseña restablecida.");
+        if (reset is { } dto)
         {
-            _temporary = reset.Value;
+            _temporary = dto;
             await LoadAsync();
         }
     }
@@ -327,13 +329,60 @@
             return;
         }
 
+        // N3: restablecer el doble factor también restablece la contraseña (temporal): solo el segundo factor dejaría la cuenta protegida
+        // únicamente por una contraseña que quizá también se filtró.
         var reason = await Dialogs.ConfirmWithReasonAsync(
-            "Restablecer doble factor", $"¿Restablecer el doble factor de {user.Email}?", "Restablecer doble factor",
-            "Motivo (p. ej. teléfono perdido)", detail: "Deberá escanear un código QR nuevo en su próximo ingreso y se cerrarán sus sesiones.");
-        if (reason is not null && await RunAsync(new ResetPortalUserTotpCommand(user.Id, reason), "Doble factor restablecido."))
+            "Restablecer doble factor", $"¿Restablecer el doble factor de {user.Email}?", "Restablecer doble factor y contraseña",
+            "Motivo (p. ej. teléfono perdido)",
+            detail: "También se genera una contraseña temporal nueva (se muestra una sola vez). Deberá cambiarla y escanear un código QR nuevo en su próximo ingreso; se cerrarán sus sesiones.");
+        if (reason is null)
         {
+            return;
+        }
+
+        var reset = await WithConfirmationAsync(confirmation => new ResetPortalUserTotpCommand(user.Id, reason, AlsoResetPassword: true, confirmation),
+            "Doble factor y contraseña restablecidos.");
+        if (reset is { } dto)
+        {
+            if (dto.TemporaryPassword is { } password)
+            {
+                _temporary = new TemporaryPasswordDto(dto.UserId, dto.Email, password);
+            }
+
             await LoadAsync();
         }
+    }
+
+    /// <summary>
+    /// N2: si el ingreso del superadministrador no es reciente, o si afecta a otro superadministrador, el servidor pide confirmar con su
+    /// contraseña o su código TOTP: se pregunta y se repite la operación una vez.
+    /// </summary>
+    private async Task<T?> WithConfirmationAsync<T>(Func<string?, IRequest<Result<Outcome<T>>>> command, string successMessage)
+        where T : class
+    {
+        var result = await SendOutcomeAsync(command(null));
+        if (result.Error?.Code is "PORTAL.REAUTH_REQUIRED" or "PORTAL.TOTP_CONFIRMATION_REQUIRED")
+        {
+            var totpOnly = result.Error.Code == "PORTAL.TOTP_CONFIRMATION_REQUIRED";
+            var confirmation = await Dialogs.AskConfirmationAsync("Confirme que es usted", result.Error.Message,
+                totpOnly ? "Código de su aplicación autenticadora" : "Su contraseña o el código de su aplicación autenticadora");
+            if (confirmation is null)
+            {
+                return null;
+            }
+
+            result = await SendOutcomeAsync(command(confirmation));
+        }
+
+        Notify(result.Error is { } error ? Result.Failure(error) : Result.Success(), successMessage);
+        return result.Value;
+    }
+
+    private async Task<Outcome<T>> SendOutcomeAsync<T>(IRequest<Result<Outcome<T>>> command)
+        where T : class
+    {
+        var sent = await Operations.SendAsync(command);
+        return sent.IsSuccess ? sent.Value : Outcome.Fail<T>(sent.Error);
     }
 
     private async Task RevokeSessionAsync(Guid sessionId)

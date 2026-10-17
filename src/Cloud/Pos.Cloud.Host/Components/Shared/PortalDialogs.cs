@@ -27,9 +27,19 @@ public static class PortalDialogs
         return ShowAsync(dialogs, title, message, confirmText, color, detail, askReason: true, reasonLabel, initialReason);
     }
 
+    /// <summary>
+    /// Re-autenticación del superadministrador: pide su contraseña o el código de su aplicación autenticadora (oculto, no se audita).
+    /// Devuelve lo escrito, o <c>null</c> si se canceló.
+    /// </summary>
+    public static Task<string?> AskConfirmationAsync(this IDialogService dialogs, string title, string message, string label)
+    {
+        ArgumentNullException.ThrowIfNull(dialogs);
+        return ShowAsync(dialogs, title, message, "Confirmar", Color.Warning, null, askReason: false, label, null, askSecret: true);
+    }
+
     private static async Task<string?> ShowAsync(
         IDialogService dialogs, string title, string message, string confirmText, Color color, string? detail, bool askReason, string? reasonLabel,
-        string? initialReason)
+        string? initialReason, bool askSecret = false)
     {
         var parameters = new DialogParameters<ConfirmDialog>
         {
@@ -42,6 +52,8 @@ public static class PortalDialogs
             { d => d.AskReason, askReason },
             { d => d.ReasonLabel, reasonLabel ?? "Motivo" },
             { d => d.InitialReason, initialReason },
+            { d => d.AskSecret, askSecret },
+            { d => d.MinReasonLength, askSecret ? 6 : 5 },
         };
         var reference = await dialogs.ShowAsync<ConfirmDialog>(title, parameters, Options);
         var result = await reference.Result;

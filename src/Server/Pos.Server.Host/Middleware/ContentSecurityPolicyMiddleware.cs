@@ -11,8 +11,10 @@ internal sealed class ContentSecurityPolicyMiddleware(RequestDelegate next)
         "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; " +
         "connect-src 'self' http://localhost:5490; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
+    /// <summary>Sin scripts en línea (el del asistente es <c>/instalacion/asistente.js</c>): el token del propietario vive en sessionStorage.</summary>
     private const string Installation =
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'";
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; " +
+        "form-action 'self'; object-src 'none'";
 
     public Task InvokeAsync(HttpContext context)
     {

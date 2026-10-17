@@ -38,3 +38,26 @@ public static class OwnerLinkAuthorizationPolicy
         return session.Stage == SessionStage.Active && session.IsUsable(user, now) && now - AuthenticatedAt(session) <= ReauthenticationWindow;
     }
 }
+
+/// <summary>
+/// Acciones delicadas de un superadministrador sobre OTRO usuario (restablecer su contraseña o su doble factor): exigen un ingreso
+/// reciente (<see cref="OwnerLinkAuthorizationPolicy.ReauthenticationWindow"/>) o confirmar en el momento con la contraseña o el código
+/// TOTP del superadministrador; si el usuario afectado es otro SUPERADMINISTRADOR, siempre el código TOTP. Nunca sobre sí mismo (para eso
+/// está "Mi cuenta", que pide el código vigente).
+/// </summary>
+public static class AdminResetPolicy
+{
+    /// <summary>¿Puede actuar sin confirmar en el momento? (ingreso reciente y el afectado no es superadministrador).</summary>
+    public static bool AllowsWithoutConfirmation(PortalSession actorSession, PortalUser actor, PortalUser target, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return target.Role != PortalRole.Superadmin && OwnerLinkAuthorizationPolicy.IsRecent(actorSession, actor, now);
+    }
+
+    /// <summary>Afectar a otro superadministrador exige el TOTP del que actúa (la contraseña no basta).</summary>
+    public static bool RequiresTotp(PortalUser target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return target.Role == PortalRole.Superadmin;
+    }
+}

@@ -29,6 +29,10 @@ public class InterfaceTests
         (await client.GetAsync("/_framework/blazor.webassembly.js", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         (await client.GetAsync("/api/v1/no-existe", Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
-        (await client.GetAsync("/instalacion", Ct)).Headers.GetValues("Content-Security-Policy").Single().ShouldContain("'unsafe-inline'");
+        var csp = (await client.GetAsync("/instalacion", Ct)).Headers.GetValues("Content-Security-Policy").Single();
+        csp.ShouldContain("script-src 'self';", customMessage: "El asistente inicial ya no admite scripts en línea (su script es /instalacion/asistente.js).");
+        var script = await client.GetAsync("/instalacion/asistente.js", Ct);
+        script.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await script.Content.ReadAsStringAsync(Ct)).ShouldNotContain("innerHTML");
     }
 }

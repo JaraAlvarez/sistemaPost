@@ -209,11 +209,19 @@ public sealed partial class PortalUser : AggregateRoot<Guid>, IHasAuditLabel
     /// Recuperación manual del 2FA (teléfono perdido) o desactivación por el propio usuario cuando el doble factor es opcional:
     /// el próximo ingreso vuelve a enrolar solo si <c>Portal:RequireTotp</c> lo exige.
     /// </summary>
-    public void ResetTotp()
+    /// <summary>
+    /// Quita el doble factor. <paramref name="keepLastStep"/>: conserva el último paso usado (el propio usuario lo desactivó con un código
+    /// vigente; ese código no debe volver a servir si activa otro autenticador en los mismos segundos).
+    /// </summary>
+    public void ResetTotp(bool keepLastStep = false)
     {
         TotpEnabled = false;
         TotpSecretProtected = null;
-        TotpLastStep = null;
+        if (!keepLastStep)
+        {
+            TotpLastStep = null;
+        }
+
         SecurityVersion++;
     }
 
