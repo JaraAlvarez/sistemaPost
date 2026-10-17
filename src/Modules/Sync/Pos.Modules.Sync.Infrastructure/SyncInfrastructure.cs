@@ -292,6 +292,16 @@ public static class SyncInfrastructureRegistration
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// Clave de desarrollo de la nube (<c>DevelopmentCloudPublicKey</c>): solo existe en compilación Debug (R1: el entorno lo cambia
+    /// cualquier administrador de Windows y la clave decide en qué "nube" confía la sincronización).
+    /// </summary>
+#if DEBUG
+    internal const bool DevelopmentKeyCompiledIn = true;
+#else
+    internal const bool DevelopmentKeyCompiledIn = false;
+#endif
+
     public static void Register(IServiceCollection services)
     {
         services.AddSingleton(sp => Read(sp.GetRequiredService<IConfiguration>()));
@@ -303,7 +313,7 @@ public static class SyncInfrastructureRegistration
                 Uri.TryCreate(options.ServerUrl, UriKind.Absolute, out var url)
                     ? new HttpClient { BaseAddress = new Uri(url.ToString().TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(60) }
                     : null,
-                EmbeddedKey() ?? (production ? null : options.DevelopmentCloudPublicKey),
+                EmbeddedKey() ?? (DevelopmentKeyCompiledIn && !production ? options.DevelopmentCloudPublicKey : null),
                 sp.GetRequiredService<ILogger<SyncCloudClient>>());
         });
         services.AddScoped<ISyncFeeds, SyncFeeds>();

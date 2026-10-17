@@ -12,7 +12,9 @@ namespace Pos.Modules.Licensing.Application;
 /// Endurecimiento (docs/fases/fase-licencia-endurecimiento.md): <c>CompanyNit</c> = NIT de la empresa configurada (H7);
 /// <c>Tampered</c> = la firma local (MAC) del estado no cuadra o el token es más viejo que el último confirmado (H4);
 /// <c>RestrictedSince</c> = hora confiable en que pasó a restringida (H6); <c>OfflineFloorUtc</c> = piso desde el que se cuentan los días
-/// sin conexión cuando es posterior a la emisión del token (la actualización que introdujo el límite, N1).
+/// sin conexión cuando es posterior a la emisión del token (la actualización que introdujo el límite, N1); <c>VaultUnavailable</c> =
+/// mensaje si el archivo protegido de la licencia no se puede leer; <c>HadConfirmedLicense</c> = el archivo ya vio un token confirmado o
+/// una revocación (una demo "alterada" en ese equipo no es una instalación nueva).
 /// </summary>
 public sealed record LicenseRecord(
     Guid NodeId,
@@ -31,7 +33,9 @@ public sealed record LicenseRecord(
     string? CompanyNit = null,
     bool Tampered = false,
     DateTimeOffset? RestrictedSince = null,
-    DateTimeOffset? OfflineFloorUtc = null);
+    DateTimeOffset? OfflineFloorUtc = null,
+    string? VaultUnavailable = null,
+    bool HadConfirmedLicense = false);
 
 /// <summary>
 /// Resultado de evaluar la licencia en un instante. <c>EffectiveNow</c> = reloj local corregido con la hora confiable del último
@@ -139,8 +143,21 @@ public static class LicenseEvaluator
                 $"El reloj del equipo está atrasado (marca {effectiveNow:yyyy-MM-dd HH:mm} UTC y ya se vio {record.MaxObservedUtc:yyyy-MM-dd HH:mm} UTC). Corrija la fecha y la hora de Windows y verifique la licencia.");
         }
 
+        // Sin poder leer el archivo protegido no se puede comprobar nada: restringida (ventana normal de 24 h) con un mensaje propio.
+        if (record.VaultUnavailable is { } unavailable)
+        {
+            return Result(LicenseStates.Restricted, unavailable);
+        }
+
         // En demostración un estado alterado no restringe: la demo se evalúa con la marca y el inicio que guarda el archivo protegido
-        // (lo reconcilia el almacén), así que editar o restaurar la BD no la alarga.
+        // (lo reconcilia el almacén), así que editar o restaurar la BD no la alarga. Salvo que el equipo ya haya tenido una licencia
+        // confirmada (o revocada): entonces borrar el token de la BD no puede devolverlo a la demo.
+        if (record.Token is null && record.Tampered && record.HadConfirmedLicense)
+        {
+            return Result(LicenseStates.Restricted,
+                "Los datos de la licencia guardados en este equipo no cuadran con su firma y este equipo ya tuvo una licencia activada. Active la licencia con su clave.");
+        }
+
         if (record.Token is null)
         {
             if (record.Deactivated)

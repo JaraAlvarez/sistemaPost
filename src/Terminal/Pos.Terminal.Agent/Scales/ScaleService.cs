@@ -139,7 +139,13 @@ public sealed class ScaleService : IDisposable
         _logger = logger;
         _file = options.Value.ResolveScaleConfigFile();
         _testIdle = options.Value.ScaleTestIdleTimeout;
+        // El simulador da pesos que el agente firma como si vinieran de una báscula real: solo existe en compilación Debug (como las
+        // puertas de desarrollo de la licencia, R1). En Release ni la opción ni el entorno (que cambia cualquier administrador) lo activan.
+#if DEBUG
         SimulatorAvailable = options.Value.EnableScaleSimulator || environment.IsDevelopment();
+#else
+        SimulatorAvailable = false;
+#endif
         Load();
     }
 

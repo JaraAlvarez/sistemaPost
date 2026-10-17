@@ -38,6 +38,8 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
 
     public async Task<LicenseRecord?> GetAsync(CancellationToken cancellationToken)
     {
+        // Archivo ilegible (bloqueado, sin permisos): se reintenta en cada recálculo y se sale del modo degradado en cuanto se logra.
+        vault.RetryIfDegraded();
         var (connection, transaction) = await OpenAsync(cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<StateRow>(new CommandDefinition(
             """
@@ -82,7 +84,8 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
         return new LicenseRecord(
             row.NodeId, row.Token, row.LicenseKeyPrefix, Utc(row.ActivatedAt), Utc(row.LastCheckinAt), row.LastCheckinError,
             row.Revoked || vault.Revoked, row.ReactivationRequired || vault.ReactivationRequired, row.Deactivated || vault.Deactivated,
-            row.ClockOffsetSeconds, maxObserved, demoStartedAt, row.PaymentUrl, row.CompanyNit, tampered, restrictedSince, offlineFloor);
+            row.ClockOffsetSeconds, maxObserved, demoStartedAt, row.PaymentUrl, row.CompanyNit, tampered, restrictedSince, offlineFloor,
+            vault.Degraded ? vault.UnavailableMessage : null, vault.TokenIssuedAt is not null || vault.Revoked);
     }
 
     /// <summary>Crea la fila del nodo si no existe (al arrancar). La mayor hora observada y la demo empiezan en la creación de la instalación.</summary>

@@ -49,13 +49,14 @@
 
 - Un administrador de Windows puede leer el secreto DPAPI de máquina, borrar el archivo o modificar el binario: la MAC protege contra
   ediciones de la BD (credenciales de `pos_app`, restauraciones), no contra el dueño del equipo con permisos totales. Borrar el archivo
-  con la BD sellada deja la licencia restringida hasta el siguiente check-in.
+  con la BD sellada deja la licencia restringida (con la ventana normal de 24 h para vender) hasta el siguiente check-in o activación;
+  en demo no restringe, porque con un archivo nuevo no hay rastro de una licencia anterior (sí restringe si el archivo vigente ya vio
+  una licencia confirmada o revocada). Si el archivo existe pero no se puede leer, no se sobrescribe: ver §6.
 - **H9 (demo al reinstalar)**: si al desinstalar se conservan los datos, la reinstalación reutiliza la BD y la demo NO se reinicia. Si
   se borran los datos, `C:\ProgramData\BusinessPost` desaparece (con el archivo de la licencia) y la demo empieza de nuevo. Arreglarlo
   bien exige registrar la demo en la nube por huella del equipo (o un marcador en el registro de Windows fuera de la carpeta de datos);
   no es trivial y queda pendiente de tu decisión.
-- El `BaseUrl` de Factus por configuración fuera de producción y la clave de sincronización de desarrollo siguen dependiendo del
-  entorno (no son de licencia); quedan anotados para una revisión aparte.
+- El `BaseUrl` de Factus por configuración y la clave de sincronización de desarrollo pasaron a existir solo en Debug (§6).
 
 ## 5. Ronda 2 (revisión de la primera implementación)
 
@@ -72,3 +73,12 @@
 | Stale (10) | Sin cálculo exitoso en 1 h el filtro restringe y **conserva la última decisión de venta** (si ya no se podía vender, sigue sin poderse; si se podía, la jornada abierta sigue vendiendo). Sin ningún cálculo desde el arranque, la venta queda abierta. |
 
 Nota: la migración 090 se amplió en esta ronda (no está publicada en `main`). Una BD de desarrollo que ya la tuviera aplicada debe recrearse.
+
+## 6. Ronda 3
+
+| Punto | Decisión |
+|---|---|
+| Archivo ilegible (Degraded) | Si el archivo existe pero no se puede leer (bloqueado, sin permisos), no se sobrescribe y la licencia muestra "No se pudo leer el archivo de la licencia; reinicie el servicio o revise los permisos de {DataRoot}\config" (restringida, ventana normal de 24 h, también en demo). Se vuelve a intentar leerlo en cada recálculo (como mucho una vez por minuto); al lograrlo se adopta su secreto y su estado (sumando la marca y los indicadores vistos mientras tanto) y se sale del modo degradado sin reiniciar. |
+| Permisos vs. inexistente | La lectura usa una apertura de prueba: `FileNotFound`/`DirectoryNotFound` = no existe (se crea); `UnauthorizedAccess` = no disponible (nunca se crea otro secreto encima). |
+| Demo alterada con licencia previa | En demo, un estado alterado restringe (ventana de 24 h) si el archivo ya vio un token confirmado o una revocación: borrar el token de la BD no devuelve el equipo a la demo. |
+| Puertas por entorno en Release | Solo en Debug: simulador de báscula del agente (opción `Agent:EnableScaleSimulator` o entorno Development; sus pesos se firman como de una báscula real), `Pos:Billing:Factus:BaseUrl` (apuntaría a un Factus falso que acepta todo) y `Pos:Sync:DevelopmentCloudPublicKey` (decide en qué nube confía la sincronización). Se dejan por entorno, porque no dan acceso a nada: el detalle de errores y la documentación OpenAPI/Scalar y los endpoints de diagnóstico del servidor (Development), `AllowSameVolumeDestinations` de backups (solo relaja una validación de destino) y la nube (su entorno lo controla el proveedor, no la tienda). |

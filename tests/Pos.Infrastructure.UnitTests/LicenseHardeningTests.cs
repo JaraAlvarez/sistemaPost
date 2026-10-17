@@ -119,6 +119,15 @@ public sealed class LicenseHardeningTests : IDisposable
         // Demo: se evalúa con la marca y el inicio que reconcilia el archivo protegido; no se restringe por la firma.
         Evaluate(Record(token: null) with { Tampered = true }, Installed.AddDays(3)).State.ShouldBe(LicenseStates.Demo);
 
+        // Pero si el equipo ya tuvo una licencia confirmada (o revocada), borrar el token no lo devuelve a la demo.
+        var hadLicense = Evaluate(Record(token: null) with { Tampered = true, HadConfirmedLicense = true }, Installed.AddDays(3));
+        hadLicense.State.ShouldBe(LicenseStates.Restricted);
+        hadLicense.Reason.ShouldContain("ya tuvo una licencia activada");
+
+        // Sin poder leer el archivo protegido: restringida con su propio mensaje (también en demo).
+        Evaluate(Record(token: null) with { VaultUnavailable = "No se pudo leer el archivo de la licencia; reinicie el servicio." }, Installed.AddDays(3))
+            .Reason.ShouldStartWith("No se pudo leer el archivo de la licencia");
+
         // BD movida a otro PC (otra huella) y además sin firma válida: el mensaje es el de reactivar con la clave.
         var record = Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { Tampered = true };
         var moved = LicenseEvaluator.Evaluate(

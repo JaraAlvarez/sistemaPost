@@ -29,36 +29,37 @@ internal sealed partial class LicenseVault
     /// <summary>La marca se escribe en el archivo cuando avanzó al menos esto (la tolerancia del retroceso es de 24 h).</summary>
     private static readonly TimeSpan WriteEvery = TimeSpan.FromMinutes(5);
 
+    /// <summary>Con el archivo ilegible, cada cuánto se vuelve a intentar leerlo (lo pide el recálculo de cada minuto).</summary>
+    private static readonly TimeSpan RetryEvery = TimeSpan.FromMinutes(1);
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly string? _file;
     private readonly ILogger _logger;
     private readonly Lock _gate = new();
-    private readonly byte[] _secret;
+    private byte[] _secret;
     private VaultState _state;
     private DateTimeOffset? _persistedWatermark;
+    private volatile bool _degraded;
+    private long _lastRetry = Environment.TickCount64;
 
     public LicenseVault(string? file, ILogger<LicenseVault> logger, int readAttempts = 3)
     {
         _file = file;
         _logger = logger;
+        _secret = RandomNumberGenerator.GetBytes(32);
+        _state = new VaultState(1, Convert.ToBase64String(_secret));
         switch (file is null ? (LoadResult.Missing, (VaultState?)null) : Load(file, readAttempts))
         {
             case (LoadResult.Loaded, { } stored):
-                _secret = Convert.FromBase64String(stored.Secret);
-                _state = stored;
-                _persistedWatermark = stored.Watermark;
+                Adopt(stored);
                 return;
             case (LoadResult.Unavailable, _):
-                // El archivo existe pero no se pudo leer (bloqueado, disco): NO se sobrescribe. Se trabaja sin él hasta reiniciar: no se
-                // firma nada nuevo y las firmas existentes no se pueden comprobar (restringida con la ventana normal de 24 h).
-                Degraded = true;
-                _secret = RandomNumberGenerator.GetBytes(32);
-                _state = new VaultState(1, Convert.ToBase64String(_secret));
+                // El archivo existe pero no se pudo leer (bloqueado, sin permisos, disco): NO se sobrescribe. Se trabaja sin él (no se
+                // firma nada nuevo y las firmas no se pueden comprobar) y se reintenta leerlo en cada recálculo hasta lograrlo.
+                _degraded = true;
                 return;
             default:
-                _secret = RandomNumberGenerator.GetBytes(32);
-                _state = new VaultState(1, Convert.ToBase64String(_secret));
                 Save();
                 return;
         }
@@ -71,8 +72,73 @@ internal sealed partial class LicenseVault
         Unavailable,
     }
 
-    /// <summary>El archivo existe pero no se pudo leer: no se firma ni se escribe nada (el archivo queda intacto).</summary>
-    public bool Degraded { get; }
+    /// <summary>
+    /// El archivo existe pero no se pudo leer (bloqueado o sin permisos): no se firma ni se escribe nada (el archivo queda intacto) y la
+    /// licencia muestra <see cref="UnavailableMessage"/>. Se sale de este estado en cuanto <see cref="RetryIfDegraded"/> logra leerlo.
+    /// </summary>
+    public bool Degraded => _degraded;
+
+    /// <summary>Mensaje para la tienda mientras el archivo no se puede leer.</summary>
+    public string UnavailableMessage =>
+        $"No se pudo leer el archivo de la licencia; reinicie el servicio o revise los permisos de {(_file is null ? "la carpeta de datos" : Path.GetDirectoryName(_file))}.";
+
+    /// <summary>
+    /// Con el archivo ilegible, vuelve a intentar leerlo (como mucho una vez por minuto, salvo <paramref name="force"/>). Si lo logra,
+    /// adopta su secreto y su estado (sumando lo visto mientras tanto) y sale de <see cref="Degraded"/>.
+    /// </summary>
+    public bool RetryIfDegraded(bool force = false)
+    {
+        if (!_degraded || _file is null)
+        {
+            return !_degraded;
+        }
+
+        lock (_gate)
+        {
+            if (!_degraded)
+            {
+                return true;
+            }
+
+            var now = Environment.TickCount64;
+            if (!force && TimeSpan.FromMilliseconds(now - _lastRetry) < RetryEvery)
+            {
+                return false;
+            }
+
+            _lastRetry = now;
+            switch (Load(_file, 1))
+            {
+                case (LoadResult.Loaded, { } stored):
+                    var seen = _state;
+                    Adopt(stored with
+                    {
+                        Watermark = Max(stored.Watermark, seen.Watermark),
+                        Revoked = stored.Revoked || seen.Revoked,
+                        ReactivationRequired = stored.ReactivationRequired || seen.ReactivationRequired,
+                        Deactivated = stored.Deactivated || seen.Deactivated,
+                    });
+                    _degraded = false;
+                    LogRecovered(_logger, _file);
+                    return true;
+                case (LoadResult.Missing, _):
+                    // Ya no existe (o se apartó como .bad): se crea uno nuevo con lo visto en memoria.
+                    _degraded = false;
+                    Save();
+                    LogRecovered(_logger, _file);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    private void Adopt(VaultState stored)
+    {
+        _secret = Convert.FromBase64String(stored.Secret);
+        _state = stored;
+        _persistedWatermark = stored.Watermark;
+    }
 
     /// <summary>¿Se leyó ya una firma válida confirmada? Desde entonces una fila sin firma cuenta como alterada.</summary>
     public bool Sealed => Read(s => s.Sealed);
@@ -99,7 +165,13 @@ internal sealed partial class LicenseVault
     public bool Deactivated => Read(s => s.Deactivated);
 
     /// <summary>Firma (hex) del texto canónico del estado.</summary>
-    public string Mac(string canonical) => Convert.ToHexStringLower(HMACSHA256.HashData(_secret, Encoding.UTF8.GetBytes(canonical)));
+    public string Mac(string canonical)
+    {
+        lock (_gate)
+        {
+            return Convert.ToHexStringLower(HMACSHA256.HashData(_secret, Encoding.UTF8.GetBytes(canonical)));
+        }
+    }
 
     /// <summary>Se leyó una fila firmada, válida y CONFIRMADA: se anota lo que solo vale tras el commit.</summary>
     public void Confirm(DateTimeOffset? tokenIssuedAt, DateTimeOffset? demoStartedAt, DateTimeOffset? offlineFloor) =>
@@ -176,19 +248,25 @@ internal sealed partial class LicenseVault
 
     private (LoadResult, VaultState?) Load(string file, int attempts)
     {
-        if (!File.Exists(file))
-        {
-            return (LoadResult.Missing, null);
-        }
-
         for (var attempt = 1; ; attempt++)
         {
             byte[] stored;
             try
             {
+                // Apertura de prueba en vez de File.Exists (que dice "no existe" también cuando falta el permiso).
                 stored = File.ReadAllBytes(file);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return (LoadResult.Missing, null);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Sin permiso: el archivo puede existir. Nunca se toma como "no existe" (se crearía otro secreto).
+                LogUnavailable(_logger, file, ex.Message);
+                return (LoadResult.Unavailable, null);
+            }
+            catch (IOException ex)
             {
                 // Error transitorio (antivirus, disco): se reintenta y NUNCA se sobrescribe el archivo por esto.
                 if (attempt >= attempts)
@@ -234,7 +312,7 @@ internal sealed partial class LicenseVault
 
     private void Save()
     {
-        if (_file is null || Degraded)
+        if (_file is null || _degraded)
         {
             return;
         }
@@ -260,6 +338,9 @@ internal sealed partial class LicenseVault
 
     [LoggerMessage(Level = LogLevel.Error, Message = "No se pudo leer el archivo de la licencia {File}; se trabaja sin él hasta reiniciar: {Error}")]
     private static partial void LogUnavailable(ILogger logger, string file, string error);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Se volvió a leer el archivo de la licencia {File}.")]
+    private static partial void LogRecovered(ILogger logger, string file);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "No se pudo guardar el archivo de la licencia {File}: {Error}")]
     private static partial void LogNotSaved(ILogger logger, string file, string error);
