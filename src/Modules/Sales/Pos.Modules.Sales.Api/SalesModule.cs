@@ -138,7 +138,7 @@ public sealed class SalesModule : IModule
             .RequirePermission(SalesPermissions.SaleCreate)
             .WithSummary("Cobra y completa en una transacción (idempotente con Idempotency-Key): número, kardex, caja, comprobante y tiquete; con la facturación electrónica espera ⚙️ hasta 3 s los datos fiscales");
         group.MapPost("/{saleId:guid}/sistecredito/release", async (Guid saleId, ReleaseCreditRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new ReleaseSistecreditoCreditCommand(saleId, r.TransactionId), ct)).ToHttpResult())
+                (await d.Send(new ReleaseSistecreditoCreditCommand(saleId, r.TransactionId, r.OnlyNeeded), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCancel, allowSupervisor: true)
             .WithSummary("«No usar este crédito»: el crédito de Sistecrédito aprobado no se usa en la venta (con autorización de supervisor) y queda en revisión para reversarlo");
         group.MapPost("/{saleId:guid}/void", async (Guid saleId, ReasonRequest r, IDispatcher d, FiscalTicketWait fiscal, CancellationToken ct) =>
@@ -203,7 +203,7 @@ public sealed record HoldRequest(string? Label);
 public sealed record ReasonRequest(string Reason);
 
 /// <summary><c>TransactionId</c> vacío: todos los créditos aprobados de la venta.</summary>
-public sealed record ReleaseCreditRequest(string? TransactionId);
+public sealed record ReleaseCreditRequest(string? TransactionId, bool OnlyNeeded = false);
 
 public sealed record CompleteRequest(IReadOnlyList<PaymentRequest> Payments);
 

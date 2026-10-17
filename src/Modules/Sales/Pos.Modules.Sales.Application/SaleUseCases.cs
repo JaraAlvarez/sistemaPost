@@ -66,6 +66,10 @@ public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, Pr
         return (sale, scope.Value);
     }
 
+    /// <summary>Recalcula con las promociones vigentes, sin verificar el crédito (para calcular cuánto crédito liberar).</summary>
+    public async Task RecalculateOnlyAsync(Sale sale, CancellationToken cancellationToken) =>
+        sale.Recalculate(await promotions.ActiveAsync(sale.BranchId, cancellationToken));
+
     /// <summary>Recalcula con las promociones vigentes y verifica que no quede por debajo de un crédito de Sistecrédito aprobado.</summary>
     public async Task<Result> RecalculateAsync(Sale sale, CancellationToken cancellationToken)
     {

@@ -51,10 +51,11 @@ public sealed class SessionViews(
             await TotalsAsync(session, showExpected, cancellationToken), movements, await NotUsedAsync(session, cancellationToken));
     }
 
-    /// <summary>Créditos de Sistecrédito aprobados que no se usaron en ventas de la jornada («No usar este crédito»).</summary>
+    /// <summary>Cobros de Sistecrédito de la jornada que la administración debe revisar (no usados, aprobados tarde, de ventas anuladas…).</summary>
     private async Task<IReadOnlyList<SistecreditoNotUsedDto>> NotUsedAsync(CashSession session, CancellationToken cancellationToken) =>
-        [.. (await sistecredito.ListReleasedAsync(session.PosTerminalId, session.OpenedAt, session.ClosedAt, cancellationToken))
-            .Select(a => new SistecreditoNotUsedDto(a.Id, a.Amount, a.TransactionId, a.MaskedDocument, a.ReleasedAt!.Value, a.ReviewedAt is not null))];
+        [.. (await sistecredito.ListToReviewAsync(session.PosTerminalId, session.OpenedAt, session.ClosedAt, cancellationToken))
+            .Select(a => new SistecreditoNotUsedDto(
+                a.Id, a.Amount, a.TransactionId, a.MaskedDocument, a.ReviewRequiredAt!.Value, a.ReviewedAt is not null, a.ReleasedAt is not null, a.Message))];
 
     public async Task<CashReportDto> ReportAsync(string kind, CashSession session, CancellationToken cancellationToken)
     {
