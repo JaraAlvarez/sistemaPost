@@ -145,6 +145,17 @@ Con el mismo diseño del instalador premium (parte D):
 
 ## 9. Informe parcial D/E (2026-10-17)
 
+> **Informe: la ventana se actualiza con el paquete.** `BusinessPost.exe` quedaba fuera del ZIP del actualizador y las tiendas seguían
+> con la ventana vieja. Ahora va en `app\<versión>\desktop` (con su aviso de licencia): `build-installer.ps1` la publica allí y revisa
+> que el ZIP traiga `server`, `migrator`, `agent` y `desktop`; los accesos directos abren `{app}\app\current\desktop\BusinessPost.exe`,
+> así que el cambio de la unión `app\current` la actualiza y la vuelta atrás la devuelve, sin sobrescribir nunca un `.exe` en uso.
+> El actualizador la precalienta al descomprimir, no cierra la ventana abierta (sigue funcionando y la nueva se usa al reabrirla) y
+> no borra una versión vieja mientras su ventana siga abierta. Las cajas la reciben en el mismo paquete que les sirve el equipo
+> principal. Compatibilidad: en instalaciones previas (accesos o ventana anclada en `{app}\desktop`) el actualizador refresca esa
+> copia en cada cambio de versión (si está abierta la renombra a `*.anterior`) y el instalador también, si existe. Pruebas:
+> `UpdateTests` (paquete con `desktop/`, cambio y vuelta atrás con uniones reales, ventana abierta, limpieza). Futuro opcional: que la
+> ventana avise "Hay una versión nueva, se usará la próxima vez que abra BusinessPost".
+
 Producto para **cualquier comercio**: los textos nuevos dicen "tu negocio"; el lema del ingreso pasa a "El punto de venta de su negocio."
 y "Hecho en Colombia para su negocio".
 

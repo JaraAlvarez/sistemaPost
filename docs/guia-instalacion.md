@@ -102,6 +102,10 @@ las cajas.
 - Si algo falla, vuelve solo a la versión anterior y, si hace falta, a la base de datos del backup previo. Queda en la auditoría.
 - Para instalar ya, sin esperar: **Administración → Actualizaciones → Instalar ahora**. Úselo con las cajas cerradas.
 - Las cajas se actualizan desde el servidor de la tienda, sin Internet.
+- **La ventana BusinessPost.exe también se actualiza** con el paquete (va en `app\<versión>\desktop`, en el servidor y en las cajas).
+  Si está abierta durante la actualización **no se cierra**: sigue funcionando (muestra la pantalla de carga mientras el servicio
+  reinicia y vuelve a entrar sola) y la versión nueva se usa **la próxima vez que se abra BusinessPost**. Si la actualización vuelve
+  atrás, también vuelve la ventana anterior. Detalle en §9.
 
 ## 5. Desinstalar
 
@@ -128,6 +132,7 @@ servicios, sin contraseñas ni datos de clientes. Envíelo a soporte.
 | 6 | Publicar 1.0.1 en `updates/` y usar "instalar ahora" | Versión 1.0.1 activa, `UPDATE_APPLIED` en la auditoría |
 | 7 | Publicar una versión que no arranca | Vuelve sola a la anterior, `UPDATE_ROLLED_BACK` en la auditoría |
 | 8 | Desinstalar sin borrar datos y reinstalar | Los datos siguen ahí |
+| 9 | Actualizar con la ventana BusinessPost.exe abierta (servidor y una caja) | La ventana no se cierra y vuelve a entrar sola; al cerrarla y abrirla de nuevo es la versión nueva; en una vuelta atrás abre la anterior |
 
 ## 8. Firma de código y primer arranque
 
@@ -152,7 +157,7 @@ da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a 
 
 ## 9. Ventana propia BusinessPost.exe (Fase 13-B, D13B-07)
 
-- **Qué es:** el acceso directo "BusinessPost" (escritorio y menú Inicio) abre `C:\Program Files\BusinessPost\desktop\BusinessPost.exe`,
+- **Qué es:** el acceso directo "BusinessPost" (escritorio y menú Inicio) abre `C:\Program Files\BusinessPost\app\current\desktop\BusinessPost.exe`,
   una ventana de Windows con WebView2 (el motor de Edge que ya trae Windows 10/11) en lugar de Edge en modo aplicación. Mismo
   programa para "única caja", "equipo principal" y "caja adicional". Si falta el `.exe`, el instalador deja los accesos de Edge de antes.
 - **A dónde se conecta:** `--url <dirección>` en la línea de comandos (pruebas y soporte; con `--huella <sha256>` para un certificado
@@ -171,8 +176,15 @@ da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a 
   frente la ventana existente.
 - **Si no abre:** si Windows no tiene "Microsoft Edge WebView2 Runtime" (raro en Windows 10/11), el programa lo dice y ofrece abrir la
   página oficial de descarga. `BusinessPost.exe --precalentar` carga el programa y termina (para el paso de Windows Defender del instalador).
-- **Actualizaciones:** `BusinessPost.exe` se actualiza con el instalador (no va en el ZIP del actualizador). El ícono se genera con
-  `tools/scripts/generar-icono-escritorio.ps1`.
+- **Actualizaciones:** `BusinessPost.exe` va **dentro de cada versión** (`app\<versión>\desktop`, con `LICENSE-WebView2.txt`) y en el
+  ZIP del actualizador, así que se actualiza solo, también en las cajas (que reciben el mismo paquete del equipo principal). Al
+  descomprimir la versión nueva el actualizador la precalienta (`--precalentar`, sin abrir ventanas); el cambio de `app\current` hace
+  que el acceso directo abra la nueva y la vuelta atrás devuelve la anterior. Una ventana abierta nunca se cierra ni se sobrescribe:
+  sigue corriendo desde la carpeta de su versión, que la limpieza de versiones viejas no borra mientras siga abierta.
+  **Instalaciones anteriores** (accesos directos o ventana anclada a la barra de tareas en `C:\Program Files\BusinessPost\desktop`):
+  el actualizador refresca esa carpeta en cada cambio de versión (si el programa está abierto, lo renombra a `*.anterior` y deja el
+  nuevo para la próxima apertura; el renombrado se borra en el siguiente cambio) y reinstalar deja los accesos directos nuevos. El
+  ícono se genera con `tools/scripts/generar-icono-escritorio.ps1`.
 
 ## 10. Instalador premium (Fase 13-B, D13B-08 y D13B-09)
 
