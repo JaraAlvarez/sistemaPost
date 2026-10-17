@@ -132,7 +132,7 @@
                         <MudItem xs="12" md="@(_form.Kind == DestinationKinds.External ? 5 : 8)">
                             <MudTextField @bind-Value="_form.Path" Label="Carpeta" Immediate="true" MaxLength="400"
                                           Placeholder="@(_form.Kind == DestinationKinds.External ? "E:\\BackupsTienda" : "\\\\NAS\\backups\\tienda")"
-                                          HelperText="@(_form.Kind == DestinationKinds.External ? "Letra del disco y carpeta. Si no existe se crea." : "Ruta de red \\\\equipo\\carpeta (no use letras mapeadas como Z:).")"
+                                          HelperText="@(_form.Kind == DestinationKinds.External ? "Letra del disco y carpeta (otro disco, no el del servidor). Debe existir la carpeta o su superior." : "Ruta de red \\\\equipo\\carpeta (no use letras mapeadas como Z:).")"
                                           OnBlur="@(() => _check = null)" />
                         </MudItem>
                         @if (_form.Kind == DestinationKinds.External)
@@ -176,9 +176,18 @@
                         <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="@(() => { _form = null; _check = null; })">Cancelar</MudButton>
                     </div>
                     <MudText Typo="Typo.caption" Class="d-block mt-2">
-                        La comprobación la hace el servidor de la tienda con su propia cuenta: escribe, lee y borra un archivo pequeño. Al guardar un
-                        destino activo se comprueba de nuevo. Si después retira el disco, las copias quedan pendientes y se hacen al conectarlo.
+                        La comprobación la hace el servidor de la tienda con su propia cuenta: escribe, lee y borra un archivo pequeño (no crea
+                        carpetas). Debe existir la carpeta o su carpeta superior, y estar en un disco distinto al del servidor. Al guardar un destino
+                        activo se comprueba de nuevo. Si después retira el disco, las copias quedan pendientes y se hacen al conectarlo.
                     </MudText>
+                    @if (_form.Kind == DestinationKinds.Network)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                            El servicio de BusinessPost corre como <b>LocalSystem</b>: en la red entra con la <b>cuenta del equipo</b> (EQUIPO$), no con su
+                            usuario de Windows. Dé permiso de escritura a esa cuenta en la carpeta compartida. En un NAS o equipo <b>sin dominio</b> esa
+                            cuenta no existe y la copia puede fallar: en ese caso use un disco externo o pida a soporte configurar el acceso.
+                        </MudAlert>
+                    }
                 </MudPaper>
             }
         }

@@ -60,6 +60,11 @@ public enum FiscalStatus
 
     /// <summary>Documento electrónico que nunca fue aceptado y se canceló (la venta se anuló antes de enviarlo).</summary>
     Cancelled,
+
+    /// <summary>
+    /// Documento electrónico del atraso de antes de conectar el proveedor que la administración decidió NO enviar (PA1). No se reintenta.
+    /// </summary>
+    NotSent,
 }
 
 public static class BillingErrors
@@ -421,6 +426,24 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
 
         NextAttemptAt = result is FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency ? nextAttempt : null;
         _events.Add(FiscalDocumentEvent.Create(newId(), "ATTEMPT", detail, providerCode, now, null));
+    }
+
+    /// <summary>
+    /// "No enviar" (PA1): un documento del atraso de antes de conectar el proveedor (pendiente, con error o en contingencia) queda NOT_SENT
+    /// y la cola no lo vuelve a tomar. Devuelve <c>false</c> si no estaba en esos estados.
+    /// </summary>
+    public bool DiscardBacklog(string reason, DateTimeOffset now, Guid userId, Func<Guid> newId)
+    {
+        ArgumentNullException.ThrowIfNull(newId);
+        if (!IsElectronic || Status is not (FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency))
+        {
+            return false;
+        }
+
+        Status = FiscalStatus.NotSent;
+        NextAttemptAt = null;
+        _events.Add(FiscalDocumentEvent.Create(newId(), "NOT_SENT", reason, null, now, userId));
+        return true;
     }
 
     /// <summary>Reintento manual de un documento electrónico pendiente, con error, en contingencia o rechazado.</summary>

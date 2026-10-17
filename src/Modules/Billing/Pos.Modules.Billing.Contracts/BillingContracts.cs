@@ -143,10 +143,15 @@ public sealed record BillingSettingsDto(
     string? CredentialHint = null,
     DateTimeOffset? LastVerifiedAt = null,
     bool? LastVerificationOk = null,
-    string? LastVerificationMessage = null);
+    string? LastVerificationMessage = null,
+    int HeldDocuments = 0,
+    DateTimeOffset? AutoDisabledAt = null);
 
-/// <summary>Resultado de "Verificar conexión" con el proveedor (credenciales y ambiente vigentes).</summary>
-public sealed record FiscalConnectionVerificationDto(bool Ok, string Message, string Environment, DateTimeOffset VerifiedAt);
+/// <summary>
+/// Resultado de "Verificar conexión" con el proveedor. <c>Transient</c>: el fallo fue de red o del proveedor (no de las credenciales); no
+/// quita una verificación correcta anterior.
+/// </summary>
+public sealed record FiscalConnectionVerificationDto(bool Ok, string Message, string Environment, DateTimeOffset VerifiedAt, bool Transient = false);
 
 public sealed record FiscalRangeDto(
     Guid Id,
@@ -195,7 +200,9 @@ public sealed record FiscalAlertsDto(
     int Rejected,
     int WithoutRange,
     IReadOnlyList<FiscalRangeAlertDto> Ranges,
-    DateTimeOffset? OldestPendingAt)
+    DateTimeOffset? OldestPendingAt,
+    string? ConnectionNotice = null,
+    int HeldDocuments = 0)
 {
     public int Count => PendingOverdue + Rejected + WithoutRange + Ranges.Count;
 }

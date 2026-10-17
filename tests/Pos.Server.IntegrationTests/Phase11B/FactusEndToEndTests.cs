@@ -20,13 +20,14 @@ namespace Pos.Server.IntegrationTests.Phase11B;
 /// Servidor POS con el proveedor REAL <c>Pos:Billing:Provider = FACTUS</c> (cliente HTTP de Factus v2) apuntando al Factus SIMULADO en
 /// Kestrel (<see cref="FactusFakeServer.StartAsync"/>). La cola la dirigen las pruebas (<c>POST /billing/queue/process</c>).
 /// </summary>
-public sealed class FactusBillingServerFactory(Uri factusUrl) : PosServerFactory
+public sealed class FactusBillingServerFactory(Uri factusUrl, int verifyMinSeconds = 0) : PosServerFactory
 {
     protected override string Edition => "SINGLE";
 
     protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
     [
         new("Pos:Billing:Provider", "FACTUS"),
+        new("Pos:Billing:VerifyMinSeconds", verifyMinSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)),
         new("Pos:Billing:Worker", "false"),
         new("Pos:Billing:Factus:BaseUrl", factusUrl.ToString()),
         new("Pos:Billing:Factus:TimeoutSeconds", "5"),

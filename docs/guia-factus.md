@@ -55,7 +55,8 @@ Factus activa la cuenta en ~1–3 días hábiles con:
 
 ## 4. Factus ya viene habilitado
 
-Desde la rama `pantallas-admin` Factus es el adaptador por defecto: **no hay que editar `server.json`**. Lo que enciende o apaga la
+Con la rama `pantallas-admin` (adenda A del ADR-0059, **pendiente de aprobación**) Factus es el adaptador por defecto: **no hay que
+editar `server.json`**. Lo que enciende o apaga la
 facturación electrónica es el modo de la empresa (por defecto **Apagada**), que se cambia desde la pantalla. Solo si una instalación NO
 debe facturar electrónicamente, soporte pone `"Pos": { "Billing": { "Provider": "NONE" } }` en `{DataRoot}\config\server.json`.
 
@@ -71,7 +72,11 @@ administrador):
 3. Conectado verás el ambiente, el modo, tu usuario enmascarado (p. ej. `ti***@correo.co`) y la última prueba, con **Volver a probar**,
    **Cambiar llaves** (repite el flujo: mientras tanto la facturación queda apagada) y **Desconectar** (apaga; las llaves quedan guardadas).
 4. Las llaves nunca se vuelven a mostrar. Si restauras la base de datos en otro equipo, vuelve a escribirlas (el cifrado es del equipo).
-5. Para pasar de pruebas a producción: **Desconectar**, cambiar llaves por las de producción, ambiente **Producción** y **Conectar**.
+5. **Cambiar llaves** prueba las nuevas con Factus antes de guardarlas: si Factus las acepta se guardan y la facturación sigue igual; si
+   no, no cambia nada. Una caída de Internet al "Volver a probar" no desconecta nada.
+6. Si había facturas pendientes de antes de conectar (por ejemplo de una instalación anterior), no se envían solas: la tarjeta muestra
+   cuántas y deja elegir **Enviar ahora** o **No enviar**. Consúltelo con su contador.
+7. Para pasar de pruebas a producción: **Desconectar**, ambiente **Producción**, llaves de producción y **Conectar**.
 
 ## 6. Sincronizar y asignar los rangos
 

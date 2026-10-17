@@ -169,10 +169,27 @@ public sealed class BillingProviderSettings : ICompanyOwned
 
     public string? LastVerificationMessage { get; private set; }
 
+    /// <summary>
+    /// Primera verificación correcta (PA1): los documentos electrónicos emitidos ANTES de ese momento (atraso de cuando no había proveedor)
+    /// no se envían solos; la administración decide "Enviar ahora" (<see cref="BacklogReleased"/>) o "No enviar" (NOT_SENT).
+    /// </summary>
+    public DateTimeOffset? BacklogCutoff { get; private set; }
+
+    public bool BacklogReleased { get; private set; }
+
+    /// <summary>La migración V2026.10.060 la apagó por estar encendida sin verificación: el tablero lo avisa hasta que se conecte.</summary>
+    public DateTimeOffset? AutoDisabledAt { get; private set; }
+
     public bool HasCredentials => Credentials is { Length: > 0 };
 
     /// <summary>Las credenciales y el ambiente vigentes ya se verificaron con éxito contra el proveedor.</summary>
     public bool IsVerified => HasCredentials && LastVerificationOk == true;
+
+    /// <summary>La cola envía SOLO con el modo encendido y la conexión verificada (PA1). Con OFF no sale nada, ni lo que ya estaba en cola.</summary>
+    public bool CanSend => Mode != BillingMode.Off && IsVerified;
+
+    /// <summary>Los documentos emitidos antes de este momento esperan la decisión de la administración (nulo: no hay atraso retenido).</summary>
+    public DateTimeOffset? HeldBefore => BacklogReleased ? null : BacklogCutoff;
 
     public static BillingProviderSettings Create(Guid companyId, string provider)
     {
@@ -207,6 +224,11 @@ public sealed class BillingProviderSettings : ICompanyOwned
         Mode = mode;
         Environment = environment;
         Provider = provider;
+        if (mode != BillingMode.Off)
+        {
+            AutoDisabledAt = null;
+        }
+
         return Result.Success();
     }
 
@@ -223,13 +245,50 @@ public sealed class BillingProviderSettings : ICompanyOwned
         ClearVerification();
     }
 
-    /// <summary>Resultado de verificar las credenciales y el ambiente vigentes contra el proveedor (el mensaje se recorta).</summary>
-    public void RecordVerification(DateTimeOffset now, bool ok, string? message)
+    /// <summary>
+    /// Resultado de verificar las credenciales y el ambiente vigentes contra el proveedor (el mensaje se recorta). Un fallo TRANSITORIO (sin
+    /// red, tiempo agotado, proveedor caído) no quita una verificación correcta (PA9): solo un rechazo de las credenciales la quita. La
+    /// primera verificación correcta fija el corte del atraso (<see cref="BacklogCutoff"/>).
+    /// </summary>
+    /// <returns><c>true</c> si cambió el estado guardado.</returns>
+    public bool RecordVerification(DateTimeOffset now, bool ok, string? message, bool transient = false)
     {
+        if (!ok && transient && LastVerificationOk == true)
+        {
+            return false;
+        }
+
         LastVerifiedAt = now;
         LastVerificationOk = ok;
         LastVerificationMessage = message is { Length: > 500 } ? message[..500] : message;
+        if (ok)
+        {
+            BacklogCutoff ??= now;
+        }
+
+        return true;
     }
+
+    /// <summary>
+    /// "Cambiar llaves" (PA6): las llaves candidatas YA se verificaron contra el proveedor en el ambiente vigente; se guardan sin apagar
+    /// la facturación y quedan verificadas.
+    /// </summary>
+    public void ReplaceVerifiedCredentials(byte[] encrypted, DateTimeOffset now, string? hint, string? message)
+    {
+        ArgumentNullException.ThrowIfNull(encrypted);
+        if (encrypted.Length == 0)
+        {
+            throw new DomainException("Las credenciales nuevas están vacías.");
+        }
+
+        Credentials = encrypted;
+        CredentialsUpdatedAt = now;
+        CredentialHint = hint is { Length: > 80 } ? hint[..80] : hint;
+        RecordVerification(now, ok: true, message);
+    }
+
+    /// <summary>"Enviar ahora" el atraso retenido (PA1): desde ya la cola lo envía como cualquier otro documento.</summary>
+    public void ReleaseBacklog() => BacklogReleased = true;
 
     /// <summary>Usuario enmascarado: las dos primeras letras y el dominio del correo (<c>ti***@correo.co</c>).</summary>
     public static string MaskUsername(string username)

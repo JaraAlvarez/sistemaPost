@@ -2,16 +2,25 @@ using Pos.Infrastructure.Backup;
 
 namespace Pos.Infrastructure.UnitTests;
 
-/// <summary>Comprobación de la carpeta de un destino de backups (pantallas faltantes §1) con carpetas temporales reales.</summary>
+/// <summary>
+/// Comprobación de la carpeta de un destino de backups (pantallas faltantes §1, PA3/PA4/PA7) con carpetas temporales reales. Las carpetas
+/// temporales están en el mismo disco que la "LOCAL" de la prueba: la regla de otro volumen se prueba aparte y en las demás se permite.
+/// </summary>
 public sealed class BackupFolderProbeTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "pos-probe-" + Guid.NewGuid().ToString("N"));
 
-    public BackupFolderProbeTests() => Directory.CreateDirectory(_root);
+    public BackupFolderProbeTests() => Directory.CreateDirectory(Local);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private string Local => Path.Combine(_root, "backups", "local");
+
+    private Task<BackupFolderProbeResult> External(string? path, string? label = null, bool allowSameVolume = true) =>
+        BackupFolderProbe.CheckAsync(path, label, Local, BackupFolderKind.External, allowSameVolume, Ct);
+
+    private Task<BackupFolderProbeResult> Network(string path) =>
+        BackupFolderProbe.CheckAsync(path, null, Local, BackupFolderKind.Network, allowSameVolume: true, Ct);
 
     public void Dispose()
     {
@@ -26,9 +35,11 @@ public sealed class BackupFolderProbeTests : IDisposable
     [InlineData("  ")]
     [InlineData("Backups")]
     [InlineData("..\\otra")]
-    public async Task Sin_ruta_o_con_ruta_relativa_no_sirve(string? path)
+    [InlineData(@"\\?\C:\Backups")]
+    [InlineData(@"\\.\C:\Backups")]
+    public async Task Sin_ruta_relativa_o_de_dispositivo_no_sirve(string? path)
     {
-        var result = await BackupFolderProbe.CheckAsync(path, null, Local, Ct);
+        var result = await External(path);
         result.Ok.ShouldBeFalse();
         result.Message.ShouldNotBeNullOrWhiteSpace();
     }
@@ -36,11 +47,37 @@ public sealed class BackupFolderProbeTests : IDisposable
     [Fact]
     public async Task La_carpeta_LOCAL_y_sus_subcarpetas_no_sirven_como_destino()
     {
-        Directory.CreateDirectory(Local);
-        (await BackupFolderProbe.CheckAsync(Local, null, Local, Ct)).Message.ShouldContain("carpeta LOCAL");
-        (await BackupFolderProbe.CheckAsync(Local + Path.DirectorySeparatorChar, null, Local, Ct)).Ok.ShouldBeFalse();
-        (await BackupFolderProbe.CheckAsync(Path.Combine(Local, "copia"), null, Local, Ct)).Ok.ShouldBeFalse();
-        (await BackupFolderProbe.CheckAsync(Path.Combine(_root, "backups", "local-usb"), null, Local, Ct)).Ok.ShouldBeTrue();
+        (await External(Local)).Message.ShouldContain("carpeta LOCAL");
+        (await External(Local + Path.DirectorySeparatorChar)).Ok.ShouldBeFalse();
+        (await External(Path.Combine(Local, "copia"))).Ok.ShouldBeFalse();
+        Directory.CreateDirectory(Path.Combine(_root, "backups", "local-usb"));
+        (await External(Path.Combine(_root, "backups", "local-usb"))).Ok.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Un_alias_de_la_carpeta_LOCAL_se_descubre_con_el_archivo_de_prueba()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // Junction (no pide privilegios) que apunta a la LOCAL: por la ruta parece otra carpeta.
+        var alias = Path.Combine(_root, "alias");
+        using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{alias}\" \"{Local}\"")
+               {
+                   UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
+               })!)
+        {
+            await mklink.WaitForExitAsync(Ct);
+        }
+
+        Directory.Exists(alias).ShouldBeTrue();
+        var result = await External(alias);
+        result.Ok.ShouldBeFalse();
+        result.Message.ShouldContain("carpeta LOCAL");
+        Directory.EnumerateFileSystemEntries(Local).ShouldBeEmpty();
+        Directory.Delete(alias); // quita solo el enlace
     }
 
     [Fact]
@@ -48,7 +85,7 @@ public sealed class BackupFolderProbeTests : IDisposable
     {
         var usb = Directory.CreateDirectory(Path.Combine(_root, "usb")).FullName;
 
-        var result = await BackupFolderProbe.CheckAsync(usb, null, Local, Ct);
+        var result = await External(usb);
 
         result.Ok.ShouldBeTrue(result.Message);
         result.Message.ShouldContain("existe y se puede escribir");
@@ -58,15 +95,34 @@ public sealed class BackupFolderProbeTests : IDisposable
     }
 
     [Fact]
-    public async Task Una_carpeta_que_no_existe_se_prueba_creandola_y_se_borra_al_terminar()
+    public async Task Si_no_existe_basta_con_su_carpeta_superior_y_no_se_crea_nada()
     {
-        var nueva = Path.Combine(_root, "disco", "BackupsTienda");
+        var disco = Directory.CreateDirectory(Path.Combine(_root, "disco")).FullName;
+        var nueva = Path.Combine(disco, "BackupsTienda");
 
-        var result = await BackupFolderProbe.CheckAsync(nueva, null, Local, Ct);
+        var result = await External(nueva);
 
         result.Ok.ShouldBeTrue(result.Message);
         result.Message.ShouldContain("se creará en el primer backup");
         Directory.Exists(nueva).ShouldBeFalse();
+        Directory.EnumerateFileSystemEntries(disco).ShouldBeEmpty();
+
+        // Sin la superior tampoco: no se crean carpetas para probar.
+        var lejana = Path.Combine(_root, "no", "existe", "BackupsTienda");
+        (await External(lejana)).Message.ShouldContain("ni su carpeta superior");
+        Directory.Exists(Path.Combine(_root, "no")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task En_el_mismo_disco_que_la_LOCAL_no_sirve_salvo_que_se_permita()
+    {
+        var otra = Directory.CreateDirectory(Path.Combine(_root, "misma-unidad")).FullName;
+        if (OperatingSystem.IsWindows())
+        {
+            (await External(otra, allowSameVolume: false)).Message.ShouldContain("mismo disco");
+        }
+
+        (await External(otra, allowSameVolume: true)).Ok.ShouldBeTrue();
     }
 
     [Fact]
@@ -74,25 +130,41 @@ public sealed class BackupFolderProbeTests : IDisposable
     {
         var file = Path.Combine(_root, "archivo.txt");
         await File.WriteAllTextAsync(file, "x", Ct);
-        (await BackupFolderProbe.CheckAsync(file, null, Local, Ct)).Message.ShouldContain("es un archivo");
+        (await External(file)).Message.ShouldContain("es un archivo");
 
-        var result = await BackupFolderProbe.CheckAsync(Path.Combine(_root, "usb"), "ETIQUETA-QUE-NO-EXISTE-" + Guid.NewGuid().ToString("N")[..6], Local, Ct);
+        var result = await External(Path.Combine(_root, "usb"), "ETIQUETA-QUE-NO-EXISTE-" + Guid.NewGuid().ToString("N")[..6]);
         result.Ok.ShouldBeFalse();
         result.Message.ShouldContain("no es 'ETIQUETA-QUE-NO-EXISTE");
     }
 
     [Fact]
-    public async Task Una_carpeta_compartida_inexistente_se_informa_sin_lanzar()
+    public async Task Disco_externo_no_acepta_UNC_y_la_red_no_acepta_letras()
     {
+        (await External(@"\\NAS\backups")).Message.ShouldContain("con su letra");
+        (await Network(Path.Combine(_root, "usb"))).Message.ShouldContain("\\\\equipo\\carpeta");
+    }
+
+    [Theory]
+    [InlineData(@"\\localhost\backups")]
+    [InlineData(@"\\LOCALHOST\c$\backups")]
+    [InlineData(@"\\127.0.0.1\backups")]
+    [InlineData(@"\\127.10.0.5\backups")]
+    [InlineData(@"\\[::1]\backups")]
+    [InlineData(@"\\0--1.ipv6-literal.net\backups")]
+    public async Task La_red_no_acepta_este_mismo_equipo(string path)
+    {
+        BackupFolderProbe.OwnMachineHost(path).ShouldNotBeNull();
+        (await Network(path)).Message.ShouldContain("es este mismo equipo");
+    }
+
+    [Fact]
+    public async Task La_red_no_acepta_el_nombre_de_este_equipo_y_si_otro_equipo_que_no_responde()
+    {
+        var machine = Environment.MachineName;
+        (await Network($@"\\{machine}\backups")).Message.ShouldContain("es este mismo equipo");
+        (await Network($@"\\{machine.ToLowerInvariant()}.midominio.local\backups")).Ok.ShouldBeFalse();
+        BackupFolderProbe.OwnMachineHost(@"\\NAS-TIENDA\backups").ShouldBeNull();
         BackupFolderProbe.IsUnc(@"\\NAS\backups").ShouldBeTrue();
         BackupFolderProbe.IsUnc(@"E:\backups").ShouldBeFalse();
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var result = await BackupFolderProbe.CheckAsync(@"\\localhost\no-existe-" + Guid.NewGuid().ToString("N")[..6] + @"\tienda", null, Local, Ct);
-        result.Ok.ShouldBeFalse();
-        result.Message.ShouldContain("No se encuentra la carpeta compartida");
     }
 }

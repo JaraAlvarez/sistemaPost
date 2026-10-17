@@ -10,9 +10,13 @@ using Pos.SharedKernel.Time;
 
 namespace Pos.Modules.Billing.Application;
 
+/// <summary>Conexión de la cola: ambiente y credenciales, y el corte del atraso retenido (nulo si no hay).</summary>
+public sealed record FiscalQueueConnection(FiscalConnection Connection, DateTimeOffset? HeldBefore);
+
 /// <summary>Conexión con el proveedor: ambiente y credenciales descifradas (solo en memoria, solo para la llamada).</summary>
 public sealed class FiscalConnectionFactory(IBillingSettingsStore store, IFiscalCredentialProtector protector, IInstallationContext installation)
 {
+    /// <summary>Para CONSULTAR al proveedor (rangos): basta con credenciales guardadas.</summary>
     public async Task<FiscalConnection?> GetAsync(CancellationToken cancellationToken)
     {
         if (installation.CompanyId is not { } companyId || await store.GetAsync(companyId, cancellationToken) is not { HasCredentials: true } settings)
@@ -21,6 +25,54 @@ public sealed class FiscalConnectionFactory(IBillingSettingsStore store, IFiscal
         }
 
         return protector.Unprotect(settings.Credentials!) is { } credentials ? new FiscalConnection(settings.Environment, credentials) : null;
+    }
+
+    /// <summary>
+    /// Para ENVIAR documentos (PA1): solo con el modo encendido y la conexión verificada. Con OFF no sale nada, ni lo que ya estaba en cola;
+    /// el atraso de antes de la primera verificación correcta queda retenido hasta "Enviar ahora".
+    /// </summary>
+    public async Task<FiscalQueueConnection?> GetForSendingAsync(CancellationToken cancellationToken)
+    {
+        if (installation.CompanyId is not { } companyId || await store.GetAsync(companyId, cancellationToken) is not { CanSend: true } settings)
+        {
+            return null;
+        }
+
+        return protector.Unprotect(settings.Credentials!) is { } credentials
+            ? new FiscalQueueConnection(new FiscalConnection(settings.Environment, credentials), settings.HeldBefore)
+            : null;
+    }
+}
+
+/// <summary>
+/// Freno de "Verificar conexión" (PA9): como máximo una verificación por empresa cada ⚙️ 10 s (<c>Pos:Billing:VerifyMinSeconds</c>), para no
+/// martillar al proveedor ni arriesgar un bloqueo de la cuenta.
+/// </summary>
+public sealed class FiscalVerifyThrottle(TimeSpan interval, TimeProvider time)
+{
+    private readonly Dictionary<Guid, DateTimeOffset> _last = [];
+    private readonly Lock _gate = new();
+
+    public TimeSpan Interval => interval;
+
+    public bool TryEnter(Guid companyId)
+    {
+        if (interval <= TimeSpan.Zero)
+        {
+            return true;
+        }
+
+        var now = time.GetUtcNow();
+        lock (_gate)
+        {
+            if (_last.TryGetValue(companyId, out var last) && now - last < interval)
+            {
+                return false;
+            }
+
+            _last[companyId] = now;
+            return true;
+        }
     }
 }
 

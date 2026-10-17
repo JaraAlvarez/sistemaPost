@@ -91,6 +91,8 @@ public sealed class BackupServerFactory : PosServerFactory
         new("Pos:Audit:Interval", "00:00:00.500"),
         new("Pos:Audit:SafetyHorizon", "00:00:02"),
         new("Pos:Database:BackupConnectionString", TestPostgres.RoleConnectionString(ConnectionString, "pos_backup")),
+        // La "USB" de la prueba es una carpeta temporal en el mismo disco que la carpeta LOCAL (solo se permite fuera de producción).
+        new("Pos:Backup:AllowSameVolumeDestinations", "true"),
     ];
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

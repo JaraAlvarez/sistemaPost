@@ -76,16 +76,34 @@ public class FactusConexionTests
         await RawAsync(owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "EVERY_SALE", environment = "PRODUCTION" })
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFICATION_REQUIRED");
 
-        // 5. Volver a probar sin Internet: informa el problema y no apaga la facturación.
+        // 5. Volver a probar sin Internet: informa el problema, no apaga la facturación y NO quita la verificación correcta (PA9).
         var factusUrl = factory.Connection.BaseUrl;
         factory.Connection.BaseUrl = new Uri("http://127.0.0.1:1/");
         var offline = await VerifyAsync(owner);
-        offline.Ok.ShouldBeFalse();
+        (offline.Ok, offline.Transient).ShouldBe((false, true));
         offline.Message.ShouldContain("No hubo conexión con Factus");
         factory.Connection.BaseUrl = factusUrl;
         (await GetAsync<BillingSettingsDto>(owner, "/api/v1/billing/settings")).ShouldSatisfyAllConditions(
-            s => s.Mode.ShouldBe("EVERY_SALE"), s => s.LastVerificationOk.ShouldBe(false));
+            s => s.Mode.ShouldBe("EVERY_SALE"), s => s.LastVerificationOk.ShouldBe(true));
         (await VerifyAsync(owner)).Ok.ShouldBeTrue();
+
+        // Cambiar llaves (PA6): las candidatas se prueban SIN guardarlas; malas → no cambia nada; vacías → error de validación;
+        // buenas → se guardan y el modo sigue igual.
+        var before = await GetAsync<BillingSettingsDto>(owner, "/api/v1/billing/settings");
+        var candidate = await PostAsync<FiscalConnectionVerificationDto>(owner, "/api/v1/billing/settings/verify-candidate", Credentials(WrongPassword));
+        candidate.Ok.ShouldBeFalse();
+        var rejected = await PostAsync<FiscalConnectionVerificationDto>(owner, "/api/v1/billing/settings/credentials/rotate", Credentials(WrongPassword));
+        rejected.Ok.ShouldBeFalse();
+        (await GetAsync<BillingSettingsDto>(owner, "/api/v1/billing/settings")).ShouldSatisfyAllConditions(
+            s => s.Mode.ShouldBe("EVERY_SALE"), s => s.CredentialsUpdatedAt.ShouldBe(before.CredentialsUpdatedAt), s => s.LastVerificationOk.ShouldBe(true));
+        await RawAsync(owner, HttpMethod.Post, "/api/v1/billing/settings/credentials/rotate", new { username = "", password = "", clientId = "", clientSecret = "" })
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "BILLING.INVALID_CREDENTIALS");
+        var rotated = await owner.PostAsJsonAsync("/api/v1/billing/settings/credentials/rotate", Credentials(FactusFakeServer.DefaultPassword), Json, Ct);
+        rotated.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await rotated.Content.ReadAsStringAsync(Ct)).ShouldNotContain(FactusFakeServer.DefaultPassword);
+        (await GetAsync<BillingSettingsDto>(owner, "/api/v1/billing/settings")).ShouldSatisfyAllConditions(
+            s => s.Mode.ShouldBe("EVERY_SALE"), s => s.LastVerificationOk.ShouldBe(true), s => s.CredentialsUpdatedAt.ShouldNotBe(before.CredentialsUpdatedAt));
+        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_CREDENTIALS_CHANGED' AND summary LIKE '%no cambió%'")).ShouldBe(1);
 
         // 6. Cambiar llaves: se apaga hasta verificarlas de nuevo (queda en la auditoría).
         (await SendAsync<BillingSettingsDto>(owner, HttpMethod.Put, "/api/v1/billing/settings/credentials", Credentials(FactusFakeServer.DefaultPassword)))
@@ -98,13 +116,28 @@ public class FactusConexionTests
         (await SettingsAsync(owner, "OFF")).ShouldSatisfyAllConditions(s => s.Mode.ShouldBe("OFF"), s => s.HasCredentials.ShouldBeTrue());
         (await SettingsAsync(owner, "ON_REQUEST")).Mode.ShouldBe("ON_REQUEST");
 
-        // Auditoría: cada verificación queda registrada (con su resultado) y nunca con la clave.
-        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_CONNECTION_VERIFIED'")).ShouldBe(5);
-        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_CONNECTION_VERIFIED' AND severity = 'WARNING'")).ShouldBe(2);
+        // Auditoría: cada verificación (también la de llaves candidatas y el cambio rechazado) queda registrada y nunca con la clave.
+        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_CONNECTION_VERIFIED'")).ShouldBe(7);
+        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_CONNECTION_VERIFIED' AND severity = 'WARNING'")).ShouldBe(4);
         (await CountAsync(shop, $"SELECT count(*) FROM audit.audit_log WHERE summary LIKE '%{WrongPassword}%' OR new_values::text LIKE '%{WrongPassword}%'"))
             .ShouldBe(0);
         var stored = await shop.Catalog.ScalarAsync<string>("SELECT encode(credentials, 'escape') FROM billing.provider_settings");
         stored!.ShouldNotContain(FactusFakeServer.DefaultPassword);
+    }
+
+    [Fact]
+    public async Task Verificar_se_limita_a_una_vez_cada_10_segundos()
+    {
+        await using var factus = new FactusFakeServer();
+        var url = await factus.StartAsync(Ct);
+        await using var factory = new FactusBillingServerFactory(url, verifyMinSeconds: 10);
+        var shop = await SalesScenario.CreateAsync(factory);
+        await SendAsync<BillingSettingsDto>(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings/credentials", Credentials(FactusFakeServer.DefaultPassword));
+
+        (await VerifyAsync(shop.Owner)).Ok.ShouldBeTrue();
+        await RawAsync(shop.Owner, HttpMethod.Post, "/api/v1/billing/settings/verify").ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFY_TOO_SOON");
+        await RawAsync(shop.Owner, HttpMethod.Post, "/api/v1/billing/settings/verify-candidate", Credentials(FactusFakeServer.DefaultPassword))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFY_TOO_SOON");
     }
 
     [Fact]
@@ -117,6 +150,10 @@ public class FactusConexionTests
         foreach (var client in new[] { shop.Supervisor, shop.Cashier })
         {
             (await StatusAsync(client, HttpMethod.Post, "/api/v1/billing/settings/verify")).ShouldBe(HttpStatusCode.Forbidden);
+            (await StatusAsync(client, HttpMethod.Post, "/api/v1/billing/settings/verify-candidate", Credentials("x"))).ShouldBe(HttpStatusCode.Forbidden);
+            (await StatusAsync(client, HttpMethod.Post, "/api/v1/billing/settings/credentials/rotate", Credentials("x"))).ShouldBe(HttpStatusCode.Forbidden);
+            (await StatusAsync(client, HttpMethod.Post, "/api/v1/billing/backlog/send")).ShouldBe(HttpStatusCode.Forbidden);
+            (await StatusAsync(client, HttpMethod.Post, "/api/v1/billing/backlog/discard")).ShouldBe(HttpStatusCode.Forbidden);
         }
 
         // Con el proveedor simulado: credenciales rechazadas no encienden; aceptadas sí.

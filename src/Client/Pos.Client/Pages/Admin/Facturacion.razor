@@ -333,7 +333,8 @@
     private static readonly (string Code, string Name)[] Estados =
     [
         ("PENDING", "Pendiente"), ("SUBMITTING", "Enviando"), ("ACCEPTED", "Aceptado"), ("REJECTED", "Rechazado"), ("CONTINGENCY", "En contingencia"),
-        ("ERROR", "Con error"), ("CANCELLED", "Cancelado"), ("NOT_REQUIRED", "No requerido"), ("VOIDED", "Anulado"),
+        ("ERROR", "Con error"), ("CANCELLED", "Cancelado"), ("NOT_SENT", "No enviado (antes de conectar)"), ("NOT_REQUIRED", "No requerido"),
+        ("VOIDED", "Anulado"),
     ];
 
     private static readonly (string Code, string Name)[] Tipos =

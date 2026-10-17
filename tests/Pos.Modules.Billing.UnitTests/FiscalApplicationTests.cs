@@ -87,10 +87,10 @@ public class FiscalApplicationTests
         (await fake.VerifyAsync(Connection, ct)).ShouldBe(new FiscalConnectionCheck(true, "Conexión correcta con el proveedor (simulado)."));
         fake.LastConnection.ShouldBe(Connection);
         fake.RejectCredentials = true;
-        (await fake.VerifyAsync(Connection, ct)).Ok.ShouldBeFalse();
+        (await fake.VerifyAsync(Connection, ct)).ShouldSatisfyAllConditions(c => c.Ok.ShouldBeFalse(), c => c.Transient.ShouldBeFalse());
         fake.RejectCredentials = false;
         fake.Offline = true;
-        (await fake.VerifyAsync(Connection, ct)).Message.ShouldContain("Sin conexión");
+        (await fake.VerifyAsync(Connection, ct)).ShouldSatisfyAllConditions(c => c.Message.ShouldContain("Sin conexión"), c => c.Transient.ShouldBeTrue());
         fake.Submissions.ShouldBeEmpty();
     }
 

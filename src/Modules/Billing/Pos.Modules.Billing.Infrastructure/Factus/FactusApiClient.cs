@@ -44,6 +44,18 @@ internal sealed partial class FactusApiClient(
             : FactusQueryResult<FactusSession>.Found(new FactusSession(lease.ExpiresAt), 200);
     }
 
+    public async Task<FactusQueryResult<FactusSession>> CheckSessionAsync(CancellationToken cancellationToken)
+    {
+        var options = await optionsProvider.GetAsync(cancellationToken);
+        if (options is null)
+            return FactusQueryResult<FactusSession>.From(NotConfigured());
+
+        var lease = await tokens.GetAsync(options, forcePasswordGrant: false, cancellationToken);
+        return lease.Failure is { } failure
+            ? FactusQueryResult<FactusSession>.From(failure)
+            : FactusQueryResult<FactusSession>.Found(new FactusSession(lease.ExpiresAt), 200);
+    }
+
     public Task<FactusResult> CreateBillAsync(FactusBillRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);

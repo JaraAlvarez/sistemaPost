@@ -73,6 +73,8 @@ internal sealed class BillingModelContributor : IModelContributor
             b.Property(x => x.Mode).HasUpperSnakeConversion();
             b.Ignore(x => x.HasCredentials);
             b.Ignore(x => x.IsVerified);
+            b.Ignore(x => x.CanSend);
+            b.Ignore(x => x.HeldBefore);
             b.HasControlColumns();
             b.HasXminConcurrency();
         });
@@ -139,12 +141,25 @@ internal sealed class FiscalDocumentStore(PosDbContext context) : IFiscalDocumen
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Guid>> ListDueAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken) =>
+    private static readonly FiscalStatus[] Held = [FiscalStatus.Pending, FiscalStatus.Error, FiscalStatus.Contingency];
+
+    public async Task<IReadOnlyList<Guid>> ListDueAsync(DateTimeOffset now, int limit, DateTimeOffset? heldBefore, CancellationToken cancellationToken) =>
         await context.Set<FiscalDocument>().AsNoTracking()
             .Where(d => Queued.Contains(d.Status) && d.NextAttemptAt != null && d.NextAttemptAt <= now)
+            .Where(d => heldBefore == null || d.IssuedAt >= heldBefore)
             .OrderBy(d => d.IssuedAt).ThenBy(d => d.Id)
             .Select(d => d.Id)
             .Take(limit)
+            .ToListAsync(cancellationToken);
+
+    public Task<int> CountHeldAsync(DateTimeOffset heldBefore, CancellationToken cancellationToken) =>
+        context.Set<FiscalDocument>().CountAsync(
+            d => Held.Contains(d.Status) && d.DocumentType != FiscalDocumentType.InternalReceipt && d.IssuedAt < heldBefore, cancellationToken);
+
+    public async Task<IReadOnlyList<FiscalDocument>> ListHeldAsync(DateTimeOffset heldBefore, CancellationToken cancellationToken) =>
+        await context.Set<FiscalDocument>().Include(d => d.Events)
+            .Where(d => Held.Contains(d.Status) && d.DocumentType != FiscalDocumentType.InternalReceipt && d.IssuedAt < heldBefore)
+            .OrderBy(d => d.IssuedAt)
             .ToListAsync(cancellationToken);
 }
 
@@ -621,7 +636,7 @@ public sealed partial class FiscalQueueRunner(IServiceScopeFactory scopes, Fisca
 
         try
         {
-            FiscalConnection? connection;
+            FiscalQueueConnection? queue;
             int rate;
             await using (var scope = scopes.CreateAsyncScope())
             {
@@ -631,12 +646,13 @@ public sealed partial class FiscalQueueRunner(IServiceScopeFactory scopes, Fisca
                     return new FiscalQueueRun(0, 0, 0, "SETUP_REQUIRED");
                 }
 
-                connection = await scope.ServiceProvider.GetRequiredService<FiscalConnectionFactory>().GetAsync(cancellationToken);
+                // PA1: solo con el modo encendido y la conexión verificada; el atraso de antes de conectar queda retenido.
+                queue = await scope.ServiceProvider.GetRequiredService<FiscalConnectionFactory>().GetForSendingAsync(cancellationToken);
                 rate = await scope.ServiceProvider.GetRequiredService<ISettingsReader>()
                     .GetAsync(BillingSettings.RatePerMinute, new SettingContext(companyId), cancellationToken);
             }
 
-            if (connection is null)
+            if (queue is not { Connection: var connection, HeldBefore: var heldBefore })
             {
                 return new FiscalQueueRun(0, 0, 0, "NOT_CONFIGURED");
             }
@@ -649,7 +665,7 @@ public sealed partial class FiscalQueueRunner(IServiceScopeFactory scopes, Fisca
                 await using (var scope = scopes.CreateAsyncScope())
                 {
                     due = await scope.ServiceProvider.GetRequiredService<IFiscalDocumentStore>()
-                        .ListDueAsync(scope.ServiceProvider.GetRequiredService<IClock>().UtcNow, Math.Min(Batch, maxDocuments - processed), cancellationToken);
+                        .ListDueAsync(scope.ServiceProvider.GetRequiredService<IClock>().UtcNow, Math.Min(Batch, maxDocuments - processed), heldBefore, cancellationToken);
                 }
 
                 var fresh = due.Where(seen.Add).ToList();
@@ -747,7 +763,7 @@ internal sealed partial class FiscalQueueWorker(
         await using var scope = scopes.CreateAsyncScope();
         if (installation.CompanyId is not { } companyId
             || await scope.ServiceProvider.GetRequiredService<IBillingSettingsStore>().GetAsync(companyId, cancellationToken) is not
-                { Mode: not BillingMode.Off, HasCredentials: true } configured
+                { CanSend: true } configured
             || (configured.LastSyncAt is { } last && time.GetUtcNow() - last < TimeSpan.FromHours(Math.Max(1, options.RangeSyncHours))))
         {
             return;
@@ -776,6 +792,9 @@ public static class BillingInfrastructureRegistration
         services.AddSingleton<IFiscalDataWaiter, FiscalDataWaiter>();
         services.AddScoped<IOutboxMessageHandler, FiscalDocumentPendingHandler>();
         services.AddSingleton<FiscalQueueSignal>();
+        services.AddSingleton(sp => new FiscalVerifyThrottle(
+            TimeSpan.FromSeconds(int.TryParse(sp.GetRequiredService<IConfiguration>()["Pos:Billing:VerifyMinSeconds"], out var seconds) ? Math.Clamp(seconds, 0, 300) : 10),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.AddSingleton(sp => new FiscalRateLimiter(sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.AddSingleton<FiscalQueueRunner>();
         services.AddScoped<FiscalConnectionFactory>();

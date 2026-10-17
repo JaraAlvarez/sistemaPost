@@ -29,6 +29,8 @@ public static class AuditActions
         new("RECOVERY_CODE_GENERATED", "backup", "Código de recuperación generado", "WARNING"),
         new("RESTORE_TEST_FAILED", "backup", "Restauración de prueba fallida", "CRITICAL"),
         new("RESTORE_TEST_PASSED", "backup", "Restauración de prueba correcta", "INFO"),
+        new("FISCAL_BACKLOG_DISCARDED", "billing", "Documentos electrónicos de antes de conectar el proveedor marcados como no enviados", "WARNING"),
+        new("FISCAL_BACKLOG_RELEASED", "billing", "Documentos electrónicos de antes de conectar el proveedor liberados para enviar", "WARNING"),
         new("FISCAL_BUYER_CORRECTED", "billing", "Datos del adquirente corregidos en un documento electrónico", "WARNING"),
         new("FISCAL_CONNECTION_VERIFIED", "billing", "Conexión con el proveedor de facturación electrónica verificada", "INFO"),
         new("FISCAL_CREDENTIALS_CHANGED", "billing", "Credenciales del proveedor de facturación electrónica cambiadas", "CRITICAL"),

@@ -10,6 +10,12 @@ public interface IFactusApi
     /// <summary>Pide un token nuevo con usuario y clave (probar credenciales). POST <c>oauth/token</c> grant_type=password.</summary>
     Task<FactusQueryResult<FactusSession>> AuthenticateAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Sesión vigente para "Verificar conexión" (PA9): reutiliza el token en memoria de ESTAS credenciales y ambiente si sigue vigente (no
+    /// reinicia el del trabajador de la cola); si no hay, pide uno nuevo (POST <c>oauth/token</c>).
+    /// </summary>
+    Task<FactusQueryResult<FactusSession>> CheckSessionAsync(CancellationToken cancellationToken);
+
     /// <summary>POST <c>v2/bills/validate</c>.</summary>
     Task<FactusResult> CreateBillAsync(FactusBillRequest request, CancellationToken cancellationToken);
 

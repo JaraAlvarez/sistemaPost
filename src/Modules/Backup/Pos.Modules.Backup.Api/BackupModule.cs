@@ -86,12 +86,16 @@ public sealed class BackupModule : IModule
             .WithSummary("Destinos configurados (la clave secreta de S3 nunca se devuelve)");
 
         group.MapPost("/destinations", async (DestinationInput input, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new SaveDestinationCommand(null, input), ct)).ToCreatedResult(x => $"/api/v1/backups/destinations/{x.Id}"))
+                await d.Send(new PrecheckDestinationFolderQuery(null, input), ct) is { IsFailure: true } precheck
+                    ? precheck.Error.ToProblem()
+                    : (await d.Send(new SaveDestinationCommand(null, input), ct)).ToCreatedResult(x => $"/api/v1/backups/destinations/{x.Id}"))
             .RequirePermission(BackupPermissions.DestinationConfigure)
             .WithSummary("Agrega un destino: EXTERNAL (USB), NETWORK (carpeta de red) o S3 (MinIO en el VPS)");
 
         group.MapPut("/destinations/{destinationId:guid}", async (Guid destinationId, DestinationInput input, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new SaveDestinationCommand(destinationId, input), ct)).ToHttpResult())
+                await d.Send(new PrecheckDestinationFolderQuery(destinationId, input), ct) is { IsFailure: true } precheck
+                    ? precheck.Error.ToProblem()
+                    : (await d.Send(new SaveDestinationCommand(destinationId, input), ct)).ToHttpResult())
             .RequirePermission(BackupPermissions.DestinationConfigure)
             .WithSummary("Modifica un destino (secreto vacío = conserva el actual)");
 

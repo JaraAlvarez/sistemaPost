@@ -16,6 +16,11 @@ namespace Pos.Modules.Billing.Application;
 internal static class BillingGuards
 {
     public static readonly Error SetupRequired = Error.BusinessRule("SETUP.REQUIRED", "Complete primero la configuración inicial (POST /api/v1/setup).");
+
+    public static Error TooSoon(FiscalVerifyThrottle throttle) => Error.BusinessRule(
+        "BILLING.VERIFY_TOO_SOON", $"Espere unos segundos: la conexión se prueba como máximo una vez cada {throttle.Interval.TotalSeconds:0} segundos.");
+
+    public const string AutoDisabledNotice = "La facturación electrónica quedó apagada: conéctela en Facturación → Configuración.";
 }
 
 // ─────────────────────────────── Documentos ───────────────────────────────
@@ -150,7 +155,7 @@ internal sealed class CorrectFiscalBuyerHandler(
 public sealed record GetBillingSettingsQuery : IQuery<BillingSettingsDto>;
 
 internal sealed class GetBillingSettingsHandler(
-    IBillingSettingsStore store, IFiscalProvider provider, ISettingsReader settings, IInstallationContext installation)
+    IBillingSettingsStore store, IFiscalDocumentStore documents, IFiscalProvider provider, ISettingsReader settings, IInstallationContext installation)
     : IQueryHandler<GetBillingSettingsQuery, BillingSettingsDto>
 {
     public async Task<Result<BillingSettingsDto>> Handle(GetBillingSettingsQuery request, CancellationToken cancellationToken)
@@ -162,10 +167,11 @@ internal sealed class GetBillingSettingsHandler(
 
         var configured = await store.GetAsync(companyId, cancellationToken);
         var mode = await BillingService.ModeAsync(store, settings, companyId, installation.BranchId, cancellationToken);
+        var held = configured?.HeldBefore is { } heldBefore ? await documents.CountHeldAsync(heldBefore, cancellationToken) : 0;
         return new BillingSettingsDto(
             configured?.Provider ?? provider.Name, provider.Name, mode.Db(), (configured?.Environment ?? FiscalEnvironment.Sandbox).Db(), configured?.HasCredentials ?? false,
             configured?.CredentialsUpdatedAt, configured?.LastSyncAt, configured?.LastSyncError, configured?.CredentialHint, configured?.LastVerifiedAt,
-            configured?.LastVerificationOk, configured?.LastVerificationMessage);
+            configured?.LastVerificationOk, configured?.LastVerificationMessage, held, configured?.AutoDisabledAt);
     }
 }
 
@@ -176,7 +182,8 @@ internal sealed class GetBillingSettingsHandler(
 public sealed record UpdateBillingSettingsCommand(string Mode, string Environment) : ICommand<BillingSettingsDto>;
 
 internal sealed class UpdateBillingSettingsHandler(
-    IBillingSettingsStore store, IFiscalProvider provider, ISettingsReader settings, IInstallationContext installation, IAuditWriter audit)
+    IBillingSettingsStore store, IFiscalDocumentStore documents, IFiscalProvider provider, ISettingsReader settings, IInstallationContext installation,
+    IAuditWriter audit)
     : ICommandHandler<UpdateBillingSettingsCommand, BillingSettingsDto>
 {
     public async Task<Result<BillingSettingsDto>> Handle(UpdateBillingSettingsCommand request, CancellationToken cancellationToken)
@@ -212,7 +219,7 @@ internal sealed class UpdateBillingSettingsHandler(
                 NewValues: new Dictionary<string, object?> { ["Modo"] = mode.Db(), ["Ambiente"] = environment.Db() },
                 Severity: mode == before.Mode ? AuditSeverity.Info : AuditSeverity.Warning),
             cancellationToken);
-        return await new GetBillingSettingsHandler(store, provider, settings, installation).Handle(new GetBillingSettingsQuery(), cancellationToken);
+        return await new GetBillingSettingsHandler(store, documents, provider, settings, installation).Handle(new GetBillingSettingsQuery(), cancellationToken);
     }
 }
 
@@ -226,8 +233,8 @@ public sealed record SetProviderCredentialsCommand(string Username, string Passw
 }
 
 internal sealed class SetProviderCredentialsHandler(
-    IBillingSettingsStore store, IFiscalProvider provider, IFiscalCredentialProtector protector, ISettingsReader settings, IInstallationContext installation,
-    IAuditWriter audit, IClock clock)
+    IBillingSettingsStore store, IFiscalDocumentStore documents, IFiscalProvider provider, IFiscalCredentialProtector protector, ISettingsReader settings,
+    IInstallationContext installation, IAuditWriter audit, IClock clock)
     : ICommandHandler<SetProviderCredentialsCommand, BillingSettingsDto>
 {
     public async Task<Result<BillingSettingsDto>> Handle(SetProviderCredentialsCommand request, CancellationToken cancellationToken)
@@ -261,8 +268,13 @@ internal sealed class SetProviderCredentialsHandler(
                 + (modeBefore == BillingMode.Off ? string.Empty : $" La facturación electrónica se apagó (modo {modeBefore.Db()} → OFF) hasta verificarlas."),
                 Severity: AuditSeverity.Critical),
             cancellationToken);
-        return await new GetBillingSettingsHandler(store, provider, settings, installation).Handle(new GetBillingSettingsQuery(), cancellationToken);
+        return await new GetBillingSettingsHandler(store, documents, provider, settings, installation).Handle(new GetBillingSettingsQuery(), cancellationToken);
     }
+
+    /// <summary>Validación de las cuatro credenciales (también la usan "probar llaves candidatas" y "cambiar llaves").</summary>
+    public static bool Valid(string? username, string? password, string? clientId, string? clientSecret) =>
+        !string.IsNullOrWhiteSpace(username) && !string.IsNullOrWhiteSpace(password) && !string.IsNullOrWhiteSpace(clientId)
+        && !string.IsNullOrWhiteSpace(clientSecret) && username.Length <= 200 && password.Length <= 200 && clientId.Length <= 200 && clientSecret.Length <= 500;
 }
 
 /// <summary>
@@ -272,7 +284,8 @@ internal sealed class SetProviderCredentialsHandler(
 public sealed record VerifyBillingConnectionCommand : ICommand<FiscalConnectionVerificationDto>;
 
 internal sealed class VerifyBillingConnectionHandler(
-    IBillingSettingsStore store, IFiscalProvider provider, IFiscalCredentialProtector protector, IInstallationContext installation, IAuditWriter audit, IClock clock)
+    IBillingSettingsStore store, IFiscalProvider provider, IFiscalCredentialProtector protector, IInstallationContext installation, IAuditWriter audit, IClock clock,
+    FiscalVerifyThrottle throttle)
     : ICommandHandler<VerifyBillingConnectionCommand, FiscalConnectionVerificationDto>
 {
     public async Task<Result<FiscalConnectionVerificationDto>> Handle(VerifyBillingConnectionCommand request, CancellationToken cancellationToken)
@@ -287,18 +300,221 @@ internal sealed class VerifyBillingConnectionHandler(
             return BillingErrors.CredentialsRequired;
         }
 
+        if (!throttle.TryEnter(companyId))
+        {
+            return BillingGuards.TooSoon(throttle);
+        }
+
         var check = protector.Unprotect(settings.Credentials!) is { } credentials
             ? await provider.VerifyAsync(new FiscalConnection(settings.Environment, credentials), cancellationToken)
             : new FiscalConnectionCheck(false, "No se pudieron leer las credenciales guardadas (¿se restauró la base de datos en otro equipo?): escríbalas de nuevo.");
         var now = clock.UtcNow;
-        settings.RecordVerification(now, check.Ok, check.Message);
+        var recorded = settings.RecordVerification(now, check.Ok, check.Message, check.Transient);
         await audit.WriteAsync(
             new AuditEntry("billing", "FISCAL_CONNECTION_VERIFIED", "BillingProviderSettings", null, $"Facturación electrónica ({provider.Name})",
-                $"Verificación de {provider.Name} en {settings.Environment.Db()}: {(check.Ok ? "correcta" : "con problema")}. {check.Message}",
-                NewValues: new Dictionary<string, object?> { ["Ambiente"] = settings.Environment.Db(), ["Correcta"] = check.Ok },
+                $"Verificación de {provider.Name} en {settings.Environment.Db()}: {(check.Ok ? "correcta" : "con problema")}. {check.Message}"
+                + (recorded ? string.Empty : " Falla transitoria: se conserva la verificación correcta anterior."),
+                NewValues: new Dictionary<string, object?> { ["Ambiente"] = settings.Environment.Db(), ["Correcta"] = check.Ok, ["Transitoria"] = check.Transient },
                 Severity: check.Ok ? AuditSeverity.Info : AuditSeverity.Warning),
             cancellationToken);
-        return new FiscalConnectionVerificationDto(check.Ok, check.Message, settings.Environment.Db(), now);
+        return new FiscalConnectionVerificationDto(check.Ok, check.Message, settings.Environment.Db(), now, check.Transient);
+    }
+}
+
+/// <summary>
+/// Probar llaves CANDIDATAS sin guardarlas (PA6): no se persisten ni se devuelven; el resultado queda en la auditoría sin las llaves. Sin
+/// <c>Environment</c> se prueban en el ambiente vigente.
+/// </summary>
+public sealed record VerifyCandidateCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret, string? Environment = null)
+    : ICommand<FiscalConnectionVerificationDto>
+{
+    public override string ToString() => $"VerifyCandidateCredentialsCommand {{ Environment = {Environment}, Llaves = *** }}";
+}
+
+internal sealed class VerifyCandidateCredentialsHandler(
+    IBillingSettingsStore store, IFiscalProvider provider, IInstallationContext installation, IAuditWriter audit, IClock clock, FiscalVerifyThrottle throttle)
+    : ICommandHandler<VerifyCandidateCredentialsCommand, FiscalConnectionVerificationDto>
+{
+    public async Task<Result<FiscalConnectionVerificationDto>> Handle(VerifyCandidateCredentialsCommand request, CancellationToken cancellationToken)
+    {
+        if (installation.CompanyId is not { } companyId)
+        {
+            return BillingGuards.SetupRequired;
+        }
+
+        if (!SetProviderCredentialsHandler.Valid(request.Username, request.Password, request.ClientId, request.ClientSecret))
+        {
+            return BillingErrors.InvalidCredentials;
+        }
+
+        var environment = request.Environment is null
+            ? (await store.GetAsync(companyId, cancellationToken))?.Environment ?? FiscalEnvironment.Sandbox
+            : BillingMapping.Parse<FiscalEnvironment>(request.Environment);
+        if (environment is not { } env)
+        {
+            return Error.Validation("BILLING.INVALID_SETTINGS", "Ambiente (SANDBOX, PRODUCTION) desconocido.");
+        }
+
+        if (!throttle.TryEnter(companyId))
+        {
+            return BillingGuards.TooSoon(throttle);
+        }
+
+        var check = await CandidateCheck.RunAsync(provider, env, request.Username, request.Password, request.ClientId, request.ClientSecret, cancellationToken);
+        await audit.WriteAsync(
+            new AuditEntry("billing", "FISCAL_CONNECTION_VERIFIED", "BillingProviderSettings", null, $"Facturación electrónica ({provider.Name})",
+                $"Prueba de llaves candidatas (no se guardaron) de {provider.Name} en {env.Db()}: {(check.Ok ? "correcta" : "con problema")}. {check.Message}",
+                NewValues: new Dictionary<string, object?> { ["Ambiente"] = env.Db(), ["Correcta"] = check.Ok, ["Candidatas"] = true },
+                Severity: check.Ok ? AuditSeverity.Info : AuditSeverity.Warning),
+            cancellationToken);
+        return new FiscalConnectionVerificationDto(check.Ok, check.Message, env.Db(), clock.UtcNow, check.Transient);
+    }
+}
+
+/// <summary>
+/// "Cambiar llaves" (PA6): prueba las llaves candidatas en el ambiente vigente SIN guardarlas; solo si el proveedor las acepta se guardan
+/// (cifradas) y la facturación sigue en su modo. Si fallan no se toca nada y la respuesta lo dice (<c>Ok = false</c>).
+/// </summary>
+public sealed record RotateProviderCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret) : ICommand<FiscalConnectionVerificationDto>
+{
+    public override string ToString() => "RotateProviderCredentialsCommand { *** }";
+}
+
+internal sealed class RotateProviderCredentialsHandler(
+    IBillingSettingsStore store, IFiscalProvider provider, IFiscalCredentialProtector protector, IInstallationContext installation, IAuditWriter audit,
+    IClock clock, FiscalVerifyThrottle throttle)
+    : ICommandHandler<RotateProviderCredentialsCommand, FiscalConnectionVerificationDto>
+{
+    public async Task<Result<FiscalConnectionVerificationDto>> Handle(RotateProviderCredentialsCommand request, CancellationToken cancellationToken)
+    {
+        if (installation.CompanyId is not { } companyId)
+        {
+            return BillingGuards.SetupRequired;
+        }
+
+        if (!SetProviderCredentialsHandler.Valid(request.Username, request.Password, request.ClientId, request.ClientSecret))
+        {
+            return BillingErrors.InvalidCredentials;
+        }
+
+        if (await store.GetAsync(companyId, cancellationToken) is not { HasCredentials: true } settings)
+        {
+            return BillingErrors.CredentialsRequired;
+        }
+
+        if (!throttle.TryEnter(companyId))
+        {
+            return BillingGuards.TooSoon(throttle);
+        }
+
+        var check = await CandidateCheck.RunAsync(
+            provider, settings.Environment, request.Username, request.Password, request.ClientId, request.ClientSecret, cancellationToken);
+        var now = clock.UtcNow;
+        if (!check.Ok)
+        {
+            await audit.WriteAsync(
+                new AuditEntry("billing", "FISCAL_CONNECTION_VERIFIED", "BillingProviderSettings", null, $"Facturación electrónica ({provider.Name})",
+                    $"Cambio de llaves de {provider.Name} rechazado: las llaves nuevas no pasaron la prueba en {settings.Environment.Db()} y no se guardaron. {check.Message}",
+                    NewValues: new Dictionary<string, object?> { ["Ambiente"] = settings.Environment.Db(), ["Correcta"] = false, ["Candidatas"] = true },
+                    Severity: AuditSeverity.Warning),
+                cancellationToken);
+            return new FiscalConnectionVerificationDto(false, check.Message, settings.Environment.Db(), now, check.Transient);
+        }
+
+        settings.ReplaceVerifiedCredentials(
+            protector.Protect(new FiscalCredentials(request.Username.Trim(), request.Password, request.ClientId.Trim(), request.ClientSecret.Trim())), now,
+            BillingProviderSettings.MaskUsername(request.Username), check.Message);
+        await audit.WriteAsync(
+            new AuditEntry("billing", "FISCAL_CREDENTIALS_CHANGED", "BillingProviderSettings", null, $"Facturación electrónica ({provider.Name})",
+                $"Credenciales del proveedor {provider.Name} cambiadas tras verificarlas en {settings.Environment.Db()} (cifradas; no se registran). "
+                + $"El modo {settings.Mode.Db()} no cambió.",
+                Severity: AuditSeverity.Critical),
+            cancellationToken);
+        return new FiscalConnectionVerificationDto(true, check.Message, settings.Environment.Db(), now);
+    }
+}
+
+internal static class CandidateCheck
+{
+    public static Task<FiscalConnectionCheck> RunAsync(
+        IFiscalProvider provider, FiscalEnvironment environment, string username, string password, string clientId, string clientSecret,
+        CancellationToken cancellationToken) =>
+        provider.VerifyAsync(
+            new FiscalConnection(environment, new FiscalCredentials(username.Trim(), password, clientId.Trim(), clientSecret.Trim())), cancellationToken);
+}
+
+/// <summary>
+/// "Enviar ahora" el atraso retenido (PA1): los documentos electrónicos emitidos antes de la primera verificación correcta se envían como
+/// los demás (con la facturación encendida). Devuelve cuántos había.
+/// </summary>
+public sealed record ReleaseFiscalBacklogCommand : ICommand<int>;
+
+internal sealed class ReleaseFiscalBacklogHandler(IBillingSettingsStore store, IFiscalDocumentStore documents, IInstallationContext installation, IAuditWriter audit)
+    : ICommandHandler<ReleaseFiscalBacklogCommand, int>
+{
+    public async Task<Result<int>> Handle(ReleaseFiscalBacklogCommand request, CancellationToken cancellationToken)
+    {
+        if (installation.CompanyId is not { } companyId)
+        {
+            return BillingGuards.SetupRequired;
+        }
+
+        if (await store.GetAsync(companyId, cancellationToken) is not { IsVerified: true } settings)
+        {
+            return BillingErrors.VerificationRequired;
+        }
+
+        if (settings.HeldBefore is not { } heldBefore)
+        {
+            return 0;
+        }
+
+        var count = await documents.CountHeldAsync(heldBefore, cancellationToken);
+        settings.ReleaseBacklog();
+        await audit.WriteAsync(
+            new AuditEntry("billing", "FISCAL_BACKLOG_RELEASED", "BillingProviderSettings", null, "Facturación electrónica",
+                $"Enviar ahora: {count} documento(s) electrónico(s) de antes de conectar el proveedor quedan en la cola de envío.",
+                NewValues: new Dictionary<string, object?> { ["Documentos"] = count },
+                Severity: AuditSeverity.Warning),
+            cancellationToken);
+        return count;
+    }
+}
+
+/// <summary>"No enviar" el atraso retenido (PA1): los documentos quedan NOT_SENT y la cola no los vuelve a tomar. Devuelve cuántos.</summary>
+public sealed record DiscardFiscalBacklogCommand : ICommand<int>;
+
+internal sealed class DiscardFiscalBacklogHandler(
+    IBillingSettingsStore store, IFiscalDocumentStore documents, IInstallationContext installation, ICurrentUser user, IAuditWriter audit, IIdGenerator ids,
+    IClock clock)
+    : ICommandHandler<DiscardFiscalBacklogCommand, int>
+{
+    public async Task<Result<int>> Handle(DiscardFiscalBacklogCommand request, CancellationToken cancellationToken)
+    {
+        if (installation.CompanyId is not { } companyId)
+        {
+            return BillingGuards.SetupRequired;
+        }
+
+        if (await store.GetAsync(companyId, cancellationToken) is not { HeldBefore: { } heldBefore })
+        {
+            return 0;
+        }
+
+        var now = clock.UtcNow;
+        var count = 0;
+        foreach (var document in await documents.ListHeldAsync(heldBefore, cancellationToken))
+        {
+            count += document.DiscardBacklog("No enviar: atraso de antes de conectar el proveedor.", now, user.UserId!.Value, ids.NewId) ? 1 : 0;
+        }
+
+        await audit.WriteAsync(
+            new AuditEntry("billing", "FISCAL_BACKLOG_DISCARDED", "BillingProviderSettings", null, "Facturación electrónica",
+                $"No enviar: {count} documento(s) electrónico(s) de antes de conectar el proveedor quedan como NO ENVIADOS (no se reintentan).",
+                NewValues: new Dictionary<string, object?> { ["Documentos"] = count },
+                Severity: AuditSeverity.Warning),
+            cancellationToken);
+        return count;
     }
 }
 
@@ -424,7 +640,8 @@ internal sealed class GetFiscalReconciliationHandler(IFiscalReadModel readModel,
 public sealed record GetFiscalAlertsQuery : IQuery<FiscalAlertsDto>;
 
 internal sealed class GetFiscalAlertsHandler(
-    IFiscalReadModel readModel, IFiscalRangeStore ranges, IBillingSettingsStore store, ISettingsReader settings, IInstallationContext installation, IClock clock)
+    IFiscalReadModel readModel, IFiscalRangeStore ranges, IBillingSettingsStore store, IFiscalDocumentStore documents, ISettingsReader settings,
+    IInstallationContext installation, IClock clock)
     : IQueryHandler<GetFiscalAlertsQuery, FiscalAlertsDto>
 {
     public async Task<Result<FiscalAlertsDto>> Handle(GetFiscalAlertsQuery request, CancellationToken cancellationToken)
@@ -449,6 +666,10 @@ internal sealed class GetFiscalAlertsHandler(
                 : $"Vence en {r.DaysToExpire(today)} días."))
             .ToList();
         var mode = await BillingService.ModeAsync(store, settings, companyId, installation.BranchId, cancellationToken);
-        return new FiscalAlertsDto(mode.Db(), attention.PendingOverdue, attention.Rejected, attention.WithoutRange, rangeAlerts, attention.OldestPendingAt);
+        var configured = await store.GetAsync(companyId, cancellationToken);
+        var notice = configured is { AutoDisabledAt: not null, Mode: BillingMode.Off } ? BillingGuards.AutoDisabledNotice : null;
+        var held = configured?.HeldBefore is { } heldBefore ? await documents.CountHeldAsync(heldBefore, cancellationToken) : 0;
+        return new FiscalAlertsDto(
+            mode.Db(), attention.PendingOverdue, attention.Rejected, attention.WithoutRange, rangeAlerts, attention.OldestPendingAt, notice, held);
     }
 }

@@ -41,8 +41,32 @@
 - ⚠️ Factura electrónica ≠ DEE POS: el tratamiento (consumidor final por venta) debe validarlo el contador.
 - ⚠️ La facturación queda **construida y apagada** hasta la prueba conjunta en el sandbox real de Factus con las credenciales del dueño.
 
-## Actualización (rama pantallas-admin, 2026-10)
+## Adenda A · Factus como adaptador por defecto y salvaguardas de la cola (2026-10, rama `pantallas-admin`)
 
-El punto 3 cambia: `FACTUS` es el adaptador por defecto y `NONE` queda para prohibir la facturación electrónica en una instalación. El
-encendido lo decide el modo de la empresa (OFF por defecto), que solo pasa a ON_REQUEST o EVERY_SALE después de verificar las credenciales
-y el ambiente contra Factus desde la pantalla (`POST /billing/settings/verify`). Ver `docs/fases/pantallas-faltantes-propuesta.md` §2.
+- **Estado:** Propuesto — pendiente de aprobación del usuario. No se fusiona a `main` sin esa aprobación.
+- **Cambia:** el punto 3 de la decisión. **Detalle:** [pantallas-faltantes-propuesta.md §2](../fases/pantallas-faltantes-propuesta.md).
+
+### Contexto
+Encender Factus exigía editar `server.json` (`Pos:Billing:Provider = FACTUS`) en el servidor de cada tienda. La pantalla nueva
+"Conectar Factus" permite hacerlo desde la interfaz, pero solo sirve si el adaptador real está presente.
+
+### Decisión
+1. **Punto 3 (nuevo texto):** adaptador por configuración del servidor con `FACTUS` **por defecto**; `NONE` prohíbe la facturación
+   electrónica en una instalación; `FAKE` solo fuera de producción. Lo que la enciende o apaga es el **modo de la empresa** (OFF por
+   defecto), que solo pasa a `ON_REQUEST`/`EVERY_SALE` tras **verificar** las credenciales y el ambiente contra Factus
+   (`POST /billing/settings/verify`, que solo pide un token).
+2. **Salvaguardas (PA1)**, necesarias porque el adaptador real queda siempre presente:
+   - La cola envía **solo con modo ≠ OFF y la conexión verificada**. Con OFF no sale nada, ni lo que ya estaba en cola.
+   - La migración V2026.10.060 **apaga** las configuraciones encendidas sin verificación (instalaciones con llaves y modo ≠ OFF de cuando
+     el adaptador era `NONE`) y el tablero avisa hasta que se reconecte.
+   - Los documentos electrónicos emitidos **antes de la primera verificación correcta** no se envían solos: la administración elige
+     **Enviar ahora** o **No enviar** (estado `NOT_SENT`, sin reintentos), con permiso `billing.settings.manage` y auditoría.
+3. Un fallo transitorio de la verificación no quita una verificación correcta; como máximo una verificación cada 10 s; "Cambiar llaves"
+   prueba las nuevas antes de guardarlas y no apaga la facturación si pasan.
+
+### Consecuencias
+- ✅ La tienda conecta Factus sin tocar archivos; las instalaciones actuales en OFF no cambian.
+- ✅ Ningún documento sale a la DIAN sin una conexión verificada y el modo encendido; el atraso viejo exige una decisión explícita.
+- ⚠️ Instalaciones que tenían la facturación encendida con `NONE` quedan apagadas al actualizar: hay que reconectarlas desde la pantalla.
+- ⚠️ Si se rechaza esta adenda, basta con volver el valor por defecto a `NONE`: las salvaguardas y la pantalla siguen siendo válidas con
+  `Pos:Billing:Provider = FACTUS` explícito.

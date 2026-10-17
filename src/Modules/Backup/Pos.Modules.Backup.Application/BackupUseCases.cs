@@ -135,7 +135,8 @@ public interface IBackupOperations
     string LocalDirectory { get; }
 
     /// <summary>Comprueba una carpeta de destino (disco externo o red) sin dejar rastro: ruta, unidad, etiqueta, escritura y espacio.</summary>
-    Task<BackupFolderCheckDto> CheckFolderAsync(string? path, string? volumeLabel, CancellationToken cancellationToken);
+    /// <remarks>Corre en un hilo aparte con un tiempo máximo (≈10 s): una carpeta de red que no responde no bloquea la petición.</remarks>
+    Task<BackupFolderCheckDto> CheckFolderAsync(string kind, string? path, string? volumeLabel, CancellationToken cancellationToken);
 
     /// <summary>Pone en cola un backup manual (lo ejecuta el proceso en segundo plano).</summary>
     void EnqueueManual(Guid? requestedBy);
@@ -226,8 +227,45 @@ internal sealed class CheckBackupFolderHandler(IBackupOperations operations) : I
             return BackupErrors.NetworkPathRequired;
         }
 
-        return await operations.CheckFolderAsync(request.Path, request.Kind == DestinationKinds.External ? request.VolumeLabel : null, cancellationToken);
+        return await operations.CheckFolderAsync(
+            request.Kind, request.Path, request.Kind == DestinationKinds.External ? request.VolumeLabel : null, cancellationToken);
     }
+}
+
+/// <summary>
+/// Comprobación previa al guardar un destino (PA5): corre como CONSULTA, fuera de la transacción del comando, y el endpoint solo envía
+/// <see cref="SaveDestinationCommand"/> si pasa. Se comprueba la carpeta de un destino EXTERNAL/NETWORK activo que es nuevo, cambia de
+/// carpeta o de etiqueta, o se reactiva; uno ya probado que solo cambia retención o cuándo se usa no se prueba (la USB puede estar retirada).
+/// </summary>
+public sealed record PrecheckDestinationFolderQuery(Guid? Id, DestinationInput Input) : IQuery<bool>;
+
+internal sealed class PrecheckDestinationFolderHandler(IBackupStore store, IBackupOperations operations) : IQueryHandler<PrecheckDestinationFolderQuery, bool>
+{
+    public async Task<Result<bool>> Handle(PrecheckDestinationFolderQuery request, CancellationToken cancellationToken)
+    {
+        if (request.Input is not { IsActive: true, Kind: DestinationKinds.External or DestinationKinds.Network } input)
+        {
+            return false;
+        }
+
+        // Una ruta mal escrita la rechaza el validador del comando (400 VALIDATION.FAILED), no esta comprobación.
+        if (string.IsNullOrWhiteSpace(input.Path) || !System.IO.Path.IsPathFullyQualified(input.Path.Trim())
+            || (input.Kind == DestinationKinds.Network) != SaveDestinationValidator.IsUnc(input.Path))
+        {
+            return false;
+        }
+
+        var current = request.Id is { } id ? (await store.ListDestinationsAsync(cancellationToken)).FirstOrDefault(d => d.Id == id) : null;
+        if (current is { IsActive: true } && current.Kind == input.Kind && Same(current.Path, input.Path) && Same(current.VolumeLabel, input.VolumeLabel))
+        {
+            return false;
+        }
+
+        var check = await operations.CheckFolderAsync(input.Kind, input.Path, input.Kind == DestinationKinds.External ? input.VolumeLabel : null, cancellationToken);
+        return check.Ok ? true : BackupErrors.FolderInvalid(check.Message);
+    }
+
+    private static bool Same(string? a, string? b) => string.Equals(a?.Trim() ?? string.Empty, b?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record ListRestoreTestsQuery(int Limit = 20) : IQuery<IReadOnlyList<RestoreTestDto>>;
@@ -331,7 +369,7 @@ internal sealed class SaveDestinationValidator : AbstractValidator<SaveDestinati
             .WithMessage("Indique la carpeta (p. ej. E:\\Backups o \\\\NAS\\backups).");
         RuleFor(x => x.Input.Path).Must(IsUnc).When(x => x.Input.Kind == DestinationKinds.Network && !string.IsNullOrWhiteSpace(x.Input.Path))
             .WithErrorCode(BackupErrors.NetworkPathRequired.Code).WithMessage(BackupErrors.NetworkPathRequired.Message);
-        RuleFor(x => x.Input.Path).Must(p => System.IO.Path.IsPathFullyQualified(p!.Trim()))
+        RuleFor(x => x.Input.Path).Must(p => System.IO.Path.IsPathFullyQualified(p!.Trim()) && !IsUnc(p))
             .When(x => x.Input.Kind == DestinationKinds.External && !string.IsNullOrWhiteSpace(x.Input.Path))
             .WithMessage("Escriba la ruta completa de la carpeta del disco (p. ej. E:\\Backups).");
         RuleFor(x => x.Input.Endpoint).NotEmpty().Must(e => Uri.TryCreate(e, UriKind.Absolute, out var u) && u.Scheme is "https" or "http")
@@ -378,19 +416,7 @@ internal sealed class SaveDestinationHandler(
             return BackupErrors.LocalIsFixed;
         }
 
-        // Carpeta nueva, cambiada o reactivada: se comprueba antes de guardar (existe o se puede crear, se puede escribir, no es la LOCAL).
-        // Un destino ya probado que solo cambia retención o cuándo se usa no se vuelve a probar (la USB puede estar retirada).
-        if (request.Input is { IsActive: true, Kind: DestinationKinds.External or DestinationKinds.Network }
-            && (current is null || !current.IsActive || !SamePath(current.Path, request.Input.Path) || !SamePath(current.VolumeLabel, request.Input.VolumeLabel)))
-        {
-            var check = await operations.CheckFolderAsync(
-                request.Input.Path, request.Input.Kind == DestinationKinds.External ? request.Input.VolumeLabel : null, cancellationToken);
-            if (!check.Ok)
-            {
-                return BackupErrors.FolderInvalid(check.Message);
-            }
-        }
-
+        // La carpeta ya la comprobó PrecheckDestinationFolderQuery fuera de esta transacción (el endpoint no envía el comando si falla).
         if (request.Input.Kind == DestinationKinds.S3 && string.IsNullOrWhiteSpace(request.Input.SecretKey) && current is not { HasSecret: true })
         {
             return Error.Validation("BACKUP.SECRET_REQUIRED", "Indique la clave secreta del almacenamiento S3.");
@@ -407,8 +433,6 @@ internal sealed class SaveDestinationHandler(
             cancellationToken);
         return (await store.ListDestinationsAsync(cancellationToken)).First(d => d.Id == destinationId);
     }
-
-    private static bool SamePath(string? a, string? b) => string.Equals(a?.Trim() ?? string.Empty, b?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Genera (o regenera) el código de recuperación (D11-04). Se muestra una sola vez.</summary>

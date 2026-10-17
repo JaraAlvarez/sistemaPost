@@ -161,6 +161,18 @@ public class BillingElectronicSchemaTests(PostgresFixture postgres)
             .ConstraintName.ShouldBe("ck_provider_settings__verification");
         await harness.Database.ExecuteAsync(
             "UPDATE billing.provider_settings SET last_verified_at = now(), last_verification_ok = true, last_verification_message = 'ok'", app);
+
+        // El atraso solo se libera con un corte (primera verificación correcta).
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                "UPDATE billing.provider_settings SET backlog_released = true", app)))
+            .ConstraintName.ShouldBe("ck_provider_settings__backlog");
+        await harness.Database.ExecuteAsync("UPDATE billing.provider_settings SET backlog_cutoff = now(), backlog_released = true", app);
+
+        // NOT_SENT: solo documentos electrónicos.
+        await harness.Database.ExecuteAsync(Document(status: "NOT_SENT"), app);
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                Document(type: "INTERNAL_RECEIPT", status: "NOT_SENT", reference: null), app)))
+            .ConstraintName.ShouldBeOneOf("ck_fiscal_documents__not_sent", "ck_fiscal_documents__internal");
     }
 
     [Fact]

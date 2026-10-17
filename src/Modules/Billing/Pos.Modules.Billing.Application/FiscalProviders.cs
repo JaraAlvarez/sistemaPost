@@ -47,8 +47,11 @@ public interface IFiscalProvider
     Task<FiscalConnectionCheck> VerifyAsync(FiscalConnection connection, CancellationToken cancellationToken);
 }
 
-/// <summary>Resultado de verificar la conexión con el proveedor.</summary>
-public sealed record FiscalConnectionCheck(bool Ok, string Message);
+/// <summary>
+/// Resultado de verificar la conexión con el proveedor. <c>Transient</c>: falló la red o el proveedor, no las credenciales (no quita una
+/// verificación correcta anterior, PA9).
+/// </summary>
+public sealed record FiscalConnectionCheck(bool Ok, string Message, bool Transient = false);
 
 /// <summary>Sin proveedor configurado: el documento sigue pendiente y se registra el intento.</summary>
 public sealed class NullFiscalProvider : IFiscalProvider
@@ -180,7 +183,7 @@ public sealed class FakeFiscalProvider : IFiscalProvider
     {
         LastConnection = connection;
         return Task.FromResult(
-            Offline ? new FiscalConnectionCheck(false, "Sin conexión con el proveedor (simulado).")
+            Offline ? new FiscalConnectionCheck(false, "Sin conexión con el proveedor (simulado).", Transient: true)
             : RejectCredentials ? new FiscalConnectionCheck(false, "El proveedor rechazó las credenciales (simulado).")
             : new FiscalConnectionCheck(true, "Conexión correcta con el proveedor (simulado)."));
     }

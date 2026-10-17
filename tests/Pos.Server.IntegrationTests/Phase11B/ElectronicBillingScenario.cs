@@ -29,6 +29,7 @@ public class ElectronicBillingServerFactory : PosServerFactory
     [
         new("Pos:Billing:Worker", Worker ? "true" : "false"),
         new("Pos:Billing:QueueIntervalSeconds", "1"),
+        new("Pos:Billing:VerifyMinSeconds", "0"),
     ];
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

@@ -61,10 +61,16 @@ public sealed class FactusFiscalProviderTests : IAsyncDisposable
         _server.Requests.ShouldAllBe(r => r.PathAndQuery == "oauth/token");
         _server.Documents.ShouldBeEmpty();
 
+        // Volver a probar con las mismas credenciales reutiliza el token vigente: no reinicia el del trabajador de la cola (PA9).
+        var tokens = _server.Requests.Count;
+        (await Provider.VerifyAsync(Connection(), Ct)).Ok.ShouldBeTrue();
+        _server.Requests.Count.ShouldBe(tokens);
+
         var bad = await Provider.VerifyAsync(Connection(password: "otra-clave", environment: FiscalEnvironment.Production), Ct);
         bad.Ok.ShouldBeFalse();
         bad.Message.ShouldContain("rechazó las credenciales en producción");
         bad.Message.ShouldNotContain("otra-clave");
+        bad.Transient.ShouldBeFalse();
     }
 
     [Fact]

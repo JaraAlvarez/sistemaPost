@@ -38,11 +38,16 @@ public class BackupDestinosTests
         var local = overview.LocalDirectory;
         (await GetAsync<List<BackupDestinationDto>>(owner, "/api/v1/backups/destinations")).ShouldHaveSingleItem().Kind.ShouldBe("LOCAL");
 
-        // Comprobar: una carpeta nueva sirve (se prueba creándola y no queda); la LOCAL no; la red exige UNC; S3 no es carpeta.
+        // Comprobar: una carpeta nueva sirve si existe su superior (no se crea nada); sin superior no; la LOCAL no; la red exige UNC de
+        // OTRO equipo; S3 no es carpeta.
         var usb = Path.Combine(factory.DataRoot, "usb", "BackupsTienda");
+        (await CheckAsync(owner, "EXTERNAL", usb)).Message.ShouldContain("ni su carpeta superior");
+        Directory.CreateDirectory(Path.GetDirectoryName(usb)!);
         var ok = await CheckAsync(owner, "EXTERNAL", usb);
         ok.Ok.ShouldBeTrue(ok.Message);
         Directory.Exists(usb).ShouldBeFalse();
+        (await CheckAsync(owner, "NETWORK", @"\\localhost\backups")).Message.ShouldContain("este mismo equipo");
+        (await CheckAsync(owner, "EXTERNAL", @"\\NAS\backups")).Ok.ShouldBeFalse();
         (await CheckAsync(owner, "EXTERNAL", local)).ShouldSatisfyAllConditions(c => c.Ok.ShouldBeFalse(), c => c.Message.ShouldContain("carpeta LOCAL"));
         (await CheckAsync(owner, "EXTERNAL", "Backups")).Ok.ShouldBeFalse();
         await RawAsync(owner, HttpMethod.Post, "/api/v1/backups/destinations/check-folder", new { kind = "NETWORK", path = usb })
@@ -69,7 +74,6 @@ public class BackupDestinosTests
         (await AuditCountAsync(shop)).ShouldBe(1);
 
         // Disco retirado (aquí: la carpeta ya no se puede usar): cambiar solo la retención no vuelve a probar la carpeta…
-        Directory.CreateDirectory(Path.GetDirectoryName(usb)!);
         await File.WriteAllTextAsync(usb, "ocupa el lugar de la carpeta", Ct);
         (await SendAsync<BackupDestinationDto>(owner, HttpMethod.Put, $"/api/v1/backups/destinations/{created.Id}", Destination("EXTERNAL", usb, keepDaily: 14)))
             .KeepDaily.ShouldBe(14);
@@ -87,6 +91,19 @@ public class BackupDestinosTests
         (await shop.Catalog.ScalarAsync<string>(
                 "SELECT severity FROM audit.audit_log WHERE action = 'BACKUP_DESTINATION_CHANGED' ORDER BY occurred_at DESC LIMIT 1"))
             .ShouldBe("WARNING");
+    }
+
+    [Fact]
+    public async Task Un_disco_externo_en_el_mismo_volumen_que_la_carpeta_LOCAL_no_sirve()
+    {
+        await using var factory = new SingleFactory(allowSameVolume: false);
+        var shop = await SalesScenario.CreateAsync(factory);
+        var mismoDisco = Directory.CreateDirectory(Path.Combine(factory.DataRoot, "mismo-disco")).FullName;
+
+        (await CheckAsync(shop.Owner, "EXTERNAL", mismoDisco)).Message.ShouldContain("mismo disco");
+        await RawAsync(shop.Owner, HttpMethod.Post, "/api/v1/backups/destinations", Destination("EXTERNAL", mismoDisco))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BACKUP.FOLDER_INVALID");
+        (await AuditCountAsync(shop)).ShouldBe(0);
     }
 
     [Fact]
@@ -108,10 +125,16 @@ public class BackupDestinosTests
         (await AuditCountAsync(shop)).ShouldBe(0);
     }
 
-    /// <summary>Caja Única: el cajero y el supervisor entran con PIN sin registrar la caja.</summary>
-    private sealed class SingleFactory : PosServerFactory
+    /// <summary>
+    /// Caja Única: el cajero y el supervisor entran con PIN sin registrar la caja. Las carpetas de la prueba están en el mismo disco que la
+    /// LOCAL: por defecto se permite (solo fuera de producción) y una prueba aparte comprueba la regla de otro disco.
+    /// </summary>
+    private sealed class SingleFactory(bool allowSameVolume = true) : PosServerFactory
     {
         protected override string Edition => "SINGLE";
+
+        protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
+            [new("Pos:Backup:AllowSameVolumeDestinations", allowSameVolume ? "true" : "false")];
     }
 
     private static async Task<long> AuditCountAsync(SalesScenario shop) =>

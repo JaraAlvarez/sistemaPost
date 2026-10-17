@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -766,16 +767,34 @@ internal sealed partial class BackupWorker(
 }
 
 /// <summary>Operaciones para los casos de uso (puerto de la capa de aplicación).</summary>
-internal sealed class BackupOperations(BackupRunner runner, BackupWorker worker, BackupEnvironment environment, IServiceScopeFactory scopes) : IBackupOperations
+internal sealed class BackupOperations(
+    BackupRunner runner, BackupWorker worker, BackupEnvironment environment, IServiceScopeFactory scopes, IConfiguration configuration, IHostEnvironment host)
+    : IBackupOperations
 {
     public bool IsConfigured => runner.IsConfigured;
 
     public string LocalDirectory => environment.LocalDirectory;
 
-    public async Task<BackupFolderCheckDto> CheckFolderAsync(string? path, string? volumeLabel, CancellationToken cancellationToken)
+    /// <summary>Tiempo máximo de la comprobación (una carpeta de red caída puede tardar decenas de segundos en fallar).</summary>
+    public static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(10);
+
+    public async Task<BackupFolderCheckDto> CheckFolderAsync(string kind, string? path, string? volumeLabel, CancellationToken cancellationToken)
     {
-        var result = await BackupFolderProbe.CheckAsync(path, volumeLabel, environment.LocalDirectory, cancellationToken);
-        return new BackupFolderCheckDto(result.Ok, result.Message, result.FullPath, result.VolumeLabel, result.FreeBytes);
+        // Solo fuera de producción (pruebas): permite un destino en el mismo disco que la carpeta LOCAL.
+        var allowSameVolume = !host.IsProduction() && bool.TryParse(configuration["Pos:Backup:AllowSameVolumeDestinations"], out var allow) && allow;
+        var folderKind = kind == DestinationKinds.Network ? BackupFolderKind.Network : BackupFolderKind.External;
+        try
+        {
+            var result = await Task.Run(
+                    () => BackupFolderProbe.CheckAsync(path, volumeLabel, environment.LocalDirectory, folderKind, allowSameVolume, cancellationToken), cancellationToken)
+                .WaitAsync(CheckTimeout, cancellationToken);
+            return new BackupFolderCheckDto(result.Ok, result.Message, result.FullPath, result.VolumeLabel, result.FreeBytes);
+        }
+        catch (TimeoutException)
+        {
+            return new BackupFolderCheckDto(
+                false, "La carpeta no respondió en 10 segundos: revise que el disco o el equipo de la red estén encendidos y conectados.", null, null, null);
+        }
     }
 
     public void EnqueueManual(Guid? requestedBy) => worker.Enqueue(requestedBy);

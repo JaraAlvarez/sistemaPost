@@ -24,8 +24,17 @@ public interface IFiscalDocumentStore
 
     Task<IReadOnlyList<FiscalDocument>> ListAsync(DocumentFilter filter, CancellationToken cancellationToken);
 
-    /// <summary>Ids de los documentos que la cola debe enviar ya, en orden de llegada.</summary>
-    Task<IReadOnlyList<Guid>> ListDueAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken);
+    /// <summary>
+    /// Ids de los documentos que la cola debe enviar ya, en orden de llegada. Con <paramref name="heldBefore"/> se excluye el atraso
+    /// retenido: los emitidos antes de ese momento esperan "Enviar ahora" o "No enviar" (PA1).
+    /// </summary>
+    Task<IReadOnlyList<Guid>> ListDueAsync(DateTimeOffset now, int limit, DateTimeOffset? heldBefore, CancellationToken cancellationToken);
+
+    /// <summary>Documentos electrónicos pendientes, con error o en contingencia emitidos antes de <paramref name="heldBefore"/>.</summary>
+    Task<int> CountHeldAsync(DateTimeOffset heldBefore, CancellationToken cancellationToken);
+
+    /// <summary>Los mismos, cargados para cambiarlos ("No enviar").</summary>
+    Task<IReadOnlyList<FiscalDocument>> ListHeldAsync(DateTimeOffset heldBefore, CancellationToken cancellationToken);
 }
 
 public sealed record DocumentFilter(

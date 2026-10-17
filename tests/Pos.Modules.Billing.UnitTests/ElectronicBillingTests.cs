@@ -388,6 +388,64 @@ public class NumberingAndSettingsTests
         settings.CredentialHint.ShouldBeNull();
     }
 
+    [Fact]
+    public void La_cola_solo_envia_encendida_y_verificada_y_una_falla_transitoria_no_quita_la_verificacion()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1, 2, 3], Now, "ti***@correo.co");
+        (settings.CanSend, settings.HeldBefore, settings.BacklogCutoff).ShouldBe((false, (DateTimeOffset?)null, (DateTimeOffset?)null));
+
+        // Falla transitoria sin verificación previa: queda como fallida (no hay nada que conservar).
+        settings.RecordVerification(Now, ok: false, "Sin red", transient: true).ShouldBeTrue();
+        settings.LastVerificationOk.ShouldBe(false);
+
+        // Primera verificación correcta: fija el corte del atraso; verificada pero apagada no envía.
+        settings.RecordVerification(Now.AddMinutes(1), ok: true, "ok").ShouldBeTrue();
+        (settings.BacklogCutoff, settings.HeldBefore, settings.CanSend).ShouldBe(((DateTimeOffset?)Now.AddMinutes(1), (DateTimeOffset?)Now.AddMinutes(1), false));
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+        settings.CanSend.ShouldBeTrue();
+
+        // Sin red después de verificar: se conserva la verificación (PA9); un rechazo de credenciales sí la quita y detiene la cola.
+        settings.RecordVerification(Now.AddMinutes(2), ok: false, "Sin red", transient: true).ShouldBeFalse();
+        (settings.LastVerificationOk, settings.LastVerifiedAt, settings.CanSend).ShouldBe(((bool?)true, (DateTimeOffset?)Now.AddMinutes(1), true));
+        settings.RecordVerification(Now.AddMinutes(3), ok: false, "Rechazadas").ShouldBeTrue();
+        settings.CanSend.ShouldBeFalse();
+
+        // Otra verificación correcta no mueve el corte; liberar el atraso lo quita de la retención; apagar detiene todo.
+        settings.RecordVerification(Now.AddMinutes(4), ok: true, "ok");
+        settings.BacklogCutoff.ShouldBe(Now.AddMinutes(1));
+        settings.ReleaseBacklog();
+        (settings.BacklogReleased, settings.HeldBefore).ShouldBe((true, (DateTimeOffset?)null));
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+        settings.CanSend.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Cambiar_llaves_verificadas_conserva_el_modo_y_el_atraso_se_marca_no_enviado()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1], Now, "ti***@correo.co");
+        settings.RecordVerification(Now, ok: true, "ok");
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        settings.ReplaceVerifiedCredentials([9, 9], Now.AddHours(1), "ot***@correo.co", "Factus aceptó");
+        (settings.Mode, settings.CredentialHint, settings.CredentialsUpdatedAt, settings.IsVerified, settings.LastVerificationMessage)
+            .ShouldBe((BillingMode.OnRequest, "ot***@correo.co", (DateTimeOffset?)Now.AddHours(1), true, "Factus aceptó"));
+        Should.Throw<DomainException>(() => settings.ReplaceVerifiedCredentials([], Now, null, null));
+
+        var user = Guid.NewGuid();
+        var pending = FiscalDocument.Issue(
+            Guid.NewGuid(), Company,
+            new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-000001", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                "222222222222", null, 10_000m, 1_900m, 11_900m),
+            electronic: true, Now, user, Guid.NewGuid);
+        pending.DiscardBacklog("No enviar", Now, user, Guid.NewGuid).ShouldBeTrue();
+        (pending.Status, pending.NextAttemptAt).ShouldBe((FiscalStatus.NotSent, (DateTimeOffset?)null));
+        pending.Events[^1].EventType.ShouldBe("NOT_SENT");
+        pending.DiscardBacklog("otra vez", Now, user, Guid.NewGuid).ShouldBeFalse();
+        pending.Retry(Now, user, Guid.NewGuid).Error.ShouldBe(BillingErrors.NotRetryable);
+    }
+
     [Theory]
     [InlineData("tienda@correo.co", "ti***@correo.co")]
     [InlineData("  ab@x.co ", "a***@x.co")]
