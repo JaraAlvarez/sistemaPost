@@ -3,7 +3,8 @@ namespace Pos.Server.Host.Middleware;
 /// <summary>
 /// Cabeceras de seguridad de la interfaz (Fase 15, revisión de seguridad de la Fase 14): Blazor WebAssembly necesita
 /// <c>wasm-unsafe-eval</c>; MudBlazor usa estilos en línea; la caja habla con su agente de impresión local (<c>localhost:5490</c>).
-/// El asistente inicial (<c>/instalacion</c>) es una página única con su script en línea.
+/// El asistente inicial (<c>/instalacion</c>) es una página única con su script APARTE (<c>/instalacion/asistente.js</c>): su política
+/// no admite scripts en línea.
 /// </summary>
 internal sealed class ContentSecurityPolicyMiddleware(RequestDelegate next)
 {

@@ -39,14 +39,19 @@ internal sealed class ListPortalUsersHandler(IPortalIdentityStore store) : IQuer
             .Select(PortalUserUseCaseMapping.ToDto)]);
 }
 
-/// <summary>Crea un usuario del equipo con una contraseña temporal (se muestra una vez); en su primer ingreso enrola el 2FA y la cambia.</summary>
+/// <summary>
+/// Crea un usuario del equipo con una contraseña temporal (se muestra una vez); en su primer ingreso enrola el 2FA y la cambia. PN6: crear
+/// un SUPERADMINISTRADOR exige siempre el código TOTP del que actúa (<paramref name="Confirmation"/>), como restablecer a otro
+/// superadministrador.
+/// </summary>
 [RequiresPermission(CloudPermissions.PortalUserManage)]
-public sealed record CreatePortalUserCommand(string Email, string DisplayName, string Role, Guid? ResellerAccountId = null) : ICommand<TemporaryPasswordDto>;
+public sealed record CreatePortalUserCommand(string Email, string DisplayName, string Role, Guid? ResellerAccountId = null, string? Confirmation = null)
+    : ICommand<Outcome<TemporaryPasswordDto>>;
 
-internal sealed class CreatePortalUserHandler(IPortalIdentityStore store, PortalAuthServices auth, IAuditWriter audit)
-    : ICommandHandler<CreatePortalUserCommand, TemporaryPasswordDto>
+internal sealed class CreatePortalUserHandler(IPortalIdentityStore store, PortalAuthServices auth, IPortalUserContext current, IAuditWriter audit)
+    : ICommandHandler<CreatePortalUserCommand, Outcome<TemporaryPasswordDto>>
 {
-    public async Task<Result<TemporaryPasswordDto>> Handle(CreatePortalUserCommand request, CancellationToken cancellationToken)
+    public async Task<Result<Outcome<TemporaryPasswordDto>>> Handle(CreatePortalUserCommand request, CancellationToken cancellationToken)
     {
         if (!PortalRoleCodes.TryParse(request.Role, out var role))
         {
@@ -56,6 +61,17 @@ internal sealed class CreatePortalUserHandler(IPortalIdentityStore store, Portal
         if (await store.FindUserByEmailAsync(PortalUser.NormalizeEmail(request.Email), cancellationToken) is not null)
         {
             return PortalIdentityErrors.EmailDuplicated;
+        }
+
+        if (role == PortalRole.Superadmin)
+        {
+            var confirmed = await AdminReauthentication.CheckAsync(
+                current, auth, new AdminTarget(null, PortalUser.NormalizeEmail(request.Email), IsSuperadmin: true), request.Confirmation,
+                "crear el superadministrador", cancellationToken);
+            if (confirmed.IsFailure)
+            {
+                return Outcome.Fail<TemporaryPasswordDto>(confirmed.Error);
+            }
         }
 
         var password = TemporaryPasswords.Create();
@@ -72,17 +88,26 @@ internal sealed class CreatePortalUserHandler(IPortalIdentityStore store, Portal
             new AuditEntry("portal", "PORTAL_USER_CREATED", nameof(PortalUser), created.Value.Id, created.Value.AuditLabel,
                 $"Usuario del portal {created.Value.Email} creado con el rol {PortalRoleCodes.DisplayName(PortalRoleCodes.ToCode(role))}.", Severity: AuditSeverity.Warning),
             cancellationToken);
-        return new TemporaryPasswordDto(created.Value.Id, created.Value.Email, password);
+        return Outcome.Ok(new TemporaryPasswordDto(created.Value.Id, created.Value.Email, password));
     }
 }
 
+/// <summary>Usuario afectado por una acción de administración que no devuelve datos (actualizar, desbloquear).</summary>
+public sealed record PortalUserChangedDto(Guid UserId);
+
+/// <summary>
+/// Cambia el nombre, el rol o el estado de otro usuario. PN6: cambiar el ROL o DESACTIVAR exige la misma confirmación que restablecer la
+/// contraseña (ingreso reciente o contraseña/TOTP; siempre el TOTP si la cuenta es o pasa a ser de superadministrador). Cambiar solo el
+/// nombre no la pide.
+/// </summary>
 [RequiresPermission(CloudPermissions.PortalUserManage)]
-public sealed record UpdatePortalUserCommand(Guid UserId, string DisplayName, string Role, Guid? ResellerAccountId, bool IsActive) : ICommand;
+public sealed record UpdatePortalUserCommand(Guid UserId, string DisplayName, string Role, Guid? ResellerAccountId, bool IsActive, string? Confirmation = null)
+    : ICommand<Outcome<PortalUserChangedDto>>;
 
 internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPortalUserContext current, PortalAuthServices auth, IAuditWriter audit)
-    : ICommandHandler<UpdatePortalUserCommand>
+    : ICommandHandler<UpdatePortalUserCommand, Outcome<PortalUserChangedDto>>
 {
-    public async Task<Result> Handle(UpdatePortalUserCommand request, CancellationToken cancellationToken)
+    public async Task<Result<Outcome<PortalUserChangedDto>>> Handle(UpdatePortalUserCommand request, CancellationToken cancellationToken)
     {
         var user = await store.GetUserAsync(request.UserId, cancellationToken);
         if (user is null)
@@ -106,11 +131,24 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
             return PortalIdentityErrors.LastSuperadmin;
         }
 
+        var deactivates = !request.IsActive && user.Status == PortalUserStatus.Active;
+        if (role != user.Role || deactivates)
+        {
+            var action = role != user.Role ? "cambiar el rol" : "desactivar";
+            var confirmed = await AdminReauthentication.CheckAsync(
+                current, auth, new AdminTarget(user.Id, user.Email, user.Role == PortalRole.Superadmin || role == PortalRole.Superadmin), request.Confirmation,
+                action, cancellationToken);
+            if (confirmed.IsFailure)
+            {
+                return Outcome.Fail<PortalUserChangedDto>(confirmed.Error);
+            }
+        }
+
         var version = user.SecurityVersion;
         var updated = user.Update(request.DisplayName, role, request.ResellerAccountId, request.IsActive);
         if (updated.IsFailure)
         {
-            return updated;
+            return updated.Error;
         }
 
         if (user.SecurityVersion != version)
@@ -123,7 +161,7 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
                 cancellationToken);
         }
 
-        return Result.Success();
+        return Outcome.Ok(new PortalUserChangedDto(user.Id));
     }
 }
 
@@ -146,7 +184,7 @@ internal sealed class ResetPortalUserPasswordHandler(IPortalIdentityStore store,
             return PortalIdentityErrors.UserNotFound;
         }
 
-        var confirmed = await AdminReauthentication.CheckAsync(current, auth, user, request.Confirmation, "restablecer la contraseña", cancellationToken);
+        var confirmed = await AdminReauthentication.CheckAsync(current, auth, AdminTarget.Of(user), request.Confirmation, "restablecer la contraseña", cancellationToken);
         if (confirmed.IsFailure)
         {
             return Outcome.Fail<TemporaryPasswordDto>(confirmed.Error);
@@ -190,7 +228,7 @@ internal sealed class ResetPortalUserTotpHandler(IPortalIdentityStore store, Por
             return Error.Validation("PORTAL.REASON_REQUIRED", "Indique el motivo (de 5 a 300 caracteres).");
         }
 
-        var confirmed = await AdminReauthentication.CheckAsync(current, auth, user, request.Confirmation, "restablecer el doble factor", cancellationToken);
+        var confirmed = await AdminReauthentication.CheckAsync(current, auth, AdminTarget.Of(user), request.Confirmation, "restablecer el doble factor", cancellationToken);
         if (confirmed.IsFailure)
         {
             return Outcome.Fail<TotpResetDto>(confirmed.Error);
@@ -214,6 +252,12 @@ internal sealed class ResetPortalUserTotpHandler(IPortalIdentityStore store, Por
     }
 }
 
+/// <summary>Cuenta afectada por una acción delicada: <c>Id</c> nulo si todavía no existe (crear un superadministrador).</summary>
+internal sealed record AdminTarget(Guid? Id, string Email, bool IsSuperadmin)
+{
+    public static AdminTarget Of(PortalUser user) => new(user.Id, user.Email, AdminResetPolicy.RequiresTotp(user));
+}
+
 /// <summary>Confirmación del superadministrador para las acciones delicadas sobre otro usuario (<see cref="AdminResetPolicy"/>).</summary>
 internal static class AdminReauthentication
 {
@@ -222,10 +266,10 @@ internal static class AdminReauthentication
         "Por seguridad, confirme con su contraseña o con el código de su aplicación autenticadora (su ingreso no es reciente).");
 
     public static readonly Error TotpConfirmationRequired = Error.Forbidden(
-        "PORTAL.TOTP_CONFIRMATION_REQUIRED", "Para restablecer a otro superadministrador, escriba el código de su aplicación autenticadora.");
+        "PORTAL.TOTP_CONFIRMATION_REQUIRED", "Para actuar sobre una cuenta de superadministrador, escriba el código de su aplicación autenticadora.");
 
     public static readonly Error ActorTotpRequired = Error.BusinessRule(
-        "PORTAL.ACTOR_TOTP_REQUIRED", "Para restablecer a otro superadministrador, primero active su propio doble factor en \"Mi cuenta\".");
+        "PORTAL.ACTOR_TOTP_REQUIRED", "Para actuar sobre una cuenta de superadministrador, primero active su propio doble factor en \"Mi cuenta\".");
 
     public static readonly Error CannotResetSelf = Error.BusinessRule(
         "PORTAL.CANNOT_RESET_SELF", "No puede restablecer su propia contraseña o doble factor desde aquí: hágalo en \"Mi cuenta\".");
@@ -234,7 +278,7 @@ internal static class AdminReauthentication
 
     /// <summary>Devuelve al superadministrador que actúa si puede hacerlo; cuenta los intentos fallidos (bloqueo) y los audita.</summary>
     public static async Task<Result<PortalUser>> CheckAsync(
-        IPortalUserContext current, PortalAuthServices auth, PortalUser target, string? confirmation, string action, CancellationToken cancellationToken)
+        IPortalUserContext current, PortalAuthServices auth, AdminTarget target, string? confirmation, string action, CancellationToken cancellationToken)
     {
         if (await OwnAccount.ResolveAsync(current, auth, cancellationToken) is not { } own)
         {
@@ -250,7 +294,7 @@ internal static class AdminReauthentication
         var now = auth.Clock.UtcNow;
         var secret = actor.TotpEnabled && actor.TotpSecretProtected is { } stored ? auth.Protector.Unprotect(stored) : null;
         var code = confirmation?.Trim();
-        if (AdminResetPolicy.RequiresTotp(target))
+        if (target.IsSuperadmin)
         {
             if (secret is null)
             {
@@ -264,7 +308,7 @@ internal static class AdminReauthentication
         }
         else if (string.IsNullOrEmpty(code))
         {
-            return AdminResetPolicy.AllowsWithoutConfirmation(session, actor, target, now) ? actor : ReauthenticationRequired;
+            return AdminResetPolicy.AllowsWithoutConfirmation(session, actor, target.IsSuperadmin, now) ? actor : ReauthenticationRequired;
         }
 
         // Código TOTP (6 dígitos) o, si el afectado no es superadministrador, la contraseña.
@@ -274,7 +318,7 @@ internal static class AdminReauthentication
             return actor;
         }
 
-        if (!AdminResetPolicy.RequiresTotp(target) && await auth.VerifyPasswordAsync(actor, code!, cancellationToken))
+        if (!target.IsSuperadmin && await auth.VerifyPasswordAsync(actor, code!, cancellationToken))
         {
             return actor;
         }
@@ -293,12 +337,14 @@ internal static class AdminReauthentication
     }
 }
 
+/// <summary>Desbloquea a otro usuario (intentos fallidos). PN6: misma confirmación que restablecer su contraseña.</summary>
 [RequiresPermission(CloudPermissions.PortalUserManage)]
-public sealed record UnlockPortalUserCommand(Guid UserId) : ICommand;
+public sealed record UnlockPortalUserCommand(Guid UserId, string? Confirmation = null) : ICommand<Outcome<PortalUserChangedDto>>;
 
-internal sealed class UnlockPortalUserHandler(IPortalIdentityStore store, IAuditWriter audit) : ICommandHandler<UnlockPortalUserCommand>
+internal sealed class UnlockPortalUserHandler(IPortalIdentityStore store, PortalAuthServices auth, IPortalUserContext current, IAuditWriter audit)
+    : ICommandHandler<UnlockPortalUserCommand, Outcome<PortalUserChangedDto>>
 {
-    public async Task<Result> Handle(UnlockPortalUserCommand request, CancellationToken cancellationToken)
+    public async Task<Result<Outcome<PortalUserChangedDto>>> Handle(UnlockPortalUserCommand request, CancellationToken cancellationToken)
     {
         var user = await store.GetUserAsync(request.UserId, cancellationToken);
         if (user is null)
@@ -306,11 +352,18 @@ internal sealed class UnlockPortalUserHandler(IPortalIdentityStore store, IAudit
             return PortalIdentityErrors.UserNotFound;
         }
 
+        var confirmed = await AdminReauthentication.CheckAsync(current, auth, AdminTarget.Of(user), request.Confirmation, "desbloquear", cancellationToken);
+        if (confirmed.IsFailure)
+        {
+            return Outcome.Fail<PortalUserChangedDto>(confirmed.Error);
+        }
+
         user.Unlock();
         await audit.WriteAsync(
-            new AuditEntry("portal", "PORTAL_USER_UNLOCKED", nameof(PortalUser), user.Id, user.AuditLabel, $"{user.Email} desbloqueado.", Severity: AuditSeverity.Warning),
+            new AuditEntry("portal", "PORTAL_USER_UNLOCKED", nameof(PortalUser), user.Id, user.AuditLabel,
+                $"{user.Email} desbloqueado por {confirmed.Value.Email}.", Severity: AuditSeverity.Warning),
             cancellationToken);
-        return Result.Success();
+        return Outcome.Ok(new PortalUserChangedDto(user.Id));
     }
 }
 

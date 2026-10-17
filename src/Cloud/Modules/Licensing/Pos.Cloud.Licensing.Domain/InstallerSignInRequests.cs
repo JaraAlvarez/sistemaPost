@@ -39,6 +39,9 @@ public enum InstallerSignInCodeCheck
     /// <summary>No coincide; quedan intentos.</summary>
     Mismatch,
 
+    /// <summary>No tiene la forma de un código (8 letras o números): no cuenta como intento (PN2).</summary>
+    Malformed,
+
     /// <summary>No coincide y se acabaron los intentos: la solicitud quedó cancelada.</summary>
     Exhausted,
 
@@ -248,9 +251,15 @@ public sealed class InstallerSignInRequest : Entity<Guid>
             return InstallerSignInCodeCheck.Closed;
         }
 
+        // PN2: un texto que ni siquiera tiene la forma del código (vacío, incompleto, de otra cosa) no gasta intentos: no da información
+        // para adivinar y cancelar la solicitud por un error de tipeo sería injusto.
         var normalized = InstallerSignInRules.NormalizeUserCode(typed);
-        if (normalized is not null
-            && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(normalized), Encoding.ASCII.GetBytes(UserCode)))
+        if (normalized is null)
+        {
+            return InstallerSignInCodeCheck.Malformed;
+        }
+
+        if (CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(normalized), Encoding.ASCII.GetBytes(UserCode)))
         {
             return InstallerSignInCodeCheck.Matches;
         }

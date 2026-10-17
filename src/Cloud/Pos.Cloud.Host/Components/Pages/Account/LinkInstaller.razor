@@ -68,7 +68,8 @@
         break;
 
     case OwnerLinkRequestPageState.Denied:
-        <AuthAlert>Solicitud cancelada. El instalador no recibe acceso a su cuenta. Si fue un error, en el instalador pulse otra vez "Continuar con Google".</AuthAlert>
+        @* PN3: si se canceló por demasiados códigos incorrectos, el aviso lo dice (y qué hacer). *@
+        <AuthAlert>Solicitud cancelada. @(_view?.Message ?? "El instalador no recibe acceso a su cuenta. Si fue un error, en el instalador pulse otra vez \"Continuar con Google\".")</AuthAlert>
         break;
 
     case OwnerLinkRequestPageState.Expired:

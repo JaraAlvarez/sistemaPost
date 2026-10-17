@@ -275,12 +275,14 @@
 
     private async Task CreateAsync()
     {
-        var created = await RunAsync(
-            new CreatePortalUserCommand(_newEmail ?? string.Empty, _newName ?? string.Empty, _newRole, _newRole == PortalRoles.Customer ? _newAccount : null),
+        // PN6: crear un superadministrador pide el código TOTP de quien lo crea.
+        var created = await WithConfirmationAsync(
+            confirmation => new CreatePortalUserCommand(
+                _newEmail ?? string.Empty, _newName ?? string.Empty, _newRole, _newRole == PortalRoles.Customer ? _newAccount : null, confirmation),
             "Usuario creado.");
-        if (created.IsSuccess)
+        if (created is not null)
         {
-            _temporary = created.Value;
+            _temporary = created;
             _newEmail = null;
             _newName = null;
             _showNew = false;
@@ -290,8 +292,12 @@
 
     private async Task SaveAsync()
     {
+        // PN6: cambiar el rol o desactivar pide confirmar la identidad si el ingreso no es reciente (o el TOTP con un superadministrador).
         if (_selected is { } user
-            && await RunAsync(new UpdatePortalUserCommand(user.Id, _editName ?? string.Empty, _editRole, _editRole is PortalRoles.Reseller or PortalRoles.Customer ? user.ResellerAccountId : null, _editActive), "Usuario actualizado."))
+            && await WithConfirmationAsync(
+                confirmation => new UpdatePortalUserCommand(user.Id, _editName ?? string.Empty, _editRole,
+                    _editRole is PortalRoles.Reseller or PortalRoles.Customer ? user.ResellerAccountId : null, _editActive, confirmation),
+                "Usuario actualizado.") is not null)
         {
             await LoadAsync();
         }
@@ -299,7 +305,8 @@
 
     private async Task UnlockAsync()
     {
-        if (_selected is { } user && await RunAsync(new UnlockPortalUserCommand(user.Id), "Usuario desbloqueado."))
+        if (_selected is { } user
+            && await WithConfirmationAsync(confirmation => new UnlockPortalUserCommand(user.Id, confirmation), "Usuario desbloqueado.") is not null)
         {
             await LoadAsync();
         }
@@ -354,7 +361,7 @@
     }
 
     /// <summary>
-    /// N2: si el ingreso del superadministrador no es reciente, o si afecta a otro superadministrador, el servidor pide confirmar con su
+    /// N2 y PN6: si el ingreso del superadministrador no es reciente, o si afecta a otro superadministrador, el servidor pide confirmar con su
     /// contraseña o su código TOTP: se pregunta y se repite la operación una vez.
     /// </summary>
     private async Task<T?> WithConfirmationAsync<T>(Func<string?, IRequest<Result<Outcome<T>>>> command, string successMessage)

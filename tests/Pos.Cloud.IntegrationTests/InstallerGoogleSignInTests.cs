@@ -20,6 +20,9 @@ public sealed class ShiftableTimeProvider : TimeProvider
 
     public void Advance(TimeSpan by) => Interlocked.Add(ref _offsetTicks, by.Ticks);
 
+    /// <summary>Vuelve a la hora real (PN7: una prueba que adelanta el reloj no debe cambiar la hora de las siguientes).</summary>
+    public void Reset() => Interlocked.Exchange(ref _offsetTicks, 0);
+
     public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + TimeSpan.FromTicks(Interlocked.Read(ref _offsetTicks));
 }
 
@@ -61,8 +64,11 @@ public sealed class ShiftableClockCloudFixture : IAsyncLifetime
 /// solicitud con la clave, el dueño (usuario CLIENTE de la cuenta dueña) la autoriza en el portal con su sesión normal y el instalador
 /// recoge UNA vez el mismo enlace firmado de <c>/v1/owner-links</c>. Vence, limita las consultas (slow_down) y no se reutiliza.
 /// </summary>
-public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : IClassFixture<ShiftableClockCloudFixture>
+public sealed class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : IClassFixture<ShiftableClockCloudFixture>, IDisposable
 {
+    /// <summary>PN7: el reloj del servidor es del fixture de esta clase; cada prueba lo deja en la hora real al terminar.</summary>
+    public void Dispose() => cloud.Factory.Clock.Reset();
+
     private static readonly Uri Base = new("https://licencias.test/");
 
     /// <summary>Un poco más que el intervalo de 5 s entre consultas.</summary>
@@ -139,12 +145,29 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
         html.ShouldContain("Autorizar");
         html.ShouldNotContain("aplicación autenticadora", customMessage: "Sin TOTP activo no se pide el código del autenticador.");
 
-        // Sin el código (o con otro): no autoriza y sigue pendiente.
-        foreach (var wrong in new string?[] { null, "ZZZZ-ZZZZ" })
+        // Sin el código o con algo que no tiene su forma (PN2): no autoriza y NO gasta intentos.
+        foreach (var malformed in new[] { string.Empty, "1234", "no tengo el codigo" })
         {
-            using var rejected = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = wrong ?? string.Empty });
-            WebUtility.HtmlDecode(await rejected.Content.ReadAsStringAsync(Ct)).ShouldContain("El código no coincide");
+            using var rejected = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = malformed });
+            WebUtility.HtmlDecode(await rejected.Content.ReadAsStringAsync(Ct)).ShouldContain("Escriba el código de 8 letras y números");
         }
+
+        // Con otro código: no autoriza, sigue pendiente y quedan 4 intentos (los anteriores no contaron).
+        using (var rejected = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = "ZZZZ-ZZZZ" }))
+        {
+            var text = WebUtility.HtmlDecode(await rejected.Content.ReadAsStringAsync(Ct));
+            text.ShouldContain("El código no coincide");
+            text.ShouldContain("le quedan 4 intentos");
+        }
+
+        // Abrir la página (GET) varias veces no escribe en la auditoría (B3): solo las decisiones.
+        var auditBefore = await OwnerAuditCountAsync(owner.Email);
+        for (var i = 0; i < 3; i++)
+        {
+            (await browser.GetAsync(page, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        (await OwnerAuditCountAsync(owner.Email)).ShouldBe(auditBefore);
 
         cloud.Factory.Clock.Advance(NextPoll);
         (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Pending);
@@ -245,6 +268,11 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
             using var wrong = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = "ZZZZ-ZZZZ" });
             var text = WebUtility.HtmlDecode(await wrong.Content.ReadAsStringAsync(Ct));
             text.ShouldContain(i < 5 ? $"le quedan {5 - i} intentos" : "Solicitud cancelada");
+            if (i == 5)
+            {
+                // PN3: además del estado, el motivo y qué hacer.
+                text.ShouldContain("se canceló por demasiados códigos incorrectos");
+            }
         }
 
         // Ni con el código correcto después.
@@ -310,24 +338,75 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
         poll.Code.ShouldBe(LicenseErrorCodes.SubscriptionInactive);
     }
 
-    /// <summary>N2: con un ingreso de hace más de 10 minutos, restablecer a otro usuario pide confirmar con la contraseña (o el TOTP).</summary>
     [Fact]
-    public async Task Restablecer_a_otro_usuario_con_un_ingreso_antiguo_pide_confirmar_la_identidad()
+    public async Task Tras_codigos_incorrectos_el_codigo_correcto_todavia_autoriza()
     {
-        var (_, support) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "SUPPORT");
-        var id = (await PortalApi.GetAsync<List<Pos.Cloud.PortalIdentity.Application.PortalUserDto>>(cloud.Superadmin, "/admin/users")).Single(u => u.Email == support.Email).Id;
-        using var admin = await PortalApi.SignInAsync(cloud.Factory, new PortalCredentials("dueno@licencias.co", PortalApi.NewPassword));
-        var url = $"/admin/users/{id}/reset-password";
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var (_, owner) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "CUSTOMER", customer.AccountId);
+        var installer = cloud.Factory.CreateClient();
+        var started = await StartAsync(installer, customer);
+        using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
+        var page = new Uri($"cuenta/vincular-instalador?r={started.RequestId:D}", UriKind.Relative);
+        await SignInAsync(browser, owner, "/" + page.OriginalString);
+        var html = await browser.GetStringAsync(page, Ct);
 
-        for (var i = 0; i < 3; i++)
+        for (var i = 1; i <= 3; i++)
         {
-            cloud.Factory.Clock.Advance(TimeSpan.FromMinutes(4));
-            (await PortalApi.SendAsync(admin, HttpMethod.Get, "/admin/users")).Status.ShouldBe(HttpStatusCode.OK, "La sesión sigue abierta.");
+            using var wrong = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = "ZZZZ-ZZZZ" });
+            WebUtility.HtmlDecode(await wrong.Content.ReadAsStringAsync(Ct)).ShouldContain($"le quedan {5 - i} intentos");
         }
 
-        (await PortalApi.SendAsync(admin, HttpMethod.Post, url)).Code.ShouldBe("PORTAL.REAUTH_REQUIRED");
-        (await PortalApi.SendAsync(admin, HttpMethod.Post, url, new { confirmation = "otra-contrasena-123" })).Code.ShouldBe("PORTAL.INVALID_CONFIRMATION");
-        (await PortalApi.SendAsync(admin, HttpMethod.Post, url, new { confirmation = PortalApi.NewPassword })).Status.ShouldBe(HttpStatusCode.OK);
+        using (var approved = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode }))
+        {
+            WebUtility.HtmlDecode(await approved.Content.ReadAsStringAsync(Ct)).ShouldContain("la instalación quedó autorizada");
+        }
+
+        cloud.Factory.Clock.Advance(NextPoll);
+        (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Approved);
+    }
+
+    /// <summary>
+    /// Si el portal exige el doble factor y el dueño no lo tiene activo (p. ej. se exigió después de su ingreso), no se autoriza y se le
+    /// dice que lo active (TotpNotEnrolled).
+    /// </summary>
+    [Fact]
+    public async Task Sin_doble_factor_activo_cuando_el_portal_lo_exige_pide_activarlo()
+    {
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var (_, owner) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "CUSTOMER", customer.AccountId);
+        var installer = cloud.Factory.CreateClient();
+        var started = await StartAsync(installer, customer);
+        using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
+        var page = new Uri($"cuenta/vincular-instalador?r={started.RequestId:D}", UriKind.Relative);
+        await SignInAsync(browser, owner, "/" + page.OriginalString);
+        var html = await browser.GetStringAsync(page, Ct);
+
+        var options = cloud.Factory.Services.GetRequiredService<Pos.Cloud.PortalIdentity.Application.PortalIdentityOptions>();
+        options.RequireTotp = true;
+        try
+        {
+            using var attempt = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode });
+            WebUtility.HtmlDecode(await attempt.Content.ReadAsStringAsync(Ct)).ShouldContain("el doble factor es obligatorio");
+        }
+        finally
+        {
+            options.RequireTotp = false;
+        }
+
+        cloud.Factory.Clock.Advance(NextPoll);
+        (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Pending);
+    }
+
+    /// <summary>Entradas de la auditoría de la solicitud del instalador o de la cuenta del dueño que mencionan a este usuario.</summary>
+    private async Task<int> OwnerAuditCountAsync(string email)
+    {
+        var total = 0;
+        foreach (var action in new[] { "OWNER_LINK_REQUEST_APPROVED", "OWNER_LINK_REQUEST_DENIED", "PORTAL_OWNER_LINK_REJECTED", "PORTAL_OWNER_LINK_ISSUED" })
+        {
+            total += (await PortalApi.GetAsync<List<CloudAuditEntryDto>>(cloud.Superadmin, $"/admin/audit?action={action}&text={Uri.EscapeDataString(email)}")).Count;
+        }
+
+        return total;
     }
 
     private async Task<int> RejectedAuditAsync(string email) =>

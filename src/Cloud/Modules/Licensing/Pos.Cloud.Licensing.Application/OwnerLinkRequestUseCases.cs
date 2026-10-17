@@ -227,6 +227,13 @@ public sealed record OwnerLinkRequestView(
 public sealed record DecideOwnerLinkRequestCommand(Guid RequestId, bool? Approve, IPAddress? IpAddress, string? UserCode = null, string? TotpCode = null)
     : ICommand<Outcome<OwnerLinkRequestView>>;
 
+/// <summary>Avisos de la página de autorización que también revisan las pruebas.</summary>
+public static class OwnerLinkRequestMessages
+{
+    public const string CanceledByWrongCodes =
+        "La solicitud se canceló por demasiados códigos incorrectos. Vuelva a pulsar \"Continuar con Google\" en el instalador y escriba el código nuevo que muestre.";
+}
+
 internal sealed class DecideOwnerLinkRequestHandler(
     ILicensingStore store,
     IPortalUserContext user,
@@ -300,6 +307,8 @@ internal sealed class DecideOwnerLinkRequestHandler(
         var ip = command.IpAddress?.ToString() ?? "IP desconocida";
         switch (request.CheckUserCode(command.UserCode, userId, command.IpAddress, now))
         {
+            case InstallerSignInCodeCheck.Malformed:
+                return "Escriba el código de 8 letras y números tal como aparece en la ventana del instalador (por ejemplo, K7QF-M2XP).";
             case InstallerSignInCodeCheck.Mismatch:
                 return $"El código no coincide con el del instalador. Escríbalo tal como aparece en la ventana del instalador (le quedan {request.CodeAttemptsLeft} intentos).";
             case InstallerSignInCodeCheck.Exhausted:
@@ -308,7 +317,8 @@ internal sealed class DecideOwnerLinkRequestHandler(
                         $"Solicitud del instalador para {organization.LegalName} (código {request.UserCode}) cancelada: {check.Email} escribió {InstallerSignInRules.MaxCodeAttempts} códigos incorrectos desde {ip}.",
                         Severity: AuditSeverity.Warning),
                     cancellationToken);
-                return null;
+                // PN3: la página muestra "cancelada"; el aviso explica por qué y qué hacer.
+                return OwnerLinkRequestMessages.CanceledByWrongCodes;
             case InstallerSignInCodeCheck.Closed:
                 return null;
         }

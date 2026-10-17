@@ -78,15 +78,15 @@ public sealed class PortalIdentityModule : IModule
         var users =api.MapGroup("/admin/users").WithTags("Usuarios del portal").RequireAuthorization(CloudPermissions.PortalUserManage);
         users.MapGet("/", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListPortalUsersQuery(), ct)).ToHttpResult());
         users.MapPost("/", async (CreatePortalUserCommand command, IDispatcher d, CancellationToken ct) =>
-            (await d.Send(command, ct)).ToCreatedResult(u => $"/admin/users/{u.UserId}"));
+            ToCreated(await d.Send(command, ct), u => $"/admin/users/{u.UserId}"));
         users.MapPut("/{id:guid}", async (Guid id, UpdateUserRequest r, IDispatcher d, CancellationToken ct) =>
-            (await d.Send(new UpdatePortalUserCommand(id, r.DisplayName, r.Role, r.ResellerAccountId, r.IsActive), ct)).ToHttpResult());
+            ToNoContent(await d.Send(new UpdatePortalUserCommand(id, r.DisplayName, r.Role, r.ResellerAccountId, r.IsActive, r.Confirmation), ct)));
         users.MapPost("/{id:guid}/reset-password", async (Guid id, [FromBody] ConfirmationBody? r, IDispatcher d, CancellationToken ct) =>
             ToHttp(await d.Send(new ResetPortalUserPasswordCommand(id, r?.Confirmation), ct)));
         users.MapPost("/{id:guid}/reset-totp", async (Guid id, TotpResetBody r, IDispatcher d, CancellationToken ct) =>
             ToHttp(await d.Send(new ResetPortalUserTotpCommand(id, r.Reason, r.AlsoResetPassword ?? true, r.Confirmation), ct)));
-        users.MapPost("/{id:guid}/unlock", async (Guid id, IDispatcher d, CancellationToken ct) =>
-            (await d.Send(new UnlockPortalUserCommand(id), ct)).ToHttpResult());
+        users.MapPost("/{id:guid}/unlock", async (Guid id, [FromBody] ConfirmationBody? r, IDispatcher d, CancellationToken ct) =>
+            ToNoContent(await d.Send(new UnlockPortalUserCommand(id, r?.Confirmation), ct)));
 
         var sessions = api.MapGroup("/admin/sessions").WithTags("Usuarios del portal").RequireAuthorization(CloudPermissions.PortalUserManage);
         sessions.MapGet("/", async (Guid? userId, IDispatcher d, CancellationToken ct) => (await d.Send(new ListPortalSessionsQuery(userId), ct)).ToHttpResult());
@@ -107,6 +107,18 @@ public sealed class PortalIdentityModule : IModule
         result.IsFailure ? result.Error.ToProblem()
         : result.Value.Error is { } error ? error.ToProblem()
         : TypedResults.Ok(result.Value.Value);
+
+    private static IResult ToCreated<T>(Result<Outcome<T>> result, Func<T, string> location)
+        where T : class =>
+        result.IsFailure ? result.Error.ToProblem()
+        : result.Value.Error is { } error ? error.ToProblem()
+        : TypedResults.Created(location(result.Value.Value!), result.Value.Value);
+
+    private static IResult ToNoContent<T>(Result<Outcome<T>> result)
+        where T : class =>
+        result.IsFailure ? result.Error.ToProblem()
+        : result.Value.Error is { } error ? error.ToProblem()
+        : TypedResults.NoContent();
 }
 
 public sealed record LoginRequest(string Email, string Password);
@@ -119,11 +131,12 @@ public sealed record CodeRequest(string Code);
 
 public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
-public sealed record UpdateUserRequest(string DisplayName, string Role, Guid? ResellerAccountId, bool IsActive);
+/// <summary>PN6: <c>Confirmation</c> (contraseña o código TOTP) al cambiar el rol o desactivar, si el ingreso no es reciente.</summary>
+public sealed record UpdateUserRequest(string DisplayName, string Role, Guid? ResellerAccountId, bool IsActive, string? Confirmation = null);
 
 public sealed record ReasonBody(string Reason);
 
-/// <summary>Confirmación del superadministrador (su contraseña o su código TOTP) para restablecer a otro usuario.</summary>
+/// <summary>Confirmación del superadministrador (su contraseña o su código TOTP) para restablecer o desbloquear a otro usuario.</summary>
 public sealed record ConfirmationBody(string? Confirmation);
 
 /// <summary>Restablecer el doble factor: por defecto también la contraseña (temporal).</summary>

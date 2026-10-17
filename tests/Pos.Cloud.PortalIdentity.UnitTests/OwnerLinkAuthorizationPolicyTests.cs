@@ -65,6 +65,18 @@ public class OwnerLinkAuthorizationPolicyTests
         AdminResetPolicy.AllowsWithoutConfirmation(session, actor, superadmin, Start.AddMinutes(1)).ShouldBeFalse();
     }
 
+    /// <summary>PN6: crear un superadministrador o ascender a alguien (la cuenta todavía no es de superadministrador) usa la misma regla.</summary>
+    [Fact]
+    public void Crear_o_ascender_a_superadministrador_nunca_se_permite_sin_confirmar()
+    {
+        var actor = Users.WithTotp();
+        var session = Session(actor, SessionAuthMethod.Password, Start);
+
+        AdminResetPolicy.AllowsWithoutConfirmation(session, actor, targetIsSuperadmin: true, Start.AddMinutes(1)).ShouldBeFalse();
+        AdminResetPolicy.AllowsWithoutConfirmation(session, actor, targetIsSuperadmin: false, Start.AddMinutes(1)).ShouldBeTrue();
+        AdminResetPolicy.AllowsWithoutConfirmation(session, actor, targetIsSuperadmin: false, Start.AddMinutes(11)).ShouldBeFalse();
+    }
+
     [Fact]
     public void Una_sesion_revocada_o_de_otro_usuario_no_cuenta_como_ingreso_reciente()
     {

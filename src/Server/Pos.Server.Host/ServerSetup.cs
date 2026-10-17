@@ -171,7 +171,18 @@ internal static class ServerSetup
         app.UseMiddleware<ContentSecurityPolicyMiddleware>();
         app.UseBlazorFrameworkFiles();
         app.UseDefaultFiles();
-        app.UseStaticFiles();
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            // PN5: el asistente inicial (index.html y asistente.js) se revalida siempre: después de una actualización no queda en la caché
+            // del navegador la página o el script de la versión anterior.
+            OnPrepareResponse = context =>
+            {
+                if (context.Context.Request.Path.StartsWithSegments("/instalacion", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Context.Response.Headers.CacheControl = "no-cache";
+                }
+            },
+        });
 
         // El enrutamiento va DESPUÉS de los archivos estáticos: si no, la ruta de reserva de la interfaz se queda con /css, /_framework…
         app.UseRouting();

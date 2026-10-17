@@ -40,10 +40,11 @@ public static class OwnerLinkAuthorizationPolicy
 }
 
 /// <summary>
-/// Acciones delicadas de un superadministrador sobre OTRO usuario (restablecer su contraseña o su doble factor): exigen un ingreso
-/// reciente (<see cref="OwnerLinkAuthorizationPolicy.ReauthenticationWindow"/>) o confirmar en el momento con la contraseña o el código
-/// TOTP del superadministrador; si el usuario afectado es otro SUPERADMINISTRADOR, siempre el código TOTP. Nunca sobre sí mismo (para eso
-/// está "Mi cuenta", que pide el código vigente).
+/// Acciones delicadas de un superadministrador sobre OTRO usuario (restablecer su contraseña o su doble factor; y, desde PN6, crear un
+/// superadministrador, cambiar el rol, desactivar y desbloquear): exigen un ingreso reciente
+/// (<see cref="OwnerLinkAuthorizationPolicy.ReauthenticationWindow"/>) o confirmar en el momento con la contraseña o el código TOTP del
+/// superadministrador; si la cuenta afectada es (o pasa a ser) de SUPERADMINISTRADOR, siempre el código TOTP. Nunca sobre sí mismo (para
+/// eso está "Mi cuenta", que pide el código vigente).
 /// </summary>
 public static class AdminResetPolicy
 {
@@ -51,8 +52,12 @@ public static class AdminResetPolicy
     public static bool AllowsWithoutConfirmation(PortalSession actorSession, PortalUser actor, PortalUser target, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(target);
-        return target.Role != PortalRole.Superadmin && OwnerLinkAuthorizationPolicy.IsRecent(actorSession, actor, now);
+        return AllowsWithoutConfirmation(actorSession, actor, target.Role == PortalRole.Superadmin, now);
     }
+
+    /// <summary>Igual, cuando la cuenta afectada todavía no existe o cambia de rol (<paramref name="targetIsSuperadmin"/>).</summary>
+    public static bool AllowsWithoutConfirmation(PortalSession actorSession, PortalUser actor, bool targetIsSuperadmin, DateTimeOffset now) =>
+        !targetIsSuperadmin && OwnerLinkAuthorizationPolicy.IsRecent(actorSession, actor, now);
 
     /// <summary>Afectar a otro superadministrador exige el TOTP del que actúa (la contraseña no basta).</summary>
     public static bool RequiresTotp(PortalUser target)
