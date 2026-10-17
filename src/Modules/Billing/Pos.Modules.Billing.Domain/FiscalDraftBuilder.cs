@@ -66,12 +66,13 @@ public static class FiscalDraftBuilder
         "BILLING.RELATED_NOT_ACCEPTED", "La factura que corrige la nota crédito aún no ha sido aceptada.");
 
     public static FiscalHeader Header(
-        FiscalDocument document, FiscalNumbering numbering, FiscalParty issuer, FiscalEstablishment establishment, string? notes = null)
+        FiscalDocument document, FiscalNumbering numbering, FiscalParty issuer, FiscalEstablishment establishment, string? notes = null,
+        DateOnly? submittedOn = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         return new FiscalHeader(
             document.Id, document.ReferenceCode ?? FiscalReference.For(document.Source, document.SourceId), document.SourceNumber, numbering,
-            document.BusinessDate, document.IssuedAt, issuer, establishment, notes, document.Attempts > 0);
+            document.BusinessDate, document.IssuedAt, issuer, establishment, notes, document.Attempts > 0, submittedOn);
     }
 
     /// <summary>

@@ -46,6 +46,9 @@ public sealed class FiscalNumberingRange : AggregateRoot<Guid>, ICompanyOwned, I
 
     public DateTimeOffset SyncedAt { get; private set; }
 
+    /// <summary>Ambiente del proveedor del que vino el rango (N2): un rango de pruebas nunca numera documentos de producción.</summary>
+    public FiscalEnvironment Environment { get; private set; } = FiscalEnvironment.Sandbox;
+
     public string AuditLabel => $"Rango {Prefix} {RangeFrom}-{RangeTo} ({DocumentType})";
 
     /// <summary>Porcentaje usado del rango (0–100).</summary>
@@ -53,11 +56,12 @@ public sealed class FiscalNumberingRange : AggregateRoot<Guid>, ICompanyOwned, I
 
     public long Remaining => RangeTo - CurrentNumber;
 
-    public static FiscalNumberingRange Create(Guid id, Guid companyId, string provider, FiscalProviderRange data, DateTimeOffset now)
+    public static FiscalNumberingRange Create(
+        Guid id, Guid companyId, string provider, FiscalProviderRange data, DateTimeOffset now, FiscalEnvironment environment = FiscalEnvironment.Sandbox)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
-        var range = new FiscalNumberingRange(id, companyId, provider) { ProviderRangeId = data.ProviderRangeId };
+        var range = new FiscalNumberingRange(id, companyId, provider) { ProviderRangeId = data.ProviderRangeId, Environment = environment };
         range.Refresh(data, now);
         return range;
     }
@@ -120,10 +124,13 @@ public sealed class FiscalNumberingRange : AggregateRoot<Guid>, ICompanyOwned, I
     /// <summary>
     /// Elige el rango para emitir: primero el asignado a la caja, luego el de toda la sucursal; activo, vigente y con números.
     /// </summary>
+    /// <remarks>Solo rangos del <paramref name="environment"/> del documento (N2).</remarks>
     public static FiscalNumberingRange? Select(
-        IEnumerable<FiscalNumberingRange> ranges, Guid branchId, Guid? posTerminalId, FiscalDocumentType type, DateOnly date)
+        IEnumerable<FiscalNumberingRange> ranges, Guid branchId, Guid? posTerminalId, FiscalDocumentType type, DateOnly date,
+        FiscalEnvironment environment = FiscalEnvironment.Sandbox)
     {
-        var candidates = (ranges ?? []).Where(r => r.BranchId == branchId && r.DocumentType == type && r.IsUsableOn(date)).ToList();
+        var candidates = (ranges ?? [])
+            .Where(r => r.Environment == environment && r.BranchId == branchId && r.DocumentType == type && r.IsUsableOn(date)).ToList();
         return candidates.FirstOrDefault(r => posTerminalId is not null && r.PosTerminalId == posTerminalId)
             ?? candidates.Where(r => r.PosTerminalId is null).OrderBy(r => r.ValidTo ?? DateOnly.MaxValue).FirstOrDefault();
     }
@@ -159,7 +166,49 @@ public sealed class BillingProviderSettings : ICompanyOwned
 
     public string? LastSyncError { get; private set; }
 
+    /// <summary>Usuario enmascarado (p. ej. <c>ti***@correo.co</c>) para reconocer las credenciales sin mostrarlas.</summary>
+    public string? CredentialHint { get; private set; }
+
+    /// <summary>Última verificación contra el proveedor de las credenciales y el ambiente VIGENTES (se borra al cambiar cualquiera).</summary>
+    public DateTimeOffset? LastVerifiedAt { get; private set; }
+
+    public bool? LastVerificationOk { get; private set; }
+
+    public string? LastVerificationMessage { get; private set; }
+
+    /// <summary>
+    /// Primera verificación correcta (PA1): los documentos electrónicos emitidos ANTES de ese momento (atraso de cuando no había proveedor)
+    /// no se envían solos; la administración decide "Enviar ahora" (<see cref="BacklogReleased"/>) o "No enviar" (NOT_SENT).
+    /// </summary>
+    public DateTimeOffset? BacklogCutoff { get; private set; }
+
+    public bool BacklogReleased { get; private set; }
+
+    /// <summary>
+    /// Ambiente con que se fijó el corte: verificar en OTRO ambiente lo mueve a ese momento (PB1). Rotar llaves en el mismo ambiente no lo
+    /// mueve (N1): los documentos en cola de ese ambiente siguen saliendo.
+    /// </summary>
+    public FiscalEnvironment? BacklogEnvironment { get; private set; }
+
+    /// <summary>Ambiente de la última sincronización correcta de rangos (N2): sin rangos del ambiente vigente no se envía.</summary>
+    public FiscalEnvironment? RangesEnvironment { get; private set; }
+
+    /// <summary>Hay que (re)sincronizar los rangos: nunca se hizo o fue en otro ambiente.</summary>
+    public bool RangesStale => RangesEnvironment != Environment;
+
+    /// <summary>La migración V2026.10.060 la apagó por estar encendida sin verificación: el tablero lo avisa hasta que se conecte.</summary>
+    public DateTimeOffset? AutoDisabledAt { get; private set; }
+
     public bool HasCredentials => Credentials is { Length: > 0 };
+
+    /// <summary>Las credenciales y el ambiente vigentes ya se verificaron con éxito contra el proveedor.</summary>
+    public bool IsVerified => HasCredentials && LastVerificationOk == true;
+
+    /// <summary>La cola envía SOLO con el modo encendido y la conexión verificada (PA1). Con OFF no sale nada, ni lo que ya estaba en cola.</summary>
+    public bool CanSend => Mode != BillingMode.Off && IsVerified && !RangesStale;
+
+    /// <summary>Los documentos emitidos antes de este momento esperan la decisión de la administración (nulo: no hay atraso retenido).</summary>
+    public DateTimeOffset? HeldBefore => BacklogReleased ? null : BacklogCutoff;
 
     public static BillingProviderSettings Create(Guid companyId, string provider)
     {
@@ -167,7 +216,11 @@ public sealed class BillingProviderSettings : ICompanyOwned
         return new BillingProviderSettings(companyId, provider);
     }
 
-    /// <summary>Cambia el modo y el ambiente. Encender (modo distinto de OFF) exige credenciales.</summary>
+    /// <summary>
+    /// Cambia el modo y el ambiente. Encender (modo distinto de OFF) exige credenciales y, si estaba apagada o cambia el ambiente, una
+    /// verificación correcta contra el proveedor ("guardar desactivado → verificar → activar"). Cambiar el ambiente borra la verificación.
+    /// Pasar de ON_REQUEST a EVERY_SALE (o al revés) en el mismo ambiente no exige verificar de nuevo.
+    /// </summary>
     public Result Configure(BillingMode mode, FiscalEnvironment environment, string provider)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
@@ -176,26 +229,118 @@ public sealed class BillingProviderSettings : ICompanyOwned
             return BillingErrors.CredentialsRequired;
         }
 
+        var environmentChanged = environment != Environment;
+        if (mode != BillingMode.Off && (Mode == BillingMode.Off || environmentChanged) && (environmentChanged || !IsVerified))
+        {
+            return BillingErrors.VerificationRequired;
+        }
+
+        if (environmentChanged)
+        {
+            ClearVerification();
+        }
+
         Mode = mode;
         Environment = environment;
         Provider = provider;
+        if (mode != BillingMode.Off)
+        {
+            AutoDisabledAt = null;
+        }
+
         return Result.Success();
     }
 
-    /// <summary>Guarda las credenciales ya cifradas; sin credenciales, la facturación se apaga.</summary>
-    public void SetCredentials(byte[]? encrypted, DateTimeOffset now)
+    /// <summary>
+    /// Guarda las credenciales ya cifradas ("guardar desactivado"): la facturación electrónica queda APAGADA y sin verificación hasta que
+    /// se verifiquen contra el proveedor y se vuelva a encender. <paramref name="hint"/>: usuario enmascarado.
+    /// </summary>
+    public void SetCredentials(byte[]? encrypted, DateTimeOffset now, string? hint = null)
     {
         Credentials = encrypted is { Length: > 0 } ? encrypted : null;
         CredentialsUpdatedAt = Credentials is null ? null : now;
-        if (Credentials is null)
+        CredentialHint = Credentials is null ? null : hint is { Length: > 80 } ? hint[..80] : hint;
+        Mode = BillingMode.Off;
+        ClearVerification();
+    }
+
+    /// <summary>
+    /// Resultado de verificar las credenciales y el ambiente vigentes contra el proveedor (el mensaje se recorta). Un fallo TRANSITORIO (sin
+    /// red, tiempo agotado, proveedor caído) no quita una verificación correcta (PA9): solo un rechazo de las credenciales la quita. La
+    /// primera verificación correcta fija el corte del atraso (<see cref="BacklogCutoff"/>).
+    /// </summary>
+    /// <returns><c>true</c> si cambió el estado guardado.</returns>
+    public bool RecordVerification(DateTimeOffset now, bool ok, string? message, bool transient = false)
+    {
+        if (!ok && transient && LastVerificationOk == true)
         {
-            Mode = BillingMode.Off;
+            return false;
         }
+
+        LastVerifiedAt = now;
+        LastVerificationOk = ok;
+        LastVerificationMessage = message is { Length: > 500 } ? message[..500] : message;
+        if (ok && (BacklogCutoff is null || BacklogEnvironment != Environment))
+        {
+            // Primera verificación correcta, o en otro ambiente: lo emitido antes espera la decisión de la administración.
+            BacklogCutoff = now;
+            BacklogReleased = false;
+            BacklogEnvironment = Environment;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// "Cambiar llaves" (PA6): las llaves candidatas YA se verificaron contra el proveedor en el ambiente vigente; se guardan sin apagar
+    /// la facturación y quedan verificadas.
+    /// </summary>
+    public void ReplaceVerifiedCredentials(byte[] encrypted, DateTimeOffset now, string? hint, string? message)
+    {
+        ArgumentNullException.ThrowIfNull(encrypted);
+        if (encrypted.Length == 0)
+        {
+            throw new DomainException("Las credenciales nuevas están vacías.");
+        }
+
+        Credentials = encrypted;
+        CredentialsUpdatedAt = now;
+        CredentialHint = hint is { Length: > 80 } ? hint[..80] : hint;
+        RecordVerification(now, ok: true, message);
+    }
+
+    /// <summary>"Enviar ahora" el atraso retenido (PA1): desde ya la cola lo envía como cualquier otro documento.</summary>
+    public void ReleaseBacklog() => BacklogReleased = true;
+
+    /// <summary>Usuario enmascarado: las dos primeras letras y el dominio del correo (<c>ti***@correo.co</c>).</summary>
+    public static string MaskUsername(string username)
+    {
+        ArgumentNullException.ThrowIfNull(username);
+        var value = username.Trim();
+        var at = value.IndexOf('@', StringComparison.Ordinal);
+        var local = at >= 0 ? value[..at] : value;
+        var visible = local.Length <= 2 ? local[..Math.Min(1, local.Length)] : local[..2];
+        return visible + "***" + (at >= 0 ? value[at..] : string.Empty);
+    }
+
+    private void ClearVerification()
+    {
+        LastVerifiedAt = null;
+        LastVerificationOk = null;
+        LastVerificationMessage = null;
     }
 
     /// <summary>Resultado de la última sincronización de rangos (el error se recorta).</summary>
-    public void RecordSync(DateTimeOffset now, string? error)
+    /// <param name="now">Momento de la sincronización.</param>
+    /// <param name="error">Error del proveedor, o <c>null</c> si salió bien.</param>
+    /// <param name="environment">Ambiente sincronizado (solo cuenta si salió bien).</param>
+    public void RecordSync(DateTimeOffset now, string? error, FiscalEnvironment? environment = null)
     {
+        if (error is null && environment is { } synced)
+        {
+            RangesEnvironment = synced;
+        }
+
         LastSyncAt = now;
         LastSyncError = error is { Length: > 500 } ? error[..500] : error;
     }

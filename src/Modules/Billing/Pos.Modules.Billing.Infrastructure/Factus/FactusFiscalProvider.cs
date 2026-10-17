@@ -113,6 +113,38 @@ public sealed partial class FactusFiscalProvider(IFactusApiFactory apis, FactusC
         }
     }
 
+    /// <summary>
+    /// "Verificar conexión": pide un token NUEVO con usuario y clave (POST <c>oauth/token</c>) en un espacio de token aparte del de la cola
+    /// (no reinicia el del trabajador). No emite documentos ni consume el paquete. Distingue credenciales rechazadas (o del otro ambiente)
+    /// de la falta de conexión (transitoria: no quita una verificación correcta).
+    /// </summary>
+    public async Task<FiscalConnectionCheck> VerifyAsync(FiscalConnection connection, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        var environment = connection.Environment == FiscalEnvironment.Production ? "producción" : "pruebas (sandbox)";
+        try
+        {
+            var session = await Api(connection).ValidateCredentialsAsync(cancellationToken);
+            return session.Status switch
+            {
+                FactusQueryStatus.Found => new FiscalConnectionCheck(true, $"Factus aceptó las credenciales en {environment}."),
+                FactusQueryStatus.CredentialsError => new FiscalConnectionCheck(
+                    false,
+                    $"Factus rechazó las credenciales en {environment}. Revise el usuario, la contraseña, el Client ID y el Client secret, y que sean "
+                    + "las de ese ambiente (pruebas y producción tienen credenciales distintas)."),
+                FactusQueryStatus.TransientError when session.HttpStatus is null => new FiscalConnectionCheck(
+                    false, $"No hubo conexión con Factus ({session.Detail ?? "sin respuesta"}). Revise el Internet del servidor de la tienda y vuelva a probar.",
+                    Transient: true),
+                _ => new FiscalConnectionCheck(
+                    false, $"Factus no respondió bien a la verificación (HTTP {session.HttpStatus}): {session.Detail}. Vuelva a probar en unos minutos.", Transient: true),
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new FiscalConnectionCheck(false, Unexpected(ex).Message ?? "Falla inesperada al verificar Factus.", Transient: true);
+        }
+    }
+
     /// <summary>Opciones de Factus de la empresa: ambiente y credenciales de la conexión (descifradas solo para la llamada).</summary>
     public FactusOptions Options(FiscalConnection connection)
     {

@@ -10,6 +10,12 @@ public interface IFactusApi
     /// <summary>Pide un token nuevo con usuario y clave (probar credenciales). POST <c>oauth/token</c> grant_type=password.</summary>
     Task<FactusQueryResult<FactusSession>> AuthenticateAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// "Verificar conexión" (PB2b): valida DE VERDAD usuario y clave pidiendo un token nuevo (POST <c>oauth/token</c>, password grant) en un
+    /// espacio de token APARTE del de la cola, así no reinicia el token del trabajador.
+    /// </summary>
+    Task<FactusQueryResult<FactusSession>> ValidateCredentialsAsync(CancellationToken cancellationToken);
+
     /// <summary>POST <c>v2/bills/validate</c>.</summary>
     Task<FactusResult> CreateBillAsync(FactusBillRequest request, CancellationToken cancellationToken);
 

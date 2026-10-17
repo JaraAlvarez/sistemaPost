@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -89,6 +90,13 @@ internal sealed class FolderDestination(string path, string? volumeLabel) : IDes
 
     private void EnsureAvailable()
     {
+        // N5: el nombre de un equipo de red puede cambiar de dirección: antes de cada copia se vuelve a exigir un equipo de la red local.
+        if (BackupFolderProbe.IsUnc(path)
+            && BackupFolderProbe.NetworkHostProblem(BackupFolderProbe.HostOf(path), host => System.Net.Dns.GetHostAddresses(host)) is { } problem)
+        {
+            throw new DestinationUnavailableException(problem);
+        }
+
         if (string.IsNullOrWhiteSpace(volumeLabel) || path.StartsWith(@"\\", StringComparison.Ordinal))
         {
             return;
@@ -766,9 +774,70 @@ internal sealed partial class BackupWorker(
 }
 
 /// <summary>Operaciones para los casos de uso (puerto de la capa de aplicación).</summary>
-internal sealed class BackupOperations(BackupRunner runner, BackupWorker worker, BackupEnvironment environment, IServiceScopeFactory scopes) : IBackupOperations
+internal sealed class BackupOperations(
+    BackupRunner runner, BackupWorker worker, BackupEnvironment environment, IServiceScopeFactory scopes, IConfiguration configuration, IHostEnvironment host)
+    : IBackupOperations
 {
     public bool IsConfigured => runner.IsConfigured;
+
+    public string LocalDirectory => environment.LocalDirectory;
+
+    /// <summary>Tiempo máximo de la comprobación (una carpeta de red caída puede tardar decenas de segundos en fallar).</summary>
+    public static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(10);
+
+    public async Task<BackupFolderCheckDto> CheckFolderAsync(string kind, string? path, string? volumeLabel, CancellationToken cancellationToken)
+    {
+        // Solo fuera de producción (pruebas): permite un destino en el mismo disco que la carpeta LOCAL.
+        var allowSameVolume = !host.IsProduction() && bool.TryParse(configuration["Pos:Backup:AllowSameVolumeDestinations"], out var allow) && allow;
+        var folderKind = kind == DestinationKinds.Network ? BackupFolderKind.Network : BackupFolderKind.External;
+
+        // PB9: UNA comprobación a la vez por carpeta. Si una anterior sigue colgada (red caída), se espera esa misma en vez de abrir otro
+        // hilo; el probe recibe un token que vence con el tiempo máximo, y el registro se quita cuando de verdad termina.
+        var key = $"{folderKind}|{path?.Trim().ToUpperInvariant()}|{volumeLabel?.Trim().ToUpperInvariant()}|{allowSameVolume}";
+        var lazy = RunningChecks.GetOrAdd(key, k => new Lazy<Task<BackupFolderProbeResult>>(() => StartCheck(k, path, volumeLabel, folderKind, allowSameVolume)));
+        try
+        {
+            var result = await lazy.Value.WaitAsync(CheckTimeout, cancellationToken);
+            RunningChecks.TryRemove(new KeyValuePair<string, Lazy<Task<BackupFolderProbeResult>>>(key, lazy)); // nunca reutilizar un resultado viejo
+            return new BackupFolderCheckDto(result.Ok, result.Message, result.FullPath, result.VolumeLabel, result.FreeBytes);
+        }
+        catch (TimeoutException)
+        {
+            return new BackupFolderCheckDto(
+                false, "La carpeta no respondió en 10 segundos: revise que el disco o el equipo de la red estén encendidos y conectados.", null, null, null);
+        }
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<BackupFolderProbeResult>>> RunningChecks =
+        new(StringComparer.Ordinal);
+
+    private Task<BackupFolderProbeResult> StartCheck(string key, string? path, string? volumeLabel, BackupFolderKind kind, bool allowSameVolume)
+    {
+        var local = environment.LocalDirectory;
+        var task = Task.Run(async () =>
+        {
+            using var timeout = new CancellationTokenSource(CheckTimeout);
+            try
+            {
+                return await BackupFolderProbe.CheckAsync(path, volumeLabel, local, kind, allowSameVolume, timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return new BackupFolderProbeResult(false, "La carpeta no respondió a tiempo.", null, null, null);
+            }
+        });
+        // Se quita SOLO la entrada de esta comprobación (otra posterior con la misma llave no se toca).
+        _ = task.ContinueWith(
+            _ =>
+            {
+                if (RunningChecks.TryGetValue(key, out var entry) && entry.IsValueCreated && ReferenceEquals(entry.Value, task))
+                {
+                    RunningChecks.TryRemove(new KeyValuePair<string, Lazy<Task<BackupFolderProbeResult>>>(key, entry));
+                }
+            },
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return task;
+    }
 
     public void EnqueueManual(Guid? requestedBy) => worker.Enqueue(requestedBy);
 

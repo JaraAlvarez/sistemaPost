@@ -223,6 +223,20 @@ public class CashSessionTests
         x.Text.ShouldContain("***");
         x.Text.ShouldNotContain("CÓDIGO DE CONTROL");
         CashReports.Label("SUPPLIER_PAYMENT").ShouldBe("Pagos a proveedor");
+
+        // SX2/SX3/SX4: cobros de Sistecrédito por revisar, con el documento en "*" y el aviso partido por palabras sin pasar del papel.
+        var withCredits = CashReports.Build("X", Cash.Session(), new SessionHeader("S", "B", "C01", "Ana"), [],
+            [new(Cash.Efectivo, "EFECTIVO", "Efectivo", true, null, null, null, 0)], Cash.Night, new BogotaClock(),
+            [new(Guid.NewGuid(), 60_000m, "tx-1", "••••4050", Cash.Night, Reviewed: false, Released: true), new(Guid.NewGuid(), 20_000m, "tx-2", "••••1234", Cash.Night, Reviewed: true)]);
+        withCredits.Text.ShouldContain("SISTECREDITO A REVISAR (2)");
+        withCredits.Text.ShouldContain("****4050 no usado");
+        withCredits.Text.ShouldContain("****1234 revisado");
+        withCredits.Text.ShouldNotContain("•");
+        var lines = withCredits.Text.Split('\n');
+        lines.ShouldAllBe(l => l.Length <= CashReports.Width);
+        lines.ShouldContain("No es plata de la caja: la administración"); // se parte entre palabras, no a la mitad de una
+        lines.ShouldContain("lo revisa y lo reversa en el portal de");
+        lines.ShouldContain("Sistecrédito.");
         CashReports.Label("OTRO").ShouldBe("OTRO");
     }
 

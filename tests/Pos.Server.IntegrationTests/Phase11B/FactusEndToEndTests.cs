@@ -20,13 +20,14 @@ namespace Pos.Server.IntegrationTests.Phase11B;
 /// Servidor POS con el proveedor REAL <c>Pos:Billing:Provider = FACTUS</c> (cliente HTTP de Factus v2) apuntando al Factus SIMULADO en
 /// Kestrel (<see cref="FactusFakeServer.StartAsync"/>). La cola la dirigen las pruebas (<c>POST /billing/queue/process</c>).
 /// </summary>
-public sealed class FactusBillingServerFactory(Uri factusUrl) : PosServerFactory
+public sealed class FactusBillingServerFactory(Uri factusUrl, int verifyMinSeconds = 0) : PosServerFactory
 {
     protected override string Edition => "SINGLE";
 
     protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
     [
         new("Pos:Billing:Provider", "FACTUS"),
+        new("Pos:Billing:VerifyMinSeconds", verifyMinSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture)),
         new("Pos:Billing:Worker", "false"),
         new("Pos:Billing:Factus:BaseUrl", factusUrl.ToString()),
         new("Pos:Billing:Factus:TimeoutSeconds", "5"),
@@ -67,7 +68,7 @@ public class FactusEndToEndTests
             return new Harness { Factus = factus, Factory = factory, Shop = shop };
         }
 
-        /// <summary>Credenciales de Factus (las del simulado), modo EVERY_SALE en sandbox, rangos sincronizados y asignados a la sucursal.</summary>
+        /// <summary>Credenciales de Factus (las del simulado) verificadas, modo EVERY_SALE en sandbox, rangos sincronizados y asignados a la sucursal.</summary>
         public async Task<List<FiscalRangeDto>> EnableAsync()
         {
             var settings = await SendAsync<BillingSettingsDto>(Shop.Owner, HttpMethod.Put, "/api/v1/billing/settings/credentials", new
@@ -76,6 +77,7 @@ public class FactusEndToEndTests
                 clientId = FactusFakeServer.DefaultClientId, clientSecret = FactusFakeServer.DefaultClientSecret,
             });
             settings.ActiveAdapter.ShouldBe("FACTUS");
+            (await PostAsync<FiscalConnectionVerificationDto>(Shop.Owner, "/api/v1/billing/settings/verify")).Ok.ShouldBeTrue();
             await SendAsync<BillingSettingsDto>(Shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "EVERY_SALE", environment = "SANDBOX" });
             var ranges = await PostAsync<List<FiscalRangeDto>>(Shop.Owner, "/api/v1/billing/ranges/sync");
             var assigned = new List<FiscalRangeDto>();

@@ -60,6 +60,11 @@ public enum FiscalStatus
 
     /// <summary>Documento electrónico que nunca fue aceptado y se canceló (la venta se anuló antes de enviarlo).</summary>
     Cancelled,
+
+    /// <summary>
+    /// Documento electrónico del atraso de antes de conectar el proveedor que la administración decidió NO enviar (PA1). No se reintenta.
+    /// </summary>
+    NotSent,
 }
 
 public static class BillingErrors
@@ -87,6 +92,10 @@ public static class BillingErrors
 
     public static readonly Error CredentialsRequired = Error.BusinessRule(
         "BILLING.CREDENTIALS_REQUIRED", "Configure las credenciales del proveedor antes de encender la facturación electrónica.");
+
+    public static readonly Error VerificationRequired = Error.BusinessRule(
+        "BILLING.VERIFICATION_REQUIRED",
+        "Verifique primero la conexión con el proveedor (credenciales y ambiente actuales) antes de encender la facturación electrónica.");
 
     public static readonly Error InvalidCredentials = Error.Validation(
         "BILLING.INVALID_CREDENTIALS", "Las credenciales del proveedor están incompletas: usuario, contraseña, client id y client secret.");
@@ -216,6 +225,9 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
 
     public DateTimeOffset? NextAttemptAt { get; private set; }
 
+    /// <summary>Ambiente del proveedor con que se emitió (PB1). La cola solo envía los del ambiente vigente.</summary>
+    public FiscalEnvironment? Environment { get; private set; }
+
     public Guid? RelatedDocumentId { get; private set; }
 
     public DateOnly BusinessDate { get; private set; }
@@ -257,7 +269,9 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
         _ => FiscalDocumentType.CreditNote,
     };
 
-    public static FiscalDocument Issue(Guid id, Guid companyId, FiscalIssue issue, bool electronic, DateTimeOffset now, Guid? userId, Func<Guid> newId)
+    /// <summary>Emite el documento. El electrónico lleva el ambiente del proveedor con que se emite y numera (PB1); el interno no.</summary>
+    public static FiscalDocument Issue(
+        Guid id, Guid companyId, FiscalIssue issue, bool electronic, DateTimeOffset now, Guid? userId, Func<Guid> newId, FiscalEnvironment? environment = null)
     {
         ArgumentNullException.ThrowIfNull(issue);
         ArgumentNullException.ThrowIfNull(newId);
@@ -287,6 +301,7 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
             Total = issue.Total,
             IssuedAt = now,
             NextAttemptAt = electronic ? now : null,
+            Environment = electronic ? environment ?? FiscalEnvironment.Sandbox : null,
         };
         document._events.Add(FiscalDocumentEvent.Create(newId(), "ISSUED", electronic ? "Pendiente de envío al proveedor." : "Comprobante interno.", null, now, userId));
         return document;
@@ -417,6 +432,58 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
 
         NextAttemptAt = result is FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency ? nextAttempt : null;
         _events.Add(FiscalDocumentEvent.Create(newId(), "ATTEMPT", detail, providerCode, now, null));
+    }
+
+    /// <summary>
+    /// "No enviar" (PA1): un documento del atraso de antes de conectar el proveedor (pendiente, con error o en contingencia) queda NOT_SENT
+    /// y la cola no lo vuelve a tomar. Devuelve <c>false</c> si no estaba en esos estados.
+    /// </summary>
+    public bool DiscardBacklog(string reason, DateTimeOffset now, Guid? userId, Func<Guid> newId)
+    {
+        ArgumentNullException.ThrowIfNull(newId);
+        // N1: lo que ya se intentó enviar o está reclamado pudo llegar al proveedor: queda "en revisión" (consultar en Factus), no se descarta.
+        if (!IsElectronic || InReview || Status is not (FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency))
+        {
+            return false;
+        }
+
+        MarkNotSent(reason, now, userId, newId);
+        return true;
+    }
+
+    /// <summary>Ya se intentó enviar o está reclamado: pudo llegar al proveedor; hay que consultar su estado antes de decidir (N1).</summary>
+    public bool InReview => Attempts > 0 || Status == FiscalStatus.Submitting;
+
+    /// <summary>
+    /// La nota (crédito o de ajuste) no aplica porque el documento que corrige quedó NO ENVIADO o cancelado (PB6): queda NOT_SENT aunque la
+    /// esté procesando la cola.
+    /// </summary>
+    public void MarkNotApplicable(string reason, DateTimeOffset now, Func<Guid> newId)
+    {
+        ArgumentNullException.ThrowIfNull(newId);
+        if (IsElectronic && Status is FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency or FiscalStatus.Submitting)
+        {
+            MarkNotSent(reason, now, null, newId);
+        }
+    }
+
+    /// <summary>
+    /// Se detiene el reintento automático (PB6): el documento queda con error, sin próximo intento, hasta que alguien lo reintente a mano
+    /// (p. ej. una nota sin rango de numeración durante demasiado tiempo).
+    /// </summary>
+    public void Stall(string code, string detail, DateTimeOffset now, Func<Guid> newId)
+    {
+        ArgumentNullException.ThrowIfNull(newId);
+        Status = FiscalStatus.Error;
+        NextAttemptAt = null;
+        _events.Add(FiscalDocumentEvent.Create(newId(), code, detail, null, now, null));
+    }
+
+    private void MarkNotSent(string reason, DateTimeOffset now, Guid? userId, Func<Guid> newId)
+    {
+        Status = FiscalStatus.NotSent;
+        NextAttemptAt = null;
+        _events.Add(FiscalDocumentEvent.Create(newId(), "NOT_SENT", reason, null, now, userId));
     }
 
     /// <summary>Reintento manual de un documento electrónico pendiente, con error, en contingencia o rechazado.</summary>
