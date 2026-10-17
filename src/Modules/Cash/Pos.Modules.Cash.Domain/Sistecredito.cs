@@ -293,13 +293,6 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
         var before = Status;
         LastCheckedAt = now;
 
-        // Sistecrédito ya dio el cobro por fallido (rechazado, vencido, cancelado…): un "Approved" posterior es una respuesta vieja y no
-        // cambia nada (nunca sobrescribe un estado final distinto).
-        if (SistecreditoProtocol.IsFailed(ProviderStatus) && SistecreditoProtocol.Map(providerStatus) == SistecreditoAttemptStatus.Approved)
-        {
-            return false;
-        }
-
         // Un estado intermedio después de aprobado no borra la aprobación (solo un estado final distinto de Approved la invalida), y una
         // respuesta "Approved" (posiblemente vieja) nunca revive un cobro que ya quedó en revisión porque Sistecrédito dejó de aprobarlo.
         if (!string.IsNullOrWhiteSpace(providerStatus)
@@ -340,6 +333,14 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
             case SistecreditoAttemptStatus.Expired when mapped == SistecreditoAttemptStatus.Approved && CompletedSaleId is null:
                 ApprovedAt = now;
                 RequireReview("El cliente aprobó el crédito después de que el cobro se dio por vencido: complete la venta o reverse el pago en el portal de Sistecrédito.", now);
+                break;
+
+            // La documentación de Sistecrédito no garantiza que un rechazo, abandono o vencimiento sea irreversible: si después llega
+            // "Approved" (p. ej. el cliente volvió al enlace), nunca se ignora: el cliente quedó cobrado y la administración lo revisa.
+            // Las respuestas viejas que llegan fuera de orden no llegan aquí (se descartan por la hora de la consulta al reintentar).
+            case SistecreditoAttemptStatus.Rejected when mapped == SistecreditoAttemptStatus.Approved && CompletedSaleId is null:
+                ApprovedAt = now;
+                RequireReview("Sistecrédito reporta aprobado un cobro que antes había rechazado: complete la venta o reverse el pago en el portal de Sistecrédito.", now);
                 break;
 
             // Aprobado y sin usar, pero Sistecrédito ya no lo reporta aprobado (reversado, cancelado…): no se puede usar y se revisa.

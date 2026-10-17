@@ -48,16 +48,21 @@ public sealed class SessionViews(
             !showExpected, session.ClosingStartedAt, session.ClosedAt, session.ClosedBySupervisor, session.CloseReason,
             showExpected ? session.ExpectedTotal : null, session.CountedTotal, showExpected ? session.Difference : null, session.DifferenceNote,
             session.ReviewRequired, session.ReviewedAt, session.ReviewNote, session.ZSealNo, session.ZSealCode,
-            await TotalsAsync(session, showExpected, cancellationToken), movements,
-            [.. (await sistecredito.ListReleasedAsync(session.PosTerminalId, session.OpenedAt, session.ClosedAt, cancellationToken))
-                .Select(a => new SistecreditoNotUsedDto(a.Id, a.Amount, a.TransactionId, a.MaskedDocument, a.ReleasedAt!.Value, a.ReviewedAt is not null))]);
+            await TotalsAsync(session, showExpected, cancellationToken), movements, await NotUsedAsync(session, cancellationToken));
     }
+
+    /// <summary>Créditos de Sistecrédito aprobados que no se usaron en ventas de la jornada («No usar este crédito»).</summary>
+    private async Task<IReadOnlyList<SistecreditoNotUsedDto>> NotUsedAsync(CashSession session, CancellationToken cancellationToken) =>
+        [.. (await sistecredito.ListReleasedAsync(session.PosTerminalId, session.OpenedAt, session.ClosedAt, cancellationToken))
+            .Select(a => new SistecreditoNotUsedDto(a.Id, a.Amount, a.TransactionId, a.MaskedDocument, a.ReleasedAt!.Value, a.ReviewedAt is not null))];
 
     public async Task<CashReportDto> ReportAsync(string kind, CashSession session, CancellationToken cancellationToken)
     {
         var header = (await readModel.GetHeaderAsync(session.Id, cancellationToken))!;
         var movements = await readModel.GetMovementsAsync(session.Id, cancellationToken);
-        return CashReports.Build(kind, session, header, movements, await TotalsAsync(session, showExpected: true, cancellationToken), clock.UtcNow, clock);
+        return CashReports.Build(
+            kind, session, header, movements, await TotalsAsync(session, showExpected: true, cancellationToken), clock.UtcNow, clock,
+            await NotUsedAsync(session, cancellationToken));
     }
 }
 

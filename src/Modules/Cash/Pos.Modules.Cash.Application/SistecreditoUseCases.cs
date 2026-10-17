@@ -417,10 +417,11 @@ internal sealed class VerifySistecreditoHandler(
 /// </summary>
 public sealed class SistecreditoAccess(ISaleChargeProbe sales, ICurrentUser current, ICashStore cash, IPermissionChecker permissions)
 {
-    public async Task<Result<SaleChargeInfo>> OpenSaleOfThisTerminalAsync(Guid saleId, CancellationToken cancellationToken)
+    public async Task<Result<SaleChargeInfo>> OpenSaleOfThisTerminalAsync(Guid saleId, CancellationToken cancellationToken, bool allowOnHold = false)
     {
         if (current.PosTerminalId is not { } terminal
-            || await sales.GetAsync(saleId, cancellationToken) is not { Status: "OPEN" } sale || sale.PosTerminalId != terminal
+            || await sales.GetAsync(saleId, cancellationToken) is not { } sale || sale.PosTerminalId != terminal
+            || !(sale.Status == "OPEN" || (allowOnHold && sale.Status == "ON_HOLD"))
             || await cash.GetUnclosedSessionAsync(terminal, null, cancellationToken) is not { Status: CashSessionStatus.Open })
         {
             return SistecreditoErrors.SaleNotOpen;
@@ -648,8 +649,9 @@ internal static class SistecreditoChecks
 }
 
 /// <summary>
-/// Cobros abiertos de una venta en curso de ESTA caja (con su jornada abierta): los aprobados y sin usar (aunque estén en "Requiere
-/// revisión"), que la caja vuelve a poner como pago al abrir el cobro, y los pendientes, que la caja vuelve a mostrar y a vigilar.
+/// Cobros abiertos de una venta en curso o suspendida de ESTA caja (con su jornada abierta): los aprobados y sin usar (aunque estén en
+/// "Requiere revisión"), que la caja vuelve a poner como pago al abrir el cobro (o le ofrece «No usar este crédito» si la venta está
+/// suspendida), y los pendientes, que la caja vuelve a mostrar y a vigilar.
 /// </summary>
 public sealed record ListOpenSistecreditoPaymentsQuery(Guid SaleId) : IQuery<IReadOnlyList<SistecreditoPaymentDto>>;
 
@@ -658,7 +660,7 @@ internal sealed class ListOpenSistecreditoPaymentsHandler(ISistecreditoStore sto
 {
     public async Task<Result<IReadOnlyList<SistecreditoPaymentDto>>> Handle(ListOpenSistecreditoPaymentsQuery request, CancellationToken cancellationToken)
     {
-        var open = await access.OpenSaleOfThisTerminalAsync(request.SaleId, cancellationToken);
+        var open = await access.OpenSaleOfThisTerminalAsync(request.SaleId, cancellationToken, allowOnHold: true);
         if (open.IsFailure)
         {
             return open.Error;
@@ -896,9 +898,29 @@ public sealed class SistecreditoPaymentsService(
             .Select(a => new SistecreditoPendingUse(a.TransactionId!, a.Amount))
             .ToList();
 
-    public async Task<Result> ReleaseAsync(Guid saleId, string transactionId, Guid userId, Guid? authorizedBy, CancellationToken cancellationToken = default)
+    public async Task<Result> ReleaseAsync(Guid saleId, string? transactionId, Guid userId, Guid? authorizedBy, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(transactionId) || await store.FindByTransactionAsync(transactionId.Trim(), cancellationToken) is not { } attempt)
+        if (string.IsNullOrWhiteSpace(transactionId))
+        {
+            var usable = (await store.ListForSaleAsync(saleId, cancellationToken)).Where(a => a.IsUsable && a.TransactionId is not null).ToList();
+            if (usable.Count == 0)
+            {
+                return SistecreditoErrors.NotApproved;
+            }
+
+            foreach (var each in usable)
+            {
+                var one = await ReleaseAsync(saleId, each.TransactionId, userId, authorizedBy, cancellationToken);
+                if (one.IsFailure)
+                {
+                    return one;
+                }
+            }
+
+            return Result.Success();
+        }
+
+        if (await store.FindByTransactionAsync(transactionId.Trim(), cancellationToken) is not { } attempt)
         {
             return SistecreditoErrors.AttemptNotFound;
         }

@@ -289,7 +289,7 @@ internal sealed class SettleSalePaymentsHandler(ISistecreditoPayments sistecredi
 /// queda "Requiere revisión" ("No usado en la venta: reverse el pago en el portal de Sistecrédito"), ya no se ofrece como pago ni bloquea
 /// la venta, y queda en la bitácora con quién autorizó.
 /// </summary>
-public sealed record ReleaseSistecreditoCreditCommand(Guid SaleId, string TransactionId) : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record ReleaseSistecreditoCreditCommand(Guid SaleId, string? TransactionId) : ICommand<SaleDto>, IAllowedWhenRestricted;
 
 internal sealed class ReleaseSistecreditoCreditHandler(
     SaleEditor editor, ISistecreditoPayments sistecredito, IActorContext actor, IAuthorizationScope authorization)
@@ -387,6 +387,16 @@ internal sealed class CompleteSaleHandler(
         }
 
         sale.Recalculate(await promotions.ActiveAsync(sale.BranchId, cancellationToken));
+
+        // Sistecrédito: si la venta quedó por debajo de un crédito ya aprobado, no se puede completar ni con él ni sin él.
+        if ((await sistecredito.ListUsableAsync(sale.Id, cancellationToken)).Sum(a => a.Amount) is > 0m and var credit && credit > Math.Max(0m, sale.Total - sale.ExchangeCredit))
+        {
+            return Error.BusinessRule(
+                "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL",
+                $"La venta ({sale.Total:N2}) quedó por debajo del crédito de Sistecrédito aprobado ({credit:N0}): use «No usar este crédito» (con autorización de "
+                + "supervisor) y cobre con otro medio, o agregue productos hasta cubrir el crédito.");
+        }
+
         var context = new SettingContext(sale.CompanyId, sale.BranchId, sale.PosTerminalId);
         var limit = await settings.GetAsync(SalesSettings.AnonymousSaleLimit, new SettingContext(sale.CompanyId), cancellationToken);
         if (limit > 0m && sale.CustomerId is null && sale.Total > limit)

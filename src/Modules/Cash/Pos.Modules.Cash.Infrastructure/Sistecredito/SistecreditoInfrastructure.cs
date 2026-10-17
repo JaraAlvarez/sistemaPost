@@ -75,8 +75,11 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
         return await context.Set<SistecreditoAttempt>()
             .Where(a => a.NextCheckAt == null || a.NextCheckAt <= now)
             .Where(a => (a.Status == SistecreditoAttemptStatus.Pending && a.StartedAt < pendingBefore)
-                        || (a.Status == SistecreditoAttemptStatus.Cancelled && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > cancelledSince
-                            && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus))
+                        // Terminados sin aprobar en las últimas 24 h (en la caja o por Sistecrédito): el cliente pudo aprobar después.
+                        || ((a.Status == SistecreditoAttemptStatus.Cancelled || a.Status == SistecreditoAttemptStatus.Rejected
+                                || (a.Status == SistecreditoAttemptStatus.Expired && a.ProviderStatus != null && failed.Contains(a.ProviderStatus)))
+                            && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > cancelledSince
+                            && a.ProviderStatus != SistecreditoProtocol.NotFoundStatus
                             && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
                         || (a.Status == SistecreditoAttemptStatus.Approved && a.CompletedSaleId == null)
 

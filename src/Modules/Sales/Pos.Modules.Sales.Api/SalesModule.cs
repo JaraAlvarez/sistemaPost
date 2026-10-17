@@ -171,7 +171,8 @@ public sealed record HoldRequest(string? Label);
 
 public sealed record ReasonRequest(string Reason);
 
-public sealed record ReleaseCreditRequest(string TransactionId);
+/// <summary><c>TransactionId</c> vacío: todos los créditos aprobados de la venta.</summary>
+public sealed record ReleaseCreditRequest(string? TransactionId);
 
 public sealed record CompleteRequest(IReadOnlyList<PaymentRequest> Payments);
 

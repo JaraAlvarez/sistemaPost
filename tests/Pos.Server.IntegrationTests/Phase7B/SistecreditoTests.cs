@@ -307,6 +307,9 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
     /// <summary>Se ejecuta justo antes de crear la transacción (p. ej. para mirar la base de datos en ese momento).</summary>
     public Func<SistecreditoCreateRequest, Task>? BeforeCreate { get; set; }
 
+    /// <summary>Se ejecuta en cada consulta, antes de responder (p. ej. para simular que otro proceso cambia la fila mientras tanto).</summary>
+    public Func<string, Task>? BeforeQuery { get; set; }
+
     /// <summary>Se ejecuta justo después de crear la transacción (p. ej. para simular que la caja deja de esperar).</summary>
     public Action<string>? AfterCreate { get; set; }
 
@@ -332,8 +335,13 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
         return new SistecreditoCreated(id, "Pending");
     }
 
-    public Task<SistecreditoTransaction> GetTransactionAsync(SistecreditoConnection connection, string transactionId, CancellationToken cancellationToken)
+    public async Task<SistecreditoTransaction> GetTransactionAsync(SistecreditoConnection connection, string transactionId, CancellationToken cancellationToken)
     {
+        if (BeforeQuery is { } before)
+        {
+            await before(transactionId);
+        }
+
         Guard(connection);
         Queries.Enqueue((transactionId, connection.Environment));
         if (NotFound.ContainsKey(transactionId))
@@ -343,9 +351,9 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
         }
 
         var status = _statuses.TryGetValue(transactionId, out var current) ? current : "Pending";
-        return Task.FromResult(new SistecreditoTransaction(
+        return new SistecreditoTransaction(
             transactionId, status, $"https://pagos.sistecredito.test/{transactionId}", status == "Rejected" ? "Cupo insuficiente" : null,
-            status == "Approved" ? 6 : null));
+            status == "Approved" ? 6 : null);
     }
 
     public Task<SistecreditoTransaction> WaitForRedirectUrlAsync(

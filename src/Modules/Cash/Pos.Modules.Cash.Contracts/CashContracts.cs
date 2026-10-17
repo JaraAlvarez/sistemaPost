@@ -189,4 +189,5 @@ public sealed record CashReportDto(
     bool ClosedBySupervisor,
     long? SealNo,
     string? SealCode,
-    string Text);
+    string Text,
+    IReadOnlyList<SistecreditoNotUsedDto>? SistecreditoNotUsed = null);

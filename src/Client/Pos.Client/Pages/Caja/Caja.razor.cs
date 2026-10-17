@@ -102,6 +102,9 @@ public sealed partial class Caja
     private Receipt? _lastReceipt;
     private decimal? _lastChange;
     private List<SaleSummary> _held = [];
+
+    // Créditos de Sistecrédito aprobados (valor total) de cada venta suspendida.
+    private readonly Dictionary<Guid, decimal> _heldCredits = [];
     private int _heldCount;
     private PendingAction? _pending;
     private string? _supervisorCode, _supervisorPin, _supervisorReason;
@@ -757,6 +760,7 @@ public sealed partial class Caja
         {
             _held = await Api.GetAsync<List<SaleSummary>>("api/v1/sales/held");
             _heldCount = _held.Count;
+            await CargarCreditosSuspendidasAsync();
             _panel = Panel.Suspendidas;
         });
     }
@@ -766,12 +770,30 @@ public sealed partial class Caja
         _panel = Panel.None;
         await RunAsync(async _ =>
         {
-            _sale = await Api.PostAsync<Sale>($"api/v1/sales/{held.Id}/resume");
+            try
+            {
+                _sale = await Api.PostAsync<Sale>($"api/v1/sales/{held.Id}/resume");
+            }
+            catch (ApiException ex) when (ex.Code == "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL")
+            {
+                // La venta quedó por debajo de un crédito aprobado (p. ej. cambió una promoción): se ofrece no usarlo y recuperarla.
+                Snackbar.Add(ex.Texto, Severity.Warning, config =>
+                {
+                    config.RequireInteraction = true;
+                    config.Action = "No usar este crédito";
+                    config.OnClick = _ => NoUsarCreditoAsync(held.Id, null, () => RecuperarAsync(held));
+                });
+                return;
+            }
+
             _selected = _sale.ActiveLines.LastOrDefault()?.Id;
             _lastChange = null;
             await ContarSuspendidasAsync();
         });
     }
+
+    /// <summary>«No usar este crédito» desde la lista de suspendidas (con supervisor); luego se actualiza la lista.</summary>
+    private Task NoUsarCreditoSuspendidaAsync(SaleSummary held) => NoUsarCreditoAsync(held.Id, null, VerSuspendidasAsync);
 
     /// <summary>Cuántas ventas suspendidas tiene la caja (aviso de la barra). Si falla, se deja el valor anterior.</summary>
     private async Task ContarSuspendidasAsync()
@@ -1396,7 +1418,7 @@ public sealed partial class Caja
                             {
                                 config.RequireInteraction = true;
                                 config.Action = "No usar este crédito";
-                                config.OnClick = _ => NoUsarCreditoAsync(transaccion);
+                                config.OnClick = _ => NoUsarCreditoAsync(saleId, transaccion);
                             });
                     }
 
@@ -1451,7 +1473,7 @@ public sealed partial class Caja
         {
             _scCts?.Cancel();
             _sc = await Api.PostAsync<SistecreditoPaymentDto>($"api/v1/cash/sistecredito/payments/{cobro.Id}/cancel");
-            if (_sc.Status == "APPROVED")
+            if (_sc.Usable)
             {
                 await AplicarSistecreditoAsync();
             }
@@ -1502,28 +1524,80 @@ public sealed partial class Caja
             return;
         }
 
-        await NoUsarCreditoAsync(payment.Reference);
-    }
-
-    /// <summary>«No usar este crédito» (con autorización de supervisor): el cliente paga con otro medio y el crédito queda en revisión.</summary>
-    private async Task NoUsarCreditoAsync(string transactionId)
-    {
-        if (_sale is not { } venta)
+        // Si el cobro ya no es usable (p. ej. Sistecrédito dejó de aprobarlo o ya se autorizó no usarlo), se quita sin más.
+        if (!await SigueUsableAsync(_sale.Id, payment.Reference))
         {
+            _payments.Remove(payment);
+            _amount = Math.Max(0, _sale.AmountDue - Pagado);
             return;
         }
 
+        await NoUsarCreditoAsync(_sale.Id, payment.Reference);
+    }
+
+    /// <summary>¿El cobro de Sistecrédito sigue siendo usable en la venta? Si no se puede consultar, se asume que sí (pide supervisor).</summary>
+    private async Task<bool> SigueUsableAsync(Guid saleId, string transactionId)
+    {
+        try
+        {
+            return (await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{saleId}/open"))
+                .Any(c => c.Usable && c.TransactionId == transactionId);
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// «No usar este crédito» (con autorización de supervisor): el cliente paga con otro medio y el crédito queda en revisión. Sin
+    /// transacción: todos los créditos aprobados de la venta (venta suspendida o al recuperarla). Después de la autorización se vuelve a la
+    /// pantalla en que estaba (cobro o suspendidas).
+    /// </summary>
+    private async Task NoUsarCreditoAsync(Guid saleId, string? transactionId, Func<Task>? despues = null)
+    {
+        var volverA = _panel is Panel.Cobro or Panel.Suspendidas ? _panel : Panel.None;
         await RunAsync(async grant =>
         {
-            await Api.PostAsync<Sale>($"api/v1/sales/{venta.Id}/sistecredito/release", new { transactionId }, grant);
-            _payments.RemoveAll(p => p.Reference == transactionId);
-            if (_sale?.Id == venta.Id)
+            await Api.PostAsync<Sale>($"api/v1/sales/{saleId}/sistecredito/release", new { transactionId }, grant);
+            _payments.RemoveAll(p => transactionId is null || p.Reference == transactionId);
+            if (_sale?.Id == saleId)
             {
                 _amount = Math.Max(0, _sale.AmountDue - Pagado);
             }
 
             Snackbar.Add("Crédito de Sistecrédito no usado: quedó en revisión para que la administración lo reverse. Cobre con otro medio.", Severity.Info);
-        }, _panel == Panel.Cobro ? Panel.Cobro : Panel.None); // después de la autorización se sigue en el cobro
+            if (despues is not null)
+            {
+                await despues();
+            }
+        }, volverA);
+    }
+
+    /// <summary>Créditos de Sistecrédito aprobados de cada venta suspendida (para ofrecer «No usar este crédito» en la lista).</summary>
+    private async Task CargarCreditosSuspendidasAsync()
+    {
+        _heldCredits.Clear();
+        if (_methods.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var held in _held)
+        {
+            try
+            {
+                var creditos = (await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{held.Id}/open")).Where(c => c.Usable).ToList();
+                if (creditos.Count > 0)
+                {
+                    _heldCredits[held.Id] = creditos.Sum(c => c.Amount);
+                }
+            }
+            catch (Exception ex) when (ex is ApiException or HttpRequestException)
+            {
+                // Solo es una ayuda: al recuperarla, el error también ofrece «No usar este crédito».
+            }
+        }
     }
 
 
