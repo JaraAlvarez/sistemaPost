@@ -232,3 +232,49 @@ formulario, cancelar, vencimiento, slow_down, secreto ajeno, un solo uso, enlace
 `EsperaAutorizacionTests`/`IngresoGoogleReglasTests` en el instalador. **Despliegue:** requiere publicar la nube (la migración
 `V2026.10.010` se aplica sola con `MigrateOnStartup`) y un instalador nuevo; sin la nube nueva, "Continuar con Google" responde 404 y el
 instalador lo muestra como error (el correo y la contraseña siguen funcionando).
+
+### 9.6 Revisión de seguridad y robustez del instalador, del enlace del dueño y del portal (2026-10-17)
+
+**Instalador premium.** El final espera `/health/ready` ("Preparando la base de datos…", hasta 20 min) y no `/health/live`: en una
+actualización (1.1.x → 1.2.0) el servidor responde 503 mientras migra y el instalador mostraba "Ocurrió un error inesperado" aunque
+BusinessPost quedaba instalado; `ConfiguradoAsync` reintenta los 503/errores pasajeros y devuelve un resultado tipado. La espera de
+"Continuar con Google" ya no queda "Esperando autorización" para siempre (captura cualquier falla, un 200 con HTML de una red con portal
+cautivo y un cuerpo nulo; la página ofrece **Reintentar**). El enlace del dueño queda **atado a la clave** con la que se obtuvo (si el
+dueño vuelve y escribe otra clave hay que validar la cuenta de nuevo) y antes de instalar se revisan, sin conexión, el NIT y el
+vencimiento. El backup final de la desinstalación se guarda donde el dueño elige, empezando en **sus** Documentos (usuario de
+`explorer.exe`, no el administrador del `runas`), con la ruta EXACTA que informa el migrador. Cancelar detiene el paquete y lo que lanzó;
+el archivo del código de recuperación se borra solo cuando el paquete terminó. La lectura del registro de Inno guarda la posición exacta
+y no parte letras con tilde. La copia temporal del desinstalador se borra al salir (y si no, al reiniciar).
+
+**Paquete Inno (`installer/BusinessPost.iss`).** `PrepareToInstall` detiene TODOS los servicios (actualizador, servidor, agente y base de
+datos) y **espera** a que queden detenidos antes de copiar archivos (antes: "archivo en uso" o binarios mezclados); si no se detienen,
+la instalación se cancela con un mensaje claro. Los servicios existentes se **reconfiguran** con `sc config` (antes `stop`+`delete`+
+`create` sin esperar dejaba el servicio "marcado para eliminación" y el equipo SIN servicio); el servidor depende de `BusinessPost-DB`,
+`sc failureflag 1` y los fallos de `sc failure` quedan en el registro. El código de recuperación va al migrador en un **archivo** que se lee
+y se borra (`--recovery-code-file`, nunca en la línea de comandos ni en el registro). En una actualización el migrador hace un backup
+**PRE_UPDATE** antes de migrar; si la migración falla no se cambia `app\current` (la versión anterior sigue activa y sus servicios vuelven
+a arrancar). El paquete recuerda el **modo** instalado (y lo deduce de la configuración en instalaciones anteriores): lo propone al
+actualizar y cambiarlo exige confirmación (`/CAMBIARMODO=si` desde el premium), quitando los servicios, la regla del firewall y la
+configuración que el modo nuevo no usa (los datos se conservan). Firewall: se borra la regla antes de crearla, solo `remoteip=localsubnet`,
+perfiles privado y de dominio; si la red está como **Pública** queda un aviso (página final del premium y mensaje del clásico). Si la
+recuperación desde un backup falla, ya no se sigue con una base vacía. Al desinstalar se espera a que los servicios se detengan y se borran
+todas las versiones de `app\` (también las del actualizador) y PostgreSQL; los datos solo si se pidió. La URL del equipo principal se
+normaliza (origen exacto para el agente) y el JSON se escapa.
+
+**Futuro (I10, no se cambia ahora): cuentas de servicio con menos privilegios.** El servidor, el actualizador y el agente corren como
+`LocalSystem` aunque escuchan en la LAN. Pasarlos a cuentas virtuales (`NT SERVICE\BusinessPost-Server`, etc.) exige: permisos de lectura
+sobre `ProgramData\BusinessPost\config` (hoy solo SYSTEM y Administradores, a propósito: DPAPI de máquina), acceso a la llave privada del
+certificado HTTPS de la LAN, reservar las URL (`netsh http add urlacl`) para 5443/5444, que el actualizador pueda cambiar `app\current`,
+detener/iniciar servicios (permisos SCM) y escribir en `Program Files`, y que los backups lleguen a carpetas de red. Es un cambio de
+arquitectura con riesgo de dejar tiendas sin servicio: se hará con una fase propia y pruebas en equipos reales (primero el agente, que no
+necesita la configuración cifrada).
+
+**Nube.** "Continuar con Google": el dueño **escribe** en el portal el código que muestra su instalador (la página ya no lo muestra; 5
+intentos y la solicitud se cancela), su ingreso debe ser **reciente** (10 min; si no, "Ingresar de nuevo"), escribe su **TOTP** si lo tiene
+activo o el portal lo exige (también después de Google), ve cuándo y desde qué IP se creó la solicitud, la solicitud vence a los **5
+minutos** y las decisiones tienen límite por usuario (migración `V2026.10.012`, `code_attempts`). Inexistente y "de otra cuenta" se ven
+igual y abrir la página no escribe en la auditoría (solo las decisiones). Al entregar el enlace se revisa también la suscripción. Portal:
+restablecer la contraseña o el TOTP de otro usuario exige ingreso reciente o confirmar con la contraseña/TOTP; a otro superadministrador,
+siempre el TOTP; nunca sobre sí mismo; restablecer el TOTP también restablece la contraseña (temporal) por defecto; desactivar el TOTP
+propio consume el código. Asistente `/instalacion`: confirmación de la contraseña y "Mostrar", regla real (mínimo 8), correo propio del
+propietario, script aparte sin `innerHTML` y CSP sin scripts en línea, manejo de sesión vencida y de "configurada pero sin ingreso".

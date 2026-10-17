@@ -51,10 +51,41 @@ internal static class InstallCommands
         var database = Section(Section(config, "Pos"), "Database");
         if (database["MigratorConnectionString"]?.GetValue<string>() is { Length: > 0 } existing)
         {
-            Console.WriteLine("La instalación ya existe: se aplican las migraciones pendientes (reparar / reinstalar).");
+            Console.WriteLine("La instalación ya existe: se aplican las migraciones pendientes (reparar / actualizar).");
             await EnsureServiceRunningAsync($"{product}-DB", cancellationToken);
-            var repaired = await migrator.MigrateAsync(ProtectedSecret.Reveal(existing)!, appVersion, cancellationToken);
-            Console.WriteLine($"Versión de esquema: {repaired.SchemaVersion}.");
+            var connection = ProtectedSecret.Reveal(existing)!;
+
+            // Antes de tocar el esquema: backup PRE_UPDATE verificado (el instalador ya detuvo el servidor, así nadie escribe mientras
+            // tanto). Si no se puede, no se migra: los datos quedan como estaban.
+            var pending = await migrator.GetStatusAsync(connection, cancellationToken);
+            string? preUpdate = null;
+            if (pending.PendingVersioned.Count > 0 && !options.ContainsKey("skip-pre-backup"))
+            {
+                try
+                {
+                    preUpdate = await BackupCommands.BackupAsync(options, RetentionPolicy.PreUpdateKind, appVersion, connection, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Console.Error.WriteLine($"No se pudo hacer el backup previo a la actualización ({ex.Message}). NO se tocó la base de datos: " +
+                        "la versión anterior de los datos sigue intacta. Genere un paquete de soporte y contacte a soporte.");
+                    return 4;
+                }
+            }
+
+            try
+            {
+                var repaired = await migrator.MigrateAsync(connection, appVersion, cancellationToken);
+                Console.WriteLine($"Versión de esquema: {repaired.SchemaVersion}.");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.Error.WriteLine($"La actualización de la base de datos falló: {ex.Message}" +
+                    (preUpdate is null ? string.Empty : $" El backup previo quedó en {preUpdate}; con él se recuperan los datos.") +
+                    " Genere un paquete de soporte y contacte a soporte.");
+                return 3;
+            }
+
             ApplySettings(config, options, pgBin, edition);
             await WriteConfigAsync(configFile, config, cancellationToken);
             return 0;

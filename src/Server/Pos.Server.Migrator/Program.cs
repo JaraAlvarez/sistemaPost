@@ -28,7 +28,7 @@ using Pos.Server.Migrator;
 //   Pos.Server.Migrator backup [--kind MANUAL] [--backup-connection "<cadena pos_backup>"] [--data-root D] [--output carpeta] [--pg-bin carpeta]
 //                       Backup cifrado y verificado (Fase 11). migrate hace uno PRE_UPDATE antes de aplicar migraciones (--no-backup lo omite).
 //   Pos.Server.Migrator verify-backup --file F.posbak [--recovery-code XXXX-…] [--data-root D]
-//   Pos.Server.Migrator restore --file F.posbak --superuser "<cadena>" [--recovery-code XXXX-…] [--database pos_rAAAAMMDDhhmm]
+//   Pos.Server.Migrator restore --file F.posbak --superuser "<cadena>" [--recovery-code XXXX-… | --recovery-code-file F] [--database pos_rAAAAMMDDhhmm]
 //                       [--migrator-connection "<cadena>"] [--data-root D] --yes
 //                       Restaura en una BD nueva, verifica y cambia la BD activa en server.json (detenga antes el servicio).
 //   Pos.Server.Migrator install --pg-bin <carpeta bin> [--data-root D] [--edition SINGLE|MULTI] [--pg-port 5488]

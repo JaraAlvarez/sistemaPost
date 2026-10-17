@@ -77,6 +77,7 @@ internal sealed class Puente(
                     pantalla = opciones.Maqueta ? opciones.Pantalla : null,
                     version = Sistema.Version,
                     nube = _nube.Disponible || opciones.Maqueta,
+                    modoInstalado = opciones.Maqueta || opciones.Desinstalar ? null : Sistema.ModoInstalado()?.ToString().ToLowerInvariant(),
                     desinstalacion = opciones.Desinstalar ? (opciones.Maqueta ? new { instalado = true, carpeta = @"C:\Program Files\BusinessPost", datos = Sistema.Datos, version = "1.1.0", equipoPrincipal = true } : Desinstalacion.Estado()) : null,
                 }, null, null);
 

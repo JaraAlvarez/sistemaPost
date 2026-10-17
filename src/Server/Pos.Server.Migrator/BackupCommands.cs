@@ -77,6 +77,27 @@ internal static class BackupCommands
         return created.FilePath;
     }
 
+    /// <summary>
+    /// Código de recuperación: <c>--recovery-code-file</c> (el instalador lo deja en un archivo temporal para que el código no quede en
+    /// la línea de comandos ni en su registro; se lee una vez y se BORRA) o, si no, <c>--recovery-code</c> (uso manual).
+    /// </summary>
+    public static string? RecoveryCode(IReadOnlyDictionary<string, string> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.GetValueOrDefault("recovery-code-file") is not { Length: > 0 } file)
+        {
+            return options.GetValueOrDefault("recovery-code");
+        }
+
+        var (code, deleted) = RecoveryCodeFile.ReadAndDelete(file);
+        if (!deleted)
+        {
+            Console.Error.WriteLine("ATENCIÓN: no se pudo borrar el archivo temporal con el código de recuperación; bórrelo a mano.");
+        }
+
+        return code;
+    }
+
     public static async Task<int> VerifyAsync(IReadOnlyDictionary<string, string> options, CancellationToken cancellationToken)
     {
         var file = Required(options, "file");
@@ -89,7 +110,7 @@ internal static class BackupCommands
 
         PrintHeader(header);
         var key = BackupRestoreProcedure.ChooseKey(header, new RestoreRequest(
-            file, options.GetValueOrDefault("recovery-code"), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")), string.Empty, string.Empty,
+            file, RecoveryCode(options), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")), string.Empty, string.Empty,
             string.Empty, string.Empty));
         if (key is null)
         {
@@ -149,7 +170,7 @@ internal static class BackupCommands
         try
         {
             outcome = await new BackupRestoreProcedure(new PgClientTools(options.GetValueOrDefault("pg-bin"))).RunAsync(
-                new RestoreRequest(file, options.GetValueOrDefault("recovery-code"), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")),
+                new RestoreRequest(file, RecoveryCode(options), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")),
                     superuser, target, ScriptCatalog.Default.LatestVersion ?? string.Empty, work),
                 (admin, database, ct) => DatabaseCreator.CreateDatabaseOnlyAsync(admin, database, ct),
                 async (connection, ct) => await migrator.MigrateAsync(connection, appVersion, ct),

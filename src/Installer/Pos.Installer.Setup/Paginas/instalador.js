@@ -134,14 +134,31 @@ todas(".modo").forEach((m) => m.addEventListener("click", () => {
   S.modo = m.dataset.modo;
 }));
 
-$("btnEquipo").onclick = () => {
+const nombresModo = { unica: "la única caja (Caja Única)", principal: "el equipo principal (Multicaja)", adicional: "una caja adicional (Multicaja)" };
+
+// Un equipo ya instalado se actualiza en el MISMO modo; cambiarlo exige confirmarlo (el paquete quita lo que el modo anterior ya no usa).
+async function confirmarCambioDeModo() {
+  S.cambiarModo = false;
+  if (!S.modoInstalado || S.modo === S.modoInstalado) return true;
+  const si = await confirmar({
+    titulo: "¿Cambiar el modo de este equipo?",
+    texto: `Este equipo ya está instalado como ${nombresModo[S.modoInstalado]}. Si sigue, quedará como ${nombresModo[S.modo]}: se quitan los servicios y reglas del modo anterior que ya no se usen. Los datos de la tienda se conservan.`,
+    si: "Sí, cambiar el modo", no: "Mantener el modo actual", peligro: true,
+  });
+  if (si) S.cambiarModo = true;
+  return si;
+}
+
+$("btnEquipo").onclick = async () => {
+  if (!(await confirmarCambioDeModo())) return;
   S.recuperar = false;
   if (S.modo === "adicional") { ir("principal"); buscarPrincipal(); return; }
   ir("licencia");
 };
 
-$("lnkRecuperar").onclick = () => {
+$("lnkRecuperar").onclick = async () => {
   if (S.modo === "adicional") { todas(".modo")[0].click(); }
+  if (!(await confirmarCambioDeModo())) return;
   S.recuperar = true;
   ir("recuperar");
 };
@@ -475,6 +492,7 @@ let ultimoResumen = null;
 
 function instalar(solicitud) {
   S.instalando = true;
+  solicitud.cambiarModo = !!S.cambiarModo;
   ultimoResumen = solicitud;
   $("itemConfigurar").classList.toggle("oculto", solicitud.modo === "adicional" || !!solicitud.backup);
   ir("instalando");
@@ -710,6 +728,9 @@ document.addEventListener("keydown", (e) => {
     S.desinstalar = inicio.modo === "desinstalar";
     S.maqueta = inicio.maqueta;
     S.nube = inicio.nube;
+    S.modoInstalado = inicio.modoInstalado || null;
+    const tarjeta = S.modoInstalado && document.querySelector(`.modo[data-modo="${S.modoInstalado}"]`);
+    if (tarjeta) tarjeta.click();
     $("version").textContent = `Versión ${inicio.version} · Hecho en Colombia para tu negocio`;
     if (S.desinstalar) prepararDesinstalar(inicio.desinstalacion); else ir("bienvenida");
     if (inicio.pantalla) maqueta(inicio.pantalla);

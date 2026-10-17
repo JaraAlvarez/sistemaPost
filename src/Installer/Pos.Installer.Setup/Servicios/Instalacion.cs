@@ -14,7 +14,8 @@ public sealed record SolicitudInstalacion(
     string? Clave,
     DatosNegocio? Negocio,
     DatosPropietario? Propietario,
-    string? Edicion);
+    string? Edicion,
+    bool CambiarModo = false);
 
 /// <summary>
 /// Instalación real (Fase 13-B, D13B-08): ejecuta en silencio el paquete Inno de siempre con los parámetros de la página, muestra el
@@ -48,7 +49,7 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         }
 
         var lector = new RegistroInno();
-        var argumentos = ArgumentosInno.Instalar(solicitud.Modo, Registro, solicitud.Servidor, solicitud.Huella, solicitud.Backup, archivoCodigo);
+        var argumentos = ArgumentosInno.Instalar(solicitud.Modo, Registro, solicitud.Servidor, solicitud.Huella, solicitud.Backup, archivoCodigo, solicitud.CambiarModo);
         int salida;
         var registroInno = new LectorIncremental();
         Process? proceso = null;
@@ -84,6 +85,7 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         }
 
         Avanzar(lector);
+        _avisosPaquete = [.. lector.Avisos];
         if (salida != 0 || lector.Resultado == ResultadoInno.Error)
         {
             Fallo(lector.Error is { } paso
@@ -188,6 +190,7 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
     }
 
     private SolicitudInstalacion? _ultimaSolicitud;
+    private IReadOnlyList<string> _avisosPaquete = [];
     private bool? _licenciaActiva;
 
     /// <summary>El dueño confirmó que guardó el código: se confirma en el servidor y termina.</summary>
@@ -213,7 +216,8 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         avisar(new
         {
             evento = "terminado",
-            aviso,
+            // Avisos del paquete (p. ej. red "Pública": las cajas no se conectan) junto con el del final.
+            aviso = string.Join(" ", new[] { aviso }.Concat(_avisosPaquete).Where(a => !string.IsNullOrWhiteSpace(a))) is { Length: > 0 } todos ? todos : null,
             licenciaActiva,
             empresa = solicitud.Negocio is { } negocio ? (string.IsNullOrWhiteSpace(negocio.NombreComercial) ? negocio.RazonSocial : negocio.NombreComercial) : null,
             modo = solicitud.Modo.ToString().ToLowerInvariant(),

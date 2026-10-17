@@ -285,3 +285,32 @@ public class RutasYSalidaTests
     public void Esta_dentro_exige_el_separador(string? ruta, string carpeta, bool esperado) =>
         Rutas.EstaDentro(ruta, carpeta).ShouldBe(esperado);
 }
+
+/// <summary>I5/I6: el modo con el que ya estaba instalado el equipo, su confirmación al cambiarlo y los avisos del paquete.</summary>
+public class ModoYAvisosTests
+{
+    [Theory]
+    [InlineData("""{ "Pos": { "Updates": { "Mode": "Terminal" } } }""", null, ModoEquipo.Adicional)]
+    [InlineData(null, """{ "Pos": { "Database": { "Edition": "MULTI" } } }""", ModoEquipo.Principal)]
+    [InlineData(null, """{ "Pos": { "Database": { "Edition": "SINGLE" } } }""", ModoEquipo.Unica)]
+    [InlineData(null, null, null)]
+    public void Detecta_el_modo_instalado_como_el_paquete(string? updater, string? server, ModoEquipo? esperado) =>
+        ModoInstalado.Detectar(updater, server).ShouldBe(esperado);
+
+    [Fact]
+    public void Cambiar_el_modo_va_en_los_parametros_solo_si_se_confirmo()
+    {
+        ArgumentosInno.Instalar(ModoEquipo.Principal, @"C:\t\r.log").ShouldNotContain("/CAMBIARMODO");
+        ArgumentosInno.Instalar(ModoEquipo.Principal, @"C:\t\r.log", cambiarModo: true).ShouldContain("/CAMBIARMODO=si");
+    }
+
+    [Fact]
+    public void Los_avisos_del_paquete_se_guardan_sin_repetir_y_las_advertencias_tecnicas_no()
+    {
+        var lector = new RegistroInno();
+        lector.Procesar("2026-10-17 09:20:01.123   Aviso: La red de este equipo está marcada como \"Pública\".");
+        lector.Procesar("2026-10-17 09:20:02.123   Aviso: La red de este equipo está marcada como \"Pública\".");
+        lector.Procesar("2026-10-17 09:20:03.123   Advertencia: no se pudo configurar la recuperación de BusinessPost-Server.");
+        lector.Avisos.ShouldBe(["La red de este equipo está marcada como \"Pública\"."]);
+    }
+}

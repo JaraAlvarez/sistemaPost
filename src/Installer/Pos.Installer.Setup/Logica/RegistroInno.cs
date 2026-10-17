@@ -41,6 +41,9 @@ public sealed class RegistroInno
 
     public ResultadoInno Resultado { get; private set; } = ResultadoInno.EnCurso;
 
+    /// <summary>Avisos del paquete (líneas <c>Aviso: …</c>, p. ej. la red marcada como "Pública"): se muestran al terminar.</summary>
+    public List<string> Avisos { get; } = [];
+
     /// <summary>Primer paso que falló (texto del instalador), si hubo.</summary>
     public string? Error { get; private set; }
 
@@ -79,6 +82,16 @@ public sealed class RegistroInno
             }
 
             return true;
+        }
+
+        if (Marca(linea, "Aviso: ") is { } aviso)
+        {
+            if (!Avisos.Contains(aviso))
+            {
+                Avisos.Add(aviso);
+            }
+
+            return false;
         }
 
         if (Marca(linea, "Resultado: ") is { } resultado)

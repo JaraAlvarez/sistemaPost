@@ -27,6 +27,26 @@ internal static partial class Sistema
 
     public static string Datos => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "BusinessPost");
 
+    /// <summary>Modo con el que ya está instalado este equipo (para proponerlo y pedir confirmación si se cambia); <c>null</c> si es nuevo.</summary>
+    public static Logica.ModoEquipo? ModoInstalado()
+    {
+        var config = Path.Combine(Datos, "config");
+        string? Leer(string archivo)
+        {
+            try
+            {
+                var ruta = Path.Combine(config, archivo);
+                return File.Exists(ruta) ? File.ReadAllText(ruta) : null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+
+        return CarpetaInstalada() is null ? null : Logica.ModoInstalado.Detectar(Leer("updater.json"), Leer("server.json"));
+    }
+
     public static bool EsAdministrador()
     {
         using var identidad = WindowsIdentity.GetCurrent();

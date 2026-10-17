@@ -16,7 +16,8 @@ public enum ModoEquipo
 /// <summary>Línea de comandos del paquete Inno en silencio (parámetros de installer/BusinessPost.iss, Fase 13-B).</summary>
 public static class ArgumentosInno
 {
-    public static string Instalar(ModoEquipo modo, string registro, string? servidor = null, string? huella = null, string? backup = null, string? archivoCodigo = null)
+    public static string Instalar(
+        ModoEquipo modo, string registro, string? servidor = null, string? huella = null, string? backup = null, string? archivoCodigo = null, bool cambiarModo = false)
     {
         var partes = new List<string>
         {
@@ -34,6 +35,12 @@ public static class ArgumentosInno
             partes.Add($"/RECUPERACION={Comillas(archivoCodigo ?? string.Empty)}");
         }
 
+        if (cambiarModo)
+        {
+            // El usuario confirmó cambiar el modo de un equipo ya instalado (sin esto, el paquete se cancela).
+            partes.Add("/CAMBIARMODO=si");
+        }
+
         return string.Join(' ', partes);
     }
 
@@ -42,4 +49,26 @@ public static class ArgumentosInno
 
     /// <summary>Entre comillas dobles; Inno no admite comillas dentro de un valor, así que se quitan.</summary>
     public static string Comillas(string valor) => $"\"{(valor ?? string.Empty).Replace("\"", string.Empty, StringComparison.Ordinal)}\"";
+}
+
+/// <summary>
+/// Modo con el que YA está instalado el equipo (misma regla que installer/BusinessPost.iss, DetectPreviousMode): updater.json en modo
+/// "Terminal" = caja adicional; server.json con edición MULTI = equipo principal, SINGLE = única caja. <c>null</c> si es nuevo.
+/// </summary>
+public static class ModoInstalado
+{
+    public static ModoEquipo? Detectar(string? updaterJson, string? serverJson)
+    {
+        if (updaterJson is not null && updaterJson.Contains("\"Terminal\"", StringComparison.Ordinal))
+        {
+            return ModoEquipo.Adicional;
+        }
+
+        if (serverJson is null)
+        {
+            return null;
+        }
+
+        return serverJson.Contains("\"MULTI\"", StringComparison.Ordinal) ? ModoEquipo.Principal : ModoEquipo.Unica;
+    }
 }
