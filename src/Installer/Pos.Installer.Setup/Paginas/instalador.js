@@ -528,6 +528,26 @@ async function maqueta(p) {
   if (p === "licencia") { $("clave").value = "POS-ABCDE-FGHJK-LMNPQ-RSTUV"; ir("licencia"); await vistaPrevia(); return; }
   if (p === "cuenta-prueba") { S.prueba = true; prepararCuenta(); ir("cuenta"); return; }
   if (p === "negocio") { S.vista = { legalName: "Supermercado La Economía SAS", nit: "900123456-8", city: "Medellín" }; S.cuenta = { usuario: "dueno@correo.co" }; prepararNegocio(); ir("negocio"); return; }
+  // Pantallas completas con datos de ejemplo (capturas del manual de instalación: docs/imagenes/instalacion).
+  const ejemplo = { legalName: "Supermercado La Economía SAS", nit: "900123456-8", edition: "SINGLE", subscriptionStatus: "ACTIVE", validUntil: "2026-11-16T00:00:00Z", city: "Medellín" };
+  if (p === "cuenta-ejemplo") {
+    S.vista = ejemplo; S.clave = "POS-ABCDE-FGHJK-LMNPQ-RSTUV"; S.prueba = false; prepararCuenta();
+    ir("cuenta"); $("cuentaCorreo").value = "dueno@laeconomia.co"; $("cuentaContrasena").value = "contrasena-de-ejemplo"; return;
+  }
+  if (p === "negocio-ejemplo") {
+    S.vista = ejemplo; S.cuenta = { usuario: "dueno@laeconomia.co" }; prepararNegocio();
+    $("municipio").value = "Medellín (Antioquia)"; $("regimen").value = "48"; $("direccion").value = "Calle 50 # 45-20, local 3";
+    $("telefono").value = "604 444 5566"; $("correoNegocio").value = "facturas@laeconomia.co"; ir("negocio"); $("direccion").blur(); return;
+  }
+  if (p === "instalando-ejemplo") {
+    ultimoResumen = { modo: "unica" }; S.instalando = true; ir("instalando");
+    progreso({ etapa: 1, porcentaje: 42, nota: "Revisando los archivos con Windows Defender (la primera vez puede tardar varios minutos)…" }); return;
+  }
+  if (p === "codigo-ejemplo") {
+    ultimoResumen = { negocio: { razonSocial: ejemplo.legalName, numero: "900123456", dv: "8" } };
+    alAviso({ evento: "codigo", codigo: "7F3A-91C2-0B44-E1D8-AB12-CD34" }); return;
+  }
+  if (p === "listo-ejemplo") { S.vista = ejemplo; S.modo = "unica"; terminado({ modo: "unica", empresa: ejemplo.legalName, licenciaActiva: true }); return; }
   if (p === "codigo") { alAviso({ evento: "codigo", codigo: "7F3A-91C2-0B44-E1D8-AB12-CD34", aviso: "La licencia no se pudo activar ahora (sin internet). BusinessPost funciona en prueba; actívala luego en Administración → Licencia." }); return; }
   if (p === "principal") { S.modo = "adicional"; ir("principal"); buscarPrincipal(); return; }
   if (p === "error") { alAviso({ evento: "error", mensaje: "La instalación no pudo terminar el paso \"Base de datos (código 1)\".", registro: "x" }); return; }

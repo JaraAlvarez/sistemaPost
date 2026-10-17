@@ -399,8 +399,19 @@ scp artifacts/releases/BusinessPost-Setup-1.0.1.exe usuario@vps:~/pos/deploy/clo
   arma la dirección con la de cada petición; fijarla evita depender del encabezado `Host` y de que el contenedor pueda salir a su propio
   dominio.
 - El portal no verifica la firma del manifiesto: solo muestra la versión (el POS sí la verifica antes de instalar).
-- El manual de instalación (`docs/manual-instalacion.md`) va dentro del servidor de la nube y se ve en Descargas → Ver el manual. Si
-  más adelante se publica un PDF, súbalo a la misma carpeta y configure `Downloads__ManualPdfFileName` con su nombre.
+- El manual de instalación (`docs/manual-instalacion.md`) y sus capturas (`docs/imagenes/instalacion/*.png`) van dentro del servidor
+  de la nube y se ven en Descargas → Ver el manual (las capturas se sirven en `/descargas/manual/imagenes/…`, con el mismo permiso).
+- **Manual en PDF:** `docs/manual-instalacion.pdf` (A4, con las capturas) se genera con `node tools/scripts/manual-pdf.mjs` (Edge sin
+  ventana) cada vez que cambie el manual. Para ofrecerlo en el portal, súbalo a la carpeta de actualizaciones y active el botón
+  **Descargar manual (PDF)** en el `.env`:
+
+```bash
+scp docs/manual-instalacion.pdf usuario@vps:~/pos/deploy/cloud/updates/BusinessPost-Manual-Instalacion.pdf
+# en deploy/cloud/.env:  DOWNLOADS_MANUAL_PDF=BusinessPost-Manual-Instalacion.pdf
+docker compose up -d app
+```
+
+  Mientras `DOWNLOADS_MANUAL_PDF` esté vacío, el manual ofrece "Imprimir / Guardar como PDF".
 
 ## 17. Sincronización de las tiendas y portal del cliente (Fase 16)
 

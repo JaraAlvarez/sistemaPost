@@ -382,6 +382,10 @@ a.bp-stat:hover { border-color: var(--mud-palette-primary); box-shadow: var(--bp
 .bp-manual code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; padding: 1px 5px; border-radius: 4px; background: var(--mud-palette-background-gray); }
 .bp-manual blockquote { margin: 0 0 var(--bp-e3); padding: var(--bp-e2) var(--bp-e4); border-left: 4px solid var(--mud-palette-primary); background: var(--mud-palette-background-gray); }
 .bp-manual blockquote p { margin: 0; }
+.bp-manual-figura { margin: var(--bp-e4) 0 var(--bp-e6); }
+.bp-manual-figura img { display: block; max-width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--mud-palette-lines-default); box-shadow: 0 4px 16px rgba(17, 21, 125, .08); }
+.bp-manual-figura figcaption { margin-top: var(--bp-e2); font-size: .875rem; color: var(--mud-palette-text-secondary); }
+@media print { .bp-manual-figura { break-inside: avoid; } }
 @media print {
     .mud-appbar, .mud-drawer, .bp-page-header-actions, .bp-no-print, .bp-crumbs { display: none !important; }
     .mud-main-content { padding: 0 !important; margin: 0 !important; }

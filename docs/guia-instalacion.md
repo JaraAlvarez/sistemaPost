@@ -35,6 +35,13 @@ Desde la 1.1.0 el archivo descargable abre el **instalador premium** (§10): una
 trae la empresa con la clave de licencia, crea al Propietario con la cuenta del portal y configura la tienda sola. Lo que sigue describe
 las opciones y los pasos por debajo; el manual para el cliente es `docs/manual-instalacion.md`.
 
+**Capturas del manual y PDF.** Las imágenes de `docs/imagenes/instalacion/` salen del instalador real en modo maqueta (nunca instala
+nada): `BusinessPost-Setup.exe --maqueta --pantalla <nombre> --capturar <archivo.png> [--esperar ms]` abre esa pantalla con datos de
+ejemplo (Supermercado La Economía SAS), guarda la imagen con WebView2 y se cierra. Pantallas con datos completos: `bienvenida`,
+`equipo`, `licencia`, `cuenta-ejemplo`, `negocio-ejemplo`, `instalando-ejemplo`, `codigo-ejemplo`, `listo-ejemplo`, `principal`,
+`recuperar`, `error`; con `--desinstalar`, `d-inicio`. Las del POS se toman de la base de desarrollo (Edge sin ventana, 1280×800).
+Después de cambiar el manual o las capturas, regenere el PDF con `node tools/scripts/manual-pdf.mjs` (despliegue-nube §16).
+
 El instalador pregunta **"¿Cómo usará este equipo?"** con tres opciones:
 
 | Opción en el instalador | Cuándo elegirla | Nombre técnico |

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Pos.Cloud.Host.Downloads;
 
@@ -10,6 +11,12 @@ internal static class InstallManual
 {
     public const string ResourceName = "Pos.Cloud.Host.Docs.manual-instalacion.md";
 
+    /// <summary>Prefijo de los recursos incrustados de las capturas (<c>docs/imagenes/instalacion/*.png</c>).</summary>
+    public const string ImageResourcePrefix = "Pos.Cloud.Host.Docs.imagenes.";
+
+    /// <summary>Ruta del portal (relativa a su dirección base) donde se sirven las capturas del manual.</summary>
+    public const string ImageRoute = "descargas/manual/imagenes/";
+
     private static readonly Lazy<string> Markdown = new(() =>
     {
         using var stream = typeof(InstallManual).Assembly.GetManifestResourceStream(ResourceName)
@@ -19,26 +26,41 @@ internal static class InstallManual
     });
 
     // Un nivel menos: el título de la página (h1) lo pone el encabezado del portal.
-    private static readonly Lazy<string> Html = new(() => SafeMarkdown.ToHtml(Markdown.Value, headingOffset: 1));
+    private static readonly Lazy<string> Html = new(() => SafeMarkdown.ToHtml(Markdown.Value, headingOffset: 1, imageBaseUrl: ImageRoute));
 
     /// <summary>Texto original del manual.</summary>
     public static string Source => Markdown.Value;
 
     /// <summary>El manual en HTML (todo el texto codificado; ver <see cref="SafeMarkdown"/>).</summary>
     public static string ToHtml() => Html.Value;
+
+    /// <summary>
+    /// Captura del manual por su nombre (<c>01-bienvenida.png</c>), o <c>null</c> si el nombre no es válido o no existe. Solo se leen
+    /// los recursos incrustados al compilar: el nombre nunca se usa como ruta de disco.
+    /// </summary>
+    public static Stream? OpenImage(string? name) =>
+        name is not null && SafeMarkdown.IsImageFileName(name)
+            ? typeof(InstallManual).Assembly.GetManifestResourceStream(ImageResourcePrefix + name)
+            : null;
 }
 
 /// <summary>
 /// Convierte a HTML solo el pequeño subconjunto de Markdown que usa el manual: títulos (<c>#</c> a <c>####</c>), párrafos, listas
-/// (<c>-</c> y <c>1.</c>), citas (<c>&gt;</c>), negrita (<c>**…**</c>), código (<c>`…`</c>) y enlaces <c>[texto](https://…)</c>.
-/// TODO el texto se codifica (nunca se copia HTML del archivo) y los enlaces solo pueden ser http(s): así el resultado es seguro
-/// aunque el archivo traiga etiquetas o <c>javascript:</c>. Lo demás se muestra como texto.
+/// (<c>-</c> y <c>1.</c>), citas (<c>&gt;</c>), negrita (<c>**…**</c>), código (<c>`…`</c>), enlaces <c>[texto](https://…)</c> y
+/// capturas en su propia línea <c>![pie](imagenes/instalacion/nombre.png)</c>.
+/// TODO el texto se codifica (nunca se copia HTML del archivo), los enlaces solo pueden ser http(s) y las imágenes solo pueden ser
+/// capturas <c>.png</c> de <c>imagenes/instalacion/</c> con un nombre sencillo (servidas desde el mismo sitio): así el resultado es
+/// seguro aunque el archivo traiga etiquetas, <c>javascript:</c> o rutas raras. Lo demás se muestra como texto.
 /// </summary>
-internal static class SafeMarkdown
+internal static partial class SafeMarkdown
 {
+    /// <summary>Carpeta de las capturas, relativa a <c>docs/</c> (así también se ven en GitHub y en el PDF).</summary>
+    public const string ImageFolder = "imagenes/instalacion/";
+
     /// <param name="markdown">Texto del manual.</param>
     /// <param name="headingOffset">Niveles que se bajan los títulos (1: <c>#</c> → <c>h2</c>), hasta <c>h6</c>.</param>
-    public static string ToHtml(string markdown, int headingOffset = 0)
+    /// <param name="imageBaseUrl">Ruta donde se sirven las capturas; <c>null</c> = las imágenes se muestran solo como su pie de foto.</param>
+    public static string ToHtml(string markdown, int headingOffset = 0, string? imageBaseUrl = null)
     {
         ArgumentNullException.ThrowIfNull(markdown);
         var html = new StringBuilder();
@@ -71,6 +93,21 @@ internal static class SafeMarkdown
             {
                 FlushParagraph();
                 CloseList();
+                continue;
+            }
+
+            if (Image(trimmed) is { } image)
+            {
+                FlushParagraph();
+                CloseList();
+                html.Append("<figure class=\"bp-manual-figura\">");
+                if (imageBaseUrl is not null)
+                {
+                    html.Append("<img src=\"").Append(Encode(imageBaseUrl + image.FileName)).Append("\" alt=\"").Append(Encode(image.Caption))
+                        .Append("\" loading=\"lazy\">");
+                }
+
+                html.Append("<figcaption>").Append(Encode(image.Caption)).Append("</figcaption></figure>\n");
                 continue;
             }
 
@@ -121,6 +158,26 @@ internal static class SafeMarkdown
         CloseList();
         return html.ToString();
     }
+
+    /// <summary>Nombre de captura aceptado: minúsculas, números y guiones, terminado en <c>.png</c> (sin carpetas ni puntos extra).</summary>
+    public static bool IsImageFileName(string name) => ImageName().IsMatch(name);
+
+    /// <summary><c>![pie](imagenes/instalacion/nombre.png)</c> sola en la línea; cualquier otra forma no es imagen (queda como texto).</summary>
+    private static (string Caption, string FileName)? Image(string line)
+    {
+        if (!line.StartsWith("![", StringComparison.Ordinal) || !line.EndsWith(')') || Link(line, 1) is not { } link || link.End != line.Length)
+        {
+            return null;
+        }
+
+        var path = link.Url;
+        return path.StartsWith(ImageFolder, StringComparison.Ordinal) && IsImageFileName(path[ImageFolder.Length..])
+            ? (link.Text.Trim(), path[ImageFolder.Length..])
+            : null;
+    }
+
+    [GeneratedRegex(@"^[a-z0-9][a-z0-9-]{0,80}\.png\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 100)]
+    private static partial Regex ImageName();
 
     private static (int Level, string Text)? Heading(string line)
     {
@@ -228,5 +285,27 @@ internal static class SafeMarkdown
         }
 
         return encoded.ToString();
+    }
+}
+
+/// <summary>Capturas del manual (<c>GET /descargas/manual/imagenes/{nombre}.png</c>), con el mismo permiso que la página del manual.</summary>
+internal static class InstallManualEndpoints
+{
+    public static IEndpointRouteBuilder MapInstallManualImages(this IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapGet("/" + InstallManual.ImageRoute + "{name}", (string name, HttpContext http) =>
+            {
+                if (InstallManual.OpenImage(name) is not { } image)
+                {
+                    return Results.NotFound();
+                }
+
+                http.Response.Headers.CacheControl = "private, max-age=86400";
+                http.Response.Headers.XContentTypeOptions = "nosniff";
+                return Results.Stream(image, "image/png");
+            })
+            .RequireAuthorization(Pos.Cloud.Abstractions.CloudPermissions.DownloadView)
+            .ExcludeFromDescription();
+        return endpoints;
     }
 }

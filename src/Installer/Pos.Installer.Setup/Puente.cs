@@ -7,7 +7,7 @@ using Pos.Updates.Contracts;
 namespace Pos.Installer.Setup;
 
 /// <summary>Cómo se abrió el programa.</summary>
-internal sealed record Opciones(bool Desinstalar, bool Maqueta, string Paquete, string? Pantalla = null);
+internal sealed record Opciones(bool Desinstalar, bool Maqueta, string Paquete, string? Pantalla = null, ArgumentosCaptura? Captura = null);
 
 /// <summary>
 /// Puente página ↔ Windows (mensajes web de WebView2). La página envía <c>{ id, accion, datos }</c> y recibe

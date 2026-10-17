@@ -75,7 +75,7 @@ public class DownloadsTests(DownloadsCloudFixture cloud) : IClassFixture<Downloa
         var html = await response.Content.ReadAsStringAsync(Ct);
         html.ShouldContain("<h2>Manual de instalación de BusinessPost</h2>");
         html.ShouldContain("<strong>Ejecutar de todas formas</strong>");
-        WebUtility.HtmlDecode(html).ShouldContain("Este equipo es la única caja");
+        WebUtility.HtmlDecode(html).ShouldContain("Es la única caja");
         html.ShouldContain("Imprimir / Guardar como PDF");
         html.ShouldNotContain("Descargar manual (PDF)");
     }
@@ -100,6 +100,71 @@ public class DownloadsTests(DownloadsCloudFixture cloud) : IClassFixture<Downloa
 
         // El manual real está incrustado y se convierte sin errores.
         InstallManual.ToHtml().ShouldContain("<h3>1. Antes de empezar</h3>");
+    }
+
+    [Fact]
+    public void El_manual_solo_acepta_capturas_png_de_imagenes_instalacion_en_su_propia_linea()
+    {
+        var html = SafeMarkdown.ToHtml(
+            "![Paso 1: Bienvenida <b>](imagenes/instalacion/01-bienvenida.png)\n\n" +
+            "![fuera](imagenes/instalacion/../../secreto.png)\n\n" +
+            "![remota](https://malo.example/x.png)\n\n" +
+            "![script](javascript:alert(1))\n\n" +
+            "![svg](imagenes/instalacion/dibujo.svg)\n\n" +
+            "![mayusculas](imagenes/instalacion/Paso.PNG)\n\n" +
+            "Texto con ![en linea](imagenes/instalacion/02-equipo.png) dentro.",
+            imageBaseUrl: "descargas/manual/imagenes/");
+
+        html.ShouldContain("<figure class=\"bp-manual-figura\"><img src=\"descargas/manual/imagenes/01-bienvenida.png\" alt=\"Paso 1: Bienvenida &lt;b&gt;\" loading=\"lazy\"><figcaption>Paso 1: Bienvenida &lt;b&gt;</figcaption></figure>");
+        html.Split("<img").Length.ShouldBe(2); // Solo la primera es imagen; las demás quedan como texto.
+        html.ShouldNotContain("secreto.png\"");
+        html.ShouldNotContain("src=\"https://malo.example");
+        html.ShouldNotContain("javascript:");
+        html.ShouldNotContain("02-equipo.png\"");
+
+        // Sin ruta de imágenes, solo el pie de foto.
+        SafeMarkdown.ToHtml("![Pie](imagenes/instalacion/01-bienvenida.png)").ShouldBe("<figure class=\"bp-manual-figura\"><figcaption>Pie</figcaption></figure>\n");
+
+        // El manual real trae sus capturas incrustadas.
+        var manual = InstallManual.ToHtml();
+        manual.ShouldContain("<img src=\"descargas/manual/imagenes/");
+        foreach (var name in System.Text.RegularExpressions.Regex.Matches(manual, @"descargas/manual/imagenes/([a-z0-9-]+\.png)").Select(m => m.Groups[1].Value))
+        {
+            using var image = InstallManual.OpenImage(name);
+            image.ShouldNotBeNull($"Falta la captura incrustada {name}");
+        }
+
+        InstallManual.OpenImage("../manual-instalacion.md").ShouldBeNull();
+        InstallManual.OpenImage("no-existe.png").ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Las_capturas_del_manual_se_sirven_como_png_solo_con_sesion()
+    {
+        Manifest.Respond(HttpStatusCode.NotFound, string.Empty);
+        using var browser = await CustomerBrowserAsync();
+
+        var page = await browser.GetStringAsync(new Uri("/descargas/manual", UriKind.Relative), Ct);
+        var src = System.Text.RegularExpressions.Regex.Match(page, @"src=""(descargas/manual/imagenes/[a-z0-9-]+\.png)""").Groups[1].Value;
+        src.ShouldNotBeEmpty();
+
+        using var image = await browser.GetAsync(new Uri("/" + src, UriKind.Relative), Ct);
+        image.StatusCode.ShouldBe(HttpStatusCode.OK);
+        image.Content.Headers.ContentType!.MediaType.ShouldBe("image/png");
+        var bytes = await image.Content.ReadAsByteArrayAsync(Ct);
+        bytes.Take(4).ShouldBe(new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+
+        using var missing = await browser.GetAsync(new Uri("/descargas/manual/imagenes/no-existe.png", UriKind.Relative), Ct);
+        missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        using var traversal = await browser.GetAsync(new Uri("/descargas/manual/imagenes/..%2Fmanual-instalacion.md", UriKind.Relative), Ct);
+        traversal.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        using var anonymous = cloud.Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://licencias.test/"), AllowAutoRedirect = false,
+        });
+        using var denied = await anonymous.GetAsync(new Uri("/" + src, UriKind.Relative), Ct);
+        denied.StatusCode.ShouldNotBe(HttpStatusCode.OK);
     }
 
     [Fact]
