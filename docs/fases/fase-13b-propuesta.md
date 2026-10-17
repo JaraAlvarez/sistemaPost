@@ -1,6 +1,7 @@
 # Fase 13-B · Instalador con marca, arranque confiable y descargas en el portal del cliente — Propuesta
 
-> Estado: **PROPUESTA — pendiente de tu aprobación** · 2026-10-17
+> Estado: **PROPUESTA v2 — pendiente de tu aprobación** · 2026-10-17 (v1 respondida: logo y colores de tutiendanueva.com, texto del
+> aliado aprobado, descargas solo desde el portal; v2 agrega lo que pediste: experiencia premium, ventana propia y cuenta del portal).
 > Origen: pediste mostrar la marca (y a tutiendanueva.com como aliado) durante la instalación, y que el cliente pueda descargar el
 > instalador y el manual desde su panel. Al instalar la 1.0.1 en un equipo real encontramos además fallas del primer arranque.
 > Base: [Fase 13](fase-13-propuesta.md) (instalador y actualizaciones), [Fase 16](fase-16-propuesta.md) (portal del cliente),
@@ -54,3 +55,80 @@ en el asistente, "Entrar a BusinessPost" lleva al ingreso. Portal: el cliente ve
 2. **Texto del aliado:** propuesta: "¿Quieres vender también por internet? Crea tu tienda en tutiendanueva.com". ¿Lo cambias?
 3. **Descargas públicas:** ¿el instalador solo para clientes con usuario (recomendado), o también un enlace público en tu página de
    ventas?
+
+## 5. Respuestas de la v1
+
+| Pregunta | Respuesta |
+|---|---|
+| Logo y colores del aliado | Los de tutiendanueva.com tal como están en su página |
+| Texto del aliado | "¿Quieres vender también por internet? Crea tu tienda en tutiendanueva.com" |
+| Descargas | Por ahora solo desde el portal, con usuario |
+
+## 6. v2 · Lo que agregaste: instalación "premium" de punta a punta
+
+### 6.1 Ventana propia en vez del navegador (D13B-07)
+
+Hoy el acceso directo abre **Microsoft Edge en modo aplicación** (`msedge --app=http://localhost:5480`): no es "modo pruebas", es la
+forma actual de mostrar la interfaz. Se ve como navegador ("localhost", página de error de Edge). Propuesta: un programa propio
+**`BusinessPost.exe`** (ventana de Windows con **WebView2**, el mismo motor de Edge que ya trae Windows 10/11):
+
+- Ícono, nombre y barra de tareas de BusinessPost; sin barra de direcciones ni menús del navegador; no se puede navegar a otros sitios.
+- **Pantalla de carga con la marca** mientras el sistema arranca ("Iniciando BusinessPost…"), en vez de "localhost rechazó la conexión".
+- **Caja a pantalla completa** (modo quiosco) opcional; recuerda tamaño y posición; un solo programa abierto a la vez.
+- La interfaz es la misma de hoy (no se reescribe nada): solo cambia la "cáscara".
+
+### 6.2 Qué es "el servidor" y por qué existe (sin cambio de arquitectura, sí de nombres)
+
+"Servidor" **no es un servidor en internet**: es un **programa de fondo en el mismo computador** (servicio de Windows) que guarda los
+datos en la base local, imprime, hace los backups y verifica la licencia. Funciona **sin internet**; internet solo se usa para la
+licencia, el pago y la sincronización con la nube.
+
+- **Una sola caja:** el "servidor" y la caja están en el mismo equipo. Para el cliente es un programa instalado y ya.
+- **Varias cajas:** uno de los equipos guarda los datos y las demás cajas se conectan a él por la red del local (no por internet), para
+  que todas vean el mismo inventario y los mismos precios.
+- Existe como servicio para que los backups, la impresión y la licencia sigan funcionando aunque cierren la ventana, y para que pasar de
+  Caja Única a Multicaja no exija reinstalar.
+
+Propuesta de **nombres claros** en el instalador: "Este equipo es la única caja" · "Este es el equipo principal (tengo varias
+cajas)" · "Esta es una caja adicional". La palabra "servidor" desaparece de lo que ve el cliente.
+
+### 6.3 Instalador premium (D13B-08)
+
+Inno Setup permite imágenes, pero su aspecto sigue siendo el de un instalador clásico de Windows. Para un resultado "premium":
+**instalador propio con la marca** (`BusinessPost-Setup.exe`, ventana sin bordes de Windows, diseño del portal: degradado, tarjetas,
+tipografía Inter) que hace todo el trabajo por debajo con el paquete actual:
+
+1. Bienvenida con la marca y "¿Cómo usarás este equipo?" (tres tarjetas con dibujo: una caja / equipo principal / caja adicional).
+2. **Licencia primero:** "Escribe la clave que recibiste" o "Probar 30 días". Con la clave, la nube devuelve la empresa (razón social,
+   NIT) y el plan, así el cliente no los vuelve a escribir.
+3. **Cuenta del propietario = su cuenta del portal:** "Ingresa con tu correo del portal de BusinessPost" (o Google). Se valida en línea
+   una vez y queda guardada en el equipo para trabajar sin internet (D13B-09).
+4. Instalación con progreso real por pasos y el **carrusel** (marca, funciones, aliado tutiendanueva.com).
+5. Datos del local que faltan: sucursal, dirección y municipio (buscador), impresora y cajón (prueba de impresión), con validaciones
+   claras (el dígito de verificación del NIT se calcula solo).
+6. Código de recuperación (con botón "Imprimir").
+7. **"Todo listo"** con botón **"Abrir BusinessPost"**, y en la administración un recorrido corto: crear cajeros y roles, cargar
+   productos.
+
+### 6.4 Cuenta del portal en el POS (D13B-09)
+
+- El propietario entra a la **administración del POS con el mismo correo y contraseña del portal** (o Google, cuando haya internet).
+- El POS guarda una copia segura (hash) para entrar **sin internet**; si cambia la contraseña en el portal, el POS la actualiza en el
+  siguiente reporte diario.
+- **Cajeros y roles** se crean desde la administración del POS (ya existe: Usuarios, roles y permisos); los cajeros usan código + PIN y
+  no necesitan cuenta en el portal.
+
+### 6.5 Guía de instalación para el usuario (D13B-10)
+
+`docs/manual-instalacion.md` + PDF, con capturas reales de cada pantalla del instalador nuevo y qué responder en cada paso; en el portal
+del cliente (Descargas) y enlazada desde el instalador.
+
+## 7. Orden propuesto (por partes, cada una se prueba y se publica)
+
+| Parte | Contenido | Tamaño |
+|---|---|---|
+| A | Arreglos del primer arranque (precalentar, progreso, esperar, "Abrir BusinessPost") + nombres claros | Pequeña |
+| B | Ventana propia `BusinessPost.exe` (WebView2) con pantalla de carga | Media |
+| C | Portal → Descargas + manual de instalación | Pequeña |
+| D | Instalador premium propio (licencia primero, cuenta del portal, carrusel con el aliado) | Grande |
+| E | Cuenta del portal en el POS (correo/contraseña/Google del propietario) | Media |
