@@ -318,7 +318,53 @@ else
                         }
                     </div>
                 }
-                @if (_methodSelected?.RequiresReference == true)
+                @if (EsSistecredito(_methodSelected))
+                {
+                    @* Fase 7-B: cobro con Sistecrédito. El cliente abre el QR en su celular, elige las cuotas y confirma con el código que le llega. *@
+                    <div class="cobro-sistecredito" aria-live="polite">
+                        @if (_sc is null)
+                        {
+                            <div class="d-flex gap-2">
+                                <MudSelect T="string" @bind-Value="_scTipo" Label="Documento" Variant="Variant.Outlined" Style="max-width: 110px;">
+                                    @foreach (var tipo in TiposDocumento)
+                                    {
+                                        <MudSelectItem T="string" Value="@tipo">@tipo</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudTextField @bind-Value="_scDocumento" Label="Número de documento del cliente" Variant="Variant.Outlined" Immediate="true" autocomplete="off" />
+                            </div>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-2" Disabled="@(_busy || _amount <= 0)"
+                                       OnClick="GenerarSistecreditoAsync" StartIcon="@Icons.Material.Outlined.QrCode2">Generar cobro de @Format.Money(_amount)</MudButton>
+                            <MudText Typo="Typo.caption" Class="d-block texto-secundario">Sistecrédito necesita internet en este momento.</MudText>
+                        }
+                        else if (_sc.Status == "PENDING")
+                        {
+                            @if (_scQr is not null)
+                            {
+                                <img class="cobro-sistecredito-qr" src="@_scQr" alt="Código QR del cobro con Sistecrédito" width="200" height="200" />
+                                <MudText Typo="Typo.body2"><b>Escanee con su celular, elija las cuotas y confirme con el código que le llega.</b></MudText>
+                            }
+                            else
+                            {
+                                <div class="d-flex align-center gap-2"><MudProgressCircular Size="Size.Small" Indeterminate="true" />Preparando el código QR de Sistecrédito…</div>
+                            }
+                            <MudText Typo="Typo.caption" Class="d-block">
+                                Cobro de @Format.Money(_sc.Amount) a @_sc.DocumentType @_sc.MaskedDocument · esperando la confirmación del cliente…
+                            </MudText>
+                            @if (_sc.Warning is not null)
+                            {
+                                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-1">@_sc.Warning</MudAlert>
+                            }
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" Class="mt-2" Disabled="_busy" OnClick="CancelarSistecreditoAsync">Cancelar</MudButton>
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true">@(_sc.Message ?? "Sistecrédito no aprobó el cobro. Elija otro medio de pago.")</MudAlert>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" Class="mt-2" OnClick="NuevoSistecredito">Intentar de nuevo</MudButton>
+                        }
+                    </div>
+                }
+                else if (_methodSelected?.RequiresReference == true)
                 {
                     <MudTextField @bind-Value="_reference" Label="Referencia (aprobación del datáfono)" Variant="Variant.Outlined" Immediate="true" />
                 }

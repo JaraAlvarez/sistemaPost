@@ -28,6 +28,7 @@
 | 5 · Terceros, proveedores y compras | [propuesta](fases/fase-05-propuesta.md) · [informe](fases/fase-05-informe.md) | Implementada — pendiente de validación |
 | 6 · Caja: jornadas, arqueos y cierres | [propuesta](fases/fase-06-propuesta.md) · [informe](fases/fase-06-informe.md) | Implementada — pendiente de validación |
 | 7 · POS y ventas | [propuesta](fases/fase-07-propuesta.md) · [informe](fases/fase-07-informe.md) | Implementada — pendiente de validación |
+| 7-B · Cobrar con Sistecrédito en la caja | [propuesta](fases/fase-07b-propuesta.md) · [ADR-0064](adr/0064-sistecredito-en-la-caja.md) · [guía del piloto §9](guia-piloto.md#9-cobrar-con-sistecrédito) | Implementada — pendiente de tu prueba con llaves de Staging |
 | 8 · Clientes y proveedores | [propuesta](fases/fase-08-propuesta.md) · [informe](fases/fase-08-informe.md) | Implementada — pendiente de tu validación |
 | 9 · Reportes | [propuesta](fases/fase-09-propuesta.md) · [informe](fases/fase-09-informe.md) | Implementada — pendiente de tu validación |
 | 10 · Auditoría | [propuesta](fases/fase-10-propuesta.md) · [informe](fases/fase-10-informe.md) | Implementada — pendiente de tu validación |

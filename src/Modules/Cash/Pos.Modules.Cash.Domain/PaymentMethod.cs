@@ -21,6 +21,12 @@ public enum PaymentMethodKind
 
     /// <summary>Redención de puntos: reservado, se activa en la Fase 8-B (D8-16).</summary>
     LoyaltyPoints,
+
+    /// <summary>
+    /// Crédito de Sistecrédito (Fase 7-B): el cliente aprueba el cobro en su celular. Medio del sistema; la referencia es el id de la
+    /// transacción y la venta solo se completa con un cobro APROBADO por ese valor (D7B-01, D7B-05).
+    /// </summary>
+    Sistecredito,
 }
 
 public enum MasterStatus
@@ -41,6 +47,9 @@ public sealed class PaymentMethod : AggregateRoot<Guid>, ICompanyOwned, ISoftDel
 
     /// <summary>Medio del sistema con el que el crédito de un cambio paga la venta nueva.</summary>
     public const string ExchangeCreditCode = "CAMBIO";
+
+    /// <summary>Medio del sistema para cobrar con Sistecrédito (Fase 7-B). Nace inactivo: se activa al configurar Sistecrédito.</summary>
+    public const string SistecreditoCode = "SISTECREDITO";
 
     private PaymentMethod(Guid id, Guid companyId, string code, string name)
         : base(id)
@@ -102,7 +111,9 @@ public sealed class PaymentMethod : AggregateRoot<Guid>, ICompanyOwned, ISoftDel
 
         Name = trimmed;
         DianCode = dian;
-        RequiresReference = requiresReference && Kind is not (PaymentMethodKind.Cash or PaymentMethodKind.ExchangeCredit);
+        // Sistecrédito siempre lleva la referencia: el id de la transacción aprobada.
+        RequiresReference = Kind == PaymentMethodKind.Sistecredito
+            || (requiresReference && Kind is not (PaymentMethodKind.Cash or PaymentMethodKind.ExchangeCredit));
         AffectsCashDrawer = Kind == PaymentMethodKind.Cash;
         SortOrder = sortOrder;
         Status = isActive ? MasterStatus.Active : MasterStatus.Inactive;
@@ -126,6 +137,9 @@ public static class CashErrors
 
     public static readonly Error ExchangeCreditReserved = Error.Validation(
         "CASH.EXCHANGE_CREDIT_RESERVED", "El crédito por cambio es un medio del sistema: no se crean otros de ese tipo.");
+
+    public static readonly Error SistecreditoReserved = Error.Validation(
+        "CASH.SISTECREDITO_RESERVED", "Sistecrédito es un medio del sistema: se activa en Configuración → Medios de pago → Sistecrédito.");
 
     public static readonly Error OpenSales = Error.Conflict(
         "CASH.OPEN_SALES", "La caja tiene ventas en curso o suspendidas: cóbrelas o cancélelas antes de cerrar (RN-CSH-03).");

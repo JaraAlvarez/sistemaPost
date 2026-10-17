@@ -76,6 +76,15 @@
                     $"Hay {me.BackupAlerts} alerta(s) de backups: revise que se estén haciendo y copiando fuera del equipo.", "/admin/backups", false));
             }
 
+            if (me.SistecreditoReviews > 0)
+            {
+                // Fase 7-B (D7B-05): cobros aprobados por Sistecrédito sin venta completada; la plata del cliente no se pierde.
+                items.Add(new Aviso(
+                    me.SistecreditoReviews == 1 ? "1 cobro de Sistecrédito por revisar" : $"{me.SistecreditoReviews} cobros de Sistecrédito por revisar",
+                    $"Hay {me.SistecreditoReviews} cobro(s) que Sistecrédito aprobó sin venta completada: complete la venta o reverse el pago en el portal de Sistecrédito.",
+                    "/admin/configuracion", true));
+            }
+
             if (me.OpenIntegrityIncidents > 0)
             {
                 items.Add(new Aviso(

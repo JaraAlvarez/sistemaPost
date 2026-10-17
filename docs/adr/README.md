@@ -68,3 +68,4 @@ Un ADR aprobado no se edita: si la decisión cambia, se crea uno nuevo que lo re
 | [0061](0061-mapeo-fiscal-desde-la-venta-guardada.md) | Mapeo fiscal desde la venta guardada (modelo neutro, pesables, notas y documento soporte) | Aceptada | 2026-09-30 |
 | [0062](0062-ingreso-con-google-y-doble-factor-opcional.md) | Ingreso al portal con Google y doble factor (TOTP) opcional | Aceptada | 2026-09-30 |
 | [0063](0063-pago-en-linea-de-suscripciones-con-wompi.md) | Pago en línea de suscripciones con Wompi | Aceptada | 2026-10-17 |
+| [0064](0064-sistecredito-en-la-caja.md) | Sistecrédito en la caja (cobro con QR, consulta del estado y revisión automática) | Aceptada | 2026-10-17 |

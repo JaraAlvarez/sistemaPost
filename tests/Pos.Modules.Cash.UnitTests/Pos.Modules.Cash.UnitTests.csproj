@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Reglas de la caja: medios de pago (Fase 5); jornadas, movimientos y cierres (Fase 6). -->
+  <!-- Reglas de la caja: medios de pago (Fase 5); jornadas, movimientos y cierres (Fase 6); Sistecrédito (Fase 7-B). -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Modules\Cash\Pos.Modules.Cash.Domain\Pos.Modules.Cash.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Cash\Pos.Modules.Cash.Application\Pos.Modules.Cash.Application.csproj" />
+    <!-- Fase 7-B: protocolo de Sistecrédito con un HttpMessageHandler simulado (nunca la API real). -->
+    <ProjectReference Include="..\..\src\Modules\Cash\Pos.Modules.Cash.Infrastructure\Pos.Modules.Cash.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
