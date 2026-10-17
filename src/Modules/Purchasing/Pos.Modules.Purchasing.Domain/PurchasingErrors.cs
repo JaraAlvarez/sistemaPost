@@ -137,4 +137,20 @@ public static class PurchasingErrors
 
     public static readonly Error InvalidPeriod = Error.Validation(
         "PURCHASING.INVALID_PERIOD", "Período inválido: la fecha inicial debe ser anterior o igual a la final (máximo 3 años) y los días entre 0 y 90.");
+
+    public static readonly Error NothingSelected = Error.Validation("PURCHASING.NOTHING_SELECTED", "Marque al menos un producto para crear las órdenes de compra.");
+
+    public static readonly Error SupplierRequiredForSuggestion = Error.Validation(
+        "PURCHASING.SUPPLIER_REQUIRED", "Hay productos marcados sin proveedor: asígneles uno en el grupo \"Sin proveedor\" o desmárquelos.");
+
+    public static readonly Error SuggestionBatchRequired = Error.Validation(
+        "PURCHASING.SUGGESTION_BATCH_REQUIRED", "Falta la clave del pedido (batchId): vuelva a cargar la pantalla e intente de nuevo.");
+
+    public static readonly Error SuggestionBatchReused = Error.Conflict(
+        "PURCHASING.SUGGESTION_BATCH_REUSED", "Ese pedido ya se envió con otros productos o cantidades: vuelva a cargar la pantalla.");
+
+    public static Error SuggestionChanged(IEnumerable<string> products) => Error.Conflict(
+        "PURCHASING.SUGGESTION_CHANGED",
+        $"Otra persona pidió algunos de estos productos mientras usted revisaba: {string.Join("; ", products)}. "
+        + "Actualice la pantalla (se conservan sus cambios en los demás productos), revise los marcados y vuelva a crear las órdenes.");
 }

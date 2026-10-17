@@ -209,6 +209,90 @@ internal sealed class PurchasingQueries(PosDbContext context, IInstallationConte
         return [.. rows.Select(r => new BankDto(r.Code, r.Name))];
     }
 
+    public async Task<IReadOnlyList<ReplenishmentRow>> ListReplenishmentAsync(ReplenishmentFilter filter, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ReplenishmentDbRow>(new CommandDefinition(
+            $"""
+            WITH bal AS (
+                SELECT b.warehouse_id, b.product_id, b.quantity
+                FROM inventory.stock_balances b
+                WHERE b.branch_id = @branchId AND b.lot_id IS NULL),
+            pend AS (
+                SELECT o.warehouse_id, ol.product_id, sum(ol.base_quantity - ol.received_base_quantity) AS pending
+                FROM purchasing.purchase_orders o
+                JOIN purchasing.purchase_order_lines ol ON ol.order_id = o.id
+                WHERE o.branch_id = @branchId AND o.status IN ('DRAFT', 'APPROVED', 'SENT', 'PARTIALLY_RECEIVED')
+                  AND ol.base_quantity > ol.received_base_quantity
+                GROUP BY o.warehouse_id, ol.product_id)
+            SELECT sp.warehouse_id AS WarehouseId, w.code AS WarehouseCode, pr.id AS ProductId, pr.sku AS Sku, pr.name AS ProductName,
+                   pr.category_id AS CategoryId, c.name AS CategoryName, pr.base_unit_code AS BaseUnitCode, pr.allows_decimal_quantity AS AllowsDecimalQuantity,
+                   COALESCE(bal.quantity, 0) AS Quantity, sp.min_qty AS MinQuantity, sp.max_qty AS MaxQuantity, sp.reorder_point AS ReorderPoint,
+                   sp.reorder_qty AS ReorderQuantity, COALESCE(pend.pending, 0) AS PendingQuantity, sup.supplier_id AS SupplierId,
+                   sup.supplier_name AS SupplierName, sup.last_cost AS LastCost, sup.last_purchase_at AS LastPurchaseAt, sup.packaging_id AS PackagingId,
+                   sup.packaging_name AS PackagingName, sup.factor AS PackagingFactor
+            FROM inventory.stock_policies sp
+            JOIN org.warehouses w ON w.id = sp.warehouse_id
+            JOIN catalog.products pr ON pr.id = sp.product_id
+            JOIN catalog.categories c ON c.id = pr.category_id
+            LEFT JOIN bal ON bal.warehouse_id = sp.warehouse_id AND bal.product_id = sp.product_id
+            LEFT JOIN pend ON pend.warehouse_id = sp.warehouse_id AND pend.product_id = sp.product_id
+            LEFT JOIN LATERAL (
+                SELECT x.supplier_id, {SupplierName} AS supplier_name, x.last_cost, x.last_purchase_at, pk.id AS packaging_id, pk.name AS packaging_name,
+                       pk.factor
+                FROM purchasing.supplier_products x
+                JOIN purchasing.suppliers s ON s.id = x.supplier_id
+                JOIN parties.parties p ON p.id = s.party_id
+                LEFT JOIN catalog.product_packagings pk ON pk.id = x.packaging_id AND pk.deleted_at IS NULL AND pk.is_purchasable
+                WHERE x.product_id = sp.product_id AND x.company_id = sp.company_id AND x.deleted_at IS NULL
+                  AND s.deleted_at IS NULL AND s.status = 'ACTIVE'
+                ORDER BY x.is_preferred DESC, x.last_purchase_at DESC NULLS LAST, x.created_at
+                LIMIT 1) sup ON true
+            WHERE sp.branch_id = @branchId AND sp.deleted_at IS NULL AND pr.deleted_at IS NULL AND pr.status <> 'DISCONTINUED'
+              AND w.status = 'ACTIVE' AND w.deleted_at IS NULL AND w.kind NOT IN ('IN_TRANSIT', 'DAMAGED')
+              AND (COALESCE(bal.quantity, 0) < sp.min_qty OR (sp.reorder_point IS NOT NULL AND COALESCE(bal.quantity, 0) <= sp.reorder_point))
+              AND (@warehouseId::uuid IS NULL OR sp.warehouse_id = @warehouseId)
+              AND (@category::text IS NULL OR c.path LIKE @category)
+              AND (@supplierId::uuid IS NULL OR sup.supplier_id = @supplierId)
+            ORDER BY sup.supplier_name NULLS LAST, w.code, pr.name COLLATE es_co
+            LIMIT {Math.Clamp(filter.Limit, 1, 100_000)}
+            """,
+            new
+            {
+                branchId = filter.BranchId, warehouseId = filter.WarehouseId, supplierId = filter.SupplierId,
+                category = filter.CategoryId is { } category ? $"%/{category:D}/%" : null,
+            },
+            transaction, cancellationToken: cancellationToken));
+        return [.. rows.Select(r => new ReplenishmentRow(
+            r.WarehouseId, r.WarehouseCode, r.ProductId, r.Sku, r.ProductName, r.CategoryId, r.CategoryName, r.BaseUnitCode, r.AllowsDecimalQuantity, r.Quantity,
+            r.MinQuantity, r.MaxQuantity, r.ReorderPoint, r.ReorderQuantity, r.PendingQuantity, r.SupplierId, r.SupplierName, r.LastCost,
+            r.LastPurchaseAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null, r.PackagingId, r.PackagingName,
+            r.PackagingFactor))];
+    }
+
+    public async Task<IReadOnlyDictionary<(Guid WarehouseId, Guid ProductId), decimal>> PendingQuantitiesAsync(
+        Guid branchId, IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken)
+    {
+        if (productIds.Count == 0)
+        {
+            return new Dictionary<(Guid, Guid), decimal>();
+        }
+
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        var rows = await connection.QueryAsync<(Guid WarehouseId, Guid ProductId, decimal Pending)>(new CommandDefinition(
+            """
+            SELECT o.warehouse_id, ol.product_id, sum(ol.base_quantity - ol.received_base_quantity)
+            FROM purchasing.purchase_orders o
+            JOIN purchasing.purchase_order_lines ol ON ol.order_id = o.id
+            WHERE o.branch_id = @branchId AND ol.product_id = ANY(@ids) AND o.status IN ('DRAFT', 'APPROVED', 'SENT', 'PARTIALLY_RECEIVED')
+              AND ol.base_quantity > ol.received_base_quantity
+            GROUP BY o.warehouse_id, ol.product_id
+            """,
+            new { branchId, ids = productIds.Distinct().ToArray() }, transaction, cancellationToken: cancellationToken));
+        return rows.ToDictionary(r => (r.WarehouseId, r.ProductId), r => r.Pending);
+    }
+
     private async Task<IReadOnlyList<SupplierDto>> QuerySuppliersAsync(Guid? supplierId, string? search, bool includeInactive, CancellationToken cancellationToken)
     {
         var tokens = TextNormalization.ForSearch(search).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -243,6 +327,53 @@ internal sealed class PurchasingQueries(PosDbContext context, IInstallationConte
 
     private static string Escape(string token) =>
         token.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
+
+    private sealed class ReplenishmentDbRow
+    {
+        public Guid WarehouseId { get; set; }
+
+        public string WarehouseCode { get; set; } = string.Empty;
+
+        public Guid ProductId { get; set; }
+
+        public string Sku { get; set; } = string.Empty;
+
+        public string ProductName { get; set; } = string.Empty;
+
+        public Guid CategoryId { get; set; }
+
+        public string CategoryName { get; set; } = string.Empty;
+
+        public string BaseUnitCode { get; set; } = string.Empty;
+
+        public bool AllowsDecimalQuantity { get; set; }
+
+        public decimal Quantity { get; set; }
+
+        public decimal MinQuantity { get; set; }
+
+        public decimal? MaxQuantity { get; set; }
+
+        public decimal? ReorderPoint { get; set; }
+
+        public decimal? ReorderQuantity { get; set; }
+
+        public decimal PendingQuantity { get; set; }
+
+        public Guid? SupplierId { get; set; }
+
+        public string? SupplierName { get; set; }
+
+        public decimal? LastCost { get; set; }
+
+        public DateTime? LastPurchaseAt { get; set; }
+
+        public Guid? PackagingId { get; set; }
+
+        public string? PackagingName { get; set; }
+
+        public decimal? PackagingFactor { get; set; }
+    }
 
     private sealed class ActivityRow
     {

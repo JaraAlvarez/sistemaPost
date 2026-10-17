@@ -303,5 +303,6 @@ public static class PurchasingInfrastructureRegistration
         services.AddSingleton<IConstraintErrorProvider, PurchasingConstraintErrors>();
         services.AddScoped<IPurchasingStore, PurchasingStore>();
         services.AddScoped<IPurchasingQueries, PurchasingQueries>();
+        services.AddScoped<ISuggestedOrderGate, SuggestedOrderGate>();
     }
 }

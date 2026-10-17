@@ -139,6 +139,12 @@ internal sealed class InventoryStore(PosDbContext context) : IInventoryStore
 
     public Task<StockPolicy?> GetPolicyAsync(Guid warehouseId, Guid productId, CancellationToken cancellationToken) =>
         context.Set<StockPolicy>().SingleOrDefaultAsync(p => p.WarehouseId == warehouseId && p.ProductId == productId, cancellationToken);
+
+    public async Task<IReadOnlyList<StockPolicy>> GetPoliciesAsync(IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken)
+    {
+        var ids = productIds.Distinct().ToArray();
+        return ids.Length == 0 ? [] : await context.Set<StockPolicy>().Where(p => ids.Contains(p.ProductId)).ToListAsync(cancellationToken);
+    }
 }
 
 /// <summary>Saldos y kardex con SQL directo en la transacción de la petición.</summary>

@@ -233,6 +233,52 @@ internal sealed class InventoryReadModel(PosDbContext context, IInstallationCont
         public string? LotNumber { get; set; }
     }
 
+    public async Task<IReadOnlyList<ProductSalesRow>> GetNetSalesAsync(Guid warehouseId, DateOnly from, DateOnly to, int limit, CancellationToken cancellationToken)
+    {
+        var (connection, transaction) = await DbSession.OpenAsync(context, cancellationToken);
+        var rows = await connection.QueryAsync<SalesRow>(new CommandDefinition(
+            $"""
+            SELECT p.id AS ProductId, p.sku AS Sku, p.name AS ProductName, p.base_unit_code AS BaseUnitCode,
+                   p.allows_decimal_quantity AS AllowsDecimalQuantity, s.sold AS SoldQuantity
+            FROM (
+                SELECT m.product_id,
+                       sum(CASE WHEN m.movement_type = 'SALE' THEN m.quantity
+                                WHEN m.movement_type IN ('SALE_VOID', 'CUSTOMER_RETURN', 'CUSTOMER_RETURN_DAMAGED') THEN -m.quantity
+                                ELSE 0 END) AS sold
+                FROM inventory.stock_movements m
+                WHERE m.warehouse_id = @warehouseId AND m.business_date BETWEEN @from::date AND @to::date
+                  AND m.movement_type IN ('SALE', 'SALE_VOID', 'CUSTOMER_RETURN', 'CUSTOMER_RETURN_DAMAGED')
+                GROUP BY m.product_id) s
+            JOIN catalog.products p ON p.id = s.product_id
+            WHERE s.sold > 0 AND p.product_type = 'STOCKABLE' AND p.status <> 'DISCONTINUED' AND p.deleted_at IS NULL
+            ORDER BY s.sold DESC, p.name COLLATE es_co
+            LIMIT {Math.Clamp(limit, 1, MaxRows + 1)}
+            """,
+            new
+            {
+                warehouseId,
+                from = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                to = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            },
+            transaction: transaction, cancellationToken: cancellationToken));
+        return [.. rows.Select(r => new ProductSalesRow(r.ProductId, r.Sku, r.ProductName, r.BaseUnitCode, r.AllowsDecimalQuantity, r.SoldQuantity))];
+    }
+
+    private sealed class SalesRow
+    {
+        public Guid ProductId { get; set; }
+
+        public string Sku { get; set; } = string.Empty;
+
+        public string ProductName { get; set; } = string.Empty;
+
+        public string BaseUnitCode { get; set; } = string.Empty;
+
+        public bool AllowsDecimalQuantity { get; set; }
+
+        public decimal SoldQuantity { get; set; }
+    }
+
     private sealed class LotRow
     {
         public Guid LotId { get; set; }

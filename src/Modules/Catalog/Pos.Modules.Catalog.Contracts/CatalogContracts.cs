@@ -51,6 +51,9 @@ public interface ICatalogReader
     /// <summary>Producto por SKU o por código de barras (normalizado).</summary>
     Task<CatalogProductInfo?> FindByCodeAsync(string skuOrBarcode, CancellationToken cancellationToken = default);
 
+    /// <summary>Varios productos por SKU o código de barras en una sola consulta (importaciones). La clave es el código tal como llegó; los que no existen no aparecen.</summary>
+    Task<IReadOnlyDictionary<string, CatalogProductInfo>> FindByCodesAsync(IReadOnlyCollection<string> skusOrBarcodes, CancellationToken cancellationToken = default);
+
     /// <summary>Productos inventariables activos o inactivos (no descontinuados) de las categorías indicadas y sus subcategorías; todas si es null.</summary>
     Task<IReadOnlyList<Guid>> ListStockableProductIdsAsync(IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken = default);
 

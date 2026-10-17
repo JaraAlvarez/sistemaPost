@@ -1,0 +1,573 @@
+@page "/admin/reabastecimiento"
+@inject ApiClient Api
+@inject SessionState Session
+@inject Bodegas Bodegas
+@inject ISnackbar Snackbar
+@using Pos.Modules.Inventory.Contracts
+@using Pos.Modules.Organization.Contracts
+@using Pos.Modules.Purchasing.Contracts
+
+<PageTitle>Reabastecimiento · BusinessPost</PageTitle>
+
+@* Reabastecimiento: pedido sugerido (productos bajo el mínimo → órdenes de compra en borrador por proveedor) y "Calcular mínimos
+   sugeridos" con la venta promedio. Los mínimos y máximos de un producto se editan en su ficha (pestaña Existencias) o se importan. *@
+<Pagina Titulo="Reabastecimiento" Subtitulo="Productos bajo el mínimo, pedido sugerido y órdenes de compra por proveedor" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (PuedeMinimos)
+        {
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.UploadFile" Href="/admin/importar#minimos">Importar mínimos y máximos</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Class="mb-2">
+            @if (VerPedido)
+            {
+                <MudTabPanel Text="Pedido sugerido">
+                    <MudText Typo="Typo.body2" Class="my-3">
+                        Productos con la existencia bajo el <b>mínimo</b> (o en el punto de pedido). <b>Sugerido</b> = máximo − (existencia + lo ya pedido),
+                        redondeado a cajas completas si el proveedor vende por caja. Puede cambiar las cantidades, marcar o desmarcar productos y crear
+                        <b>una orden de compra en borrador por proveedor</b>. Las órdenes se revisan y aprueban después en Compras.
+                    </MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="mb-3">
+                        <MudSelect T="Guid?" Value="_bodega" ValueChanged="@(v => FiltrarAsync(() => _bodega = v))" Label="Bodega" Clearable="true" Style="min-width:220px">
+                            @foreach (var bodega in Bodegas.Elegibles)
+                            {
+                                <MudSelectItem T="Guid?" Value="@bodega.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(bodega)</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect T="Guid?" Value="_categoria" ValueChanged="@(v => FiltrarAsync(() => _categoria = v))" Label="Categoría" Clearable="true" Style="min-width:220px">
+                            @foreach (var categoria in _categorias)
+                            {
+                                <MudSelectItem T="Guid?" Value="@categoria.GetProperty("id").GetGuid()">@Categorias.Nombre(_categorias, categoria)</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect T="Guid?" Value="_proveedor" ValueChanged="@(v => FiltrarAsync(() => _proveedor = v))" Label="Proveedor" Clearable="true" Style="min-width:220px">
+                            @foreach (var proveedor in _proveedores)
+                            {
+                                <MudSelectItem T="Guid?" Value="@proveedor.Id">@proveedor.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_busy" OnClick="CargarPedidoAsync">Actualizar</MudButton>
+                    </MudStack>
+
+                    @if (_creadas.Count > 0)
+                    {
+                        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" ShowCloseIcon="true" CloseIconClicked="@(() => _creadas.Clear())">
+                            Se crearon @_creadas.Count @(_creadas.Count == 1 ? "orden de compra" : "órdenes de compra") en borrador. Revíselas, apruébelas y envíelas al proveedor:
+                            <ul class="mt-1">
+                                @foreach (var orden in _creadas)
+                                {
+                                    <li>
+                                        <MudLink Href="@($"/admin/compras/ordenes/{orden.OrderId}")">@orden.Number</MudLink>
+                                        · @orden.SupplierName · @orden.LineCount @(orden.LineCount == 1 ? "producto" : "productos")@(orden.Total is { } total ? $" · {Format.Money(total)}" : "")
+                                    </li>
+                                }
+                            </ul>
+                        </MudAlert>
+                    }
+
+                    @if (_truncado)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                            Se muestran los primeros 5.000 productos. Filtre por bodega, categoría o proveedor para ver el resto.
+                        </MudAlert>
+                    }
+
+                    @if (_lineas.Count == 0)
+                    {
+                        <EstadoVacio Mensaje="No hay productos bajo el mínimo." Detalle="Defina mínimos y máximos en la ficha del producto (pestaña Existencias), impórtelos desde Excel o calcúlelos en la otra pestaña." />
+                    }
+                    else
+                    {
+                        @foreach (var grupo in Grupos)
+                        {
+                            var sinProveedor = grupo.Key is null;
+                            <MudPaper Outlined="true" Class="pa-3 mb-4">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+                                    <MudCheckBox T="bool" Value="@grupo.All(l => l.Marcada)" ValueChanged="@(v => MarcarGrupo(grupo, v))"
+                                                 aria-label="@($"Marcar todos los de {NombreGrupo(grupo)}")" />
+                                    <MudText Typo="Typo.h6" HtmlTag="h2">@NombreGrupo(grupo)</MudText>
+                                    <MudText Typo="Typo.body2">@grupo.Count(l => l.Marcada) de @grupo.Count() marcados@(VerCostos ? $" · {Format.Money(grupo.Where(l => l.Marcada).Sum(Valor))}" : "")</MudText>
+                                    @if (sinProveedor)
+                                    {
+                                        <MudSelect T="Guid?" Value="@((Guid?)null)" ValueChanged="@(v => AsignarGrupo(grupo, v))" Label="Asignar proveedor a los marcados"
+                                                   Dense="true" Style="min-width:260px">
+                                            @foreach (var proveedor in _proveedores)
+                                            {
+                                                <MudSelectItem T="Guid?" Value="@proveedor.Id">@proveedor.Name</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    }
+                                </MudStack>
+                                @if (sinProveedor)
+                                {
+                                    <MudText Typo="Typo.body2" Class="mb-2">
+                                        Estos productos no tienen un proveedor registrado. Elija uno para cada producto (o para todos los marcados) antes de crear las órdenes.
+                                    </MudText>
+                                }
+                                <MudSimpleTable Dense="true" Hover="true">
+                                    <thead>
+                                        <tr>
+                                            <th></th><th>Producto</th><th>Bodega</th><th class="num">Existencia</th><th class="num">Mínimo</th><th class="num">Máximo</th>
+                                            <th class="num">Ya pedido</th><th class="num">Pedir</th>
+                                            @if (sinProveedor)
+                                            {
+                                                <th>Proveedor</th>
+                                            }
+                                            @if (VerCostos)
+                                            {
+                                                <th class="num">Último costo</th><th class="num">Valor</th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var linea in grupo)
+                                        {
+                                            var d = linea.Dato;
+                                            <tr style="@(linea.Cambio ? "background:var(--mud-palette-warning-hover)" : null)">
+                                                <td><MudCheckBox T="bool" @bind-Value="linea.Marcada" aria-label="@($"Marcar {d.ProductName}")" /></td>
+                                                <td>
+                                                    <div>
+                                                        @d.Sku · @d.ProductName
+                                                        @if (linea.Cambio)
+                                                        {
+                                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">Otra persona lo pidió: revise</MudChip>
+                                                        }
+                                                    </div>
+                                                    <MudText Typo="Typo.caption">@d.CategoryName</MudText>
+                                                </td>
+                                                <td>@d.WarehouseCode</td>
+                                                <td class="num">@Format.Quantity(d.Quantity) @d.BaseUnitCode</td>
+                                                <td class="num">@Format.Quantity(d.MinQuantity)@(d.ReorderPoint is { } punto ? $" (pedido en {Format.Quantity(punto)})" : "")</td>
+                                                <td class="num">@(d.MaxQuantity is { } maximo ? Format.Quantity(maximo) : "—")</td>
+                                                <td class="num">@(d.PendingQuantity > 0 ? Format.Quantity(d.PendingQuantity) : "—")</td>
+                                                <td class="num">
+                                                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="1">
+                                                        <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="linea.Cantidad" Min="0" HideSpinButtons="true"
+                                                                         Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Cantidad a pedir de {d.ProductName}")" />
+                                                        <MudText Typo="Typo.caption">@Presentacion(d)</MudText>
+                                                    </MudStack>
+                                                    @if (linea.Cantidad > d.SuggestedQuantity)
+                                                    {
+                                                        <MudText Typo="Typo.caption" Color="Color.Warning">Más que el sugerido (@Format.Quantity(d.SuggestedQuantity))</MudText>
+                                                    }
+                                                </td>
+                                                @if (sinProveedor)
+                                                {
+                                                    <td>
+                                                        <MudSelect T="Guid?" @bind-Value="linea.Proveedor" Dense="true" Margin="Margin.Dense" Placeholder="Elegir" Style="min-width:200px"
+                                                                   aria-label="@($"Proveedor de {d.ProductName}")">
+                                                            @foreach (var proveedor in _proveedores)
+                                                            {
+                                                                <MudSelectItem T="Guid?" Value="@proveedor.Id">@proveedor.Name</MudSelectItem>
+                                                            }
+                                                        </MudSelect>
+                                                    </td>
+                                                }
+                                                @if (VerCostos)
+                                                {
+                                                    <td class="num">@Format.Money(d.LastCost)</td>
+                                                    <td class="num">@Format.Money(Valor(linea))</td>
+                                                }
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </MudSimpleTable>
+                            </MudPaper>
+                        }
+
+                        <div class="acciones">
+                            <MudText Typo="Typo.body2" Class="mr-3">@Marcadas.Count() productos marcados</MudText>
+                            @if (Session.Has("purchasing.order.manage"))
+                            {
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AddShoppingCart"
+                                           Disabled="@(_busy || !Marcadas.Any())" OnClick="CrearOrdenesAsync">Crear órdenes de compra</MudButton>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2">Para crear las órdenes se necesita el permiso de órdenes de compra.</MudText>
+                            }
+                        </div>
+                    }
+                </MudTabPanel>
+            }
+
+            @if (PuedeMinimos)
+            {
+                <MudTabPanel Text="Calcular mínimos sugeridos">
+                    <MudText Typo="Typo.body2" Class="my-3">
+                        Calcula el mínimo y el máximo con lo que se vendió: <b>venta diaria</b> = lo vendido en los últimos días ÷ días;
+                        <b>mínimo</b> = venta diaria × días que tarda el proveedor en entregar; <b>máximo</b> = venta diaria × (días de entrega + días de
+                        cobertura). Solo aparecen productos con ventas. Nada se guarda hasta que pulse <b>Guardar los marcados</b>.
+                    </MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="mb-3">
+                        <MudSelect T="Guid?" @bind-Value="_bodegaCalculo" Label="Bodega" Style="min-width:220px">
+                            @foreach (var bodega in Bodegas.Elegibles)
+                            {
+                                <MudSelectItem T="Guid?" Value="@bodega.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(bodega)</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudNumericField T="int" @bind-Value="_dias" Label="Días de venta" Min="1" Max="365" Style="max-width:140px" />
+                        <MudNumericField T="int" @bind-Value="_diasEntrega" Label="Días de entrega" Min="1" Max="180" Style="max-width:140px" />
+                        <MudNumericField T="int" @bind-Value="_diasCobertura" Label="Días de cobertura" Min="0" Max="180" Style="max-width:150px" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Calculate" Disabled="@(_busy || _bodegaCalculo is null)"
+                                   OnClick="CalcularAsync">Calcular</MudButton>
+                    </MudStack>
+
+                    @if (_sugeridosTruncado)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                            Se muestran los 5.000 productos que más se vendieron. Los demás no aparecen en este cálculo.
+                        </MudAlert>
+                    }
+
+                    @if (_sugeridos is { } sugeridos)
+                    {
+                        @if (sugeridos.Count == 0)
+                        {
+                            <EstadoVacio Mensaje="No hubo ventas en esa bodega en los días indicados." />
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Hover="true" Outlined="true">
+                                <thead>
+                                    <tr>
+                                        <th><MudCheckBox T="bool" Value="@sugeridos.All(s => s.Marcada)" ValueChanged="@(v => sugeridos.ForEach(s => s.Marcada = v))" aria-label="Marcar todos" /></th>
+                                        <th>Producto</th><th class="num">Vendido</th><th class="num">Venta diaria</th><th class="num">Mínimo actual</th>
+                                        <th class="num">Mínimo sugerido</th><th class="num">Máximo actual</th><th class="num">Máximo sugerido</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var fila in sugeridos)
+                                    {
+                                        var d = fila.Dato;
+                                        <tr>
+                                            <td><MudCheckBox T="bool" @bind-Value="fila.Marcada" aria-label="@($"Marcar {d.ProductName}")" /></td>
+                                            <td>@d.Sku · @d.ProductName</td>
+                                            <td class="num">@Format.Quantity(d.SoldQuantity) @d.BaseUnitCode</td>
+                                            <td class="num">@Format.Quantity(decimal.Round(d.AverageDailySales, 2))</td>
+                                            <td class="num">@(d.CurrentMinQuantity is { } min ? Format.Quantity(min) : "—")</td>
+                                            <td class="num"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="fila.Minimo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Mínimo de {d.ProductName}")" /></td>
+                                            <td class="num">@(d.CurrentMaxQuantity is { } max ? Format.Quantity(max) : "—")</td>
+                                            <td class="num"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="fila.Maximo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Máximo de {d.ProductName}")" /></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                            <div class="acciones mt-3">
+                                <MudText Typo="Typo.body2" Class="mr-3">@sugeridos.Count(s => s.Marcada) marcados</MudText>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" Disabled="@(_busy || !sugeridos.Any(s => s.Marcada))"
+                                           OnClick="GuardarSugeridosAsync">Guardar los marcados</MudButton>
+                            </div>
+                        }
+                    }
+                </MudTabPanel>
+            }
+        </MudTabs>
+    </ChildContent>
+</Pagina>
+
+@code {
+    private List<Linea> _lineas = [];
+    private List<SupplierDto> _proveedores = [];
+    private List<JsonElement> _categorias = [];
+    private List<SuggestedOrderDto> _creadas = [];
+    private List<FilaSugerida>? _sugeridos;
+    private Guid? _bodega, _categoria, _proveedor, _bodegaCalculo;
+    private int _tab, _dias = 30, _diasEntrega = 3, _diasCobertura = 7;
+    private string? _error;
+    private bool _loading = true, _busy, _truncado, _sugeridosTruncado;
+
+    // Clave de idempotencia del envío: la misma mientras no se recargue el pedido (un doble clic o un reintento no duplica órdenes).
+    private Guid _lote = Guid.NewGuid();
+
+    private bool VerPedido => Session.Has("purchasing.purchase.view") && Session.Feature(BusinessCatalog.Purchasing);
+
+    private bool PuedeMinimos => Session.Has("inventory.policy.manage");
+
+    private bool VerCostos => Session.Has("inventory.cost.view");
+
+    private IEnumerable<Linea> Marcadas => _lineas.Where(l => l.Marcada);
+
+    /// <summary>Un grupo por proveedor (el que trae la línea; "Sin proveedor" al final aunque ya se le haya elegido uno).</summary>
+    private IEnumerable<IGrouping<Guid?, Linea>> Grupos =>
+        _lineas.GroupBy(l => l.Dato.SupplierId).OrderBy(g => g.Key is null ? 1 : 0).ThenBy(g => g.First().Dato.SupplierName, StringComparer.CurrentCulture);
+
+    /// <summary>Una fila del pedido sugerido en edición: marcada, cantidad (en la presentación) y proveedor elegido.</summary>
+    private sealed class Linea
+    {
+        public required ReplenishmentLineDto Dato { get; init; }
+
+        public bool Marcada { get; set; }
+
+        public decimal Cantidad { get; set; }
+
+        public Guid? Proveedor { get; set; }
+
+        /// <summary>Lo "ya pedido" cambió al recargar (otra persona lo pidió): se resalta y se desmarca para revisarlo.</summary>
+        public bool Cambio { get; set; }
+    }
+
+    /// <summary>Una fila de "Calcular mínimos sugeridos" en edición.</summary>
+    private sealed class FilaSugerida
+    {
+        public required MinimumSuggestionDto Dato { get; init; }
+
+        public bool Marcada { get; set; }
+
+        public decimal Minimo { get; set; }
+
+        public decimal Maximo { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await Bodegas.CargarAsync();
+            _bodegaCalculo = Bodegas.Primera(Bodegas.Elegibles);
+            if (VerPedido)
+            {
+                _proveedores = [.. (await Api.GetAsync<List<SupplierDto>>("api/v1/purchasing/suppliers")).Where(s => EnumText.Same(s.Status, "ACTIVE"))];
+                _categorias = (await Api.GetAsync<JsonElement>("api/v1/catalog/categories")).Items();
+                await CargarPedidoAsync();
+            }
+
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+
+        _loading = false;
+    }
+
+    private static string NombreGrupo(IGrouping<Guid?, Linea> grupo) => grupo.Key is null ? "Sin proveedor" : grupo.First().Dato.SupplierName ?? "Proveedor";
+
+    private static string Presentacion(ReplenishmentLineDto d) =>
+        d.PackagingName is { } nombre ? $"{nombre} ({Format.Quantity(d.PackagingFactor)} {d.BaseUnitCode})" : d.BaseUnitCode;
+
+    private static decimal Valor(Linea linea) => (linea.Dato.LastCost ?? 0m) * linea.Cantidad * linea.Dato.PackagingFactor;
+
+    private static void MarcarGrupo(IEnumerable<Linea> grupo, bool marcar)
+    {
+        foreach (var linea in grupo)
+        {
+            linea.Marcada = marcar;
+        }
+    }
+
+    private static void AsignarGrupo(IEnumerable<Linea> grupo, Guid? proveedor)
+    {
+        foreach (var linea in grupo.Where(l => l.Marcada))
+        {
+            linea.Proveedor = proveedor;
+        }
+    }
+
+    private async Task FiltrarAsync(Action cambiar)
+    {
+        cambiar();
+        await CargarPedidoAsync();
+    }
+
+    private async Task CargarPedidoAsync()
+    {
+        _busy = true;
+        try
+        {
+            await RecargarAsync(conservar: false);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Lee el pedido sugerido. Con <paramref name="conservar"/>, mantiene lo que el usuario cambió (marcas, cantidades, proveedor) en los
+    /// productos cuyo "ya pedido" sigue igual, y resalta y desmarca los que otra persona pidió entre tanto.
+    /// </summary>
+    private async Task RecargarAsync(bool conservar)
+    {
+        var consulta = new List<string>();
+        if (_bodega is { } bodega)
+        {
+            consulta.Add($"warehouseId={bodega}");
+        }
+
+        if (_categoria is { } categoria)
+        {
+            consulta.Add($"categoryId={categoria}");
+        }
+
+        if (_proveedor is { } proveedor)
+        {
+            consulta.Add($"supplierId={proveedor}");
+        }
+
+        try
+        {
+            var antes = conservar ? _lineas.ToDictionary(l => (l.Dato.WarehouseId, l.Dato.ProductId)) : [];
+            var pedido = await Api.GetAsync<ReplenishmentDto>("api/v1/purchasing/replenishment" + (consulta.Count > 0 ? "?" + string.Join('&', consulta) : ""));
+            _truncado = pedido.Truncated;
+            _lote = Guid.NewGuid();
+            if (conservar)
+            {
+                // Lo que el usuario había marcado o cambiado y ya no aparece (subió la existencia por encima del mínimo): se avisa.
+                var nuevas = pedido.Lines.Select(l => (l.WarehouseId, l.ProductId)).ToHashSet();
+                var salieron = antes.Values
+                    .Where(l => !nuevas.Contains((l.Dato.WarehouseId, l.Dato.ProductId))
+                        && (l.Marcada || l.Cantidad != l.Dato.SuggestedQuantity || l.Proveedor != l.Dato.SupplierId))
+                    .Select(l => l.Dato.Sku)
+                    .ToList();
+                if (salieron.Count > 0)
+                {
+                    Snackbar.Add($"{salieron.Count} producto(s) ya no están bajo el mínimo y salieron del listado: {string.Join(", ", salieron)}.", Severity.Warning);
+                }
+            }
+
+            _lineas = [.. pedido.Lines.Select(l =>
+            {
+                var linea = new Linea
+                {
+                    Dato = l, Cantidad = l.SuggestedQuantity, Proveedor = l.SupplierId, Marcada = l.SupplierId is not null && l.SuggestedQuantity > 0,
+                };
+                if (antes.TryGetValue((l.WarehouseId, l.ProductId), out var previa))
+                {
+                    if (previa.Dato.PendingQuantity == l.PendingQuantity)
+                    {
+                        (linea.Marcada, linea.Cantidad, linea.Proveedor) = (previa.Marcada, previa.Cantidad, previa.Proveedor);
+                    }
+                    else
+                    {
+                        (linea.Cambio, linea.Marcada) = (true, false);
+                    }
+                }
+
+                return linea;
+            })];
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+    }
+
+    private async Task CrearOrdenesAsync()
+    {
+        var marcadas = Marcadas.ToList();
+        if (marcadas.Any(l => l.Proveedor is null))
+        {
+            Snackbar.Add("Hay productos marcados sin proveedor: elija uno en el grupo \"Sin proveedor\" o desmárquelos.", Severity.Warning);
+            return;
+        }
+
+        if (marcadas.Any(l => l.Cantidad <= 0))
+        {
+            Snackbar.Add("Hay productos marcados con cantidad cero: escriba la cantidad a pedir o desmárquelos.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var creadas = await Api.PostAsync<List<SuggestedOrderDto>>("api/v1/purchasing/replenishment/orders", new
+            {
+                batchId = _lote,
+                lines = marcadas.Select(l => new SuggestedOrderLineRequest(
+                    l.Dato.WarehouseId, l.Proveedor, l.Dato.ProductId, l.Dato.PackagingId, l.Cantidad, SeenPendingQuantity: l.Dato.PendingQuantity)),
+            });
+            Snackbar.Add($"Se crearon {creadas.Count} órdenes de compra en borrador.", Severity.Success);
+            await RecargarAsync(conservar: false);
+            _creadas = creadas;
+        }
+        catch (ApiException ex) when (ex.Code == "PURCHASING.SUGGESTION_CHANGED")
+        {
+            // Otra persona pidió algunos productos: se recarga conservando lo editado y se resaltan los que cambiaron.
+            Snackbar.Add(ex.Texto, Severity.Warning);
+            await RecargarAsync(conservar: true);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CalcularAsync()
+    {
+        if (_bodegaCalculo is not { } bodega)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var sugeridos = await Api.GetAsync<MinimumSuggestionsDto>(
+                $"api/v1/inventory/policies/suggestions?warehouseId={bodega}&days={_dias}&leadTimeDays={_diasEntrega}&coverageDays={_diasCobertura}");
+            _sugeridosTruncado = sugeridos.Truncated;
+            _sugeridos = [.. sugeridos.Items.Select(s => new FilaSugerida
+            {
+                Dato = s, Minimo = s.SuggestedMinQuantity, Maximo = s.SuggestedMaxQuantity,
+                Marcada = s.SuggestedMinQuantity != s.CurrentMinQuantity || s.SuggestedMaxQuantity != s.CurrentMaxQuantity,
+            })];
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task GuardarSugeridosAsync()
+    {
+        if (_sugeridos is not { } sugeridos)
+        {
+            return;
+        }
+
+        var marcadas = sugeridos.Where(s => s.Marcada).ToList();
+        if (marcadas.Any(s => s.Maximo < s.Minimo))
+        {
+            Snackbar.Add("En algún producto el máximo quedó menor que el mínimo: corríjalo antes de guardar.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var resultado = await Api.PostAsync<StockPolicyBulkResultDto>("api/v1/inventory/policies/apply-minimums", new
+            {
+                items = marcadas.Select(s => new MinMaxInput(s.Dato.WarehouseId, s.Dato.ProductId, s.Minimo, s.Maximo)),
+            });
+            Snackbar.Add($"Mínimos guardados: {resultado.Created} nuevos y {resultado.Updated} cambiados.", Severity.Success);
+            if (resultado.Rejected is { Count: > 0 } rechazados)
+            {
+                Snackbar.Add($"No se guardaron {rechazados.Count}: {string.Join("; ", rechazados)}", Severity.Warning);
+            }
+            _sugeridos = null;
+            if (VerPedido)
+            {
+                await RecargarAsync(conservar: false);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

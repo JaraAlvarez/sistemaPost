@@ -17,6 +17,9 @@ public static class InventoryPermissions
     public const string StockVerify = "inventory.stock.verify";
     public const string AdjustmentQuick = "inventory.adjustment.quick";
 
+    /// <summary>Mínimos, máximos y punto de pedido (a mano, importados de Excel o calculados por la venta promedio).</summary>
+    public const string PolicyManage = "inventory.policy.manage";
+
     public static IEnumerable<PermissionDefinition> All =>
     [
         new(StockView, "Consultar existencias por bodega (sin costos)", isSensitive: false),
@@ -30,6 +33,7 @@ public static class InventoryPermissions
         new(StockVerify, "Verificar y reconstruir saldos contra el kardex", isSensitive: true),
         new(AdjustmentQuick, "Ajuste rápido de un producto desde la caja cuando el sistema no tiene existencias (admite autorización de supervisor)",
             isSensitive: true),
+        new(PolicyManage, "Definir mínimos y máximos de existencias (a mano, desde Excel o calculados por la venta)", isSensitive: false),
     ];
 }
 
@@ -288,3 +292,62 @@ public sealed record LotStockDto(
 public sealed record VerificationDto(Guid Id, string Kind, DateTimeOffset StartedAt, int CheckedBalances, int Discrepancies, IReadOnlyList<StockDiscrepancyDto> Details);
 
 public sealed record StockPolicyDto(Guid Id, Guid WarehouseId, Guid ProductId, decimal MinQuantity, decimal? MaxQuantity, decimal? ReorderPoint, decimal? ReorderQuantity);
+
+/// <summary>
+/// Una fila de "Importar mínimos y máximos": lo que trae el archivo, lo que hay hoy y qué pasará (CREATE, UPDATE, UNCHANGED o ERROR).
+/// </summary>
+public sealed record StockPolicyImportRowDto(
+    int RowNumber,
+    string Action,
+    string? Code,
+    Guid? ProductId,
+    string? ProductName,
+    string? WarehouseCode,
+    decimal? MinQuantity,
+    decimal? MaxQuantity,
+    decimal? ReorderPoint,
+    decimal? CurrentMinQuantity,
+    decimal? CurrentMaxQuantity,
+    IReadOnlyList<string> Errors,
+    IReadOnlyList<string> Warnings);
+
+/// <summary>Resultado de la importación: vista previa (<c>Applied</c> = false) o aplicada.</summary>
+public sealed record StockPolicyImportDto(
+    string FileName,
+    bool Applied,
+    int TotalRows,
+    int CreateRows,
+    int UpdateRows,
+    int UnchangedRows,
+    int ErrorRows,
+    IReadOnlyList<StockPolicyImportRowDto> Rows);
+
+/// <summary>
+/// Mínimo y máximo sugeridos para un producto según lo vendido en los últimos días: mínimo = venta diaria × días de entrega;
+/// máximo = venta diaria × (días de entrega + días de cobertura).
+/// </summary>
+public sealed record MinimumSuggestionDto(
+    Guid WarehouseId,
+    string WarehouseCode,
+    Guid ProductId,
+    string Sku,
+    string ProductName,
+    string BaseUnitCode,
+    decimal SoldQuantity,
+    decimal AverageDailySales,
+    decimal? CurrentMinQuantity,
+    decimal? CurrentMaxQuantity,
+    decimal SuggestedMinQuantity,
+    decimal SuggestedMaxQuantity);
+
+/// <summary>Mínimos sugeridos. <c>Truncated</c>: había más de 5.000 productos con ventas y se muestran los que más venden.</summary>
+public sealed record MinimumSuggestionsDto(IReadOnlyList<MinimumSuggestionDto> Items, bool Truncated);
+
+/// <summary>Mínimo y máximo a guardar para un producto en una bodega (aplicar sugeridos).</summary>
+public sealed record MinMaxInput(Guid WarehouseId, Guid ProductId, decimal MinQuantity, decimal? MaxQuantity);
+
+/// <summary>
+/// Cuántas políticas se crearon y cuántas se actualizaron. <c>Rejected</c>: los productos que no se guardaron, con el SKU y el motivo
+/// (p. ej. tienen punto de pedido y quedarían sin máximo); los demás sí se guardan.
+/// </summary>
+public sealed record StockPolicyBulkResultDto(int Created, int Updated, int Unchanged, IReadOnlyList<string>? Rejected = null);

@@ -42,6 +42,20 @@ public sealed class PurchasingModule : IModule
         MapPayables(group);
         MapReturns(group.MapGroup("/returns"));
         MapSupplierImprovements(group);
+        MapReplenishment(group.MapGroup("/replenishment"));
+    }
+
+    /// <summary>Reabastecimiento: pedido sugerido (productos bajo el mínimo) y órdenes de compra en borrador por proveedor.</summary>
+    private static void MapReplenishment(RouteGroupBuilder group)
+    {
+        group.MapGet("/", async (Guid? warehouseId, Guid? categoryId, Guid? supplierId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetReplenishmentQuery(warehouseId, categoryId, supplierId), ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.PurchaseView)
+            .WithSummary("Productos bajo el mínimo con el sugerido (máximo − existencia − pendiente, en cajas completas) y el proveedor preferido");
+        group.MapPost("/orders", async (CreateSuggestedOrdersCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(PurchasingPermissions.OrderManage)
+            .WithSummary("Crea una orden de compra en borrador por proveedor y bodega con las líneas elegidas (todo o nada)");
     }
 
     /// <summary>Fase 8, bloque 8.4 (D8-14): resumen, costos por producto, agenda, cuentas bancarias, retenciones sugeridas y vencimientos.</summary>
