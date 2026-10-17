@@ -90,6 +90,21 @@ internal sealed class SalesModelContributor : IModelContributor
             b.HasXminConcurrency();
         });
 
+        modelBuilder.Entity<ScaleInterlock>(b =>
+        {
+            b.ToTable("scale_interlocks", "sales");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("pos_terminal_id").ValueGeneratedNever();
+            b.HasXminConcurrency();
+        });
+
+        modelBuilder.Entity<ScaleReadingRecord>(b =>
+        {
+            b.ToTable("scale_readings", "sales");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("reading_id").ValueGeneratedNever();
+        });
+
         modelBuilder.Entity<CustomerReturnLine>(b =>
         {
             b.ToTable("customer_return_lines", "sales");
@@ -127,6 +142,16 @@ internal sealed class SalesStore(PosDbContext context) : ISalesStore
     public void Add(Sale sale) => context.Add(sale);
 
     public void Add(CustomerReturn customerReturn) => context.Add(customerReturn);
+
+    public void Add(ScaleInterlock interlock) => context.Add(interlock);
+
+    public void Add(ScaleReadingRecord reading) => context.Add(reading);
+
+    public Task<ScaleInterlock?> GetScaleInterlockAsync(Guid posTerminalId, CancellationToken cancellationToken) =>
+        context.Set<ScaleInterlock>().SingleOrDefaultAsync(x => x.Id == posTerminalId, cancellationToken);
+
+    public Task<bool> ScaleReadingUsedAsync(Guid readingId, CancellationToken cancellationToken) =>
+        context.Set<ScaleReadingRecord>().AnyAsync(x => x.Id == readingId, cancellationToken);
 
     public Task<Sale?> GetSaleAsync(Guid id, CancellationToken cancellationToken) =>
         Sales().SingleOrDefaultAsync(s => s.Id == id, cancellationToken);

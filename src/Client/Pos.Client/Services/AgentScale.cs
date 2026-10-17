@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Pos.Modules.Organization.Contracts;
-using Pos.SharedKernel.Measurement;
 
 namespace Pos.Client.Services;
 
@@ -14,12 +13,18 @@ namespace Pos.Client.Services;
 /// </summary>
 public sealed record ScaleRead(
     string Status, string Message, decimal? WeightKg, decimal TareKg, bool Stable, string Display, bool Unavailable = false, decimal? GrossKg = null,
-    bool ScaleNet = false, DateTimeOffset? At = null)
+    bool ScaleNet = false, DateTimeOffset? At = null, Guid? ReadingId = null, bool EmptiedSinceLastAccepted = true, SignedScaleReading? SignedReading = null)
 {
     public bool IsOk => Status == "OK" && WeightKg > 0m;
 
     public static ScaleRead Down(string message) => new("ERROR", message, null, 0m, false, "--", Unavailable: true);
 }
+
+/// <summary>Lectura firmada por el agente (D3): se reenvía al servidor tal cual.</summary>
+public sealed record SignedScaleReading(string Payload, string Signature, Guid KeyId);
+
+/// <summary>Clave pública que el agente creó al vincular la caja.</summary>
+public sealed record ScalePairing(Guid TerminalId, Guid KeyId, string PublicKey, string Algorithm);
 
 /// <summary>Driver que ofrece el agente con sus valores de fábrica.</summary>
 public sealed record ScaleDriverInfo(string Code, string Name, int BaudRate, int DataBits, string Parity, int StopBits, string ReadMode, string? RequestCommand);
@@ -46,11 +51,6 @@ public sealed class AgentScale(ApiClient api)
     /// </summary>
     public bool Enabled => Config is { Configured: true, Enabled: true, FeatureEnabled: true };
 
-    /// <summary>
-    /// Último peso agregado con la báscula de esta caja y si la báscula quedó vacía después (hallazgo A2). Vive mientras la aplicación de
-    /// la caja esté abierta y pasa de una venta a otra: el producto del cliente anterior puede seguir en la báscula.
-    /// </summary>
-    public ScaleRepeatGuard Repeat { get; } = new();
 
     /// <summary>Lee la báscula de la caja en el servidor y se la entrega al agente. Devuelve un aviso si el agente no la aceptó.</summary>
     public async Task<string?> LoadAsync(Guid terminalId)
@@ -65,7 +65,15 @@ public sealed class AgentScale(ApiClient api)
             return null;
         }
 
-        return Config is { Configured: true, FeatureEnabled: true } config ? await PushAsync(config) : null;
+        if (Config is not { Configured: true, FeatureEnabled: true } config)
+        {
+            return null;
+        }
+
+        var aviso = await PushAsync(config);
+        return aviso ?? (config is { Enabled: true, ReadingKeyId: null }
+            ? "la báscula de esta caja no está vinculada (el servidor no aceptará sus pesos): un administrador debe guardarla en Configuración → Cajas e impresoras desde este computador."
+            : null);
     }
 
     /// <summary>Entrega la configuración al agente (<c>PUT /scale/config</c>); el agente la guarda en el equipo.</summary>
@@ -89,6 +97,31 @@ public sealed class AgentScale(ApiClient api)
     /// una vez.
     /// </summary>
     public static Task<ScaleRead> TestAsync(object settings) => SendAsync(HttpMethod.Post, "scale/test", settings);
+
+    /// <summary>La caja agregó la línea con esta lectura: la siguiente pesada exige ver la báscula vacía (D1).</summary>
+    public static Task AcceptedAsync(Guid readingId) => FireAsync("scale/accepted", new { readingId });
+
+    /// <summary>Se eliminó la última pesada para volver a pesar (BN1).</summary>
+    public static Task ReleaseAcceptedAsync() => FireAsync("scale/accepted", new { release = true });
+
+    /// <summary>
+    /// Vincula el agente de ESTE computador con la caja (D3): crea la clave que firma las lecturas y devuelve la pública para registrarla en
+    /// el servidor. Nulo y el mensaje si el agente no respondió.
+    /// </summary>
+    public static async Task<(ScalePairing? Pairing, string? Error)> PairAsync(Guid terminalId)
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync("scale/pairing", new { terminalId }, ApiClient.Json);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<ScalePairing>(ApiClient.Json), null)
+                : (null, await ProblemAsync(response));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return (null, "No se pudo hablar con el agente de esta caja para vincular la báscula.");
+        }
+    }
 
     /// <summary>Otra lectura de la prueba abierta.</summary>
     public static Task<ScaleRead> TestReadAsync() => SendAsync(HttpMethod.Get, "scale/test", null);
@@ -121,6 +154,18 @@ public sealed class AgentScale(ApiClient api)
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             return null;
+        }
+    }
+
+    private static async Task FireAsync(string path, object body)
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync(path, body, ApiClient.Json);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // El agente no responde: el servidor igual exige el retorno a cero con la lectura firmada.
         }
     }
 

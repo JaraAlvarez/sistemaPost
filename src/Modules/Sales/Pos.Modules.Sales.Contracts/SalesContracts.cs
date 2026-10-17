@@ -73,12 +73,25 @@ public sealed record SaleLineDto(
     string? WeightSource = null);
 
 /// <summary>
-/// Lectura del agente de la caja que acompaña una línea con <c>WeightSource</c> SCALE (Fase 7-C): <c>GrossKg</c> lo que marcó la
-/// báscula, <c>TareKg</c> la tara manual del agente (tecla Ins), <c>Net</c> la báscula ya descontó una tara (trama neta),
-/// <c>Stable</c> el peso estaba quieto, <c>ReadAt</c> cuándo se leyó y <c>EmptiedSinceLast</c> la báscula quedó vacía después de la
-/// pesada anterior de esta caja (permite dos pesadas seguidas con el mismo peso).
+/// Lectura firmada por el agente de la caja que acompaña una línea con <c>WeightSource</c> SCALE (Fase 7-C, D3): <c>Payload</c> es el
+/// texto canónico (<see cref="Pos.SharedKernel.Measurement.ScaleReadingPayload"/>) y <c>Signature</c> su firma ECDSA P-256 en Base64.
+/// La interfaz la reenvía tal como la entregó el agente; el servidor toma el peso, la tara y el retorno a cero de ahí, nunca del cliente.
 /// </summary>
-public sealed record ScaleReadingInfo(decimal GrossKg, decimal TareKg, bool Net, bool Stable, DateTimeOffset? ReadAt, bool EmptiedSinceLast = false);
+public sealed record ScaleReadingInfo(string Payload, string Signature);
+
+/// <summary>
+/// Versión mínima de la interfaz de caja que el servidor acepta para pesar (Fase 7-C, BN10): la interfaz envía la cabecera
+/// <see cref="Header"/>; una pantalla vieja guardada en el navegador no la envía y recibe <c>CLIENT.OUTDATED</c> ("recargue la página").
+/// </summary>
+public static class PosClientBuild
+{
+    public const string Header = "X-Pos-Client-Build";
+
+    /// <summary>Primera versión que envía las lecturas firmadas de la báscula.</summary>
+    public const int SignedScaleReadings = 2;
+
+    public const string OutdatedCode = "CLIENT.OUTDATED";
+}
 
 /// <summary>
 /// De dónde salió el peso de una línea (Fase 7-C): SCALE (báscula conectada a la caja), LABEL (etiqueta de la báscula etiquetadora) o

@@ -247,3 +247,30 @@ Rama `fix-bascula`; migraciones POS **V2026.10.045** (`sales.sale_lines`: `scale
 
 **Pruebas:** agente 131/131 · Sales 84/84 · SharedKernel 110/110 · Catalog 42/42 · Organization 57/57 · ArchitectureTests 23/23 ·
 Database.Tests 80/80 · integración `Phase7C` 11/11 y `ScaleSalesTests` 1/1.
+
+## Segunda revisión de la báscula — 2026-10-17
+
+Rama `fix-bascula`; migraciones POS **V2026.10.048** (`org.terminal_scales`: clave pública de la báscula) y **V2026.10.049**
+(`sales.scale_interlocks`, `sales.scale_readings`). Reemplaza la regla "peso distinto ±5 g" de la primera revisión (A2) y la
+"lectura del agente sin firma" (M9).
+
+| Decisión / hallazgo | Cómo quedó |
+|---|---|
+| **D1 · Retorno a cero** | Después de agregar una línea pesada, la siguiente exige que la báscula haya quedado **vacía** (cualquier lectura con \|peso\| ≤ peso mínimo ⚙️, estable o no). Ya no vale "otro peso" (el tomate encima de la carne). La caja muestra **"Retire el producto de la báscula"** y espera como con el peso inestable. El agente anota la última vez que vio la báscula vacía y, después de cada pesada aceptada (`POST /scale/accepted`), un **vigilante** (`ScaleEmptyMonitor`) la lee cada 250 ms hasta verla vacía: un paso rápido por cero cuenta aunque la pantalla no esté leyendo. |
+| **D2 · Tara manual** | La tara de la tecla Ins **solo** se quita al agregar la línea o al cancelar con Esc (ya no al quedar vacía la báscula). La tara por producto sigue igual. |
+| **D3 · Lecturas firmadas** | Al **Guardar** la báscula en el computador de la caja, el agente crea una clave **ECDSA P-256** (`POST /scale/pairing`): la privada queda en el agente protegida con **DPAPI de la máquina** (`scale-signing.json`) y la pública se registra en el servidor (`PUT /organization/terminals/{id}/scale/reading-key`, permiso de cajas, auditado). Volver a guardar **rota** la clave. Cada lectura de la báscula en uso lleva un texto canónico firmado (`BP-SCALE-1\|caja\|lectura\|hora\|bruto\|tara\|neto\|estable\|neto-báscula\|estado\|vacía-ms\|vacía-desde-la-aceptada`). El servidor verifica la firma con la clave de la caja, que la lectura sea de esa caja, que no se haya usado (`sales.scale_readings`, clave primaria = id de la lectura) y que no sea más de 30 s ⚙️ anterior a la última aceptada **según el reloj del agente** (nunca contra el reloj del servidor). El **retorno a cero vive en el servidor por caja** (`sales.scale_interlocks`): la siguiente pesada exige `vacía-ms` posterior a la última lectura aceptada; recargar la página (F5) o empezar otra venta no lo salta. El peso, la tara y la estabilidad se toman de la lectura firmada, no del cliente. Sin firma válida: `SALES.SCALE_READING_REQUIRED`; repetida: `SALES.SCALE_READING_REUSED`; vieja: `SALES.SCALE_READING_STALE`; sin vaciar: `SALES.SCALE_NOT_EMPTIED`. El peso digitado no cambia (permiso + auditoría). Cada línea de báscula guarda la lectura cruda y su firma (auditoría). |
+| ¿Por qué ECDSA y no HMAC? | El agente no habla con el servidor: todo pasa por el navegador de la caja. Con HMAC el secreto tendría que viajar por el navegador al vincular y guardarse en el servidor (protegido con DPAPI); con una firma asimétrica solo viaja la clave **pública**, el servidor no guarda ningún secreto y una copia de la base de datos no permite firmar pesos. El resto (nonce, hora del agente, estado del retorno a cero en el servidor) es lo pedido. |
+| BN1 · Eliminar y volver a pesar | Eliminar la línea de la **última** pesada libera el retorno a cero en el servidor y en el agente (`POST /scale/accepted { release }`). |
+| BN3 · Prueba y venta en la misma COM | Con la misma COM y los mismos parámetros, la prueba lee por la conexión de la báscula en uso (no cierra ni reabre el puerto). Con otros parámetros la prueba toma el puerto y la venta responde `SCALE.IN_TEST` ("detenga la prueba"). Abrir el puerto reintenta una vez si Windows aún no lo liberó. |
+| BN4 · Prueba sin cerrar | Un temporizador cierra la prueba a los 60 s ⚙️ sin lecturas (`Agent:ScaleTestIdleTimeout`), aunque nadie vuelva a llamar al agente. |
+| BN6 · "Última línea" | Ya no se busca en las líneas de la venta: el estado del retorno a cero es por caja en el servidor. |
+| BN7 · Toledo continuo con velocidad o paridad equivocadas | Los bytes recibidos sin ninguna trama válida (sin STX o sin fin de línea) cuentan: "La báscula respondió, pero no en el formato … revise el protocolo, la velocidad y la paridad". |
+| BN10 · Pantalla vieja en el navegador | La interfaz envía `X-Pos-Client-Build: 2`. Un peso de báscula sin esa cabecera recibe `CLIENT.OUTDATED` ("La pantalla de la caja está desactualizada: recárguela (Ctrl+F5)"); la interfaz nueva que reciba ese código se recarga sola. |
+
+**Notas para la versión (al publicar):** después de actualizar, **en cada caja con báscula** un administrador debe abrir
+Configuración → Cajas e impresoras → Báscula **en el computador de esa caja** y pulsar **Guardar** (vincula la báscula); hasta entonces
+la caja avisa "la báscula no está vinculada" y solo se puede digitar el peso (con permiso). Si una caja tiene la pantalla de venta
+abierta desde antes de la actualización, debe recargarla (Ctrl+F5).
+
+**Pruebas:** agente 142/142 · Sales 88/88 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · ArchitectureTests 23/23 ·
+Database.Tests 80/80 · integración `Phase7C` 12/12 y `Phase7` 9/9.

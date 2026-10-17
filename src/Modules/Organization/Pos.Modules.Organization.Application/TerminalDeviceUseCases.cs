@@ -68,7 +68,8 @@ internal static class TerminalScaleMapping
 {
     public static TerminalScaleDto ToDto(this TerminalScale s, bool configured) => new(
         s.PosTerminalId, configured, s.Enabled, s.Driver, s.Port, s.BaudRate, s.DataBits, s.Parity, s.StopBits, s.ReadMode, s.RequestCommand, s.TimeoutMs,
-        s.Decimals, s.Brand, s.Model, s.CatalogCode, s.StableWaitSeconds, s.EmptyWaitSeconds, s.AllowManualWeight, MinWeightGrams: s.MinWeightGrams);
+        s.Decimals, s.Brand, s.Model, s.CatalogCode, s.StableWaitSeconds, s.EmptyWaitSeconds, s.AllowManualWeight, MinWeightGrams: s.MinWeightGrams,
+        ReadingKeyId: s.ReadingKeyId, ReadingKeySetAt: s.ReadingKeySetAt);
 }
 
 /// <summary>Báscula de la caja (Fase 7-C). Sin fila: <c>Configured</c> = false y la caja trabaja sin báscula.</summary>
@@ -90,6 +91,32 @@ internal sealed class GetTerminalScaleHandler(IOrganizationStore store) : IQuery
         // Fase 7-C parte A: con "Báscula y PLU" apagada la caja no lee la báscula; la configuración guardada no se toca.
         var company = await store.GetCompanyAsync(terminal.CompanyId, cancellationToken);
         return company is null || company.Has(BusinessFeature.Scale) ? dto : dto with { FeatureEnabled = false };
+    }
+}
+
+/// <summary>
+/// Vincula la báscula de la caja (D3): registra la clave pública que el agente de ESA caja acaba de crear. Exige la báscula configurada.
+/// Volver a vincular reemplaza la clave (rotación): las lecturas firmadas con la anterior dejan de valer.
+/// </summary>
+public sealed record SetTerminalScaleKeyCommand(Guid PosTerminalId, Guid KeyId, string PublicKey) : ICommand<TerminalScaleDto>;
+
+internal sealed class SetTerminalScaleKeyHandler(IOrganizationStore store, Pos.SharedKernel.Time.IClock clock) : ICommandHandler<SetTerminalScaleKeyCommand, TerminalScaleDto>
+{
+    public async Task<Result<TerminalScaleDto>> Handle(SetTerminalScaleKeyCommand request, CancellationToken cancellationToken)
+    {
+        var terminal = await store.GetTerminalAsync(request.PosTerminalId, cancellationToken);
+        if (terminal is null)
+        {
+            return OrganizationErrors.TerminalNotFound;
+        }
+
+        if (await store.GetTerminalScaleAsync(terminal.Id, cancellationToken) is not { } scale)
+        {
+            return Error.BusinessRule("ORGANIZATION.SCALE_NOT_CONFIGURED", "Guarde primero la báscula de la caja y luego vincúlela.");
+        }
+
+        var set = scale.SetReadingKey(request.KeyId, request.PublicKey, clock.UtcNow);
+        return set.IsFailure ? set.Error : scale.ToDto(configured: true);
     }
 }
 

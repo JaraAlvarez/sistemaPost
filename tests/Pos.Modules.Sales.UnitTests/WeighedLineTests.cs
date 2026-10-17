@@ -2,6 +2,7 @@ using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Sales.Application;
 using Pos.Modules.Sales.Contracts;
 using Pos.Modules.Sales.Domain;
+using Pos.SharedKernel.Measurement;
 using static Pos.Modules.Sales.UnitTests.Fx;
 
 namespace Pos.Modules.Sales.UnitTests;
@@ -13,9 +14,12 @@ public class WeighedLineTests
         Guid.NewGuid(), "PAPA", "Papa pastusa", "Papa", packaging, packaging is null ? null : "Bulto", 1m, unit, saleMode, "BARCODE", 1m, 3_000m, 3_000m, true,
         [], Guid.NewGuid(), null, true, true, false, true, [], IsSoldByScale: true, TareGrams: tareGrams);
 
-    /// <summary>Lectura del agente: bruto, tara manual, trama neta de la báscula y estable.</summary>
-    private static ScaleReadingInfo Reading(decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, bool emptied = false) =>
-        new(grossKg, tareKg, net, stable, Now, emptied);
+    private static readonly Guid Caja = Guid.NewGuid();
+
+    /// <summary>Lectura del agente (ya verificada): bruto, tara manual, trama neta de la báscula y estable.</summary>
+    private static ScaleReadingPayload Reading(
+        decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, DateTimeOffset? at = null, DateTimeOffset? lastEmptyAt = null) =>
+        new(Caja, Guid.NewGuid(), at ?? Now, grossKg, tareKg, grossKg - tareKg, stable, net, stable ? "OK" : "UNSTABLE", lastEmptyAt, true);
 
     private static Pos.SharedKernel.Results.Result<(decimal Quantity, string Source)> Scale(CatalogSaleItem item, decimal grossKg, decimal tareKg = 0m, bool net = false) =>
         AddLineHandler.WeighedQuantity(item, grossKg - tareKg, WeightSources.Scale, manualAuthorized: false, scaleLabel: false, Reading(grossKg, tareKg, net));
@@ -71,6 +75,7 @@ public class WeighedLineTests
         AddLineHandler.WeighedQuantity(Papa(), 1m, WeightSources.Scale, false, false, Reading(1m, stable: false)).Error.Code.ShouldBe("SALES.SCALE_WEIGHT_UNSTABLE");
         AddLineHandler.WeighedQuantity(Papa(), 1m, WeightSources.Scale, false, false, Reading(1.5m)).Error.Code.ShouldBe("SALES.INVALID_SCALE_READING");
         AddLineHandler.WeighedQuantity(Papa(), 1m, WeightSources.Scale, false, false, Reading(0.9m, tareKg: -0.1m)).Error.Code.ShouldBe("SALES.INVALID_SCALE_READING");
+        AddLineHandler.WeighedQuantity(Papa(), 1m, WeightSources.Scale, false, false, Reading(1m) with { Status = "ZERO" }).Error.Code.ShouldBe("SALES.SCALE_WEIGHT_UNSTABLE");
     }
 
     [Fact]
@@ -85,23 +90,37 @@ public class WeighedLineTests
     }
 
     [Fact]
-    public void El_servidor_rechaza_la_misma_pesada_otra_vez_si_la_bascula_no_quedo_vacia()
+    public void Retorno_a_cero_en_el_servidor_exige_ver_la_bascula_vacia_despues_de_cada_pesada()
     {
-        var sale = NewSale();
-        sale.AddLine(Input(quantity: 1.2m, allowsDecimal: true, source: "SCALE_LIVE") with { ScaleGrossKg = 1.200m, WeighedAt = Now }, true, Guid.NewGuid);
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        var line = Guid.NewGuid();
+        interlock.Check(Reading(1.2m)).IsSuccess.ShouldBeTrue();
+        interlock.Accept(Reading(1.2m, at: Now), Guid.NewGuid(), line, Now);
 
-        // Carne de 1,200 kg y luego el tomate sin retirar la carne: mismo peso bruto.
-        AddLineHandler.RepeatedWeight(sale, Reading(1.200m), Now.AddSeconds(20)).ShouldBeTrue();
-        AddLineHandler.RepeatedWeight(sale, Reading(1.204m), Now.AddSeconds(20)).ShouldBeTrue();
+        // D1: sin ver la báscula vacía se rechaza, pese lo mismo o pese otra cosa (el tomate encima de la carne).
+        interlock.Check(Reading(1.2m, at: Now.AddSeconds(5))).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
+        interlock.Check(Reading(1.8m, at: Now.AddSeconds(5))).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
+        interlock.Check(Reading(0.8m, at: Now.AddSeconds(5), lastEmptyAt: Now.AddSeconds(-1))).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
 
-        // Otro peso, la caja vio la báscula vacía entre las dos, o pasó la ventana: vale.
-        AddLineHandler.RepeatedWeight(sale, Reading(0.800m), Now.AddSeconds(20)).ShouldBeFalse();
-        AddLineHandler.RepeatedWeight(sale, Reading(1.200m, emptied: true), Now.AddSeconds(20)).ShouldBeFalse();
-        AddLineHandler.RepeatedWeight(sale, Reading(1.200m), Now + AddLineHandler.RepeatedWeightWindow + TimeSpan.FromSeconds(1)).ShouldBeFalse();
+        // Vacía después de la pesada (aunque fuera un paso rápido por cero): vale, también con el mismo peso.
+        interlock.Check(Reading(1.2m, at: Now.AddSeconds(5), lastEmptyAt: Now.AddMilliseconds(300))).IsSuccess.ShouldBeTrue();
 
-        // Si eliminan la línea para volver a pesar, el mismo peso vale.
-        sale.VoidLine(sale.Lines[0].Id, Cashier, Now);
-        AddLineHandler.RepeatedWeight(sale, Reading(1.200m), Now.AddSeconds(20)).ShouldBeFalse();
+        // Una lectura vieja (reloj del agente) no vale.
+        interlock.Check(Reading(1.2m, at: Now - ScaleInterlock.MaxBacklog - TimeSpan.FromSeconds(1), lastEmptyAt: Now.AddSeconds(1)))
+            .Error.ShouldBe(SalesErrors.ScaleReadingStale);
+    }
+
+    [Fact]
+    public void Eliminar_la_ultima_pesada_libera_el_retorno_a_cero_y_otra_linea_no()
+    {
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        var line = Guid.NewGuid();
+        interlock.Accept(Reading(1.2m), Guid.NewGuid(), line, Now);
+
+        interlock.Release(Guid.NewGuid(), Now).ShouldBeFalse();
+        interlock.AwaitingEmpty.ShouldBeTrue();
+        interlock.Release(line, Now).ShouldBeTrue();
+        interlock.Check(Reading(1.2m, at: Now.AddSeconds(2))).IsSuccess.ShouldBeTrue();
     }
 
     [Theory]

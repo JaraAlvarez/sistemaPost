@@ -291,11 +291,57 @@ public class ScaleDriverTests
     [InlineData(0.002, 0.020, ScaleWeightDto.ZeroWeight)]
     [InlineData(-0.005, 0.020, ScaleWeightDto.ZeroWeight)]
     [InlineData(-0.030, 0.020, ScaleWeightDto.NegativeWeight)]
-    [InlineData(0.020, 0.020, ScaleWeightDto.Ok)]
+    [InlineData(0.020, 0.020, ScaleWeightDto.ZeroWeight)]
+    [InlineData(0.021, 0.020, ScaleWeightDto.Ok)]
     [InlineData(0.001, 0, ScaleWeightDto.Ok)]
     [InlineData(0, 0, ScaleWeightDto.ZeroWeight)]
     public void Banda_de_cero(decimal kg, decimal band, string expected) =>
         ScaleService.Build(new ScaleReading(kg, Stable: true, UnderZero: kg < 0m), true, 0m, band, DateTimeOffset.UnixEpoch).Status.ShouldBe(expected);
+
+    [Fact]
+    public void Toledo_continuo_con_velocidad_o_paridad_equivocada_dice_que_respondio_en_otro_formato()
+    {
+        // Con la velocidad equivocada llegan bytes sin STX (y a veces sin fin de línea): antes decía "no respondió".
+        using var connection = new NoiseConnection([0x6B, 0x33, 0x0D, 0x7F, 0x66, 0x0A, 0x31]);
+
+        var error = Should.Throw<TimeoutException>(() => ScaleProtocolReader.Read(
+            connection, Toledo, Target(ScaleDrivers.Toledo8217Code, ScaleReadMode.Continuous, timeoutMs: 200)));
+
+        error.Message.ShouldContain("respondió, pero no en el formato");
+        error.Message.ShouldContain("velocidad");
+    }
+
+    [Fact]
+    public void Basura_sin_ningun_fin_de_linea_tambien_cuenta_como_respuesta()
+    {
+        using var connection = new NoiseConnection([0x00, 0x7F, 0x55, 0x55]);
+
+        Should.Throw<TimeoutException>(() => ScaleProtocolReader.Read(connection, Cas, Target(ScaleDrivers.CasCode, timeoutMs: 200)))
+            .Message.ShouldContain("respondió, pero no en el formato");
+    }
+
+    /// <summary>Puerto que solo entrega ruido (velocidad o paridad equivocadas).</summary>
+    private sealed class NoiseConnection(byte[] noise) : IScaleConnection
+    {
+        public void Write(ReadOnlySpan<byte> data)
+        {
+        }
+
+        public int Read(byte[] buffer, int timeoutMs)
+        {
+            Thread.Sleep(20);
+            noise.CopyTo(buffer, 0);
+            return noise.Length;
+        }
+
+        public void DiscardInput()
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+    }
 
     [Fact]
     public void Si_la_bascula_no_responde_avisa_al_cumplir_el_tiempo()

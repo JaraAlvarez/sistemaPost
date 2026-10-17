@@ -26,6 +26,16 @@ public interface ISalesStore
     Task<CustomerReturn?> GetReturnAsync(Guid id, CancellationToken cancellationToken);
 
     Task<bool> HasDraftReturnAsync(Guid originalSaleId, CancellationToken cancellationToken);
+
+    /// <summary>Retorno a cero de la báscula de la caja (D1/D3); nulo si la caja nunca ha pesado.</summary>
+    Task<ScaleInterlock?> GetScaleInterlockAsync(Guid posTerminalId, CancellationToken cancellationToken);
+
+    void Add(ScaleInterlock interlock);
+
+    void Add(ScaleReadingRecord reading);
+
+    /// <summary>La lectura firmada ya se usó en una línea (nonce).</summary>
+    Task<bool> ScaleReadingUsedAsync(Guid readingId, CancellationToken cancellationToken);
 }
 
 /// <summary>Encabezado del tiquete: empresa, sucursal, caja y cajero.</summary>

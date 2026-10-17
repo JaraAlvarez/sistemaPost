@@ -12,6 +12,7 @@ using Pos.Infrastructure;
 using Pos.Modules.Sales.Application;
 using Pos.Modules.Sales.Contracts;
 using Pos.Modules.Sales.Infrastructure;
+using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Sales.Api;
 
@@ -31,6 +32,7 @@ public sealed class SalesModule : IModule
         services.AddScoped<StockGuard>();
         services.AddScoped<CustomerResolver>();
         services.AddScoped<SaleEditor>();
+        services.AddScoped<ScaleReadingVerifier>();
         services.AddScoped<SaleInventory>();
         services.AddScoped<SaleReceipts>();
         services.AddScoped<FiscalTicketWait>();
@@ -59,14 +61,18 @@ public sealed class SalesModule : IModule
         group.MapGet("/{saleId:guid}", async (Guid saleId, IDispatcher d, CancellationToken ct) => (await d.Send(new GetSaleQuery(saleId), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleView);
 
-        group.MapPost("/{saleId:guid}/lines", async (Guid saleId, AddLineRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, WeightKg: r.WeightKg, WeightSource: r.WeightSource, Scale: r.Scale), ct))
-                .ToHttpResult())
+        group.MapPost("/{saleId:guid}/lines", async (Guid saleId, AddLineRequest r, HttpContext http, IDispatcher d, CancellationToken ct) =>
+                PosClientCheck.Outdated(http, r) is { } outdated
+                    ? ((Result<SaleDto>)outdated).ToHttpResult()
+                    : (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, WeightKg: r.WeightKg, WeightSource: r.WeightSource, Scale: r.Scale), ct))
+                        .ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCreate)
             .WithSummary("Agrega un producto por código (barras, báscula o SKU) o por Id; valida existencias y lotes vencidos");
-        group.MapPost("/{saleId:guid}/lines/expired", async (Guid saleId, AddLineRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, AuthorizeExpired: true, WeightKg: r.WeightKg,
-                    WeightSource: r.WeightSource, Scale: r.Scale), ct)).ToHttpResult())
+        group.MapPost("/{saleId:guid}/lines/expired", async (Guid saleId, AddLineRequest r, HttpContext http, IDispatcher d, CancellationToken ct) =>
+                PosClientCheck.Outdated(http, r) is { } outdated
+                    ? ((Result<SaleDto>)outdated).ToHttpResult()
+                    : (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, AuthorizeExpired: true, WeightKg: r.WeightKg,
+                        WeightSource: r.WeightSource, Scale: r.Scale), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.ExpiredSell, allowSupervisor: true)
             .WithSummary("Agrega un producto con existencias de un lote vencido: permiso o autorización de supervisor (RN-SAL-18)");
         group.MapPost("/{saleId:guid}/lines/manual-weight", async (Guid saleId, ManualWeightRequest r, IDispatcher d, CancellationToken ct) =>
@@ -138,6 +144,21 @@ public sealed class SalesModule : IModule
             .RequirePermission(SalesPermissions.WarrantyRefund)
             .WithSummary("Reintegro en efectivo por garantía (Ley 1480): solo el propietario, auditado como crítico");
     }
+}
+
+/// <summary>Compatibilidad de la interfaz de caja (Fase 7-C, BN10).</summary>
+internal static class PosClientCheck
+{
+    /// <summary>
+    /// Una pantalla de caja vieja (guardada en el navegador) envía el peso sin la lectura firmada y sin la cabecera de versión: se le pide
+    /// recargar en lugar de rechazar el peso con un mensaje que no entiende.
+    /// </summary>
+    public static Error? Outdated(HttpContext http, AddLineRequest request) =>
+        request.WeightKg is null
+        || (int.TryParse(http.Request.Headers[PosClientBuild.Header].ToString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var build)
+            && build >= PosClientBuild.SignedScaleReadings)
+            ? null
+            : Error.Conflict(PosClientBuild.OutdatedCode, "La pantalla de la caja está desactualizada: recárguela (Ctrl+F5) para pesar con la báscula.");
 }
 
 /// <summary>

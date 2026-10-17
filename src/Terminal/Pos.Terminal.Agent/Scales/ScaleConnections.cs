@@ -159,6 +159,7 @@ public static class ScaleProtocolReader
         var chunk = new byte[256];
         var clock = Stopwatch.StartNew();
         var garbage = 0;
+        var received = 0;
         while (true)
         {
             var remaining = target.TimeoutMs - (int)clock.ElapsedMilliseconds;
@@ -173,6 +174,7 @@ public static class ScaleProtocolReader
                 continue;
             }
 
+            received += read;
             frames.Append(chunk.AsSpan(0, read));
             while (frames.TryTakeFrame(out var frame))
             {
@@ -188,7 +190,9 @@ public static class ScaleProtocolReader
                     var at = FrameStartIndex(frame, start);
                     if (at < 0)
                     {
-                        // Trama cortada (llegó sin su inicio): no cuenta como basura, se espera la siguiente completa.
+                        // Trama cortada (llegó sin su inicio): se espera la siguiente completa. Si nunca llega una con STX (velocidad o
+                        // paridad equivocadas), al vencer el tiempo cuenta como "respondió, pero no en el formato".
+                        garbage++;
                         continue;
                     }
 
@@ -204,7 +208,8 @@ public static class ScaleProtocolReader
             }
         }
 
-        throw new TimeoutException(garbage > 0
+        // Llegaron bytes (aunque sin ninguna trama completa, como pasa con la velocidad o la paridad equivocadas): la báscula responde.
+        throw new TimeoutException(garbage > 0 || received > 0
             ? $"La báscula respondió, pero no en el formato {driver.Name}: revise el protocolo, la velocidad y la paridad."
             : $"La báscula no respondió en {target.TimeoutMs} ms: revise el cable, el puerto ({target.Port}) y que esté encendida.");
     }

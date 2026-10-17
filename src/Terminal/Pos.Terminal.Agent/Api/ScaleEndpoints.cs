@@ -42,6 +42,10 @@ public static class ScaleEndpoints
         app.MapGet("/scale/test", TestReadAsync).WithSummary("Otra lectura de la prueba abierta (peso en vivo de \"Probar báscula\")");
         app.MapPost("/scale/test/tare", TestTareAsync).WithSummary("Tara de la prueba abierta; { \"clear\": true } la quita");
         app.MapPost("/scale/test/stop", TestStopAsync).WithSummary("Cierra la prueba: la báscula en uso sigue igual");
+        app.MapPost("/scale/pairing", PairAsync)
+            .WithSummary("Vincula el agente con una caja: crea la clave que firma las lecturas y devuelve la pública para registrarla en el servidor");
+        app.MapPost("/scale/accepted", AcceptedAsync)
+            .WithSummary("La caja agregó la línea con esta lectura (la siguiente pesada exige ver la báscula vacía) o, con release, eliminó la última");
         app.MapPost("/scale/simulator", SimulateAsync).WithSummary("Solo desarrollo: cambia el peso de la báscula simulada");
     }
 
@@ -113,6 +117,48 @@ public static class ScaleEndpoints
     {
         await scale.TestStopAsync(ct);
         return TypedResults.NoContent();
+    }
+
+    private static async Task<IResult> PairAsync(HttpContext http, ScaleSigner signer, IOptions<AgentOptions> options, CancellationToken ct)
+    {
+        var (request, rejection) = await AgentEndpoints.ReadAsync<ScalePairingRequest>(http, options.Value, ct);
+        if (rejection is not null)
+        {
+            return rejection;
+        }
+
+        if (request!.TerminalId == Guid.Empty)
+        {
+            return AgentEndpoints.Problem(HttpStatusCode.BadRequest, AgentEndpoints.InvalidRequest, "Indique la caja que se vincula.");
+        }
+
+        try
+        {
+            return TypedResults.Ok(signer.Pair(request.TerminalId));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            return AgentEndpoints.Problem(HttpStatusCode.ServiceUnavailable, ScaleOutcome.Unavailable, $"No se pudo guardar la clave de la báscula: {ex.Message}");
+        }
+    }
+
+    private static async Task<IResult> AcceptedAsync(HttpContext http, ScaleService scale, IOptions<AgentOptions> options, CancellationToken ct)
+    {
+        var (request, rejection) = await AgentEndpoints.ReadAsync<ScaleAcceptedRequest>(http, options.Value, ct);
+        if (rejection is not null)
+        {
+            return rejection;
+        }
+
+        if (request!.Release)
+        {
+            scale.ReleaseAccepted();
+            return TypedResults.NoContent();
+        }
+
+        return request.ReadingId is { } id && scale.MarkAccepted(id)
+            ? TypedResults.NoContent()
+            : AgentEndpoints.Problem(HttpStatusCode.NotFound, AgentEndpoints.InvalidRequest, "La lectura no es de esta báscula o ya es muy antigua.");
     }
 
     private static async Task<IResult> SimulateAsync(HttpContext http, ScaleService scale, SimulatedScale simulator, IOptions<AgentOptions> options, CancellationToken ct)

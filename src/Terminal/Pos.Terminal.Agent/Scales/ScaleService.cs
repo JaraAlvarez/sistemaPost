@@ -2,18 +2,21 @@ using System.Globalization;
 using System.IO.Ports;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using Pos.SharedKernel.Measurement;
 using Pos.Terminal.Agent.Api;
 
 namespace Pos.Terminal.Agent.Scales;
 
 /// <summary>
-/// Peso tal como lo ve la caja. <c>Status</c>: OK (estable y con al menos el peso mínimo), UNSTABLE, ZERO (vacía: por debajo del peso
-/// mínimo ⚙️), NEGATIVE, OVERLOAD o ERROR (incluye un peso fuera de rango).
+/// Peso tal como lo ve la caja. <c>Status</c>: OK (estable y por encima del peso mínimo), UNSTABLE, ZERO (vacía: dentro de la banda de
+/// cero ⚙️), NEGATIVE, OVERLOAD o ERROR (incluye un peso fuera de rango).
 /// <para>Fórmula de la tara (Fase 7-C, una sola regla): <c>GrossKg</c> es lo que marca la báscula; <c>TareKg</c> es la tara manual
-/// del agente (tecla Ins), que solo vale para la siguiente pesada (la caja la quita al agregar la línea y se quita sola cuando la báscula
-/// vuelve a quedar vacía); <c>WeightKg = GrossKg − TareKg</c>. <c>ScaleNet</c> = la propia báscula ya descontó una tara (trama neta).
-/// La tara del producto (bolsa o bandeja configurada en el catálogo) la descuenta UNA vez el servidor, y solo si no hubo otra tara
-/// (ni manual ni de la báscula): <c>neto = WeightKg − (TareKg = 0 y no ScaleNet ? taraProducto : 0)</c>.</para>
+/// del agente (tecla Ins), que solo vale para la siguiente pesada: la caja la quita al agregar la línea o al cancelar con Esc (D2);
+/// <c>WeightKg = GrossKg − TareKg</c>. <c>ScaleNet</c> = la propia báscula ya descontó una tara (trama neta). La tara del producto
+/// (bolsa o bandeja configurada en el catálogo) la descuenta UNA vez el servidor, y solo si no hubo otra tara (ni manual ni de la
+/// báscula): <c>neto = WeightKg − (TareKg = 0 y no ScaleNet ? taraProducto : 0)</c>.</para>
+/// <para>Retorno a cero (D1): <c>EmptiedSinceLastAccepted</c> dice si el agente vio la báscula vacía después de la última pesada que la
+/// caja agregó; <c>SignedReading</c> es la lectura firmada que la caja reenvía al servidor (solo la báscula en uso y con la caja vinculada).</para>
 /// </summary>
 public sealed record ScaleWeightDto(
     string Status,
@@ -28,7 +31,10 @@ public sealed record ScaleWeightDto(
     int? Grams,
     string Display,
     DateTimeOffset At,
-    bool ScaleNet = false)
+    bool ScaleNet = false,
+    Guid? ReadingId = null,
+    bool EmptiedSinceLastAccepted = true,
+    SignedScaleReading? SignedReading = null)
 {
     public const string Ok = "OK";
     public const string Unstable = "UNSTABLE";
@@ -52,7 +58,12 @@ public sealed record ScaleStatusDto(
     string? LastError,
     ScaleSettings? Settings,
     IReadOnlyList<ScaleDriverInfo> Drivers,
-    IReadOnlyList<string> SerialPorts);
+    IReadOnlyList<string> SerialPorts,
+    Guid? PairedTerminalId = null,
+    bool Testing = false);
+
+/// <summary><c>POST /scale/accepted</c>: la caja agregó la línea con esta lectura (o, con <c>Release</c>, eliminó la última línea pesada).</summary>
+public sealed record ScaleAcceptedRequest(Guid? ReadingId = null, bool Release = false);
 
 /// <summary>Resultado de una operación con la báscula: el peso o un error con su código (como los ProblemDetails del agente).</summary>
 public sealed record ScaleOutcome(ScaleWeightDto? Weight, string? ErrorCode, string? Error)
@@ -61,6 +72,7 @@ public sealed record ScaleOutcome(ScaleWeightDto? Weight, string? ErrorCode, str
     public const string Unavailable = "SCALE.UNAVAILABLE";
     public const string TareUnstable = "SCALE.TARE_UNSTABLE";
     public const string TestNotStarted = "SCALE.TEST_NOT_STARTED";
+    public const string InTest = "SCALE.IN_TEST";
 
     public static ScaleOutcome Of(ScaleWeightDto weight) => new(weight, null, null);
 
@@ -71,41 +83,53 @@ public sealed record ScaleOutcome(ScaleWeightDto? Weight, string? ErrorCode, str
 /// La báscula de esta caja (Fase 7-C parte B): una por equipo. Guarda la configuración en
 /// <c>C:\ProgramData\{Producto}\agent\scale.json</c> (sobrevive a reinicios y actualizaciones), mantiene el puerto abierto entre lecturas,
 /// lee una trama a la vez (Toledo 8217 pide al menos 200 ms entre comandos) y aplica la tara manual por software.
-/// <para>"Probar báscula" usa una sesión de prueba aparte (<see cref="TestStartAsync"/>): su propia configuración, conexión y tara, sin
-/// tocar la báscula en uso. Si la prueba y la báscula en uso comparten el puerto serie, cada lectura cierra el puerto de la otra (un
-/// puerto COM no se puede abrir dos veces) y lo vuelve a abrir al leer. La prueba se cierra sola tras
-/// <see cref="TestSessionLifetime"/> sin lecturas.</para>
+/// <para>"Probar báscula" usa una sesión de prueba aparte (<see cref="TestStartAsync"/>): su propia configuración y tara, sin tocar la
+/// báscula en uso. Si la prueba usa el mismo puerto COM con los mismos parámetros, lee por la conexión de la báscula en uso (no se
+/// cierra ni se reabre el puerto); con otros parámetros la prueba toma el puerto y la venta espera a que termine. La prueba se cierra
+/// sola tras <see cref="AgentOptions.ScaleTestIdleTimeout"/> sin lecturas (con un temporizador).</para>
+/// <para>Retorno a cero (D1): el agente anota la última vez que vio la báscula vacía; después de una pesada aceptada
+/// (<see cref="MarkAccepted"/>) un vigilante lee la báscula hasta verla vacía (<see cref="ScaleEmptyMonitor"/>).</para>
 /// </summary>
 public sealed class ScaleService : IDisposable
 {
     /// <summary>Formato genérico: el peso cuenta como estable si no cambia durante este tiempo.</summary>
     public static readonly TimeSpan SoftwareStableWindow = TimeSpan.FromMilliseconds(500);
 
-    /// <summary>Una prueba sin lecturas durante este tiempo se cierra sola.</summary>
-    public static readonly TimeSpan TestSessionLifetime = TimeSpan.FromSeconds(60);
-
     /// <summary>Peso máximo que se acepta de una trama (más es un error de decimales o de protocolo, nunca un peso real).</summary>
     public const decimal MaxReadableKg = 99_999m;
+
+    private const int RecentReadings = 64;
 
     private static readonly TimeSpan MinRequestInterval = TimeSpan.FromMilliseconds(200);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IScaleConnectionFactory _connections;
+    private readonly ScaleSigner _signer;
     private readonly TimeProvider _time;
     private readonly ILogger<ScaleService> _logger;
     private readonly string _file;
+    private readonly TimeSpan _testIdle;
+    private readonly Queue<(Guid Id, DateTimeOffset At)> _recent = new();
     private ScaleSettings? _settings;
     private ScaleChannel? _live;
     private ScaleChannel? _test;
+    private ITimer? _testTimer;
+    private DateTimeOffset _lastAt;
+    private DateTimeOffset? _lastEmptyAt;
+    private DateTimeOffset? _acceptedAt;
 
-    public ScaleService(IScaleConnectionFactory connections, TimeProvider time, IOptions<AgentOptions> options, IHostEnvironment environment, ILogger<ScaleService> logger)
+    public ScaleService(
+        IScaleConnectionFactory connections, ScaleSigner signer, TimeProvider time, IOptions<AgentOptions> options, IHostEnvironment environment,
+        ILogger<ScaleService> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(environment);
         _connections = connections;
+        _signer = signer;
         _time = time;
         _logger = logger;
         _file = options.Value.ResolveScaleConfigFile();
+        _testIdle = options.Value.ScaleTestIdleTimeout;
         SimulatorAvailable = options.Value.EnableScaleSimulator || environment.IsDevelopment();
         Load();
     }
@@ -118,6 +142,9 @@ public sealed class ScaleService : IDisposable
 
     /// <summary>Hay una prueba ("Probar báscula") abierta.</summary>
     public bool Testing => _test is not null;
+
+    /// <summary>Se agregó una pesada y el agente todavía no ha visto la báscula vacía (el vigilante sigue leyendo).</summary>
+    public bool AwaitingEmpty => _live is not null && _acceptedAt is { } accepted && (_lastEmptyAt is not { } empty || empty <= accepted);
 
     public static IReadOnlyList<ScaleDriverInfo> DriverInfos { get; } = [.. ScaleDrivers.All.Select(d => new ScaleDriverInfo(
         d.Code, d.Name, d.Defaults.BaudRate, d.Defaults.DataBits, d.Defaults.Parity.ToString().ToUpperInvariant(), d.Defaults.StopBits,
@@ -138,7 +165,7 @@ public sealed class ScaleService : IDisposable
         var live = _live;
         return new ScaleStatusDto(
             live is not null, live?.Target.DriverCode, live?.Target.Description, live?.Target.Simulated ?? false, SimulatorAvailable, live?.TareKg ?? 0m, LastReading,
-            LastError, _settings, DriverInfos, ports);
+            LastError, _settings, DriverInfos, ports, _signer.TerminalId, Testing);
     }
 
     /// <summary>Aplica una configuración (vacía o deshabilitada = sin báscula). Con <paramref name="persist"/> la guarda en disco.</summary>
@@ -158,8 +185,7 @@ public sealed class ScaleService : IDisposable
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            // La tara manual nunca pasa de una configuración a otra (solo vale para la siguiente pesada). Si el puerto es el mismo se
-            // conserva la conexión abierta.
+            // La tara manual nunca pasa de una configuración a otra. Si el puerto es el mismo se conserva la conexión abierta.
             var keep = _live is { } old && target is not null && SameConnection(old.Target, target) ? old.Connection : null;
             if (keep is null)
             {
@@ -192,7 +218,7 @@ public sealed class ScaleService : IDisposable
         }
     }
 
-    /// <summary>Una lectura de la báscula en uso (con la tara manual aplicada).</summary>
+    /// <summary>Una lectura de la báscula en uso (con la tara manual aplicada), firmada si la caja está vinculada.</summary>
     public async Task<ScaleOutcome> ReadAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -203,8 +229,7 @@ public sealed class ScaleService : IDisposable
                 return ScaleOutcome.Fail(ScaleOutcome.NotConfigured, "Esta caja no tiene una báscula configurada.");
             }
 
-            ExpireTest();
-            return await ReadLockedAsync(live, other: _test, cancellationToken);
+            return await ReadLockedAsync(live, cancellationToken);
         }
         finally
         {
@@ -214,8 +239,8 @@ public sealed class ScaleService : IDisposable
 
     /// <summary>
     /// Tara manual por software: toma el peso bruto estable actual (bolsa, bandeja) y lo descuenta de la SIGUIENTE pesada. Con
-    /// <paramref name="clear"/>, o si la báscula está vacía, se quita la tara. También se quita sola cuando la báscula vuelve a quedar
-    /// vacía, y la caja la quita al agregar la línea pesada.
+    /// <paramref name="clear"/>, o si la báscula está vacía, se quita la tara. Solo se quita al agregar la línea o al cancelar (D2): la
+    /// caja lo pide con <c>clear</c>.
     /// </summary>
     public async Task<ScaleOutcome> TareAsync(bool clear, CancellationToken cancellationToken)
     {
@@ -227,14 +252,41 @@ public sealed class ScaleService : IDisposable
                 return ScaleOutcome.Fail(ScaleOutcome.NotConfigured, "Esta caja no tiene una báscula configurada.");
             }
 
-            ExpireTest();
-            return await TareLockedAsync(live, _test, clear, live: true, cancellationToken);
+            return await TareLockedAsync(live, clear, cancellationToken);
         }
         finally
         {
             _gate.Release();
         }
     }
+
+    /// <summary>
+    /// La caja agregó la línea con la lectura <paramref name="readingId"/>: desde su hora, la siguiente pesada exige ver la báscula vacía
+    /// (D1). Devuelve false si la lectura no es de este agente o ya es muy vieja.
+    /// </summary>
+    public bool MarkAccepted(Guid readingId)
+    {
+        lock (_recent)
+        {
+            foreach (var (id, at) in _recent)
+            {
+                if (id == readingId)
+                {
+                    if (_acceptedAt is not { } previous || at > previous)
+                    {
+                        _acceptedAt = at;
+                    }
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>La caja eliminó la última línea pesada (para volver a pesar): ya no hace falta retirar el producto.</summary>
+    public void ReleaseAccepted() => _acceptedAt = null;
 
     /// <summary>
     /// "Probar báscula": abre una prueba con <paramref name="settings"/> (sin guardarla ni cambiar la báscula en uso) y lee una vez.
@@ -252,9 +304,17 @@ public sealed class ScaleService : IDisposable
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _test?.Close();
+            CloseTestLocked();
             var test = _test = new ScaleChannel(target) { LastUsed = _time.GetUtcNow() };
-            return (null, await ReadLockedAsync(test, other: _live, cancellationToken));
+
+            // Mismo puerto con otros parámetros: la prueba toma el puerto (la venta espera a que termine).
+            if (_live is { } live && SamePort(live.Target, target) && !SameConnection(live.Target, target))
+            {
+                live.Close();
+            }
+
+            _testTimer = _time.CreateTimer(_ => _ = ExpireTestAsync(), null, _testIdle, Timeout.InfiniteTimeSpan);
+            return (null, await ReadLockedAsync(test, cancellationToken));
         }
         finally
         {
@@ -268,14 +328,13 @@ public sealed class ScaleService : IDisposable
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            ExpireTest();
             if (_test is not { } test)
             {
                 return TestMissing();
             }
 
-            test.LastUsed = _time.GetUtcNow();
-            return await ReadLockedAsync(test, other: _live, cancellationToken);
+            TouchTest(test);
+            return await ReadLockedAsync(test, cancellationToken);
         }
         finally
         {
@@ -289,14 +348,13 @@ public sealed class ScaleService : IDisposable
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            ExpireTest();
             if (_test is not { } test)
             {
                 return TestMissing();
             }
 
-            test.LastUsed = _time.GetUtcNow();
-            return await TareLockedAsync(test, _live, clear, live: false, cancellationToken);
+            TouchTest(test);
+            return await TareLockedAsync(test, clear, cancellationToken);
         }
         finally
         {
@@ -304,14 +362,13 @@ public sealed class ScaleService : IDisposable
         }
     }
 
-    /// <summary>Cierra la prueba: la báscula en uso sigue igual (vuelve a abrir su puerto en la siguiente lectura).</summary>
+    /// <summary>Cierra la prueba: la báscula en uso sigue igual (si la prueba le tomó el puerto, lo vuelve a abrir en la siguiente lectura).</summary>
     public async Task TestStopAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            _test?.Close();
-            _test = null;
+            CloseTestLocked();
         }
         finally
         {
@@ -321,13 +378,14 @@ public sealed class ScaleService : IDisposable
 
     public void Dispose()
     {
+        _testTimer?.Dispose();
         _live?.Close();
         _test?.Close();
         _gate.Dispose();
     }
 
-    /// <summary>Báscula vacía: por debajo del peso mínimo (banda de cero ⚙️). Con banda 0, solo el cero exacto.</summary>
-    public static bool IsEmpty(decimal kg, decimal zeroBandKg) => zeroBandKg > 0m ? Math.Abs(kg) < zeroBandKg : kg == 0m;
+    /// <summary>Báscula vacía (D1): peso dentro de la banda de cero (|peso| ≤ peso mínimo ⚙️). Con banda 0, solo el cero exacto.</summary>
+    public static bool IsEmpty(decimal kg, decimal zeroBandKg) => Math.Abs(kg) <= zeroBandKg;
 
     /// <summary>Convierte una lectura del driver en lo que ve la caja (tara, banda de cero, estado y mensaje en español).</summary>
     public static ScaleWeightDto Build(ScaleReading reading, bool stable, decimal tareKg, decimal zeroBandKg, DateTimeOffset at)
@@ -374,24 +432,54 @@ public sealed class ScaleService : IDisposable
     private static ScaleOutcome TestMissing() =>
         ScaleOutcome.Fail(ScaleOutcome.TestNotStarted, "La prueba de la báscula terminó: pulse «Probar báscula» otra vez.");
 
-    private void ExpireTest()
+    private void TouchTest(ScaleChannel test)
     {
-        if (_test is { } test && _time.GetUtcNow() - test.LastUsed > TestSessionLifetime)
+        test.LastUsed = _time.GetUtcNow();
+        _testTimer?.Change(_testIdle, Timeout.InfiniteTimeSpan);
+    }
+
+    private void CloseTestLocked()
+    {
+        _testTimer?.Dispose();
+        _testTimer = null;
+        _test?.Close();
+        _test = null;
+    }
+
+    /// <summary>El temporizador cierra la prueba sin lecturas aunque nadie vuelva a llamar al agente (el puerto queda libre).</summary>
+    private async Task ExpireTestAsync()
+    {
+        try
         {
-            test.Close();
-            _test = null;
+            await _gate.WaitAsync();
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_test is { } test && _time.GetUtcNow() - test.LastUsed >= _testIdle - TimeSpan.FromMilliseconds(50))
+            {
+                CloseTestLocked();
+            }
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 
-    private async Task<ScaleOutcome> TareLockedAsync(ScaleChannel channel, ScaleChannel? other, bool clear, bool live, CancellationToken cancellationToken)
+    private async Task<ScaleOutcome> TareLockedAsync(ScaleChannel channel, bool clear, CancellationToken cancellationToken)
     {
         if (clear)
         {
             channel.TareKg = 0m;
-            return await ReadLockedAsync(channel, other, cancellationToken);
+            return await ReadLockedAsync(channel, cancellationToken);
         }
 
-        var current = await ReadLockedAsync(channel, other, cancellationToken);
+        var current = await ReadLockedAsync(channel, cancellationToken);
         if (current.Weight is not { } weight)
         {
             return current;
@@ -403,17 +491,37 @@ public sealed class ScaleService : IDisposable
         }
 
         channel.TareKg = gross > 0m && !IsEmpty(gross, channel.Target.ZeroBandKg) ? gross : 0m;
-        var reading = Build(new ScaleReading(gross, Stable: true), stable: true, channel.TareKg, channel.Target.ZeroBandKg, _time.GetUtcNow());
-        channel.LastReading = reading;
-        if (live)
-        {
-            LastReading = reading;
-        }
-
-        return ScaleOutcome.Of(reading);
+        return await ReadLockedAsync(channel, cancellationToken);
     }
 
-    private async Task<ScaleOutcome> ReadLockedAsync(ScaleChannel channel, ScaleChannel? other, CancellationToken cancellationToken)
+    /// <summary>
+    /// Conexión de un canal. La prueba en el mismo puerto y con los mismos parámetros que la báscula en uso lee por la conexión de esta
+    /// (sin cerrar ni reabrir el puerto, que en Windows puede quedar ocupado unos instantes).
+    /// </summary>
+    private (IScaleConnection Connection, ScaleChannel Owner) ConnectionFor(ScaleChannel channel)
+    {
+        var owner = ReferenceEquals(channel, _test) && _live is { } live && SamePort(live.Target, channel.Target) && SameConnection(live.Target, channel.Target)
+            ? live
+            : channel;
+        owner.Connection ??= Open(owner.Target);
+        return (owner.Connection, owner);
+    }
+
+    private IScaleConnection Open(ScaleTarget target)
+    {
+        try
+        {
+            return _connections.Open(target);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Windows libera el puerto COM unos instantes después de cerrarlo: un reintento evita el "puerto ocupado" de un cambio rápido.
+            Thread.Sleep(300);
+            return _connections.Open(target);
+        }
+    }
+
+    private async Task<ScaleOutcome> ReadLockedAsync(ScaleChannel channel, CancellationToken cancellationToken)
     {
         var target = channel.Target;
         var isLive = ReferenceEquals(channel, _live);
@@ -422,12 +530,13 @@ public sealed class ScaleService : IDisposable
             return ScaleOutcome.Fail(ScaleOutcome.NotConfigured, "Esta caja no tiene una báscula configurada.");
         }
 
-        // Un puerto COM no se abre dos veces: si la otra sesión (prueba o báscula en uso) lo tiene abierto, se cierra; se reabre al leer.
-        if (other is not null && other.Connection is not null && SamePort(other.Target, target))
+        if (isLive && _test is { } test && SamePort(test.Target, target) && !SameConnection(test.Target, target))
         {
-            other.Close();
+            return ScaleOutcome.Fail(
+                ScaleOutcome.InTest, "La báscula de esta caja está en prueba (Configuración → Cajas e impresoras): detenga la prueba para pesar.");
         }
 
+        ScaleChannel owner = channel;
         try
         {
             var reading = await Task.Run(
@@ -442,9 +551,10 @@ public sealed class ScaleService : IDisposable
                         }
                     }
 
-                    channel.Connection ??= _connections.Open(target);
+                    var (connection, used) = ConnectionFor(channel);
+                    owner = used;
                     channel.LastRequest = _time.GetUtcNow();
-                    return ScaleProtocolReader.Read(channel.Connection, driver, target);
+                    return ScaleProtocolReader.Read(connection, driver, target);
                 },
                 cancellationToken);
 
@@ -461,16 +571,10 @@ public sealed class ScaleService : IDisposable
                 stable = stable && now - channel.SameSince >= SoftwareStableWindow;
             }
 
-            // La tara manual solo vale para la pesada en curso: con la báscula vacía (y quieta) se quita sola.
-            if (channel.TareKg != 0m && stable && reading.WeightKg is { } empty && Math.Abs(empty) <= MaxReadableKg && IsEmpty(empty, target.ZeroBandKg))
-            {
-                channel.TareKg = 0m;
-            }
-
             var dto = Build(reading, stable, channel.TareKg, target.ZeroBandKg, now);
-            channel.LastReading = dto;
             if (isLive)
             {
+                dto = Track(dto);
                 LastError = null;
                 LastReading = dto;
             }
@@ -482,7 +586,7 @@ public sealed class ScaleService : IDisposable
         {
             if (ex is not TimeoutException)
             {
-                channel.Close();
+                owner.Close();
             }
 
             var message = ex switch
@@ -500,6 +604,41 @@ public sealed class ScaleService : IDisposable
 
             return ScaleOutcome.Fail(ScaleOutcome.Unavailable, message);
         }
+    }
+
+    /// <summary>
+    /// Lectura de la báscula en uso: hora creciente, identificador único, retorno a cero (D1: cualquier lectura dentro de la banda de cero,
+    /// estable o no, cuenta como vacía) y firma (D3).
+    /// </summary>
+    private ScaleWeightDto Track(ScaleWeightDto dto)
+    {
+        var at = dto.At > _lastAt ? dto.At : _lastAt.AddMilliseconds(1);
+        _lastAt = at;
+        if (dto.WeightKg is { } net && IsEmpty(net, _live!.Target.ZeroBandKg))
+        {
+            _lastEmptyAt = at;
+        }
+
+        var readingId = Guid.CreateVersion7(at);
+        var emptied = _acceptedAt is not { } accepted || _lastEmptyAt is { } empty && empty > accepted;
+        lock (_recent)
+        {
+            _recent.Enqueue((readingId, at));
+            while (_recent.Count > RecentReadings)
+            {
+                _recent.Dequeue();
+            }
+        }
+
+        SignedScaleReading? signed = null;
+        if (_signer.TerminalId is { } terminalId && dto.GrossKg is { } gross && dto.WeightKg is { } weight)
+        {
+            var payload = new ScaleReadingPayload(
+                terminalId, readingId, at, gross, dto.TareKg, weight, dto.Stable, dto.ScaleNet, dto.Status, _lastEmptyAt, emptied);
+            signed = _signer.Sign(payload.Format());
+        }
+
+        return dto with { At = at, ReadingId = readingId, EmptiedSinceLastAccepted = emptied, SignedReading = signed };
     }
 
     private void Load()
@@ -549,12 +688,48 @@ public sealed class ScaleService : IDisposable
 
         public DateTimeOffset LastUsed { get; set; }
 
-        public ScaleWeightDto? LastReading { get; set; }
-
         public void Close()
         {
             Connection?.Dispose();
             Connection = null;
+        }
+    }
+}
+
+/// <summary>
+/// Vigilante del retorno a cero (D1): después de una pesada aceptada lee la báscula en uso cada <see cref="Interval"/> hasta verla
+/// vacía, aunque la pantalla de la caja no esté leyendo (recargada, en otra pantalla o pasando productos sin peso). Así un paso rápido
+/// por cero entre dos lecturas de la caja también cuenta.
+/// </summary>
+public sealed class ScaleEmptyMonitor(ScaleService scale) : BackgroundService
+{
+    public static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(250);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(Interval, stoppingToken);
+                if (scale.AwaitingEmpty && !scale.Testing)
+                {
+                    var outcome = await scale.ReadAsync(stoppingToken);
+                    if (outcome.Weight is null)
+                    {
+                        // Báscula sin respuesta: se espera un poco más antes de volver a intentar.
+                        await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
         }
     }
 }

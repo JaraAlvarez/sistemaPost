@@ -127,6 +127,9 @@ public sealed class ApiClient(HttpClient http, SessionState session)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
+        // Versión de esta interfaz (Fase 7-C, BN10): el servidor pide recargar a una pantalla vieja guardada en el navegador.
+        request.Headers.Add(Pos.Modules.Sales.Contracts.PosClientBuild.Header, Pos.Modules.Sales.Contracts.PosClientBuild.SignedScaleReadings.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
         if (session.Device is { } device)
         {
             request.Headers.Add("X-Device-Id", device.DeviceId.ToString());

@@ -183,6 +183,10 @@ public sealed class OrganizationModule : IModule
                 (await d.Send(new SetTerminalScaleCommand(terminalId, r), ct)).ToHttpResult())
             .RequirePermission(OrganizationPermissions.TerminalManage)
             .WithSummary("Configura la báscula de la caja: Toledo 8217, CAS o genérica; puerto serie y tiempos de espera de la caja");
+        group.MapPut("/terminals/{terminalId:guid}/scale/reading-key", async (Guid terminalId, ScaleReadingKeyRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new SetTerminalScaleKeyCommand(terminalId, r.KeyId, r.PublicKey), ct)).ToHttpResult())
+            .RequirePermission(OrganizationPermissions.TerminalManage)
+            .WithSummary("Vincula la báscula: registra la clave pública con la que el agente de la caja firma las lecturas (rota la anterior)");
     }
 
     private static void MapSettings(RouteGroupBuilder group)

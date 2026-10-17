@@ -108,19 +108,21 @@ public class ScaleApiTests
     }
 
     [Fact]
-    public async Task La_tara_manual_se_quita_sola_cuando_la_bascula_queda_vacia_y_al_reconfigurar()
+    public async Task La_tara_manual_solo_se_quita_al_pedirlo_y_al_reconfigurar()
     {
         await using var agent = new AgentFactory();
         var client = await ConfiguredAsync(agent);
         await PutWeightAsync(client, 0.050m);
         (await client.PostAsync("/scale/tare", Body(new ScaleTareRequest()), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // Retiran la bandeja con el producto: la báscula queda vacía y la tara no pasa a la siguiente pesada (antes daba "negativo").
+        // D2: levantar la bandeja un momento no borra la tara (la caja la quita al agregar la línea o con Esc).
         await PutWeightAsync(client, 0m);
-        var empty = await WeightAsync(client);
-        (empty.Status, empty.TareKg, empty.WeightKg).ShouldBe((ScaleWeightDto.ZeroWeight, 0m, (decimal?)0m));
-        await PutWeightAsync(client, 0.700m);
+        var lifted = await WeightAsync(client);
+        (lifted.Status, lifted.TareKg).ShouldBe((ScaleWeightDto.NegativeWeight, 0.050m));
+        await PutWeightAsync(client, 0.750m);
         (await WeightAsync(client)).WeightKg.ShouldBe(0.700m);
+        var cleared = await client.PostAsync("/scale/tare", Body(new ScaleTareRequest(Clear: true)), Ct);
+        (await cleared.Content.ReadFromJsonAsync<ScaleWeightDto>(Json, Ct))!.WeightKg.ShouldBe(0.750m);
 
         // Tampoco sobrevive a una nueva configuración (la caja la envía al abrir).
         await PutWeightAsync(client, 0.050m);
@@ -132,7 +134,8 @@ public class ScaleApiTests
     [Theory]
     [InlineData(0.002, null, ScaleWeightDto.ZeroWeight)]
     [InlineData(0.019, null, ScaleWeightDto.ZeroWeight)]
-    [InlineData(0.020, null, ScaleWeightDto.Ok)]
+    [InlineData(0.020, null, ScaleWeightDto.ZeroWeight)]
+    [InlineData(0.021, null, ScaleWeightDto.Ok)]
     [InlineData(0.040, 50, ScaleWeightDto.ZeroWeight)]
     [InlineData(0.002, 0, ScaleWeightDto.Ok)]
     public async Task Peso_minimo_banda_de_cero_la_deriva_cuenta_como_vacia(decimal kg, int? minWeightGrams, string expected)

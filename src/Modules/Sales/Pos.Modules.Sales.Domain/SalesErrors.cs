@@ -30,6 +30,20 @@ public static class SalesErrors
     public static readonly Error WeighedLineQuantity = Error.BusinessRule(
         "SALES.WEIGHED_LINE_QUANTITY", "La cantidad de un producto pesado no se cambia: elimine la línea y vuelva a pesarlo.");
 
+    public static readonly Error ScaleReadingRequired = Error.Validation(
+        "SALES.SCALE_READING_REQUIRED",
+        "El peso de la báscula debe llegar firmado por el agente de esta caja. Si la báscula es nueva o se cambió, vincúlela en el computador " +
+        "de la caja (Configuración → Cajas e impresoras → Báscula → Guardar).");
+
+    public static readonly Error ScaleReadingReused = Error.Conflict(
+        "SALES.SCALE_READING_REUSED", "Esa lectura de la báscula ya se usó en otra línea: vuelva a registrar el producto para pesarlo de nuevo.");
+
+    public static readonly Error ScaleReadingStale = Error.BusinessRule(
+        "SALES.SCALE_READING_STALE", "La lectura de la báscula es anterior a la última pesada: vuelva a registrar el producto para pesarlo de nuevo.");
+
+    public static readonly Error ScaleNotEmptied = Error.BusinessRule(
+        "SALES.SCALE_NOT_EMPTIED", "Retire el producto de la báscula: después de cada pesada la báscula debe quedar vacía antes de pesar el siguiente.");
+
     public static readonly Error ProductNotSellable = Error.BusinessRule("SALES.PRODUCT_NOT_SELLABLE", "El producto no se puede vender (RN-SAL-02).");
 
     public static readonly Error InsufficientStock = Error.BusinessRule(

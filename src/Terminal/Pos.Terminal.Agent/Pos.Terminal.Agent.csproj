@@ -14,10 +14,13 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
     <PackageReference Include="System.IO.Ports" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\Pos.Printing\Pos.Printing.csproj" />
+    <!-- Formato de la lectura firmada de la báscula (el mismo que verifica el servidor). -->
+    <ProjectReference Include="..\..\BuildingBlocks\Pos.SharedKernel\Pos.SharedKernel.csproj" />
   </ItemGroup>
 
   <ItemGroup>

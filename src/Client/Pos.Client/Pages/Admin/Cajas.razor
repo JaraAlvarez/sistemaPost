@@ -251,6 +251,11 @@
                 </MudExpansionPanel>
             </MudExpansionPanels>
 
+            <MudText Typo="Typo.caption" Class="mt-2">
+                @(_vinculadaEl is { } vinculada
+                    ? $"Báscula vinculada con el agente de la caja el {vinculada.ToLocalTime():dd/MM/yyyy HH:mm}: sus pesos llegan firmados."
+                    : "La báscula aún no está vinculada: al guardar en el computador de la caja se vincula con su agente (sin esto la caja no puede pesar).")
+            </MudText>
             @if (!EsEsteEquipo)
             {
                 <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
@@ -333,6 +338,7 @@
     private CancellationTokenSource? _probando;
     private bool _basculaConfigurada, _bActiva, _bDigitar = true;
     private int _bPesoMinimo = 20;
+    private DateTimeOffset? _vinculadaEl;
     private string _bDriver = "TOLEDO_8217", _bParidad = "EVEN", _bModo = "REQUEST";
     private string? _bPuerto, _bMarca, _bModelo, _bComando = "W";
     private int _bBaudios = 9600, _bBits = 7, _bParada = 1, _bTiempo = 1000, _bDecimales = 3, _bEsperaEstable = 3, _bEsperaProducto = 5;
@@ -556,6 +562,7 @@
             var scale = await Api.GetAsync<TerminalScaleDto>($"api/v1/organization/terminals/{terminal.Id}/scale");
             _agente = await AgentScale.StatusAsync();
             _basculaConfigurada = scale.Configured;
+            _vinculadaEl = scale.ReadingKeySetAt;
             _bActiva = scale.Configured ? scale.Enabled : true;
             CambiarDriver(scale.Configured ? scale.Driver : "TOLEDO_8217");
             _bPuerto = scale.Port ?? _agente?.SerialPorts.FirstOrDefault();
@@ -704,9 +711,32 @@
         try
         {
             var saved = await Api.PutAsync<TerminalScaleDto>($"api/v1/organization/terminals/{_basculaDe.Id}/scale", ConfigBascula());
-            // Si este equipo es la caja, el agente queda configurado de una vez; si no, la caja se lo entrega al abrir.
-            var aviso = Session.Me?.PosTerminalId == _basculaDe.Id ? await AgentScale.PushAsync(saved) : null;
-            Snackbar.Add(aviso ?? "Báscula guardada. La caja la usa desde que vuelva a abrir la pantalla de venta.", aviso is null ? Severity.Success : Severity.Warning);
+            string? aviso = null;
+            if (EsEsteEquipo && _bActiva)
+            {
+                // D3: en el computador de la caja se vincula la báscula: el agente crea la clave que firma las lecturas (rota la anterior)
+                // y aquí se registra la pública. Luego el agente queda configurado de una vez.
+                var (pairing, error) = await AgentScale.PairAsync(_basculaDe.Id);
+                if (pairing is not null)
+                {
+                    saved = await Api.PutAsync<TerminalScaleDto>(
+                        $"api/v1/organization/terminals/{_basculaDe.Id}/scale/reading-key", new { keyId = pairing.KeyId, publicKey = pairing.PublicKey });
+                }
+
+                aviso = error is not null ? $"Báscula guardada, pero no se pudo vincular: {error}" : await AgentScale.PushAsync(saved);
+            }
+            else if (EsEsteEquipo)
+            {
+                aviso = await AgentScale.PushAsync(saved);
+            }
+            else if (_bActiva)
+            {
+                aviso = "Báscula guardada. Para que la caja pueda pesar, guárdela también desde el computador de la caja: ahí se vincula con su agente.";
+            }
+
+            Snackbar.Add(
+                aviso ?? (EsEsteEquipo ? "Báscula guardada y vinculada con esta caja." : "Báscula guardada."),
+                aviso is null ? Severity.Success : Severity.Warning);
             CerrarBascula();
         }
         catch (ApiException ex)
