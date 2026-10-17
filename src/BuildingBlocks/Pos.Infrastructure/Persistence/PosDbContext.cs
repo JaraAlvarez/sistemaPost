@@ -44,6 +44,17 @@ public sealed class PosDbContext(
     public override int SaveChanges(bool acceptAllChangesOnSuccess) =>
         throw new NotSupportedException("Use SaveChangesAsync: la persistencia es asíncrona.");
 
+    /// <summary>
+    /// Toda fecha con zona se guarda en UTC (D17C-05): PostgreSQL (timestamptz por Npgsql) solo acepta desfase 0, y una fecha que llega de
+    /// la interfaz con la hora de Colombia (-05:00), p. ej. el inicio de una promoción, fallaba con un error inesperado al guardar.
+    /// </summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        ArgumentNullException.ThrowIfNull(configurationBuilder);
+        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<UtcDateTimeOffsetConverter>();
+        configurationBuilder.Properties<DateTimeOffset?>().HaveConversion<UtcDateTimeOffsetConverter>();
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         foreach (var contributor in contributors)
@@ -64,3 +75,7 @@ internal sealed class ContributorModelCacheKeyFactory : IModelCacheKeyFactory
     public object Create(DbContext context, bool designTime) =>
         context is PosDbContext pos ? (context.GetType(), pos.ModelKey, designTime) : (object)(context.GetType(), designTime);
 }
+
+/// <summary>Convierte a UTC al escribir (lo que se lee ya viene en UTC). Ver <see cref="PosDbContext"/>.</summary>
+internal sealed class UtcDateTimeOffsetConverter()
+    : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTimeOffset, DateTimeOffset>(v => v.ToUniversalTime(), v => v);
