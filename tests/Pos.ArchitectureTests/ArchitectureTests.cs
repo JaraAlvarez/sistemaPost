@@ -197,7 +197,7 @@ public class ArchitectureTests
             "Audit.AcknowledgeIncidentCommand", "Audit.IssueIntegrityCertificateCommand", "Audit.VerifyAuditCommand",
             "Backup.ConfirmRecoveryCodeCommand", "Backup.DownloadBackupCommand", "Backup.GenerateRecoveryCodeCommand", "Backup.RunBackupNowCommand",
             "Backup.SaveDestinationCommand",
-            "Billing.RetryFiscalDocumentCommand",
+            "Billing.ReleaseFiscalBacklogCommand", "Billing.RetryFiscalDocumentCommand", "Billing.VerifyBillingConnectionCommand",
             "Cash.CancelClosingCommand", "Cash.CloseSessionCommand", "Cash.RegisterMovementCommand", "Cash.ReviewSessionCommand", "Cash.StartClosingCommand",
             "Cash.CancelSistecreditoPaymentCommand", "Cash.CheckSistecreditoPaymentCommand", "Cash.StartSistecreditoPaymentCommand",
             "Customers.AnonymizeCustomerCommand", "Customers.CloseDataRequestCommand", "Customers.CompleteCustomerCommand", "Customers.CreateCustomerCommand",

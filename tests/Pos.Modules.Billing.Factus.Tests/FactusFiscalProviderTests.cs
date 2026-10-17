@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Pos.Modules.Billing.Application;
 using Pos.Modules.Billing.Domain;
 using Pos.Modules.Billing.FactusFake;
 using Pos.Modules.Billing.Infrastructure.Factus;
@@ -50,6 +51,31 @@ public sealed class FactusFiscalProviderTests : IAsyncDisposable
     {
         await _services.DisposeAsync();
         await _server.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Verificar_conexion_pide_un_token_sin_emitir_y_distingue_credenciales_malas()
+    {
+        var ok = await Provider.VerifyAsync(Connection(), Ct);
+        ok.ShouldBe(new FiscalConnectionCheck(true, "Factus aceptó las credenciales en pruebas (sandbox)."));
+        _server.Requests.ShouldAllBe(r => r.PathAndQuery == "oauth/token");
+        _server.Documents.ShouldBeEmpty();
+
+        // PB2b: "Volver a probar" valida la clave DE VERDAD (token nuevo cada vez) en un espacio aparte: el token de la cola no se toca.
+        (await Provider.SubmitInvoiceAsync(Connection(), Invoice(), Ct)).Outcome.ShouldBe(FiscalOutcome.Accepted);
+        int Tokens() => _server.Requests.Count(r => r.PathAndQuery == "oauth/token");
+        var before = Tokens();
+        (await Provider.VerifyAsync(Connection(), Ct)).Ok.ShouldBeTrue();
+        (await Provider.VerifyAsync(Connection(), Ct)).Ok.ShouldBeTrue();
+        Tokens().ShouldBe(before + 2);
+        (await Provider.SubmitInvoiceAsync(Connection(), Invoice("venta-2"), Ct)).Outcome.ShouldBe(FiscalOutcome.Accepted);
+        Tokens().ShouldBe(before + 2);
+
+        var bad = await Provider.VerifyAsync(Connection(password: "otra-clave", environment: FiscalEnvironment.Production), Ct);
+        bad.Ok.ShouldBeFalse();
+        bad.Message.ShouldContain("rechazó las credenciales en producción");
+        bad.Message.ShouldNotContain("otra-clave");
+        bad.Transient.ShouldBeFalse();
     }
 
     [Fact]

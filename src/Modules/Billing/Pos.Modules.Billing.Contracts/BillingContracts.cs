@@ -127,7 +127,10 @@ public sealed record FiscalDocumentDto(
     Guid BranchId,
     Guid? PosTerminalId);
 
-/// <summary>Configuración de la facturación electrónica. Las credenciales NUNCA se devuelven: solo si están configuradas.</summary>
+/// <summary>
+/// Configuración de la facturación electrónica. Las credenciales NUNCA se devuelven: solo si están configuradas y el usuario enmascarado
+/// (<c>CredentialHint</c>, p. ej. <c>ti***@correo.co</c>). La última verificación es de las credenciales y el ambiente vigentes.
+/// </summary>
 public sealed record BillingSettingsDto(
     string Provider,
     string ActiveAdapter,
@@ -136,7 +139,22 @@ public sealed record BillingSettingsDto(
     bool HasCredentials,
     DateTimeOffset? CredentialsUpdatedAt,
     DateTimeOffset? LastSyncAt,
-    string? LastSyncError);
+    string? LastSyncError,
+    string? CredentialHint = null,
+    DateTimeOffset? LastVerifiedAt = null,
+    bool? LastVerificationOk = null,
+    string? LastVerificationMessage = null,
+    int HeldDocuments = 0,
+    DateTimeOffset? AutoDisabledAt = null,
+    int HeldOtherEnvironment = 0,
+    int HeldInReview = 0,
+    bool RangesSyncRequired = false);
+
+/// <summary>
+/// Resultado de "Verificar conexión" con el proveedor. <c>Transient</c>: el fallo fue de red o del proveedor (no de las credenciales); no
+/// quita una verificación correcta anterior.
+/// </summary>
+public sealed record FiscalConnectionVerificationDto(bool Ok, string Message, string Environment, DateTimeOffset VerifiedAt, bool Transient = false);
 
 public sealed record FiscalRangeDto(
     Guid Id,
@@ -174,7 +192,8 @@ public sealed record FiscalReconciliationDayDto(
     int Cancelled,
     int CreditNotes,
     int SalesWithoutDocument,
-    decimal AcceptedTotal);
+    decimal AcceptedTotal,
+    int NotSent = 0);
 
 public sealed record FiscalRangeAlertDto(Guid RangeId, string Prefix, string DocumentType, decimal UsagePercent, DateOnly? ValidTo, string Message);
 
@@ -185,7 +204,9 @@ public sealed record FiscalAlertsDto(
     int Rejected,
     int WithoutRange,
     IReadOnlyList<FiscalRangeAlertDto> Ranges,
-    DateTimeOffset? OldestPendingAt)
+    DateTimeOffset? OldestPendingAt,
+    string? ConnectionNotice = null,
+    int HeldDocuments = 0)
 {
     public int Count => PendingOverdue + Rejected + WithoutRange + Ranges.Count;
 }

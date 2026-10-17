@@ -19,10 +19,13 @@ internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFa
     // la producción de la misma empresa nunca comparten token. Solo en memoria: al reiniciar el servidor se pide uno nuevo.
     private readonly ConcurrentDictionary<string, TokenSlot> _slots = new(StringComparer.Ordinal);
 
-    /// <summary>Token vigente, o un fallo tipado (credenciales o transitorio).</summary>
-    public async Task<TokenLease> GetAsync(FactusOptions options, bool forcePasswordGrant, CancellationToken cancellationToken)
+    /// <summary>Espacio de token de "Verificar conexión": separado del de la cola para no reiniciar su token (PB2b).</summary>
+    public const string VerificationSlot = "verificacion";
+
+    /// <summary>Token vigente, o un fallo tipado (credenciales o transitorio). <paramref name="purpose"/> separa espacios de token.</summary>
+    public async Task<TokenLease> GetAsync(FactusOptions options, bool forcePasswordGrant, CancellationToken cancellationToken, string? purpose = null)
     {
-        var slot = _slots.GetOrAdd(options.CredentialKey, _ => new TokenSlot());
+        var slot = _slots.GetOrAdd(purpose is null ? options.CredentialKey : options.CredentialKey + "|" + purpose, _ => new TokenSlot());
         await slot.Gate.WaitAsync(cancellationToken);
         try
         {
@@ -48,6 +51,9 @@ internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFa
             slot.Gate.Release();
         }
     }
+
+    /// <summary>Suelta el espacio de token de un propósito (las llaves candidatas no dejan tokens en memoria, N4).</summary>
+    public void Forget(FactusOptions options, string purpose) => _slots.TryRemove(options.CredentialKey + "|" + purpose, out _);
 
     /// <summary>Marca como vencido el token que recibió un 401 (si otro hilo ya lo renovó, no hace nada).</summary>
     public async Task InvalidateAsync(FactusOptions options, string rejectedToken, CancellationToken cancellationToken)

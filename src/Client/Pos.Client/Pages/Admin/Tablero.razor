@@ -1,4 +1,5 @@
 @page "/admin"
+@using Pos.Modules.Billing.Contracts
 @using Pos.Modules.Reporting.Contracts
 @inject ApiClient Api
 @inject SessionState Session
@@ -17,6 +18,16 @@
         }
     </Acciones>
     <ChildContent>
+        @if (_fiscal?.ConnectionNotice is { Length: > 0 } aviso)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4">
+                @aviso
+                @if (Session.Has("billing.settings.manage"))
+                {
+                    <MudButton Size="Size.Small" Class="ml-2" Href="/admin/facturacion">Ir a Facturación</MudButton>
+                }
+            </MudAlert>
+        }
         @if (_data is { } data)
         {
             var today = data.Today;
@@ -171,6 +182,7 @@
     private sealed record Alerta(int Cantidad, string Texto, string Href, string Icono, string Tono);
 
     private DashboardDto? _data;
+    private FiscalAlertsDto? _fiscal;
     private bool _loading = true;
     private bool _puedeVer;
     private string? _error;
@@ -192,6 +204,8 @@
             }
 
             Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
+            // Aviso de la facturación electrónica apagada al actualizar (PA1): quien puede ver la facturación lo ve aunque no vea las ventas.
+            _fiscal = await AlertasFiscalesAsync();
             _error = null;
         }
         catch (ApiException ex)
@@ -204,6 +218,23 @@
         }
 
         _loading = false;
+    }
+
+    private async Task<FiscalAlertsDto?> AlertasFiscalesAsync()
+    {
+        if (!Session.Has("billing.document.view"))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Api.GetAsync<FiscalAlertsDto>("api/v1/billing/alerts");
+        }
+        catch (ApiException)
+        {
+            return null; // el aviso es secundario: no tumba el tablero
+        }
     }
 
     private string Saludo()
