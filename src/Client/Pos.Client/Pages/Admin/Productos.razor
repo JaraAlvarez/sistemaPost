@@ -24,8 +24,8 @@
             </HeaderContent>
             <RowTemplate>
                 <MudTd>@context.Sku</MudTd>
-                <MudTd><a href="/admin/productos/@context.Id" @onclick:stopPropagation="true">@context.Name</a></MudTd>
-                <MudTd>@context.CategoryName</MudTd>
+                <MudTd Class="celda-texto"><a href="/admin/productos/@context.Id" @onclick:stopPropagation="true">@context.Name</a></MudTd>
+                <MudTd Class="celda-texto">@context.CategoryName</MudTd>
                 <MudTd>@context.PrimaryBarcode</MudTd>
                 <MudTd Class="num">@Format.Money(context.Price ?? 0m)</MudTd>
                 <MudTd>@Estado(context.Status)</MudTd>
@@ -52,7 +52,7 @@
         <div class="panel" role="dialog" aria-modal="true">
             <h2>Precio de @precioDe.Name</h2>
             <MudText Typo="Typo.body2">Precio actual: @Format.Money(precioDe.Price ?? 0m). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
-            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
             <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _precioDe = null)">Cancelar</MudButton>

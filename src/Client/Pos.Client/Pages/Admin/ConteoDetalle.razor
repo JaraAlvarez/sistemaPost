@@ -123,22 +123,32 @@
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">El conteo está en revisión: lo que registre ahora es un reconteo y reemplaza la primera captura del producto.</MudAlert>
             }
-            <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+            @* Los anchos van en contenedores propios (estilos .conteo-lector de app.css): con "flex: 1 1 360px" en el Style del propio
+               campo, MudBlazor 9 dibujaba el lector como un recuadro de 360 px de alto y vacío. *@
+            <div class="conteo-lector mb-2">
                 @if (Status is "IN_PROGRESS" or "IN_REVIEW" && Session.Has("inventory.count.register"))
                 {
-                    <MudTextField @ref="_escaner" T="string" @bind-Value="_codigo" Label="Código de barras o SKU (cantidad*código; Enter registra)" Variant="Variant.Outlined"
-                                  Immediate="true" OnKeyDown="EscanerTeclaAsync" AutoFocus="true" Style="min-width: 280px; flex: 1 1 360px" />
-                    <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Variant="Variant.Outlined" Style="max-width: 140px" />
-                    <MudTextField T="string" @bind-Value="_ubicacion" Label="Ubicación (opcional)" Variant="Variant.Outlined" Immediate="true" Style="max-width: 200px" />
+                    <div class="conteo-lector-codigo">
+                        <MudTextField @ref="_escaner" T="string" @bind-Value="_codigo" Label="Código de barras o SKU (cantidad*código; Enter registra)" Variant="Variant.Outlined"
+                                      Immediate="true" OnKeyDown="EscanerTeclaAsync" AutoFocus="true" />
+                    </div>
+                    <div class="conteo-lector-cantidad">
+                        <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Variant="Variant.Outlined" />
+                    </div>
+                    <div class="conteo-lector-ubicacion">
+                        <MudTextField T="string" @bind-Value="_ubicacion" Label="Ubicación (opcional)" Variant="Variant.Outlined" Immediate="true" />
+                    </div>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RegistrarAsync">Registrar</MudButton>
                 }
-                <MudSelect T="string" @bind-Value="_filtro" Label="Mostrar" Variant="Variant.Outlined" Style="max-width: 240px">
-                    <MudSelectItem T="string" Value="@("")">Todos los productos</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("PENDIENTES")">Sin contar</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("DIFERENCIAS")">Con diferencia</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("RECONTAR")">Por recontar</MudSelectItem>
-                </MudSelect>
-            </MudStack>
+                <div class="conteo-lector-filtro">
+                    <MudSelect T="string" @bind-Value="_filtro" Label="Mostrar" Variant="Variant.Outlined">
+                        <MudSelectItem T="string" Value="@("")">Todos los productos</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("PENDIENTES")">Sin contar</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("DIFERENCIAS")">Con diferencia</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("RECONTAR")">Por recontar</MudSelectItem>
+                    </MudSelect>
+                </div>
+            </div>
             @if (_ultimo is not null)
             {
                 <MudText Typo="Typo.caption" Class="d-block mb-2" role="status">@_ultimo</MudText>

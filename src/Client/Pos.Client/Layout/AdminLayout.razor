@@ -44,12 +44,15 @@ else
                                OnClick="Tema.AlternarAsync" aria-label="@(Tema.EsOscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro")" />
             </MudTooltip>
             <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Class="ml-1" aria-label="Menú del usuario">
+                @* MudBlazor 9: el contenido propio del activador ya no abre el menú solo; debe llamar a context.ToggleAsync. Es un
+                   botón para que también se abra con Enter o Espacio. *@
                 <ActivatorContent>
-                    <div class="bp-usuario" title="@Session.Me!.DisplayName">
+                    <button type="button" class="bp-usuario" title="@Session.Me!.DisplayName" aria-haspopup="menu"
+                            aria-label="@($"Menú del usuario {Session.Me!.DisplayName}")" @onclick="context.ToggleAsync">
                         <span class="bp-avatar" aria-hidden="true">@Iniciales(Session.Me!.DisplayName)</span>
                         <span class="bp-usuario-nombre">@Session.Me!.DisplayName</span>
                         <MudIcon Icon="@Icons.Material.Filled.ArrowDropDown" Size="Size.Small" aria-hidden="true" />
-                    </div>
+                    </button>
                 </ActivatorContent>
                 <ChildContent>
                     <div class="bp-menu-usuario-cabeza">
