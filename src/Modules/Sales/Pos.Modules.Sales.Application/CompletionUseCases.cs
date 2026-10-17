@@ -243,6 +243,79 @@ public sealed record PaymentRequest(Guid PaymentMethodId, decimal Amount, string
 /// saldo negativo) con el costo de cada línea, movimientos de caja por medio, comprobante, cambio de mercancía si lo hay y
 /// evento de sincronización. Idempotente: repetir con la misma clave devuelve la venta ya completada.
 /// </summary>
+/// <summary>
+/// Paso previo a <see cref="CompleteSaleCommand"/>, por FUERA de su transacción (<see cref="ISelfTransactedCommand"/>): vuelve a consultar
+/// en Sistecrédito los cobros aprobados de la venta (máximo ⚙️ 5 s en total) y guarda en el momento los que ya no estén aprobados. Así la
+/// transacción de la venta nunca espera a Sistecrédito y ese cambio no se pierde si la venta falla. Nunca falla.
+/// </summary>
+public sealed record RecheckSalePaymentsCommand(Guid SaleId) : ICommand, IAllowedWhenRestricted, ISelfTransactedCommand;
+
+internal sealed class RecheckSalePaymentsHandler(ISistecreditoPayments sistecredito, SaleEditor editor) : ICommandHandler<RecheckSalePaymentsCommand>
+{
+    public async Task<Result> Handle(RecheckSalePaymentsCommand request, CancellationToken cancellationToken)
+    {
+        // Solo la caja de la venta, con la venta en curso: nadie más dispara consultas a Sistecrédito por ventas ajenas.
+        if (await editor.LoadAsync(request.SaleId, cancellationToken) is { IsSuccess: true } loaded && loaded.Value.Sale.Status == SaleStatus.Open
+            && loaded.Value.Scope.Session is { } session && session.Id == loaded.Value.Sale.CashSessionId)
+        {
+            await sistecredito.RecheckForSaleAsync(request.SaleId, cancellationToken);
+        }
+
+        return Result.Success();
+    }
+}
+
+/// <summary>
+/// Paso posterior a <see cref="CompleteSaleCommand"/>, por FUERA de su transacción: los cobros de Sistecrédito que seguían pendientes en
+/// la venta ya completada se consultan una última vez y se cancelan (o quedan en revisión si ya estaban aprobados). Nunca falla.
+/// </summary>
+public sealed record SettleSalePaymentsCommand(Guid SaleId) : ICommand, IAllowedWhenRestricted, ISelfTransactedCommand;
+
+internal sealed class SettleSalePaymentsHandler(ISistecreditoPayments sistecredito, SaleEditor editor) : ICommandHandler<SettleSalePaymentsCommand>
+{
+    public async Task<Result> Handle(SettleSalePaymentsCommand request, CancellationToken cancellationToken)
+    {
+        if (await editor.LoadAsync(request.SaleId, cancellationToken) is { IsSuccess: true } loaded && loaded.Value.Sale.Status == SaleStatus.Completed)
+        {
+            await sistecredito.SettleAfterSaleAsync(request.SaleId, cancellationToken);
+        }
+
+        return Result.Success();
+    }
+}
+
+/// <summary>
+/// «No usar este crédito» (revisión TP2): el cliente aprobó Sistecrédito pero paga con otro medio. Con autorización de supervisor, el cobro
+/// queda "Requiere revisión" ("No usado en la venta: reverse el pago en el portal de Sistecrédito"), ya no se ofrece como pago ni bloquea
+/// la venta, y queda en la bitácora con quién autorizó.
+/// </summary>
+public sealed record ReleaseSistecreditoCreditCommand(Guid SaleId, string? TransactionId) : ICommand<SaleDto>, IAllowedWhenRestricted;
+
+internal sealed class ReleaseSistecreditoCreditHandler(
+    SaleEditor editor, ISistecreditoPayments sistecredito, IActorContext actor, IAuthorizationScope authorization)
+    : ICommandHandler<ReleaseSistecreditoCreditCommand, SaleDto>
+{
+    public async Task<Result<SaleDto>> Handle(ReleaseSistecreditoCreditCommand request, CancellationToken cancellationToken)
+    {
+        var loaded = await editor.LoadAsync(request.SaleId, cancellationToken);
+        if (loaded.IsFailure)
+        {
+            return loaded.Error;
+        }
+
+        // En curso o suspendida (una venta suspendida con crédito también necesita salida).
+        var sale = loaded.Value.Sale;
+        if (sale.Status is not (SaleStatus.Open or SaleStatus.OnHold))
+        {
+            return SalesErrors.NotOpen;
+        }
+
+        var released = await sistecredito.ReleaseAsync(
+            sale.Id, request.TransactionId, actor.ActorId!.Value, authorization.Current?.AuthorizedBy, cancellationToken);
+        return released.IsFailure ? released.Error : sale.ToDto();
+    }
+}
+
 public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>, IAllowedWhenRestricted;
 
 internal sealed class CompleteSaleHandler(
@@ -314,6 +387,16 @@ internal sealed class CompleteSaleHandler(
         }
 
         sale.Recalculate(await promotions.ActiveAsync(sale.BranchId, cancellationToken));
+
+        // Sistecrédito: si la venta quedó por debajo de un crédito ya aprobado, no se puede completar ni con él ni sin él.
+        if ((await sistecredito.ListUsableAsync(sale.Id, cancellationToken)).Sum(a => a.Amount) is > 0m and var credit && credit > Math.Max(0m, sale.Total - sale.ExchangeCredit))
+        {
+            return Error.BusinessRule(
+                "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL",
+                $"La venta ({sale.Total:N2}) quedó por debajo del crédito de Sistecrédito aprobado ({credit:N0}): use «No usar este crédito» (con autorización de "
+                + "supervisor) y cobre con otro medio, o agregue productos hasta cubrir el crédito.");
+        }
+
         var context = new SettingContext(sale.CompanyId, sale.BranchId, sale.PosTerminalId);
         var limit = await settings.GetAsync(SalesSettings.AnonymousSaleLimit, new SettingContext(sale.CompanyId), cancellationToken);
         if (limit > 0m && sale.CustomerId is null && sale.Total > limit)
@@ -336,6 +419,18 @@ internal sealed class CompleteSaleHandler(
         if (tenders.IsFailure)
         {
             return tenders.Error;
+        }
+
+        // Sistecrédito (revisión N1): un cobro ya aprobado de esta venta que no viene en los pagos significa que el cliente pagaría dos
+        // veces (crédito + otro medio): la venta no se completa sin incluirlo.
+        var included = tenders.Value.Where(t => t.Kind == "SISTECREDITO" && t.Reference is not null).Select(t => t.Reference!).ToHashSet(StringComparer.Ordinal);
+        if ((await sistecredito.ListApprovedUnusedAsync(sale.Id, cancellationToken)).Where(a => !included.Contains(a.TransactionId)).ToList() is { Count: > 0 } approvedNotIncluded)
+        {
+            return Error.BusinessRule(
+                "CASH.SISTECREDITO_APPROVED_NOT_INCLUDED",
+                $"Esta venta tiene un pago con Sistecrédito ya aprobado por {approvedNotIncluded.Sum(a => a.Amount):N0} que no está en los pagos: el cliente ya pagó con "
+                + "Sistecrédito. Inclúyalo como pago (al abrir el cobro se agrega solo) y cobre únicamente lo que falta; si el cliente paga con otro medio o "
+                + "Sistecrédito está inactivo, use «No usar este crédito» (con autorización de supervisor).");
         }
 
         var allocation = PaymentAllocator.Allocate(
@@ -506,6 +601,7 @@ internal sealed class VoidSaleHandler(
     IAuthorizationScope authorization,
     IActorContext actor,
     IAuditWriter audit,
+    ISistecreditoPayments sistecredito,
     IOutbox outbox,
     IClock clock) : ICommandHandler<VoidSaleCommand, SaleReceiptDto>
 {
@@ -566,6 +662,12 @@ internal sealed class VoidSaleHandler(
         if (document.IsFailure)
         {
             return document.Error;
+        }
+
+        // Sistecrédito no se reversa desde la caja: su cobro queda "Requiere revisión" para que la administración lo reverse en el portal.
+        if (sale.Payments.Where(p => p.MethodKind == "SISTECREDITO" && p.Reference is not null).Select(p => p.Reference!).ToList() is { Count: > 0 } transactions)
+        {
+            await sistecredito.SaleVoidedAsync(sale.Id, sale.Number, transactions, cancellationToken);
         }
 
         await audit.WriteAsync(

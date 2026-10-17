@@ -225,11 +225,11 @@ public class SistecreditoTests
         await Should.ThrowAsync<PostgresException>(() => shop.Catalog.ExecuteAsync("DELETE FROM cash.sistecredito_attempts"));
     }
 
-    private static object Start(Guid saleId, decimal amount, string document = "1020304050") =>
+    internal static object Start(Guid saleId, decimal amount, string document = "1020304050") =>
         new { saleId, amount, documentType = "CC", documentNumber = document };
 
     /// <summary>Lo que hace el proceso en segundo plano, a la hora indicada.</summary>
-    private static async Task<(int Checked, int Changed)> ReconcileAsync(SistecreditoServerFactory factory, DateTimeOffset now)
+    internal static async Task<(int Checked, int Changed)> ReconcileAsync(SistecreditoServerFactory factory, DateTimeOffset now)
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var result = await scope.ServiceProvider.GetRequiredService<SistecreditoReconciler>().RunAsync(now, Ct);
@@ -240,7 +240,7 @@ public class SistecreditoTests
         return result;
     }
 
-    private static async Task<string> ProblemDetailAsync(HttpResponseMessage response, string code)
+    internal static async Task<string> ProblemDetailAsync(HttpResponseMessage response, string code)
     {
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity, await response.Content.ReadAsStringAsync(Ct));
         var problem = await Phase3.SecurityScenario.ProblemAsync(response);
@@ -250,13 +250,13 @@ public class SistecreditoTests
 }
 
 /// <summary>Caja Única con Sistecrédito simulado, sin la revisión automática en segundo plano y con la licencia controlable.</summary>
-public sealed class SistecreditoServerFactory : PosServerFactory
+public sealed class SistecreditoServerFactory(string edition = "SINGLE") : PosServerFactory
 {
     public FakeSistecreditoGateway Gateway { get; } = new();
 
     public SwitchableLicenseGate License { get; } = new();
 
-    protected override string Edition => "SINGLE";
+    protected override string Edition => edition;
 
     protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
     [
@@ -298,10 +298,30 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
 
     public int? CreateErrorCode { get; set; }
 
+    /// <summary>Transacciones que Sistecrédito "ya no encuentra" (error 708).</summary>
+    public ConcurrentDictionary<string, bool> NotFound { get; } = new();
+
+    /// <summary>Consultas recibidas: transacción y ambiente (SCOrigen) con que se preguntó.</summary>
+    public ConcurrentQueue<(string TransactionId, SistecreditoEnvironment Environment)> Queries { get; } = new();
+
+    /// <summary>Se ejecuta justo antes de crear la transacción (p. ej. para mirar la base de datos en ese momento).</summary>
+    public Func<SistecreditoCreateRequest, Task>? BeforeCreate { get; set; }
+
+    /// <summary>Se ejecuta en cada consulta, antes de responder (p. ej. para simular que otro proceso cambia la fila mientras tanto).</summary>
+    public Func<string, Task>? BeforeQuery { get; set; }
+
+    /// <summary>Se ejecuta justo después de crear la transacción (p. ej. para simular que la caja deja de esperar).</summary>
+    public Action<string>? AfterCreate { get; set; }
+
     public void SetStatus(string transactionId, string status) => _statuses[transactionId] = status;
 
-    public Task<SistecreditoCreated> CreateAsync(SistecreditoConnection connection, SistecreditoCreateRequest request, CancellationToken cancellationToken)
+    public async Task<SistecreditoCreated> CreateAsync(SistecreditoConnection connection, SistecreditoCreateRequest request, CancellationToken cancellationToken)
     {
+        if (BeforeCreate is { } before)
+        {
+            await before(request);
+        }
+
         Guard(connection);
         if (CreateErrorCode is { } code)
         {
@@ -311,21 +331,37 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
         Created.Enqueue(request);
         var id = $"tx-{Interlocked.Increment(ref _next):D4}";
         _statuses[id] = "PendingForPaymentMethod";
-        return Task.FromResult(new SistecreditoCreated(id, "Pending"));
+        AfterCreate?.Invoke(id);
+        return new SistecreditoCreated(id, "Pending");
     }
 
-    public Task<SistecreditoTransaction> GetTransactionAsync(SistecreditoConnection connection, string transactionId, CancellationToken cancellationToken)
+    public async Task<SistecreditoTransaction> GetTransactionAsync(SistecreditoConnection connection, string transactionId, CancellationToken cancellationToken)
     {
+        if (BeforeQuery is { } before)
+        {
+            await before(transactionId);
+        }
+
         Guard(connection);
+        Queries.Enqueue((transactionId, connection.Environment));
+        if (NotFound.ContainsKey(transactionId))
+        {
+            throw new SistecreditoGatewayException(
+                SistecreditoHttpGateway.ErrorMessageFor(SistecreditoProtocol.NotFoundErrorCode, "Error"), SistecreditoFailure.Provider, SistecreditoProtocol.NotFoundErrorCode);
+        }
+
         var status = _statuses.TryGetValue(transactionId, out var current) ? current : "Pending";
-        return Task.FromResult(new SistecreditoTransaction(
+        return new SistecreditoTransaction(
             transactionId, status, $"https://pagos.sistecredito.test/{transactionId}", status == "Rejected" ? "Cupo insuficiente" : null,
-            status == "Approved" ? 6 : null));
+            status == "Approved" ? 6 : null);
     }
 
     public Task<SistecreditoTransaction> WaitForRedirectUrlAsync(
-        SistecreditoConnection connection, string transactionId, int attempts, TimeSpan interval, CancellationToken cancellationToken) =>
-        GetTransactionAsync(connection, transactionId, cancellationToken);
+        SistecreditoConnection connection, string transactionId, int attempts, TimeSpan interval, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return GetTransactionAsync(connection, transactionId, cancellationToken);
+    }
 
     public Task<SistecreditoVerification> VerifyCredentialsAsync(SistecreditoConnection connection, CancellationToken cancellationToken)
     {
