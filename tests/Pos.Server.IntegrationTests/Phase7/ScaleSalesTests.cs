@@ -13,6 +13,10 @@ namespace Pos.Server.IntegrationTests.Phase7;
 /// </summary>
 public class ScaleSalesTests
 {
+    /// <summary>Lectura del agente que acompaña una línea de báscula (sin tara manual, estable).</summary>
+    public static object Reading(decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, bool emptiedSinceLast = false) =>
+        new { grossKg, tareKg, net, stable, readAt = DateTimeOffset.UtcNow, emptiedSinceLast };
+
     [Fact]
     public async Task Bascula_de_la_caja_y_venta_con_peso_leido_y_digitado()
     {
@@ -38,14 +42,14 @@ public class ScaleSalesTests
         var sale = await shop.StartAsync();
 
         // La báscula marca 0,720 kg: se registran 0,700 kg (menos la bolsa); otra pesada va en otra línea.
-        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.720m, weightSource = "SCALE" });
-        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.520m, weightSource = "SCALE" });
+        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.720m, weightSource = "SCALE", scale = Reading(0.720m) });
+        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.520m, weightSource = "SCALE", scale = Reading(0.520m) });
         var weighed = sale.Lines.Where(l => l.ProductId == shop.Tomato).ToList();
         weighed.Select(l => l.Quantity).ShouldBe([0.700m, 0.500m]);
         weighed.ShouldAllBe(l => l.Source == "SCALE_LIVE" && l.WeightSource == WeightSources.Scale);
 
         // Rechazos: menos que la tara, producto que no es de peso y peso digitado por la ruta normal.
-        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.015m, weightSource = "SCALE" })
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.015m, weightSource = "SCALE", scale = Reading(0.015m) })
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.WEIGHT_TOO_LOW");
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "ARROZ-500", weightKg = 1m, weightSource = "SCALE" })
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.NOT_WEIGHABLE");

@@ -204,6 +204,7 @@
                 <MudItem xs="6" sm="3"><MudTextField @bind-Value="_bModelo" Label="Modelo (opcional)" Immediate="true" /></MudItem>
                 <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_bEsperaEstable" Label="Espera peso estable (s)" Min="1" Max="15" /></MudItem>
                 <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_bEsperaProducto" Label="Espera producto (s)" Min="1" Max="30" /></MudItem>
+                <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_bPesoMinimo" Label="Peso mínimo (g)" Min="0" Max="1000" HelperText="Menos que esto = báscula vacía" /></MudItem>
             </MudGrid>
             <MudCheckBox T="bool" @bind-Value="_bDigitar" Label="Si la báscula no responde, permitir digitar el peso (con permiso o supervisor)" />
             <MudExpansionPanels Elevation="0" Class="my-2">
@@ -250,16 +251,23 @@
                 </MudExpansionPanel>
             </MudExpansionPanels>
 
+            @if (!EsEsteEquipo)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                    «Probar báscula» usa la báscula conectada al computador donde está abierta esta pantalla, y este computador no es la caja @_basculaDe.Code.
+                    Para probarla, abra Configuración → Cajas e impresoras en el computador de esa caja. Puede guardar la configuración desde aquí.
+                </MudAlert>
+            }
             <div class="caja-total-caja" style="margin:8px 0">
                 <div class="caja-total-etiqueta"><span>Peso en vivo</span><span>@(_lectura?.Stable == true ? "Estable" : _lectura is null ? "" : "Sin estabilizar")</span></div>
                 <div class="caja-total" aria-live="polite">@(_lectura?.Display ?? "--")</div>
-                <MudText Typo="Typo.caption">@(_lectura?.Message ?? "Pulse «Probar báscula» con la báscula conectada a ESTE computador.")@(_lectura is { TareKg: > 0 } t ? $" · Tara {t.TareKg:0.000} kg" : "")</MudText>
+                <MudText Typo="Typo.caption">@(_lectura?.Message ?? (EsEsteEquipo ? "Pulse «Probar báscula» con la báscula conectada a ESTE computador. La prueba no cambia la báscula en uso." : "La prueba solo se hace en el computador de esta caja."))@(_lectura is { TareKg: > 0 } t ? $" · Tara {t.TareKg:0.000} kg" : "")</MudText>
             </div>
             <div class="acciones">
                 <MudButton OnClick="CerrarBascula">Cancelar</MudButton>
                 <MudButton Variant="Variant.Outlined" Disabled="@(_probando is null)" OnClick="@(() => TaraAsync(false))">Tara</MudButton>
                 <MudButton Variant="Variant.Outlined" Disabled="@(_probando is null)" OnClick="@(() => TaraAsync(true))">Quitar tara</MudButton>
-                <MudButton Variant="Variant.Outlined" Disabled="@(!_bActiva)" OnClick="ProbarBasculaAsync">@(_probando is null ? "Probar báscula" : "Detener prueba")</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@(!_bActiva || !EsEsteEquipo)" OnClick="ProbarBasculaAsync">@(_probando is null ? "Probar báscula" : "Detener prueba")</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarBasculaAsync">Guardar</MudButton>
             </div>
         </div>
@@ -324,6 +332,7 @@
     private ScaleRead? _lectura;
     private CancellationTokenSource? _probando;
     private bool _basculaConfigurada, _bActiva, _bDigitar = true;
+    private int _bPesoMinimo = 20;
     private string _bDriver = "TOLEDO_8217", _bParidad = "EVEN", _bModo = "REQUEST";
     private string? _bPuerto, _bMarca, _bModelo, _bComando = "W";
     private int _bBaudios = 9600, _bBits = 7, _bParada = 1, _bTiempo = 1000, _bDecimales = 3, _bEsperaEstable = 3, _bEsperaProducto = 5;
@@ -563,6 +572,7 @@
             _bEsperaEstable = scale.StableWaitSeconds;
             _bEsperaProducto = scale.EmptyWaitSeconds;
             _bDigitar = scale.AllowManualWeight;
+            _bPesoMinimo = scale.MinWeightGrams;
             _lectura = null;
             _basculaDe = terminal;
         }
@@ -605,14 +615,30 @@
         stableWaitSeconds = _bEsperaEstable,
         emptyWaitSeconds = _bEsperaProducto,
         allowManualWeight = _bDigitar,
+        minWeightGrams = _bPesoMinimo,
     };
 
-    /// <summary>"Probar báscula": aplica la configuración en el agente de ESTE equipo (sin guardarla) y muestra el peso en vivo.</summary>
+    /// <summary>
+    /// La prueba usa el agente de ESTE computador: solo tiene sentido si este computador es la caja que se configura (si no, probaría la
+    /// báscula de otro equipo con la configuración de esta caja).
+    /// </summary>
+    private bool EsEsteEquipo => _basculaDe is not null && Session.Me?.PosTerminalId == _basculaDe.Id;
+
+    /// <summary>
+    /// "Probar báscula": abre en el agente de ESTE equipo una prueba con la configuración de la pantalla (sin guardarla) y muestra el peso
+    /// en vivo. La prueba va aparte: no cambia la báscula que usa la caja ni su tara, y al detenerla no queda nada de ella.
+    /// </summary>
     private async Task ProbarBasculaAsync()
     {
         if (_probando is not null)
         {
             DetenerPrueba();
+            return;
+        }
+
+        if (!EsEsteEquipo)
+        {
+            Snackbar.Add("La báscula se prueba en el computador de la caja.", Severity.Warning);
             return;
         }
 
@@ -624,7 +650,7 @@
             while (!cts.IsCancellationRequested && _lectura is { Unavailable: false })
             {
                 await Task.Delay(400, cts.Token);
-                _lectura = await AgentScale.ReadAsync();
+                _lectura = await AgentScale.TestReadAsync();
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -641,7 +667,7 @@
 
     private async Task TaraAsync(bool clear)
     {
-        _lectura = await AgentScale.TareAsync(clear);
+        _lectura = await AgentScale.TestTareAsync(clear);
         if (!_lectura.Unavailable && _lectura.Status == "ERROR")
         {
             Snackbar.Add(_lectura.Message, Severity.Warning);
@@ -650,9 +676,15 @@
 
     private void DetenerPrueba()
     {
-        _probando?.Cancel();
-        _probando?.Dispose();
+        if (_probando is null)
+        {
+            return;
+        }
+
+        _probando.Cancel();
+        _probando.Dispose();
         _probando = null;
+        _ = AgentScale.TestStopAsync();
     }
 
     private void CerrarBascula()

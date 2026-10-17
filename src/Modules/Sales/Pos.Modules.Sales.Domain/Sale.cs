@@ -59,7 +59,9 @@ public sealed record SaleLineInput(
     IReadOnlyList<PricingTax> Taxes,
     Guid? ExpiredAuthorizedBy = null,
     Guid? PriceListId = null,
-    string PriceSource = PriceSources.Default);
+    string PriceSource = PriceSources.Default,
+    decimal? ScaleGrossKg = null,
+    DateTimeOffset? WeighedAt = null);
 
 /// <summary>De dónde salió el precio de una línea (Fase 8, D8-12): "¿por qué se cobró este precio?".</summary>
 public static class PriceSources
@@ -232,6 +234,12 @@ public sealed class SaleLine : Entity<Guid>
 
     public decimal ReturnedQuantity { get; private set; }
 
+    /// <summary>Línea SCALE_LIVE: peso bruto que marcó la báscula (antes de cualquier tara), para no cobrar dos veces la misma pesada.</summary>
+    public decimal? ScaleGrossKg { get; private set; }
+
+    /// <summary>Línea SCALE_LIVE: cuándo la registró el servidor.</summary>
+    public DateTimeOffset? WeighedAt { get; private set; }
+
     public IReadOnlyList<SaleLineTax> Taxes => _taxes;
 
     public bool IsActive => Status == SaleLineStatus.Active;
@@ -260,6 +268,8 @@ public sealed class SaleLine : Entity<Guid>
             AllowsDecimalQuantity = input.AllowsDecimalQuantity,
             AllowsOpenPrice = input.AllowsOpenPrice,
             ExpiredAuthorizedBy = input.ExpiredAuthorizedBy,
+            ScaleGrossKg = input.ScaleGrossKg,
+            WeighedAt = input.WeighedAt,
         };
         line.SetQuantity(input.Quantity);
         line._taxes.AddRange(input.Taxes.Select(t => SaleLineTax.Create(newId(), t)));
@@ -622,6 +632,12 @@ public sealed class Sale : AggregateRoot<Guid>, ICompanyOwned, IHasAuditLabel
         if (line.IsFailure)
         {
             return line;
+        }
+
+        // Una línea pesada (báscula, etiqueta o peso digitado) conserva su peso: para corregirlo se elimina y se vuelve a pesar.
+        if (SaleLine.IsWeighed(line.Value.Source))
+        {
+            return SalesErrors.WeighedLineQuantity;
         }
 
         if (!ValidQuantity(quantity, line.Value.AllowsDecimalQuantity))

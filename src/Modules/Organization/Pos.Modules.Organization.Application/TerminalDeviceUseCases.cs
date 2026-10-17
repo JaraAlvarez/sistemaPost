@@ -68,7 +68,7 @@ internal static class TerminalScaleMapping
 {
     public static TerminalScaleDto ToDto(this TerminalScale s, bool configured) => new(
         s.PosTerminalId, configured, s.Enabled, s.Driver, s.Port, s.BaudRate, s.DataBits, s.Parity, s.StopBits, s.ReadMode, s.RequestCommand, s.TimeoutMs,
-        s.Decimals, s.Brand, s.Model, s.CatalogCode, s.StableWaitSeconds, s.EmptyWaitSeconds, s.AllowManualWeight);
+        s.Decimals, s.Brand, s.Model, s.CatalogCode, s.StableWaitSeconds, s.EmptyWaitSeconds, s.AllowManualWeight, MinWeightGrams: s.MinWeightGrams);
 }
 
 /// <summary>Báscula de la caja (Fase 7-C). Sin fila: <c>Configured</c> = false y la caja trabaja sin báscula.</summary>

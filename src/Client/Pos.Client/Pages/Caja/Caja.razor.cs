@@ -122,6 +122,7 @@ public sealed partial class Caja
     private string _pesoTono = "info";
     private ScaleRead? _pesoLectura;
     private CancellationTokenSource? _pesoCts;
+    private CancellationTokenSource? _retiroCts;
     private decimal _pesoDigitado;
 
     [Inject]
@@ -419,10 +420,13 @@ public sealed partial class Caja
     /// <summary>
     /// Lee la báscula y agrega la línea con el peso estable (decisión del propietario): espera hasta "Espera peso estable" segundos a
     /// que se quede quieto y hasta "Espera producto" a que pongan el producto; con sobrepeso, negativo o sin báscula avisa. Esc cancela.
+    /// <para>Hallazgo A2: si la báscula marca el mismo peso de la pesada anterior (±5 g) sin haber quedado vacía, es el producto anterior
+    /// que sigue encima: muestra "Retire el producto anterior de la báscula" y espera (como con el peso inestable).</para>
     /// </summary>
     private async Task PesarAsync(ScanResult producto, Guid productId)
     {
         _pesoCts?.Cancel();
+        _retiroCts?.Cancel();
         var cts = _pesoCts = new CancellationTokenSource();
         _pesoProducto = producto;
         _pesoProductoId = productId;
@@ -433,9 +437,10 @@ public sealed partial class Caja
         StateHasChanged();
 
         var config = Scale.Config!;
+        var guard = Scale.Repeat;
         var inicio = DateTime.UtcNow;
         DateTime? inestableDesde = null;
-        var tara = producto.TareGrams / 1000m;
+        DateTime? repetidoDesde = null;
         try
         {
             while (!cts.IsCancellationRequested)
@@ -452,16 +457,44 @@ public sealed partial class Caja
                     return;
                 }
 
-                var ahora = DateTime.UtcNow;
-                if (lectura.IsOk && lectura.WeightKg - tara > 0m)
+                if (lectura.Status == "ZERO")
                 {
-                    _panel = Panel.None;
-                    await AgregarAsync(new { productId, weightKg = lectura.WeightKg, weightSource = "SCALE" });
-                    return;
+                    guard.ObserveEmpty();
                 }
 
-                if (lectura.Status == "UNSTABLE")
+                var ahora = DateTime.UtcNow;
+
+                // Tara (una sola regla): la del producto solo cuenta si no hubo tara manual (Ins) ni la báscula envió un peso neto.
+                var tara = lectura.TareKg == 0m && !lectura.ScaleNet ? producto.TareGrams / 1000m : 0m;
+                if (lectura.IsOk && lectura.GrossKg is { } bruto && !guard.CanAdd(bruto))
                 {
+                    repetidoDesde ??= ahora;
+                    (_pesoMensaje, _pesoTono) = ("Retire el producto anterior de la báscula", "alerta");
+                    if (ahora - repetidoDesde > TimeSpan.FromSeconds(config.EmptyWaitSeconds))
+                    {
+                        TerminarPesaje("La báscula sigue con el peso del producto anterior: no se agregó. Retírelo y vuelva a registrar el producto.");
+                        return;
+                    }
+                }
+                else if (lectura.IsOk && lectura.GrossKg is { } pesoBruto && lectura.WeightKg - tara > 0m)
+                {
+                    _panel = Panel.None;
+                    var vacia = guard.EmptiedSinceLast;
+                    var taraManual = lectura.TareKg;
+                    await AgregarAsync(
+                        new
+                        {
+                            productId,
+                            weightKg = lectura.WeightKg,
+                            weightSource = "SCALE",
+                            scale = new { grossKg = pesoBruto, tareKg = taraManual, net = lectura.ScaleNet, stable = lectura.Stable, readAt = lectura.At, emptiedSinceLast = vacia },
+                        },
+                        () => PesadaAgregada(pesoBruto, taraManual));
+                    return;
+                }
+                else if (lectura.Status == "UNSTABLE")
+                {
+                    repetidoDesde = null;
                     inestableDesde ??= ahora;
                     (_pesoMensaje, _pesoTono) = ("Esperando peso estable…", "info");
                     if (ahora - inestableDesde > TimeSpan.FromSeconds(config.StableWaitSeconds))
@@ -473,6 +506,7 @@ public sealed partial class Caja
                 else
                 {
                     inestableDesde = null;
+                    repetidoDesde = null;
                     (_pesoMensaje, _pesoTono) = lectura.Status switch
                     {
                         "OK" => ($"El peso no supera la tara del producto ({producto.TareGrams} g): ponga el producto en la báscula.", "alerta"),
@@ -495,6 +529,67 @@ public sealed partial class Caja
         catch (TaskCanceledException)
         {
             // El cajero canceló con Esc.
+        }
+    }
+
+    /// <summary>
+    /// Se agregó la línea pesada: se recuerda su peso bruto (la siguiente pesada debe ser otro peso o pasar por cero), se quita la tara
+    /// manual (solo valía para esta pesada) y se vigila en segundo plano cuándo retiran el producto.
+    /// </summary>
+    private void PesadaAgregada(decimal pesoBruto, decimal taraManual)
+    {
+        Scale.Repeat.Added(pesoBruto);
+        _ = TrasPesadaAsync(taraManual > 0m);
+    }
+
+    private async Task TrasPesadaAsync(bool quitarTara)
+    {
+        if (quitarTara)
+        {
+            await AgentScale.TareAsync(clear: true);
+        }
+
+        await VigilarRetiroAsync();
+    }
+
+    /// <summary>
+    /// Después de agregar una línea pesada, lee la báscula cada medio segundo (hasta 2 minutos) para saber si el producto se retiró
+    /// (báscula vacía). Se detiene al empezar otra pesada o al salir de la caja.
+    /// </summary>
+    private async Task VigilarRetiroAsync()
+    {
+        _retiroCts?.Cancel();
+        CancellationTokenSource cts;
+        try
+        {
+            cts = _retiroCts = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        var hasta = DateTime.UtcNow.AddMinutes(2);
+        try
+        {
+            while (!cts.IsCancellationRequested && DateTime.UtcNow < hasta && !Scale.Repeat.EmptiedSinceLast)
+            {
+                await Task.Delay(500, cts.Token);
+                var lectura = await AgentScale.ReadAsync();
+                if (lectura.Unavailable)
+                {
+                    return;
+                }
+
+                if (lectura.Status == "ZERO" && !cts.IsCancellationRequested)
+                {
+                    Scale.Repeat.ObserveEmpty();
+                }
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Empezó otra pesada o se cerró la caja.
         }
     }
 
@@ -552,7 +647,10 @@ public sealed partial class Caja
         });
     }
 
-    /// <summary>Tara manual (tecla Insert): toma el peso actual (bolsa o bandeja que no está en el producto) y lo descuenta.</summary>
+    /// <summary>
+    /// Tara manual (tecla Insert): toma el peso actual (bolsa o bandeja) y lo descuenta de la SIGUIENTE pesada; reemplaza la tara del
+    /// producto. Se quita sola al agregar la línea o cuando la báscula queda vacía.
+    /// </summary>
     private async Task TaraManualAsync()
     {
         var lectura = await AgentScale.TareAsync(clear: false);
@@ -646,7 +744,10 @@ public sealed partial class Caja
         await Js.InvokeVoidAsync("pos.scrollIntoView", $"linea-{_selected}");
     }
 
-    private async Task AgregarAsync(object line)
+    /// <summary>Agrega una línea a la venta en curso (la crea si no hay).</summary>
+    /// <param name="line">Cuerpo de <c>POST /sales/{id}/lines</c>.</param>
+    /// <param name="alAgregar">Se llama cuando el servidor agregó la línea (también si la agregó después de autorizar un supervisor).</param>
+    private async Task AgregarAsync(object line, Action? alAgregar = null)
     {
         await RunAsync(async grant =>
         {
@@ -669,6 +770,7 @@ public sealed partial class Caja
             {
                 _sale = await Api.PostAsync<Sale>($"api/v1/sales/{_sale.Id}/lines/expired", line, grant);
             }
+            alAgregar?.Invoke();
             _selected = _sale.ActiveLines.LastOrDefault()?.Id;
             _nueva = _selected;
         });
@@ -693,7 +795,15 @@ public sealed partial class Caja
             return;
         }
 
-        _quantity = _sale.Lines.First(l => l.Id == _selected).Quantity;
+        var linea = _sale.Lines.First(l => l.Id == _selected);
+        if (linea.WeightSource is not null)
+        {
+            // Una línea pesada conserva su peso (báscula, etiqueta o digitado): se elimina y se vuelve a pesar.
+            Snackbar.Add("La cantidad de un producto pesado no se cambia: elimine la línea (Supr) y vuelva a pesarlo.", Severity.Warning);
+            return;
+        }
+
+        _quantity = linea.Quantity;
         _panel = Panel.Cantidad;
     }
 

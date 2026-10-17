@@ -22,7 +22,8 @@ public sealed record ScaleConfiguration(
     string? CatalogCode,
     int StableWaitSeconds,
     int EmptyWaitSeconds,
-    bool AllowManualWeight);
+    bool AllowManualWeight,
+    int? MinWeightGrams = null);
 
 /// <summary>
 /// Báscula conectada a una caja (tabla <c>org.terminal_scales</c>, Fase 7-C parte B). El agente de la caja la recibe de la interfaz de
@@ -37,6 +38,9 @@ public sealed partial class TerminalScale : AggregateRoot<Guid>, ICompanyOwned, 
     public const string Cas = "CAS";
     public const string Generic = "GENERIC";
     public const string Simulated = "SIMULATED";
+
+    /// <summary>Peso mínimo por defecto (20 g ⚙️).</summary>
+    public const int DefaultMinWeightGrams = 20;
 
     public static readonly string[] Drivers = [Toledo8217, Cas, Generic, Simulated];
 
@@ -92,6 +96,12 @@ public sealed partial class TerminalScale : AggregateRoot<Guid>, ICompanyOwned, 
     /// <summary>Si la báscula no responde, el cajero puede digitar el peso (queda marcado como "peso digitado").</summary>
     public bool AllowManualWeight { get; private set; } = true;
 
+    /// <summary>
+    /// Peso mínimo en gramos (banda de cero ⚙️, por defecto 20 g): por debajo la báscula cuenta como vacía y no se cobra (la deriva de
+    /// unos gramos no es un producto). El agente lo recibe con la configuración.
+    /// </summary>
+    public int MinWeightGrams { get; private set; } = DefaultMinWeightGrams;
+
     public string AuditLabel => $"Báscula de la caja {PosTerminalId}";
 
     public static TerminalScale Defaults(Guid id, Guid companyId, Guid posTerminalId) => new(id, companyId, posTerminalId);
@@ -116,6 +126,7 @@ public sealed partial class TerminalScale : AggregateRoot<Guid>, ICompanyOwned, 
             && configuration.Decimals is null or (>= 0 and <= 4)
             && configuration.StableWaitSeconds is >= 1 and <= 15
             && configuration.EmptyWaitSeconds is >= 1 and <= 30
+            && configuration.MinWeightGrams is null or (>= 0 and <= 1000)
             && Clean(configuration.Brand) is not { Length: > 60 } && Clean(configuration.Model) is not { Length: > 60 }
             && Clean(configuration.CatalogCode) is not { Length: > 40 };
         if (!valid)
@@ -123,7 +134,7 @@ public sealed partial class TerminalScale : AggregateRoot<Guid>, ICompanyOwned, 
             return Error.Validation(
                 "ORGANIZATION.INVALID_SCALE",
                 "Báscula inválida: marca o protocolo (Toledo 8217, CAS o genérica), puerto COMx, velocidad, 7 u 8 bits, paridad NONE/EVEN/ODD, " +
-                "1 o 2 bits de parada, espera del peso estable de 1 a 15 s y del producto de 1 a 30 s.");
+                "1 o 2 bits de parada, espera del peso estable de 1 a 15 s y del producto de 1 a 30 s, peso mínimo de 0 a 1000 g.");
         }
 
         Enabled = configuration.Enabled;
@@ -143,6 +154,7 @@ public sealed partial class TerminalScale : AggregateRoot<Guid>, ICompanyOwned, 
         StableWaitSeconds = configuration.StableWaitSeconds;
         EmptyWaitSeconds = configuration.EmptyWaitSeconds;
         AllowManualWeight = configuration.AllowManualWeight;
+        MinWeightGrams = configuration.MinWeightGrams ?? DefaultMinWeightGrams;
         return Result.Success();
     }
 

@@ -15,8 +15,9 @@ public sealed record ScaleSimulatorRequest(decimal WeightKg, bool Stable = true,
 /// <summary>
 /// Báscula de la caja (Fase 7-C parte B), solo <c>localhost</c> como el resto del agente: <c>GET /scale/status</c>,
 /// <c>GET /scale/weight</c> (una lectura), <c>GET /scale/stream</c> (lecturas seguidas como Server-Sent Events), <c>POST /scale/tare</c>,
-/// <c>PUT /scale/config</c> (aplica y guarda), <c>POST /scale/test</c> (aplica sin guardar y lee una vez) y, solo en desarrollo,
-/// <c>POST /scale/simulator</c>.
+/// <c>PUT /scale/config</c> (aplica y guarda), la prueba "Probar báscula" (<c>POST /scale/test</c> abre una sesión de prueba aparte
+/// y lee una vez; <c>GET /scale/test</c> vuelve a leer, <c>POST /scale/test/tare</c> y <c>POST /scale/test/stop</c>; nunca cambia la
+/// báscula en uso ni su tara) y, solo en desarrollo, <c>POST /scale/simulator</c>.
 /// </summary>
 public static class ScaleEndpoints
 {
@@ -37,7 +38,10 @@ public static class ScaleEndpoints
         app.MapGet("/scale/stream", Stream).WithSummary("Lecturas seguidas del peso como Server-Sent Events (evento \"weight\")");
         app.MapPost("/scale/tare", TareAsync).WithSummary("Tara por software con el peso estable actual; { \"clear\": true } la quita");
         app.MapPut("/scale/config", ConfigureAsync).WithSummary("Aplica y guarda la báscula de la caja (la envía la interfaz con lo guardado en el servidor)");
-        app.MapPost("/scale/test", TestAsync).WithSummary("Aplica una configuración sin guardarla y lee el peso una vez (\"Probar báscula\")");
+        app.MapPost("/scale/test", TestAsync).WithSummary("Abre una prueba con una configuración (sin guardarla ni tocar la báscula en uso) y lee el peso una vez");
+        app.MapGet("/scale/test", TestReadAsync).WithSummary("Otra lectura de la prueba abierta (peso en vivo de \"Probar báscula\")");
+        app.MapPost("/scale/test/tare", TestTareAsync).WithSummary("Tara de la prueba abierta; { \"clear\": true } la quita");
+        app.MapPost("/scale/test/stop", TestStopAsync).WithSummary("Cierra la prueba: la báscula en uso sigue igual");
         app.MapPost("/scale/simulator", SimulateAsync).WithSummary("Solo desarrollo: cambia el peso de la báscula simulada");
     }
 
@@ -93,12 +97,22 @@ public static class ScaleEndpoints
             return rejection;
         }
 
-        if (await scale.ConfigureAsync(settings! with { Enabled = true }, persist: false, ct) is { } error)
-        {
-            return AgentEndpoints.Problem(HttpStatusCode.BadRequest, InvalidScale, error);
-        }
+        var (error, outcome) = await scale.TestStartAsync(settings!, ct);
+        return error is not null ? AgentEndpoints.Problem(HttpStatusCode.BadRequest, InvalidScale, error) : ToResult(outcome!);
+    }
 
-        return ToResult(await scale.ReadAsync(ct));
+    private static async Task<IResult> TestReadAsync(ScaleService scale, CancellationToken ct) => ToResult(await scale.TestReadAsync(ct));
+
+    private static async Task<IResult> TestTareAsync(HttpContext http, ScaleService scale, IOptions<AgentOptions> options, CancellationToken ct)
+    {
+        var (request, rejection) = await AgentEndpoints.ReadAsync<ScaleTareRequest>(http, options.Value, ct);
+        return rejection ?? ToResult(await scale.TestTareAsync(request!.Clear, ct));
+    }
+
+    private static async Task<IResult> TestStopAsync(ScaleService scale, CancellationToken ct)
+    {
+        await scale.TestStopAsync(ct);
+        return TypedResults.NoContent();
     }
 
     private static async Task<IResult> SimulateAsync(HttpContext http, ScaleService scale, SimulatedScale simulator, IOptions<AgentOptions> options, CancellationToken ct)

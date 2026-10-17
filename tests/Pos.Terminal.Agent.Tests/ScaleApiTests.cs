@@ -103,12 +103,61 @@ public class ScaleApiTests
         var net = await WeightAsync(client);
         (net.WeightKg, net.GrossKg, net.TareKg).ShouldBe(((decimal?)0.700m, (decimal?)0.750m, 0.050m));
 
-        // Sin la bandeja la báscula marca menos que la tara: negativo.
-        await PutWeightAsync(client, 0m);
-        (await WeightAsync(client)).Status.ShouldBe(ScaleWeightDto.NegativeWeight);
-
         var cleared = await client.PostAsync("/scale/tare", Body(new ScaleTareRequest(Clear: true)), Ct);
         (await cleared.Content.ReadFromJsonAsync<ScaleWeightDto>(Json, Ct))!.TareKg.ShouldBe(0m);
+    }
+
+    [Fact]
+    public async Task La_tara_manual_se_quita_sola_cuando_la_bascula_queda_vacia_y_al_reconfigurar()
+    {
+        await using var agent = new AgentFactory();
+        var client = await ConfiguredAsync(agent);
+        await PutWeightAsync(client, 0.050m);
+        (await client.PostAsync("/scale/tare", Body(new ScaleTareRequest()), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Retiran la bandeja con el producto: la báscula queda vacía y la tara no pasa a la siguiente pesada (antes daba "negativo").
+        await PutWeightAsync(client, 0m);
+        var empty = await WeightAsync(client);
+        (empty.Status, empty.TareKg, empty.WeightKg).ShouldBe((ScaleWeightDto.ZeroWeight, 0m, (decimal?)0m));
+        await PutWeightAsync(client, 0.700m);
+        (await WeightAsync(client)).WeightKg.ShouldBe(0.700m);
+
+        // Tampoco sobrevive a una nueva configuración (la caja la envía al abrir).
+        await PutWeightAsync(client, 0.050m);
+        (await client.PostAsync("/scale/tare", Body(new ScaleTareRequest()), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ConfiguredAsync(agent);
+        (await client.GetFromJsonAsync<ScaleStatusDto>("/scale/status", Json, Ct))!.TareKg.ShouldBe(0m);
+    }
+
+    [Theory]
+    [InlineData(0.002, null, ScaleWeightDto.ZeroWeight)]
+    [InlineData(0.019, null, ScaleWeightDto.ZeroWeight)]
+    [InlineData(0.020, null, ScaleWeightDto.Ok)]
+    [InlineData(0.040, 50, ScaleWeightDto.ZeroWeight)]
+    [InlineData(0.002, 0, ScaleWeightDto.Ok)]
+    public async Task Peso_minimo_banda_de_cero_la_deriva_cuenta_como_vacia(decimal kg, int? minWeightGrams, string expected)
+    {
+        await using var agent = new AgentFactory();
+        var client = agent.CreateClient();
+        (await client.PutAsync("/scale/config", Body(Simulated with { MinWeightGrams = minWeightGrams }), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await PutWeightAsync(client, kg);
+
+        var weight = await WeightAsync(client);
+
+        weight.Status.ShouldBe(expected);
+        weight.Zero.ShouldBe(expected == ScaleWeightDto.ZeroWeight);
+    }
+
+    [Fact]
+    public async Task Peso_minimo_fuera_de_rango_se_rechaza()
+    {
+        await using var agent = new AgentFactory();
+        var client = agent.CreateClient();
+
+        var response = await client.PutAsync("/scale/config", Body(Simulated with { MinWeightGrams = 5000 }), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await CodeAsync(response)).ShouldBe(ScaleEndpoints.InvalidScale);
     }
 
     [Fact]
@@ -163,7 +212,7 @@ public class ScaleApiTests
     }
 
     [Fact]
-    public async Task Probar_aplica_sin_guardar_y_deshabilitar_quita_la_bascula()
+    public async Task Probar_lee_sin_guardar_y_deshabilitar_quita_la_bascula()
     {
         await using var agent = new AgentFactory();
         var client = agent.CreateClient();
@@ -174,8 +223,43 @@ public class ScaleApiTests
         (await test.Content.ReadFromJsonAsync<ScaleWeightDto>(Json, Ct))!.WeightKg.ShouldBe(2.5m);
         File.Exists(agent.ScaleConfigFile).ShouldBeFalse();
 
+        // La prueba no configura la báscula de la caja.
+        (await client.GetAsync("/scale/weight", Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+
+        (await client.PutAsync("/scale/config", Body(Simulated), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await client.PutAsync("/scale/config", Body(Simulated with { Enabled = false }), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await client.GetAsync("/scale/weight", Ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Probar_otra_configuracion_no_cambia_la_bascula_en_uso_ni_su_tara()
+    {
+        await using var agent = new AgentFactory();
+        var client = await ConfiguredAsync(agent);
+        await PutWeightAsync(client, 0.050m);
+        (await client.PostAsync("/scale/tare", Body(new ScaleTareRequest()), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var before = (await client.GetFromJsonAsync<ScaleStatusDto>("/scale/status", Json, Ct))!;
+
+        // Prueba con otra configuración (peso mínimo distinto): lee con la suya, con su propia tara.
+        var test = await client.PostAsync("/scale/test", Body(Simulated with { MinWeightGrams = 0, Brand = "Prueba" }), Ct);
+        test.StatusCode.ShouldBe(HttpStatusCode.OK, await test.Content.ReadAsStringAsync(Ct));
+        (await test.Content.ReadFromJsonAsync<ScaleWeightDto>(Json, Ct))!.TareKg.ShouldBe(0m);
+        var testTare = await client.PostAsync("/scale/test/tare", Body(new ScaleTareRequest(Clear: true)), Ct);
+        testTare.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await PutWeightAsync(client, 0.750m);
+        (await (await client.GetAsync("/scale/test", Ct)).Content.ReadFromJsonAsync<ScaleWeightDto>(Json, Ct))!.WeightKg.ShouldBe(0.750m);
+
+        // La báscula de la caja sigue con su configuración y su tara.
+        var during = (await client.GetFromJsonAsync<ScaleStatusDto>("/scale/status", Json, Ct))!;
+        (during.Configured, during.Settings!.Brand, during.TareKg).ShouldBe((true, before.Settings!.Brand, 0.050m));
+        (await WeightAsync(client)).WeightKg.ShouldBe(0.700m);
+
+        // Al detener la prueba no queda nada de ella.
+        (await client.PostAsync("/scale/test/stop", Body(new { }), Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        var after = await client.GetAsync("/scale/test", Ct);
+        after.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await CodeAsync(after)).ShouldBe(ScaleOutcome.TestNotStarted);
+        (await WeightAsync(client)).WeightKg.ShouldBe(0.700m);
     }
 
     [Fact]

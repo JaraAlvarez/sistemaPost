@@ -227,3 +227,23 @@ tipo, sin tipo, tipo inválido, encender/apagar con auditoría y permisos, cambi
 
 **Pendiente:** tallas y colores (fase de variantes); palabras propias por tipo ("prenda") cuando exista esa fase; la estadística por
 tipo en el tablero del portal (hoy: filtro con conteo en Empresas).
+
+## Correcciones de la báscula (revisión de código) — 2026-10-17
+
+Rama `fix-bascula`; migraciones POS **V2026.10.045** (`sales.sale_lines`: `scale_gross_kg`, `weighed_at`) y **V2026.10.046**
+(`org.terminal_scales.min_weight_grams`), numeradas para no chocar con la 044 de la corrección de Sistecrédito.
+
+| Hallazgo | Corrección |
+|---|---|
+| A2 · Se cobraba el peso del producto anterior | Después de agregar una línea pesada, la siguiente pesada solo vale si la báscula **quedó vacía** o marca un peso estable **distinto** del último en más de **±5 g ⚙️**. Si no, la caja muestra **"Retire el producto anterior de la báscula"** y espera (como con el peso inestable; se rinde a los segundos de "Espera producto"). El estado vive por caja y pasa de una venta a otra (`ScaleRepeatGuard`); tras cada pesada la caja vigila en segundo plano (hasta 2 min) cuándo se vacía la báscula. El **servidor** guarda el peso bruto en la línea y rechaza (`SALES.SCALE_WEIGHT_REPEATED`) el mismo peso bruto (±5 g) que la última línea de báscula activa de la venta dentro de 2 min ⚙️ si la caja no informa que la báscula quedó vacía. Una línea eliminada no cuenta (se elimina para volver a pesar). |
+| M6 · Sin peso mínimo | **Peso mínimo (banda de cero)** por caja, por defecto **20 g ⚙️** (0 a 1000 g; Configuración → Cajas → Báscula → "Peso mínimo (g)"): por debajo la báscula cuenta como **vacía** (la deriva de 0,002 kg no se cobra) y un negativo dentro de la banda también es "vacía". |
+| M7 · Doble tara y tara del agente eterna | **Una sola regla**: el agente entrega `GrossKg` (lo que marca la báscula), `TareKg` (tara manual, tecla Ins) y `WeightKg = GrossKg − TareKg`, más `ScaleNet` (la báscula ya taró). La tara manual **solo vale para la siguiente pesada**: la caja la quita al agregar la línea, el agente la quita sola cuando la báscula queda vacía (y quieta) y nunca pasa de una configuración a otra. La **tara del producto** la descuenta el servidor **una vez** y solo si no hubo otra tara: `neto = WeightKg − (TareKg = 0 y no ScaleNet ? taraProducto : 0)`. El peso digitado es el neto (sin tara). |
+| M8 · "Probar báscula" cambiaba la báscula en uso | La prueba es una **sesión aparte** en el agente (`POST /scale/test` abre y lee, `GET /scale/test`, `POST /scale/test/tare`, `POST /scale/test/stop`; se cierra sola al minuto sin lecturas): su propia configuración, conexión y tara; la báscula en uso y su tara no cambian. Si comparten el puerto COM, cada lectura cierra el de la otra y lo reabre. En Configuración → Cajas el botón **solo se habilita en el computador de esa caja** (aviso claro en las demás; se puede guardar desde cualquiera). |
+| M9 · Peso arbitrario sin permiso | Con `weightKg` el **origen es obligatorio** (`SALES.WEIGHT_SOURCE_REQUIRED`; ya no se supone SCALE). SCALE exige la **lectura del agente** (`scale`: bruto, tara, neto de báscula, estable, hora de lectura): sin ella `SALES.SCALE_READING_REQUIRED`, inestable `SALES.SCALE_WEIGHT_UNSTABLE`, bruto − tara ≠ peso `SALES.INVALID_SCALE_READING`. MANUAL sigue solo por `/lines/manual-weight` (permiso `sales.weight.manual` o supervisor, auditado `SALE_MANUAL_WEIGHT`). La hora de lectura no se compara con el reloj del servidor (los equipos pueden tener la hora corrida); la repetición la cubre A2. |
+| M10 · Línea pesada editable | La cantidad de una línea pesada (báscula, etiqueta o digitada) **no se edita** (`SALES.WEIGHED_LINE_QUANTITY`): se elimina y se vuelve a pesar. F4 en la caja lo explica. |
+| B6 · Desbordamiento | Un peso fuera de rango (más de 99.999 kg) es una **trama con error** (`ERROR`, sin peso), nunca un 500; también se atrapa `OverflowException` y el flujo SSE sigue. |
+| B7 · Toledo continuo con trama cortada | En modo continuo el lector se **sincroniza con STX** (también con el bit de paridad) y descarta las tramas sin inicio ("0.700" de "10.700"). |
+| B8 · CAS pegaba identificador y lámparas | CAS se lee **por posición**: tras `EE,PP,` vienen identificador (1 byte), lámparas (1 byte), coma opcional y el peso en 8 bytes; el campo de peso se valida entero (signo, relleno, dígitos y punto). La variante corta (`ST,GS,+0000.700kg`) sigue; el "último número" queda solo en el driver genérico. |
+
+**Pruebas:** agente 131/131 · Sales 84/84 · SharedKernel 110/110 · Catalog 42/42 · Organization 57/57 · ArchitectureTests 23/23 ·
+Database.Tests 80/80 · integración `Phase7C` 11/11 y `ScaleSalesTests` 1/1.

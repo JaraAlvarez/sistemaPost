@@ -73,6 +73,14 @@ public sealed record SaleLineDto(
     string? WeightSource = null);
 
 /// <summary>
+/// Lectura del agente de la caja que acompaña una línea con <c>WeightSource</c> SCALE (Fase 7-C): <c>GrossKg</c> lo que marcó la
+/// báscula, <c>TareKg</c> la tara manual del agente (tecla Ins), <c>Net</c> la báscula ya descontó una tara (trama neta),
+/// <c>Stable</c> el peso estaba quieto, <c>ReadAt</c> cuándo se leyó y <c>EmptiedSinceLast</c> la báscula quedó vacía después de la
+/// pesada anterior de esta caja (permite dos pesadas seguidas con el mismo peso).
+/// </summary>
+public sealed record ScaleReadingInfo(decimal GrossKg, decimal TareKg, bool Net, bool Stable, DateTimeOffset? ReadAt, bool EmptiedSinceLast = false);
+
+/// <summary>
 /// De dónde salió el peso de una línea (Fase 7-C): SCALE (báscula conectada a la caja), LABEL (etiqueta de la báscula etiquetadora) o
 /// MANUAL (digitado porque la báscula no respondía). Nulo en las líneas que no son de peso.
 /// </summary>

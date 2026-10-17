@@ -2,14 +2,19 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Pos.Modules.Organization.Contracts;
+using Pos.SharedKernel.Measurement;
 
 namespace Pos.Client.Services;
 
 /// <summary>
 /// Lectura del agente (<c>GET /scale/weight</c>). <c>Status</c>: OK, UNSTABLE, ZERO, NEGATIVE, OVERLOAD o ERROR; <c>Unavailable</c> = el agente
-/// o la báscula no respondieron (sin báscula configurada en el agente, cable suelto, agente apagado).
+/// o la báscula no respondieron (sin báscula configurada en el agente, cable suelto, agente apagado). <c>GrossKg</c> = lo que marca la
+/// báscula; <c>WeightKg</c> = bruto menos la tara manual (<c>TareKg</c>); <c>ScaleNet</c> = la báscula ya descontó una tara; <c>At</c> =
+/// cuándo se leyó (viajan al servidor con la línea).
 /// </summary>
-public sealed record ScaleRead(string Status, string Message, decimal? WeightKg, decimal TareKg, bool Stable, string Display, bool Unavailable = false)
+public sealed record ScaleRead(
+    string Status, string Message, decimal? WeightKg, decimal TareKg, bool Stable, string Display, bool Unavailable = false, decimal? GrossKg = null,
+    bool ScaleNet = false, DateTimeOffset? At = null)
 {
     public bool IsOk => Status == "OK" && WeightKg > 0m;
 
@@ -40,6 +45,12 @@ public sealed class AgentScale(ApiClient api)
     /// la báscula (la configuración se conserva).
     /// </summary>
     public bool Enabled => Config is { Configured: true, Enabled: true, FeatureEnabled: true };
+
+    /// <summary>
+    /// Último peso agregado con la báscula de esta caja y si la báscula quedó vacía después (hallazgo A2). Vive mientras la aplicación de
+    /// la caja esté abierta y pasa de una venta a otra: el producto del cliente anterior puede seguir en la báscula.
+    /// </summary>
+    public ScaleRepeatGuard Repeat { get; } = new();
 
     /// <summary>Lee la báscula de la caja en el servidor y se la entrega al agente. Devuelve un aviso si el agente no la aceptó.</summary>
     public async Task<string?> LoadAsync(Guid terminalId)
@@ -73,8 +84,30 @@ public sealed class AgentScale(ApiClient api)
 
     public static Task<ScaleRead> ReadAsync() => SendAsync(HttpMethod.Get, "scale/weight", null);
 
-    /// <summary>Aplica la configuración en el agente sin guardarla y lee una vez ("Probar báscula").</summary>
+    /// <summary>
+    /// "Probar báscula": abre en el agente una prueba con esta configuración (sin guardarla ni cambiar la báscula en uso ni su tara) y lee
+    /// una vez.
+    /// </summary>
     public static Task<ScaleRead> TestAsync(object settings) => SendAsync(HttpMethod.Post, "scale/test", settings);
+
+    /// <summary>Otra lectura de la prueba abierta.</summary>
+    public static Task<ScaleRead> TestReadAsync() => SendAsync(HttpMethod.Get, "scale/test", null);
+
+    /// <summary>Tara de la prueba (no toca la báscula en uso).</summary>
+    public static Task<ScaleRead> TestTareAsync(bool clear) => SendAsync(HttpMethod.Post, "scale/test/tare", new { clear });
+
+    /// <summary>Cierra la prueba en el agente.</summary>
+    public static async Task TestStopAsync()
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync("scale/test/stop", new { }, ApiClient.Json);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // El agente no responde: la prueba se cierra sola al minuto.
+        }
+    }
 
     /// <summary>Tara manual por software (bolsa o bandeja que no está en el producto); <paramref name="clear"/> la quita.</summary>
     public static Task<ScaleRead> TareAsync(bool clear) => SendAsync(HttpMethod.Post, "scale/tare", new { clear });

@@ -44,4 +44,18 @@ public class TerminalScaleTests
         Scale().Configure(Config("SIMULATED", null)).IsSuccess.ShouldBeTrue();
         Scale().Configure(Config("CAS", null, enabled: false)).IsSuccess.ShouldBeTrue();
     }
+
+    [Fact]
+    public void Peso_minimo_por_defecto_20_g_configurable_de_0_a_1000()
+    {
+        var scale = Scale();
+        scale.MinWeightGrams.ShouldBe(20);
+
+        scale.Configure(Config() with { MinWeightGrams = 0 }).IsSuccess.ShouldBeTrue();
+        scale.MinWeightGrams.ShouldBe(0);
+        scale.Configure(Config()).IsSuccess.ShouldBeTrue();
+        scale.MinWeightGrams.ShouldBe(20);
+        scale.Configure(Config() with { MinWeightGrams = 1001 }).Error.Code.ShouldBe("ORGANIZATION.INVALID_SCALE");
+        scale.Configure(Config() with { MinWeightGrams = -1 }).Error.Code.ShouldBe("ORGANIZATION.INVALID_SCALE");
+    }
 }

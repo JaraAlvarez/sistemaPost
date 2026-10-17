@@ -27,6 +27,9 @@ public static class SalesErrors
     public static readonly Error InvalidQuantity = Error.Validation(
         "SALES.INVALID_QUANTITY", "Cantidad inválida: mayor que cero y entera si el producto no se vende por fracciones (RN-SAL-03).");
 
+    public static readonly Error WeighedLineQuantity = Error.BusinessRule(
+        "SALES.WEIGHED_LINE_QUANTITY", "La cantidad de un producto pesado no se cambia: elimine la línea y vuelva a pesarlo.");
+
     public static readonly Error ProductNotSellable = Error.BusinessRule("SALES.PRODUCT_NOT_SELLABLE", "El producto no se puede vender (RN-SAL-02).");
 
     public static readonly Error InsufficientStock = Error.BusinessRule(

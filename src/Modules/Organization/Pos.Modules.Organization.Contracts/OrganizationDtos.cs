@@ -69,7 +69,8 @@ public sealed record TerminalScaleDto(
     int StableWaitSeconds,
     int EmptyWaitSeconds,
     bool AllowManualWeight,
-    bool FeatureEnabled = true);
+    bool FeatureEnabled = true,
+    int MinWeightGrams = 20);
 
 /// <summary>Sucursal con sus bodegas y cajas.</summary>
 public sealed record BranchDetailDto(BranchDto Branch, IReadOnlyList<WarehouseDto> Warehouses, IReadOnlyList<TerminalDto> Terminals);
