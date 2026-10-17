@@ -26,6 +26,8 @@ internal sealed class FakeSyncCloud : HttpMessageHandler
 
     public List<(string? Authorization, string? Fingerprint)> Headers { get; } = [];
 
+    public List<(string? Key, string? Proof)> SigningHeaders { get; } = [];
+
     public bool Offline { get; set; }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -38,6 +40,8 @@ internal sealed class FakeSyncCloud : HttpMessageHandler
         var batch = (await request.Content!.ReadFromJsonAsync<SyncBatch>(SyncJson.Options, cancellationToken))!;
         Batches.Add(batch);
         Headers.Add((request.Headers.Authorization?.ToString(), request.Headers.GetValues(SyncRoutes.FingerprintHeader).SingleOrDefault()));
+        SigningHeaders.Add((request.Headers.TryGetValues(SyncRoutes.SigningKeyHeader, out var key) ? key.SingleOrDefault() : null,
+            request.Headers.TryGetValues(SyncRoutes.SigningKeyProofHeader, out var proof) ? proof.SingleOrDefault() : null));
         return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = JsonContent.Create(new SyncAck(batch.BatchId, batch.Items.Count, batch.Items.Count, 0, false), options: SyncJson.Options),
@@ -62,8 +66,9 @@ public sealed class SyncServerFactory : LicenseServerFactory
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
-        builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton<ISyncCloud>(new SyncCloudClient(
-            new HttpClient(SyncCloud) { BaseAddress = new Uri("https://nube.test/") }, CloudKey.Public, NullLogger<SyncCloudClient>.Instance))));
+        builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton<ISyncCloud>(sp => new SyncCloudClient(
+            new HttpClient(SyncCloud) { BaseAddress = new Uri("https://nube.test/") }, CloudKey.Public, sp.GetRequiredService<ISyncSigner>(),
+            NullLogger<SyncCloudClient>.Instance))));
     }
 }
 
@@ -94,6 +99,67 @@ public class SyncApiTests
         Should.Throw<SyncPackageException>(() => SyncPackage.Open("no es un paquete"u8.ToArray(), cloudKey));
         cloudKey.Dispose();
     }
+
+    [Fact]
+    public void El_paquete_firmado_identifica_a_la_tienda_y_una_firma_alterada_se_rechaza()
+    {
+        var (cloudKey, cloudPublic) = SyncPackage.GenerateKeyPair();
+        using var store = SyncSigning.GenerateKey();
+        using var data = System.Text.Json.JsonDocument.Parse("""{"total": 12500}""");
+        var batch = new SyncBatch(Guid.CreateVersion7(), Guid.CreateVersion7(), DateTimeOffset.UtcNow, "1.0.0",
+            [new SyncItem(SyncKinds.Sale, Guid.CreateVersion7().ToString(), DateTimeOffset.UtcNow, null, data.RootElement.Clone())]);
+
+        var package = SyncPackage.Seal(batch, cloudPublic, store);
+        SyncPackage.ReadHeader(package).Format.ShouldBe(SyncPackage.SignedMagic);
+        var opened = SyncPackage.OpenSigned(package, cloudKey);
+        opened.SignerPublicKey.ShouldBe(SyncSigning.PublicOf(store));
+        opened.Batch.BatchId.ShouldBe(batch.BatchId);
+
+        // Cambiar un byte de la firma o del cifrado invalida el paquete.
+        var badSignature = (byte[])package.Clone();
+        badSignature[^1] ^= 0x01;
+        Should.Throw<SyncPackageException>(() => SyncPackage.OpenSigned(badSignature, cloudKey)).Message.ShouldContain("firma");
+        var badBody = (byte[])package.Clone();
+        badBody[^80] ^= 0x01;
+        Should.Throw<SyncPackageException>(() => SyncPackage.OpenSigned(badBody, cloudKey));
+
+        // Un paquete v1 (sin firma) se sigue leyendo: no trae firmante.
+        SyncPackage.OpenSigned(SyncPackage.Seal(batch, cloudPublic), cloudKey).SignerPublicKey.ShouldBeNull();
+
+        // La prueba de posesión de la clave solo vale para su instalación y su lote.
+        var proof = SyncSigning.KeyProof(store, batch.InstallationId, batch.BatchId);
+        SyncSigning.VerifyKeyProof(SyncSigning.PublicOf(store), proof, batch.InstallationId, batch.BatchId).ShouldBeTrue();
+        SyncSigning.VerifyKeyProof(SyncSigning.PublicOf(store), proof, batch.InstallationId, Guid.CreateVersion7()).ShouldBeFalse();
+        cloudKey.Dispose();
+    }
+
+    [Fact]
+    public void Abrir_un_paquete_limita_los_datos_y_los_bytes_descomprimidos()
+    {
+        var (cloudKey, cloudPublic) = SyncPackage.GenerateKeyPair();
+        using var data = System.Text.Json.JsonDocument.Parse("{\"relleno\": \"" + new string('A', 200_000) + "\"}");
+        var items = Enumerable.Range(0, 3)
+            .Select(_ => new SyncItem(SyncKinds.Product, Guid.CreateVersion7().ToString(), DateTimeOffset.UtcNow, null, data.RootElement.Clone()))
+            .ToList();
+        var package = SyncPackage.Seal(new SyncBatch(Guid.CreateVersion7(), Guid.CreateVersion7(), DateTimeOffset.UtcNow, "1.0.0", items), cloudPublic);
+
+        // Muy comprimible ("bomba"): el contenido descomprimido pasa del máximo y se corta al leer, sin cargarlo entero.
+        package.Length.ShouldBeLessThan(10_000);
+        Should.Throw<SyncPackageException>(() => SyncPackage.OpenSigned(package, cloudKey, maxBytes: 100_000)).Message.ShouldContain("MiB");
+        Should.Throw<SyncPackageException>(() => SyncPackage.OpenSigned(package, cloudKey, maxItems: 2)).Message.ShouldContain("máximo");
+        SyncPackage.OpenSigned(package, cloudKey).Batch.Items.Count.ShouldBe(3);
+        cloudKey.Dispose();
+    }
+
+    [Theory]
+    [InlineData("https://licencias.midominio.com/", true, true)]
+    [InlineData("http://licencias.midominio.com/", false, false)]
+    [InlineData("http://licencias.midominio.com/", true, false)]
+    [InlineData("http://localhost:5080/", false, true)]
+    [InlineData("http://localhost:5080/", true, false)]
+    [InlineData("no es una url", false, false)]
+    public void La_direccion_de_la_nube_exige_https_salvo_localhost_en_desarrollo(string url, bool production, bool accepted) =>
+        (SyncInfrastructureRegistration.CloudAddress(url, production) is not null).ShouldBe(accepted);
 
     [Fact]
     public async Task La_venta_sube_con_acuse_una_sola_vez_y_el_paquete_lleva_lo_no_exportado()
@@ -131,7 +197,13 @@ public class SyncApiTests
         saleItem.Id.ShouldBe(sale.Id.ToString());
         saleItem.Data.GetProperty("total").GetDecimal().ShouldBe(sale.Total);
         saleItem.Data.GetProperty("lines").GetArrayLength().ShouldBe(1);
+        saleItem.Data.TryGetProperty("customerIdentification", out _).ShouldBeFalse(); // S1: la cédula/NIT no sube
         sent.Items.ShouldContain(i => i.Kind == SyncKinds.Stock);
+        sent.Items.Where(i => i.Kind == SyncKinds.Stock).Any(i => i.Data.TryGetProperty("averageCost", out _)).ShouldBeFalse();
+
+        // S2: cada lote en línea lleva la clave de firma de la instalación con su prueba de posesión.
+        var (signingKey, proof) = factory.SyncCloud.SigningHeaders.Single();
+        SyncSigning.VerifyKeyProof(signingKey, proof, sent.InstallationId, sent.BatchId).ShouldBeTrue();
         sent.Items.ShouldContain(i => i.Kind == SyncKinds.Product);
         factory.SyncCloud.Headers.Single().Authorization.ShouldStartWith(SyncRoutes.AuthorizationScheme + " ");
         factory.SyncCloud.Headers.Single().Fingerprint.ShouldNotBeNullOrEmpty();
@@ -149,7 +221,9 @@ public class SyncApiTests
         var export = await shop.Owner.GetAsync("/api/v1/sync/export", Ct);
         export.StatusCode.ShouldBe(HttpStatusCode.OK);
         export.Content.Headers.ContentDisposition!.FileName!.ShouldContain(".possync");
-        var package = SyncPackage.Open(await export.Content.ReadAsByteArrayAsync(Ct), factory.CloudKey.Private);
+        var opened = SyncPackage.OpenSigned(await export.Content.ReadAsByteArrayAsync(Ct), factory.CloudKey.Private);
+        opened.SignerPublicKey.ShouldBe(signingKey); // firmado con la misma clave que se registró en línea
+        var package = opened.Batch;
         package.Items.Where(i => i.Kind == SyncKinds.Sale).Select(i => i.Id).ShouldBe([second.Id.ToString()]);
 
         // Un segundo paquete ya no repite lo exportado; el envío en línea sí lo sube (el cursor en línea es independiente).
@@ -157,6 +231,14 @@ public class SyncApiTests
         again.Items.ShouldNotContain(i => i.Kind == SyncKinds.Sale);
         (await PostAsync<PushResult>(shop.Owner, "/api/v1/sync/push")).Confirmed.ShouldBeGreaterThan(0);
         factory.SyncCloud.Batches[^1].Items.ShouldContain(i => i.Kind == SyncKinds.Sale && i.Id == second.Id.ToString());
+
+        // S1: suprimido el titular, la venta vuelve a subir (versión nueva) sin el nombre del cliente.
+        await shop.Catalog.ExecuteAsync($"UPDATE sales.sales SET customer_redacted_at = clock_timestamp() WHERE id = '{sale.Id}'");
+        (await PostAsync<PushResult>(shop.Owner, "/api/v1/sync/push")).Confirmed.ShouldBeGreaterThan(0);
+        var resent = factory.SyncCloud.Batches[^1].Items.Single(i => i.Kind == SyncKinds.Sale);
+        resent.Id.ShouldBe(sale.Id.ToString());
+        resent.Data.GetProperty("customer").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Null);
+        resent.Version.ShouldBeGreaterThan(saleItem.Version);
     }
 
     private sealed record PushResult(int Confirmed);

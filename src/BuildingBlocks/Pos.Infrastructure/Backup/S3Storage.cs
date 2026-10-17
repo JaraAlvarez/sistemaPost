@@ -96,11 +96,30 @@ public sealed class S3Storage(HttpClient http, S3Settings settings, TimeProvider
 
     public async Task DeleteAsync(string key, CancellationToken cancellationToken)
     {
+        if (!await TryDeleteAsync(key, cancellationToken))
+        {
+            throw new InvalidOperationException("El almacenamiento S3 respondió 403: la cuenta de la tienda no puede borrar.");
+        }
+    }
+
+    /// <summary>
+    /// Borra el objeto; <c>false</c> si el almacenamiento lo niega (403). Con la política recomendada (sin <c>s3:Delete*</c> y con object lock,
+    /// despliegue-nube.md §14) la tienda no puede borrar: la retención la aplica el ciclo de vida del bucket.
+    /// </summary>
+    public async Task<bool> TryDeleteAsync(string key, CancellationToken cancellationToken)
+    {
         using var response = await SendAsync(HttpMethod.Delete, key, new Dictionary<string, string>(), null, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.Forbidden)
+        {
+            return false;
+        }
+
         if (response.StatusCode != HttpStatusCode.NotFound)
         {
             await EnsureAsync(response, cancellationToken);
         }
+
+        return true;
     }
 
     public async Task<IReadOnlyList<(string Key, long Size)>> ListAsync(string prefix, CancellationToken cancellationToken)

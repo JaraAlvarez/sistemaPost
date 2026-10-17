@@ -295,32 +295,36 @@ internal sealed class CreatePaymentOrderHandler(
                 $"por {PaymentText.Money(order.AmountCop)} (IVA incluido), creada desde el enlace de pago."),
             cancellationToken);
 
-        var redirect = PaymentLinks.Url(baseUrl, $"{PaymentLinks.PagePath}/resultado/{order.Reference}");
-        return new CheckoutDto(order.Reference, gateway.BuildCheckoutUrl(new CheckoutRequest(order.Reference, order.AmountInCents, order.Currency, redirect)));
+        // La página de regreso lleva un token aleatorio de la orden: la referencia sola es un consecutivo y se podría enumerar.
+        var redirect = PaymentLinks.Url(baseUrl, $"{PaymentLinks.PagePath}/resultado/{order.Reference}/{order.ResultToken}");
+        var expiresAt = now.AddHours(Math.Max(1, options.PendingExpiryHours));
+        return new CheckoutDto(order.Reference,
+            gateway.BuildCheckoutUrl(new CheckoutRequest(order.Reference, order.AmountInCents, order.Currency, redirect, expiresAt)));
     }
 }
 
-/// <summary>Página de regreso del checkout: muestra el estado leyendo NUESTRA orden (D12C-04: nunca renueva desde aquí).</summary>
-public sealed record GetPaymentResultQuery(string? TransactionId, string? Reference) : IQuery<PaymentResultDto>;
+/// <summary>
+/// Página de regreso del checkout: muestra el estado leyendo NUESTRA orden (D12C-04: nunca renueva desde aquí). Exige la referencia Y el
+/// token aleatorio de la orden (la referencia es un consecutivo): sin token válido solo dice que el pago se confirmará, sin estado ni valor.
+/// </summary>
+public sealed record GetPaymentResultQuery(string? TransactionId, string? Reference, string? Token = null) : IQuery<PaymentResultDto>;
 
 internal sealed class GetPaymentResultHandler(IPaymentReadModel read) : IQueryHandler<GetPaymentResultQuery, PaymentResultDto>
 {
+    public const string WithoutTokenText =
+        "Si completó el pago, la pasarela lo confirmará y la suscripción se renovará sola. Puede cerrar esta página.";
+
     public async Task<Result<PaymentResultDto>> Handle(GetPaymentResultQuery request, CancellationToken cancellationToken)
     {
-        PaymentOrderRowDto? order = null;
-        if (PaymentRules.IsReference(request.Reference))
+        if (!PaymentRules.IsReference(request.Reference) || !PaymentRules.IsResultToken(request.Token))
         {
-            order = await read.FindOrderByReferenceAsync(request.Reference!, cancellationToken);
+            return new PaymentResultDto(false, null, "UNKNOWN", WithoutTokenText, null, true);
         }
 
-        if (order is null && request.TransactionId is { Length: > 0 and <= 60 } transaction)
-        {
-            order = await read.FindOrderByTransactionAsync(transaction, cancellationToken);
-        }
-
+        var order = await read.FindOrderForResultAsync(request.Reference!, request.Token!, cancellationToken);
         if (order is null)
         {
-            return new PaymentResultDto(false, request.Reference, "UNKNOWN", "Estamos esperando la confirmación de la pasarela de pagos.", null, false);
+            return new PaymentResultDto(false, null, "UNKNOWN", WithoutTokenText, null, true);
         }
 
         var (text, final) = order.Status switch
@@ -346,12 +350,15 @@ public sealed record PaymentEventReceipt(string Result);
 /// CONFIRMA la transacción consultándola con la llave privada y aplica la misma renovación que la manual, una sola vez. Los
 /// eventos repetidos no cambian nada. Firma inválida → 401 (el registro y la auditoría se confirman igual).
 /// </summary>
-public sealed record HandlePaymentEventCommand(string Body, string? ChecksumHeader) : ICommand<Outcome<PaymentEventReceipt>>;
+public sealed record HandlePaymentEventCommand(string Body, string? ChecksumHeader, System.Net.IPAddress? SourceIp = null) : ICommand<Outcome<PaymentEventReceipt>>;
 
 internal sealed class HandlePaymentEventHandler(
-    IPaymentStore store, IPaymentGateway gateway, PaymentApplier applier, IAuditWriter audit, IIdGenerator ids, IClock clock)
+    IPaymentStore store, IPaymentGateway gateway, PaymentApplier applier, PaymentsOptions options, IAuditWriter audit, IIdGenerator ids, IClock clock)
     : ICommandHandler<HandlePaymentEventCommand, Outcome<PaymentEventReceipt>>
 {
+    /// <summary>Ventana en la que se audita a lo sumo un evento rechazado por IP (el resto solo queda en el registro de eventos).</summary>
+    public static readonly TimeSpan RejectedAuditWindow = TimeSpan.FromMinutes(10);
+
     public async Task<Result<Outcome<PaymentEventReceipt>>> Handle(HandlePaymentEventCommand request, CancellationToken cancellationToken)
     {
         if (!gateway.IsConfigured)
@@ -359,20 +366,41 @@ internal sealed class HandlePaymentEventHandler(
             return Outcome.Fail<PaymentEventReceipt>(PaymentErrors.NotConfigured);
         }
 
+        var now = clock.UtcNow;
         var parsed = gateway.ParseEvent(request.Body, request.ChecksumHeader);
-        var received = PaymentEvent.Webhook(
-            ids.NewId(), clock.UtcNow, parsed.SignatureValid, parsed.EventType, parsed.Transaction, parsed.Environment, PaymentText.Payload(request.Body),
-            parsed.RejectionReason);
-        store.Add(received);
+
+        // Antirrepetición: el timestamp va firmado; fuera de la ventana se trata como un evento no válido.
+        if (parsed.SignatureValid && !WompiProtocol.IsFresh(parsed.Timestamp, now, TimeSpan.FromHours(Math.Max(1, options.EventMaxAgeHours)),
+                TimeSpan.FromMinutes(Math.Max(0, options.EventMaxFutureMinutes))))
+        {
+            parsed = parsed with { SignatureValid = false, RejectionReason = "El evento está fuera de la ventana de tiempo admitida (posible repetición)." };
+        }
+
         if (!parsed.SignatureValid)
         {
-            await audit.WriteAsync(
-                new AuditEntry("licensing", "PAYMENT_EVENT_REJECTED", nameof(PaymentEvent), received.Id, "Evento de la pasarela",
-                    $"Evento de Wompi rechazado: {parsed.RejectionReason} (transacción {parsed.Transaction?.Id ?? "—"}, referencia {parsed.Transaction?.Reference ?? "—"}).",
-                    Severity: AuditSeverity.Warning),
-                cancellationToken);
+            // Firma inválida: solo metadatos (nunca el cuerpo, que puede venir de cualquiera) y a lo sumo una auditoría por IP cada 10 min.
+            var audited = !await store.HasRecentRejectedEventAsync(request.SourceIp, now - RejectedAuditWindow, cancellationToken);
+            var rejected = PaymentEvent.Webhook(
+                ids.NewId(), now, false, parsed.EventType, parsed.Transaction, parsed.Environment, PaymentText.RejectedMetadata(request.Body),
+                parsed.RejectionReason, request.SourceIp);
+            store.Add(rejected);
+            if (audited)
+            {
+                await audit.WriteAsync(
+                    new AuditEntry("licensing", "PAYMENT_EVENT_REJECTED", nameof(PaymentEvent), rejected.Id, "Evento de la pasarela",
+                        $"Evento de Wompi rechazado desde {request.SourceIp?.ToString() ?? "IP desconocida"}: {parsed.RejectionReason} " +
+                        $"(dice ser la transacción {rejected.TransactionId ?? "—"}, referencia {rejected.Reference ?? "—"}) " +
+                        $"(los siguientes de esa IP en {RejectedAuditWindow.TotalMinutes:0} min solo quedan en el registro de eventos).",
+                        Severity: AuditSeverity.Warning),
+                    cancellationToken);
+            }
+
             return Outcome.Fail<PaymentEventReceipt>(PaymentErrors.InvalidSignature);
         }
+
+        var received = PaymentEvent.Webhook(
+            ids.NewId(), now, true, parsed.EventType, parsed.Transaction, parsed.Environment, PaymentText.Payload(request.Body), null, request.SourceIp);
+        store.Add(received);
 
         await audit.WriteAsync(
             new AuditEntry("licensing", "PAYMENT_EVENT_RECEIVED", nameof(PaymentEvent), received.Id, "Evento de la pasarela",
@@ -385,11 +413,12 @@ internal sealed class HandlePaymentEventHandler(
             return Outcome.Ok(new PaymentEventReceipt("IGNORED"));
         }
 
-        // La única fuente de verdad es la transacción consultada con la llave privada (no lo que dice el evento).
+        // La única fuente de verdad es la transacción consultada con la llave privada (no lo que dice el evento). Si la pasarela no responde
+        // se contesta 503 para que Wompi REINTENTE (W1); el evento queda registrado igual (Outcome confirma la transacción).
         var confirmed = await gateway.GetTransactionAsync(notified.Id, cancellationToken);
         if (confirmed is null)
         {
-            return Outcome.Ok(new PaymentEventReceipt("UNCONFIRMED"));
+            return Outcome.Fail<PaymentEventReceipt>(PaymentErrors.GatewayUnavailable);
         }
 
         var order = await store.LockOrderAsync(notified.Reference, cancellationToken);
@@ -410,6 +439,7 @@ internal sealed class HandlePaymentEventHandler(
             PaymentOutcome.ReviewRequired => "REVIEW_REQUIRED",
             PaymentOutcome.StillPending => "PENDING",
             PaymentOutcome.Failed => "FAILED",
+            PaymentOutcome.Reverted => "REVERTED",
             _ => "IGNORED",
         }));
     }
@@ -448,6 +478,14 @@ public sealed class PaymentApplier(ILicensingStore licensing, LicensingOptions o
                         $"Pago en línea {order.Reference} de {organization.LegalName} ({paid}) requiere revisión: {order.ReviewReason}", Severity: AuditSeverity.Critical),
                     cancellationToken);
                 break;
+            case PaymentOutcome.Reverted:
+                await audit.WriteAsync(
+                    new AuditEntry("licensing", "PAYMENT_VOIDED_REVERTED", nameof(PaymentOrder), order.Id, order.AuditLabel,
+                        $"La pasarela anuló el pago en línea {order.Reference} de {organization.LegalName} ({paid}) después de renovar: se devolvió la " +
+                        $"vigencia que había dado; ahora vence {PaymentText.Day(subscription.ValidUntil)} ({origin}).",
+                        Severity: AuditSeverity.Critical),
+                    cancellationToken);
+                break;
             case PaymentOutcome.Failed:
                 await audit.WriteAsync(
                     new AuditEntry("licensing", "PAYMENT_FAILED", nameof(PaymentOrder), order.Id, order.AuditLabel,
@@ -462,13 +500,18 @@ public sealed class PaymentApplier(ILicensingStore licensing, LicensingOptions o
 
 // ─────────────────────────────── Conciliación y portal ───────────────────────────────
 
-/// <summary>Órdenes pendientes para la conciliación en segundo plano (D12C-10). Solo la usa el host.</summary>
+/// <summary>
+/// Órdenes para la conciliación en segundo plano (D12C-10): las pendientes y, durante ⚙️ 7 días, las rechazadas o vencidas (W1: un pago
+/// aprobado tarde, o cuyo evento se perdió, igual se aplica). Solo la usa el host.
+/// </summary>
 public sealed record ListPendingPaymentOrdersQuery(int Limit = 200) : IQuery<IReadOnlyList<Guid>>;
 
-internal sealed class ListPendingPaymentOrdersHandler(IPaymentStore store) : IQueryHandler<ListPendingPaymentOrdersQuery, IReadOnlyList<Guid>>
+internal sealed class ListPendingPaymentOrdersHandler(IPaymentStore store, PaymentsOptions options, IClock clock)
+    : IQueryHandler<ListPendingPaymentOrdersQuery, IReadOnlyList<Guid>>
 {
     public async Task<Result<IReadOnlyList<Guid>>> Handle(ListPendingPaymentOrdersQuery request, CancellationToken cancellationToken) =>
-        Result.Success(await store.GetPendingOrderIdsAsync(Math.Clamp(request.Limit, 1, 1000), cancellationToken));
+        Result.Success(await store.GetOrderIdsToReconcileAsync(
+            Math.Clamp(request.Limit, 1, 1000), clock.UtcNow.AddDays(-Math.Max(0, options.RecheckClosedOrdersDays)), cancellationToken));
 }
 
 /// <summary>Concilia una orden (tarea en segundo plano): consulta la pasarela por la referencia, aplica y vence las viejas (⚙️ 24 h).</summary>
@@ -523,16 +566,23 @@ public sealed class PaymentReconciler(
                           ?? (transactions.Count > 0 ? transactions[^1] : null);
         var now = clock.UtcNow;
         order = (await store.LockOrderAsync(order.Reference, cancellationToken))!;
+        var wasPending = order.Status == PaymentOrderStatus.Pending;
         var outcome = PaymentOutcome.StillPending;
         if (transaction is not null)
         {
-            var query = PaymentEvent.Query(ids.NewId(), now, transaction, null, origin);
-            query.LinkTo(order.Id);
-            store.Add(query);
             outcome = await applier.ApplyAsync(order, transaction, origin, cancellationToken);
+
+            // Las rechazadas o vencidas se revisan cada ciclo durante días: su consulta solo se registra si cambió algo.
+            if (wasPending || outcome != PaymentOutcome.Ignored)
+            {
+                var query = PaymentEvent.Query(ids.NewId(), now, transaction, null, origin);
+                query.LinkTo(order.Id);
+                store.Add(query);
+            }
         }
 
-        if (outcome == PaymentOutcome.StillPending && order.Expire(now, TimeSpan.FromHours(Math.Max(1, options.PendingExpiryHours))))
+        // W2: solo vence si la pasarela NO la reporta pendiente (PSE o efectivo pueden tardar más del plazo).
+        if (transaction is null && order.Expire(now, TimeSpan.FromHours(Math.Max(1, options.PendingExpiryHours))))
         {
             await audit.WriteAsync(
                 new AuditEntry("licensing", "PAYMENT_ORDER_EXPIRED", nameof(PaymentOrder), order.Id, order.AuditLabel,
@@ -681,6 +731,16 @@ public static class PaymentText
         PaymentOutcome.StillPending => "sigue pendiente",
         _ => "sin cambios",
     };
+
+    /// <summary>
+    /// Registro de un evento con firma inválida: SOLO metadatos (longitud y SHA-256 del cuerpo), nunca el contenido, que puede mandarlo
+    /// cualquiera.
+    /// </summary>
+    public static string RejectedMetadata(string? body)
+    {
+        var text = body ?? string.Empty;
+        return JsonSerializer.Serialize(new { rechazado = true, longitud = text.Length, sha256 = WompiProtocol.Sha256Hex(text) });
+    }
 
     /// <summary>Cuerpo recibido para el registro: el JSON tal cual si es válido y no muy grande; si no, un resumen recortado.</summary>
     public static string Payload(string? body)

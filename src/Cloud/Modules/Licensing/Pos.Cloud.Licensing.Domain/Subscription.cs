@@ -161,8 +161,9 @@ public sealed class Subscription : AggregateRoot<Guid>, IHasAuditLabel
     }
 
     /// <summary>
-    /// Registra un pago y extiende la vigencia (L-10, renovación manual). Activa o en gracia: continúa desde el fin del periodo
-    /// actual (se conserva el ciclo). En prueba o vencida: el periodo empieza ahora. La gracia vuelve al valor por defecto.
+    /// Registra un pago y extiende la vigencia (L-10, renovación manual y en línea). Vigente: continúa desde el fin del periodo actual (se
+    /// conserva el ciclo). En gracia, vencida o en prueba: el periodo pagado empieza HOY (decisión W3: los días sin servicio no se cobran
+    /// y la gracia no se "descuenta" del periodo nuevo). La gracia vuelve al valor por defecto.
     /// </summary>
     public Result Renew(string paymentReference, int periods, int defaultGraceDays, ChangeContext change)
     {
@@ -335,9 +336,52 @@ public sealed class Subscription : AggregateRoot<Guid>, IHasAuditLabel
             ? IsPaid ? SubscriptionStatus.Active : SubscriptionStatus.Trial
             : instant <= GraceUntil ? SubscriptionStatus.PastDue : SubscriptionStatus.Expired;
 
+    /// <summary>
+    /// Devuelve la vigencia que dio un pago en línea que la pasarela anuló después (VOIDED). Si ese pago es todavía el último periodo, se
+    /// restaura el periodo anterior; si hubo otra renovación después, se descuenta la duración que ese pago había dado. El estado vuelve a
+    /// calcularse por fechas (salvo suspendida). No aplica a una suscripción cancelada.
+    /// </summary>
+    public Result RevertRenewal(
+        string paymentReference, DateTimeOffset grantedStart, DateTimeOffset grantedEnd, DateTimeOffset? previousStart, DateTimeOffset? previousEnd,
+        string reason, ChangeContext change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (Status == SubscriptionStatus.Cancelled || CurrentPeriodEnd is not { } currentEnd || grantedEnd <= grantedStart)
+        {
+            return LicensingErrors.InvalidTransition;
+        }
+
+        if (!TryReason(reason, out var cleaned))
+        {
+            return LicensingErrors.ReasonRequired;
+        }
+
+        if (currentEnd == grantedEnd)
+        {
+            CurrentPeriodStart = previousEnd is null ? null : previousStart;
+            CurrentPeriodEnd = previousEnd ?? (TrialEndsAt is null ? grantedStart : null);
+            CurrentPeriodStart ??= CurrentPeriodEnd is null ? null : grantedStart;
+        }
+        else
+        {
+            CurrentPeriodEnd = currentEnd - (grantedEnd - grantedStart);
+        }
+
+        var old = Status;
+        if (Status != SubscriptionStatus.Suspended)
+        {
+            Status = StatusByDate(change.Now);
+        }
+
+        Record(SubscriptionEventType.RenewalReverted, change)
+            .With(paymentReference: paymentReference, periodStart: grantedStart, periodEnd: grantedEnd, oldValue: old.ToCode(), newValue: Status.ToCode(),
+                reason: cleaned);
+        return Result.Success();
+    }
+
     private void ApplyRenewal(string reference, int periods, int graceDays, ChangeContext change)
     {
-        var continues = IsPaid && Status is SubscriptionStatus.Active or SubscriptionStatus.PastDue;
+        var continues = IsPaid && Status == SubscriptionStatus.Active;
         var start = continues ? CurrentPeriodEnd!.Value : change.Now;
         var end = BillingPeriod == BillingPeriod.Monthly ? start.AddMonths(periods) : start.AddYears(periods);
         var old = Status;

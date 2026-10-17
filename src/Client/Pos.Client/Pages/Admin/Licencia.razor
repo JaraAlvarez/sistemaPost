@@ -110,28 +110,37 @@
         StateHasChanged();
     }
 
-    // "Ya pagué": verifica ya con el servidor de licencias. Si el pago se aplicó, la nube ya no envía el enlace y la fecha cambia.
+    // "Ya pagué": verifica ya con el servidor de licencias. El pago se reconoce porque la NUBE extendió la vigencia (la fecha firmada en el
+    // token es posterior a la de antes), no porque deje de llegar el enlace: el enlace tampoco llega si la suscripción está suspendida o si
+    // el pago en línea se apagó (revisión W3).
     private async Task YaPagueAsync()
     {
+        var before = _status?.ValidUntil;
         if (!await Ejecutar(() => Api.PostAsync<LicenseStatusDto>("api/v1/license/check"), null, actualizarSesion: true) || _status is not { } status)
         {
             return;
         }
 
-        if (string.IsNullOrEmpty(status.LastCheckinError))
+        if (!string.IsNullOrEmpty(status.LastCheckinError))
         {
-            if (status.PaymentUrl is null)
-            {
-                Snackbar.Add("Pago recibido: la licencia está al día.", Severity.Success);
-            }
-            else
-            {
-                Snackbar.Add("Todavía no se ve el pago. Con PSE o Bancolombia puede tardar unos minutos: intente de nuevo más tarde.", Severity.Info);
-            }
+            Snackbar.Add("No se pudo verificar con el servidor de licencias. Revise la conexión a Internet e intente de nuevo.", Severity.Warning);
+        }
+        else if (status.ValidUntil is { } after && (before is null || after > before))
+        {
+            Snackbar.Add($"Pago aplicado: la licencia quedó vigente hasta {Format.Date(after)}.", Severity.Success);
+        }
+        else if (EnumText.Normalize(status.SubscriptionStatus ?? string.Empty) is "SUSPENDED" or "CANCELLED")
+        {
+            Snackbar.Add("La suscripción está suspendida o cancelada: el pago no la renueva solo. Comuníquese con BusinessPost.", Severity.Warning);
+        }
+        else if (status.PaymentUrl is null)
+        {
+            Snackbar.Add("Todavía no se ve un pago nuevo y el pago en línea no está disponible ahora. Si ya pagó, BusinessPost lo revisará.",
+                Severity.Info);
         }
         else
         {
-            Snackbar.Add("No se pudo verificar con el servidor de licencias. Revise la conexión a Internet e intente de nuevo.", Severity.Warning);
+            Snackbar.Add("Todavía no se ve el pago. Con PSE o Bancolombia puede tardar unos minutos: intente de nuevo más tarde.", Severity.Info);
         }
     }
 

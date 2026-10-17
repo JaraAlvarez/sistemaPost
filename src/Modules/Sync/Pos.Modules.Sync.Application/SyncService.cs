@@ -1,3 +1,4 @@
+using NSec.Cryptography;
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Licensing.Contracts;
 using Pos.Modules.Sync.Contracts;
@@ -60,6 +61,17 @@ public interface ISyncCloud
     Task<SyncSendResult> SendAsync(SyncBatch batch, LicenseCredentials credentials, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Clave Ed25519 de la instalación con que se firman los paquetes <c>.possync</c> y se prueba la posesión en cada lote en línea (revisión
+/// S2). Se genera la primera vez y se guarda protegida en el equipo, como la clave de los backups.
+/// </summary>
+public interface ISyncSigner
+{
+    Key Key { get; }
+
+    string PublicKey { get; }
+}
+
 public interface ISyncEnvironment
 {
     Guid InstallationId { get; }
@@ -75,10 +87,11 @@ public interface ISyncEnvironment
 /// Sincronización tienda → nube (docs/fases/fase-16-propuesta.md): arma lotes desde los cursores, los envía y avanza el cursor solo con el
 /// acuse (D16-02); el paquete <c>.possync</c> es el mismo lote cifrado para la nube, con su propio cursor de exportación.
 /// </summary>
-public sealed class SyncService(ISyncFeeds feeds, ISyncStore store, ISyncCloud cloud, ILicenseCredentials credentials, ISyncEnvironment environment)
+public sealed class SyncService(
+    ISyncFeeds feeds, ISyncStore store, ISyncCloud cloud, ILicenseCredentials credentials, ISyncEnvironment environment, ISyncSigner signer)
 {
     public const int BatchSize = 500;
-    public const int MaxPackageItems = 200_000;
+    public const int MaxPackageItems = SyncLimits.MaxPackageItems;
 
     public async Task<SyncStatusDto> StatusAsync(CancellationToken cancellationToken)
     {
@@ -133,7 +146,10 @@ public sealed class SyncService(ISyncFeeds feeds, ISyncStore store, ISyncCloud c
         return confirmed;
     }
 
-    /// <summary>Paquete <c>.possync</c> con lo que aún no se exportó ni confirmó (D16-04); <c>null</c> si falta la clave de la nube.</summary>
+    /// <summary>
+    /// Paquete <c>.possync</c> con lo que aún no se exportó ni confirmó (D16-04), firmado con la clave de la instalación (S2); <c>null</c> si
+    /// falta la clave de la nube.
+    /// </summary>
     public async Task<(string FileName, byte[] Content, int Items)?> ExportAsync(CancellationToken cancellationToken)
     {
         if (cloud.CloudPublicKey is not { } publicKey)
@@ -142,7 +158,7 @@ public sealed class SyncService(ISyncFeeds feeds, ISyncStore store, ISyncCloud c
         }
 
         var (batch, positions) = await BuildAsync(exported: true, MaxPackageItems, cancellationToken);
-        var content = SyncPackage.Seal(batch, publicKey);
+        var content = SyncPackage.Seal(batch, publicKey, signer.Key);
         foreach (var (kind, position) in positions)
         {
             await store.SaveExportedAsync(kind, position, cancellationToken);
@@ -154,7 +170,7 @@ public sealed class SyncService(ISyncFeeds feeds, ISyncStore store, ISyncCloud c
     }
 
     private async Task<string?> NotConfiguredReasonAsync(CancellationToken cancellationToken) =>
-        !cloud.IsConfigured ? "Falta la dirección de la nube (Pos:Licensing:ServerUrl)."
+        !cloud.IsConfigured ? "Falta la dirección de la nube (Pos:Licensing:ServerUrl) o no usa https."
         : await credentials.GetAsync(cancellationToken) is null ? "La licencia no está activada: la tienda se identifica ante la nube con su licencia."
         : null;
 

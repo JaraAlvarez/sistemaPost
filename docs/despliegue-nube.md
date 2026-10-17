@@ -322,8 +322,23 @@ docker compose -p pos-cloud-local -f docker-compose.yml -f docker-compose.local.
 ## 14. Nube de backups de las tiendas (Fase 11, MinIO)
 
 Las tiendas suben sus backups (`.posbak`, **ya cifrados en la tienda**) a un almacenamiento compatible S3. En el VPS se usa **MinIO**
-como servicio aparte (perfil `backups`). Ni el VPS ni el portal pueden leer esos archivos: solo se abren con la clave del equipo de la
-tienda o con el código de recuperación del propietario.
+como servicio aparte (perfil `backups`). Ni el VPS ni el portal pueden leer el contenido de esos archivos: solo se abren con la clave del
+equipo de la tienda o con el código de recuperación del propietario.
+
+> **El encabezado del `.posbak` va en claro.** Para poder restaurar sin la BD, la primera parte del archivo dice a quién pertenece: NIT y
+> razón social de la empresa, sucursal, versión, fecha, tipo de backup y los conteos de filas por tabla. El contenido (la BD) sí va
+> cifrado. Quien tenga acceso al bucket puede leer ese encabezado: por eso cada tienda ve solo su carpeta y nadie más que el propietario
+> administra MinIO.
+
+Reglas de seguridad (revisión R4):
+
+- **Un usuario y una política por tienda**, limitada a su carpeta `pos-backups/<NIT>-<sucursal>/`. Nunca la política `readwrite`
+  (daría `s3:*` sobre TODOS los buckets y la tienda podría leer o borrar los backups de las demás).
+- **La tienda no puede borrar**: la política solo tiene `s3:PutObject`, `s3:GetObject` y `s3:ListBucket` (con condición de prefijo), sin
+  `s3:Delete*` ni `s3:DeleteObjectVersion`. Un ransomware en la tienda no puede destruir sus copias.
+- **Bucket con versionado y object lock** (retención por defecto de 30 días). La retención de la tienda (7 diarios, 4 semanales, 12
+  mensuales) se aplica a sus copias locales; en S3 la hace el **ciclo de vida del bucket**. Cuando la tienda intenta borrar una copia vieja
+  de S3 y recibe `403`, la da por eliminada en su registro y deja que el bucket la venza.
 
 1. **DNS:** registro A de `backups.<DOMINIO>` → IP del VPS.
 2. **Configuración:** en `.env` defina `MINIO_ROOT_PASSWORD` (larga). Descomente el bloque `backups.{$DOMINIO}` del `Caddyfile`.
@@ -331,24 +346,59 @@ tienda o con el código de recuperación del propietario.
    ```bash
    docker compose --profile backups up -d
    ```
-4. **Bucket y usuario por tienda** (con el cliente `mc` que trae la imagen):
+4. **Bucket con object lock, versionado, retención y ciclo de vida** (una sola vez; el object lock solo se puede activar al crear el
+   bucket y activa el versionado):
    ```bash
    docker compose exec minio mc alias set local http://localhost:9000 posadmin "$MINIO_ROOT_PASSWORD"
-   docker compose exec minio mc mb local/pos-backups
-   docker compose exec minio mc version enable local/pos-backups
-   docker compose exec minio mc admin user add local tienda-s01 "<clave-larga-de-la-tienda>"
-   docker compose exec minio mc admin policy attach local readwrite --user tienda-s01
+   docker compose exec minio mc mb --with-lock local/pos-backups
+   docker compose exec minio mc version info local/pos-backups            # debe decir "versioning is enabled"
+   # Nadie (ni la tienda ni un error de un administrador) puede borrar una versión antes de 30 días.
+   # GOVERNANCE: el administrador de MinIO puede saltarla con permiso especial; COMPLIANCE: nadie, ni el administrador.
+   docker compose exec minio mc retention set --default GOVERNANCE 30d local/pos-backups
+   # Vencimiento en el bucket (reemplaza la retención de la tienda en S3): las versiones viejas se borran pasados los días.
+   docker compose exec minio mc ilm rule add --expire-days 400 --noncurrent-expire-days 30 local/pos-backups
    ```
-   El versionado del bucket protege contra borrados o un ransomware en la tienda (se puede recuperar la versión anterior).
-5. **En la tienda** (`POST /api/v1/backups/destinations`): tipo `S3`, `endpoint` `https://backups.<DOMINIO>`, `bucket` `pos-backups`,
-   `accessKey` `tienda-s01`, `secretKey` la clave del paso 4, `onNightly` y `onClosing` en `true`. Pruebe con
-   `POST /api/v1/backups/destinations/{id}/test`.
-6. **Espacio:** cada tienda guarda según su retención (por defecto 7 diarios, 4 semanales y 12 mensuales). Revise el espacio del VPS con
-   `docker system df -v` y `df -h`.
+5. **Usuario y política por tienda.** El nombre de la carpeta es `<NIT>-<sucursal>` (p. ej. `900123456-S01`). Cree el archivo
+   `politica-900123456-S01.json` en el VPS:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "ListarSoloSuCarpeta",
+         "Effect": "Allow",
+         "Action": ["s3:ListBucket"],
+         "Resource": ["arn:aws:s3:::pos-backups"],
+         "Condition": { "StringLike": { "s3:prefix": ["900123456-S01", "900123456-S01/*"] } }
+       },
+       {
+         "Sid": "SubirYLeerSoloSuCarpeta",
+         "Effect": "Allow",
+         "Action": ["s3:PutObject", "s3:GetObject"],
+         "Resource": ["arn:aws:s3:::pos-backups/900123456-S01/*"]
+       }
+     ]
+   }
+   ```
+   No incluya `s3:DeleteObject`, `s3:DeleteObjectVersion` ni ningún `s3:Delete*`, ni `s3:PutBucket*`/`s3:PutObjectRetention`. Luego:
+   ```bash
+   docker compose exec minio mc admin user add local tienda-900123456-S01 "<clave-larga-de-la-tienda>"
+   docker compose exec -T minio sh -c 'cat > /tmp/politica.json' < politica-900123456-S01.json
+   docker compose exec minio mc admin policy create local tienda-900123456-S01 /tmp/politica.json
+   docker compose exec minio mc admin policy attach local tienda-900123456-S01 --user tienda-900123456-S01
+   docker compose exec minio mc admin policy entities local --user tienda-900123456-S01   # solo debe aparecer su política
+   ```
+6. **En la tienda** (`POST /api/v1/backups/destinations`): tipo `S3`, `endpoint` `https://backups.<DOMINIO>`, `bucket` `pos-backups`,
+   **`prefix` `900123456-S01`** (la carpeta de la política), `accessKey` `tienda-900123456-S01`, `secretKey` la clave del paso 5,
+   `onNightly` y `onClosing` en `true`. La tienda escribe en `pos-backups/900123456-S01/<id de la instalación>/<archivo>.posbak`; con
+   otro prefijo, MinIO responde `403`. Pruebe con `POST /api/v1/backups/destinations/{id}/test` (sube un archivo de prueba; no poder
+   borrarlo después es lo esperado: lo vence el bucket).
+7. **Espacio:** revise el espacio del VPS con `docker system df -v` y `df -h`, y ajuste `--expire-days` del paso 4 si hace falta.
 
-Recuperar un backup desde la nube en un equipo nuevo: descárguelo desde la consola de MinIO (`https://backups.<DOMINIO>` no expone la
-consola; use `docker compose exec minio mc cp local/pos-backups/<carpeta>/<archivo>.posbak /tmp/` y cópielo) y siga
-[guia-recuperacion.md](guia-recuperacion.md).
+Recuperar un backup desde la nube en un equipo nuevo: descárguelo con el usuario administrador (`https://backups.<DOMINIO>` no expone la
+consola; use `docker compose exec minio mc cp local/pos-backups/<NIT>-<sucursal>/<id>/<archivo>.posbak /tmp/` y cópielo) y siga
+[guia-recuperacion.md](guia-recuperacion.md). Una versión anterior (borrada o sobrescrita) se lista con `mc ls --versions` y se baja con
+`mc cp --version-id`.
 
 ## 15. Claves públicas embebidas en el POS (Fase 12-B)
 

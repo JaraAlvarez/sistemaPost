@@ -108,9 +108,25 @@ internal sealed class FolderDestination(string path, string? volumeLabel) : IDes
     }
 }
 
-/// <summary>Almacenamiento compatible S3 (MinIO en el VPS): <c>prefijo/NIT-sucursal/archivo.posbak</c>.</summary>
+/// <summary>
+/// Almacenamiento compatible S3 (MinIO en el VPS): <c>&lt;prefijo&gt;/&lt;id de la instalación&gt;/archivo.posbak</c>. El prefijo del destino es
+/// la carpeta de la tienda en el bucket (<c>&lt;NIT&gt;-&lt;sucursal&gt;</c>, despliegue-nube.md §14) y la política de su usuario la limita a ella.
+/// La tienda no puede borrar (política sin <c>s3:Delete*</c>, object lock): la retención en S3 la aplica el ciclo de vida del bucket.
+/// </summary>
 internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDestinationClient
 {
+    /// <summary>
+    /// Prefijo de las claves: la carpeta del destino (sin barras sobrantes ni segmentos <c>.</c>/<c>..</c>) más el id de la instalación, para
+    /// que cada tienda escriba solo bajo su carpeta.
+    /// </summary>
+    internal static string ObjectPrefix(string? prefix, Guid nodeId)
+    {
+        var segments = (prefix ?? string.Empty).Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => s is not ("." or ".."));
+        var folder = string.Join('/', segments);
+        return (folder.Length == 0 ? string.Empty : folder + "/") + nodeId.ToString("N") + "/";
+    }
+
     public async Task<string> UploadAsync(string file, CancellationToken cancellationToken)
     {
         var key = keyPrefix + Path.GetFileName(file);
@@ -126,7 +142,8 @@ internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDest
         return key;
     }
 
-    public Task DeleteAsync(string location, CancellationToken cancellationToken) => storage.DeleteAsync(location, cancellationToken);
+    /// <summary>Si el almacenamiento niega el borrado (403), la copia vence por el ciclo de vida del bucket: se da por eliminada en la tienda.</summary>
+    public Task DeleteAsync(string location, CancellationToken cancellationToken) => storage.TryDeleteAsync(location, cancellationToken);
 
     public async Task<string?> TestAsync(CancellationToken cancellationToken)
     {
@@ -137,7 +154,9 @@ internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDest
             var key = keyPrefix + Path.GetFileName(probe);
             await storage.PutAsync(key, probe, cancellationToken);
             File.Delete(probe);
-            await storage.DeleteAsync(key, cancellationToken);
+
+            // Sin permiso de borrar (política recomendada) la prueba igual es válida: el archivo de prueba lo vence el bucket.
+            await storage.TryDeleteAsync(key, cancellationToken);
             return null;
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or IOException)
@@ -388,11 +407,7 @@ internal sealed partial class BackupRunner(
         return (NpgsqlConnection)context.Database.GetDbConnection();
     }
 
-    private string KeyPrefix(string? prefix)
-    {
-        var folder = string.IsNullOrWhiteSpace(prefix) ? string.Empty : prefix.Trim('/') + "/";
-        return folder + installation.NodeId.ToString("N") + "/";
-    }
+    private string KeyPrefix(string? prefix) => S3Destination.ObjectPrefix(prefix, installation.NodeId);
 
     private async Task RecordSuccessAsync(
         Guid runId, Guid companyId, string kind, DateTimeOffset started, Guid? requestedBy, BackupCreated created, BackupVerification verification,

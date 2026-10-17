@@ -22,14 +22,25 @@ public sealed record CashSessionRowDto(
 
 public sealed record StockRowDto(string Branch, string? Warehouse, string? Sku, string? Name, decimal Quantity, decimal TotalValue, DateTimeOffset? LastMovementAt);
 
-public sealed record UploadResultDto(string OrganizationName, string? BranchName, int Items, int Applied, int Ignored, bool Duplicate);
+/// <summary>Resultado de cargar un paquete. <c>Unverified</c>: la instalación aún no registraba su clave de firma (revisión S2).</summary>
+public sealed record UploadResultDto(string OrganizationName, string? BranchName, int Items, int Applied, int Ignored, bool Duplicate, bool Unverified = false);
 
 // ------------------------------------------------------------------------------------------------ Puertos
 
 public interface ISyncRepository
 {
-    /// <summary>Aplica el lote de forma idempotente (D16-05): cada documento queda con su versión más reciente; un lote repetido no se reaplica.</summary>
-    Task<SyncAck> ApplyAsync(SyncBatch batch, PosInstallationIdentity installation, string via, Guid? uploadedBy, CancellationToken cancellationToken);
+    /// <summary>
+    /// Aplica el lote de forma idempotente (D16-05): cada documento queda con su versión más reciente (acotada a la hora del servidor más una
+    /// tolerancia, S2); un lote repetido no se reaplica. <paramref name="signatureStatus"/>: VERIFIED/UNVERIFIED para paquetes, nulo en línea.
+    /// </summary>
+    Task<SyncAck> ApplyAsync(
+        SyncBatch batch, PosInstallationIdentity installation, string via, Guid? uploadedBy, CancellationToken cancellationToken, string? signatureStatus = null);
+
+    /// <summary>Clave pública de firma registrada para la instalación (nula si nunca sincronizó en línea con una versión que firma).</summary>
+    Task<string?> GetSigningKeyAsync(Guid installationId, CancellationToken cancellationToken);
+
+    /// <summary>Registra o cambia la clave pública de firma de la instalación (la anterior queda en <c>previous_key</c>).</summary>
+    Task RegisterSigningKeyAsync(PosInstallationIdentity installation, string publicKey, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<SyncOrganizationDto>> OrganizationsAsync(Guid? accountId, CancellationToken cancellationToken);
 
@@ -58,7 +69,8 @@ public interface ISyncPackageOpener
 {
     bool IsConfigured { get; }
 
-    SyncBatch Open(byte[] package);
+    /// <summary>Abre el paquete con límites (S3) y verifica la firma de la tienda si viene firmado (S2).</summary>
+    OpenedSyncPackage Open(byte[] package);
 }
 
 public static class SyncErrors
@@ -69,22 +81,30 @@ public static class SyncErrors
     public static readonly Error NoPrivateKey = Error.BusinessRule("SYNC.NO_PRIVATE_KEY", "La nube no tiene configurada su clave de sincronización (Sync:PrivateKeyPath).");
     public static readonly Error UnknownInstallation = Error.BusinessRule("SYNC.UNKNOWN_INSTALLATION", "El paquete es de una instalación que la nube no conoce.");
     public static readonly Error TooLarge = Error.Validation("SYNC.BATCH_TOO_LARGE", "El lote supera el máximo de datos por envío.");
+    public static readonly Error InvalidSigningKey = Error.Validation(
+        "SYNC.INVALID_SIGNING_KEY", "La clave de firma de la tienda o su prueba de posesión no son válidas.");
+    public static readonly Error WrongSigner = Error.Validation(
+        "SYNC.WRONG_SIGNER", "El paquete no está firmado con la clave registrada de esa tienda: puede haber sido fabricado o alterado.");
 
     public static Error InvalidPackage(string message) => Error.Validation("SYNC.INVALID_PACKAGE", message);
 }
 
 // ------------------------------------------------------------------------------------------------ API del POS
 
-/// <summary>Lote enviado por una tienda en línea (autenticado con el token de licencia y la huella, D16-03).</summary>
-public sealed record ReceiveBatchCommand(SyncBatch Batch, string Token, string Fingerprint) : ICommand<SyncAck>;
+/// <summary>
+/// Lote enviado por una tienda en línea (autenticado con el token de licencia y la huella, D16-03). Desde la revisión S2 trae además la clave
+/// pública de firma de la instalación y una prueba de posesión: la nube la registra para verificar los paquetes <c>.possync</c>.
+/// </summary>
+public sealed record ReceiveBatchCommand(SyncBatch Batch, string Token, string Fingerprint, string? SigningKey = null, string? SigningKeyProof = null)
+    : ICommand<SyncAck>;
 
 internal sealed class ReceiveBatchHandler(IPosInstallationAuthenticator authenticator, ISyncRepository repository) : ICommandHandler<ReceiveBatchCommand, SyncAck>
 {
-    public const int MaxItems = 5_000;
+    public const int MaxItems = SyncLimits.MaxOnlineItems;
 
     public async Task<Result<SyncAck>> Handle(ReceiveBatchCommand command, CancellationToken cancellationToken)
     {
-        if (command.Batch.Items.Count > MaxItems)
+        if (command.Batch.Items is null || command.Batch.Items.Count > MaxItems)
         {
             return SyncErrors.TooLarge;
         }
@@ -93,6 +113,20 @@ internal sealed class ReceiveBatchHandler(IPosInstallationAuthenticator authenti
         if (installation is null || installation.InstallationId != command.Batch.InstallationId)
         {
             return SyncErrors.Unauthorized;
+        }
+
+        if (!string.IsNullOrWhiteSpace(command.SigningKey))
+        {
+            var key = command.SigningKey.Trim();
+            if (!SyncSigning.VerifyKeyProof(key, command.SigningKeyProof, command.Batch.InstallationId, command.Batch.BatchId))
+            {
+                return SyncErrors.InvalidSigningKey;
+            }
+
+            if (await repository.GetSigningKeyAsync(installation.InstallationId, cancellationToken) != key)
+            {
+                await repository.RegisterSigningKeyAsync(installation, key, cancellationToken);
+            }
         }
 
         return await repository.ApplyAsync(command.Batch, installation, "ONLINE", null, cancellationToken);
@@ -115,16 +149,17 @@ internal sealed class UploadPackageHandler(
             return SyncErrors.NoPrivateKey;
         }
 
-        SyncBatch batch;
+        OpenedSyncPackage opened;
         try
         {
-            batch = opener.Open(command.Package);
+            opened = opener.Open(command.Package);
         }
         catch (SyncPackageException ex)
         {
             return SyncErrors.InvalidPackage(ex.Message);
         }
 
+        var batch = opened.Batch;
         if (await authenticator.FindAsync(batch.InstallationId, cancellationToken) is not { } installation)
         {
             return SyncErrors.UnknownInstallation;
@@ -135,8 +170,18 @@ internal sealed class UploadPackageHandler(
             return SyncErrors.Forbidden;
         }
 
-        var ack = await repository.ApplyAsync(batch, installation, "FILE", user.UserId, cancellationToken);
-        return new UploadResultDto(installation.OrganizationName, installation.BranchName, ack.Received, ack.Applied, ack.Ignored, ack.Duplicate);
+        // Con clave registrada, el paquete DEBE venir firmado con ella. Sin clave (tienda que nunca sincronizó en línea con una versión que
+        // firma) se acepta por compatibilidad y queda marcado UNVERIFIED: la firma que traiga no prueba nada porque nadie la conoce.
+        var registered = await repository.GetSigningKeyAsync(installation.InstallationId, cancellationToken);
+        if (registered is not null && opened.SignerPublicKey != registered)
+        {
+            return SyncErrors.WrongSigner;
+        }
+
+        var status = registered is null ? "UNVERIFIED" : "VERIFIED";
+        var ack = await repository.ApplyAsync(batch, installation, "FILE", user.UserId, cancellationToken, status);
+        return new UploadResultDto(installation.OrganizationName, installation.BranchName, ack.Received, ack.Applied, ack.Ignored, ack.Duplicate,
+            registered is null);
     }
 }
 

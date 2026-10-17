@@ -35,7 +35,12 @@ public sealed class SyncModule : IModule
                     return SyncErrors.Unauthorized.ToProblem();
                 }
 
-                var result = await d.Send(new ReceiveBatchCommand(batch, header.Parameter, http.Request.Headers[SyncRoutes.FingerprintHeader].ToString()), ct);
+                var key = http.Request.Headers[SyncRoutes.SigningKeyHeader].ToString();
+                var proof = http.Request.Headers[SyncRoutes.SigningKeyProofHeader].ToString();
+                var result = await d.Send(
+                    new ReceiveBatchCommand(batch, header.Parameter, http.Request.Headers[SyncRoutes.FingerprintHeader].ToString(),
+                        string.IsNullOrWhiteSpace(key) ? null : key, string.IsNullOrWhiteSpace(proof) ? null : proof),
+                    ct);
                 return result.IsSuccess ? Results.Ok(result.Value) : result.Error.ToProblem();
             })
             .WithTags("API del POS")

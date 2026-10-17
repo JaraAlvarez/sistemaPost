@@ -288,6 +288,9 @@ public class CustomersApiTests
         anonymized.Phone.ShouldBeNull();
         (await GetAsync<List<CustomerLookupDto>>(shop.Cashier, "/api/v1/customers/lookup?q=laura%20mejia")).ShouldBeEmpty();
         (await GetAsync<SaleDto>(shop.Supervisor, $"/api/v1/sales/{sale.Id}")).Customer.Name.ShouldBe("Laura Mejía");
+
+        // ...pero queda marcada para que su copia en la nube se reemplace sin el nombre (revisión S1).
+        (await shop.Catalog.ScalarAsync<bool>($"SELECT customer_redacted_at IS NOT NULL FROM sales.sales WHERE id = '{sale.Id}'")).ShouldBeTrue();
         (await shop.Catalog.ScalarAsync<string>("SELECT severity FROM audit.audit_log WHERE action = 'CUSTOMER_ANONYMIZED'")).ShouldBe("WARNING");
     }
 }

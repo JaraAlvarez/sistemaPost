@@ -7,6 +7,12 @@ namespace Pos.Infrastructure.Security;
 /// <summary>
 /// Secretos de la instalación protegidos con DPAPI a nivel de máquina (<c>dpapi:BASE64</c>). Solo el propio equipo
 /// puede descifrarlos. Los valores sin prefijo se usan tal cual (desarrollo).
+/// <para>
+/// Fuera de Windows NO hay protección: DPAPI no existe, <see cref="Reveal"/> falla con un valor <c>dpapi:</c> y quienes guardan claves en
+/// archivo (backups, firma de la sincronización) las escriben EN CLARO, protegidas solo por los permisos del sistema de archivos. El
+/// producto de la tienda se instala solo en Windows; fuera de Windows es para pruebas y desarrollo
+/// (docs/fases/fase-sync-pagos-endurecimiento.md §4).
+/// </para>
 /// </summary>
 public static class ProtectedSecret
 {

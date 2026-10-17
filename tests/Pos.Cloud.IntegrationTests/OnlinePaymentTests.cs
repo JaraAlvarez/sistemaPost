@@ -47,10 +47,12 @@ public class OnlinePaymentTests(PaymentsCloudFixture cloud) : IClassFixture<Paym
         checkout.CheckoutUrl.ShouldStartWith("https://checkout.wompi.co/p/?public-key=");
         checkout.CheckoutUrl.ShouldContain("amount-in-cents=17970000");
         checkout.CheckoutUrl.ShouldContain($"reference={checkout.Reference}");
-        checkout.CheckoutUrl.ShouldContain(Uri.EscapeDataString($"/pagar/resultado/{checkout.Reference}"));
+        checkout.CheckoutUrl.ShouldContain(Uri.EscapeDataString($"/pagar/resultado/{checkout.Reference}/"));
+        checkout.CheckoutUrl.ShouldContain("&expiration-time=");
+        var resultPath = FakePaymentGateway.ResultPath(checkout.CheckoutUrl);
 
         // La página de regreso solo lee la orden: sigue pendiente.
-        var waiting = await anonymous.GetStringAsync(new Uri($"/pagar/resultado/{checkout.Reference}?id=tx-desconocida", UriKind.Relative), Ct);
+        var waiting = await anonymous.GetStringAsync(new Uri($"{resultPath}?id=tx-desconocida", UriKind.Relative), Ct);
         waiting.ShouldContain("Pago en proceso");
 
         // Wompi aprueba y avisa (dos veces: los reintentos no renuevan de nuevo).
@@ -70,7 +72,7 @@ public class OnlinePaymentTests(PaymentsCloudFixture cloud) : IClassFixture<Paym
         var orderDetail = await PortalApi.GetAsync<PaymentOrderDetailDto>(cloud.Superadmin, $"/admin/payments/orders/{order.Id}");
         orderDetail.Events.Count(e => e.Source == "WEBHOOK" && e.SignatureValid == true).ShouldBe(2);
 
-        (await anonymous.GetStringAsync(new Uri($"/pagar/resultado?id={transaction.Id}", UriKind.Relative), Ct)).ShouldContain("Pago aprobado");
+        (await anonymous.GetStringAsync(new Uri($"{resultPath}?id={transaction.Id}", UriKind.Relative), Ct)).ShouldContain("Pago aprobado");
         (await AuditCountAsync("PAYMENT_ORDER_CREATED", checkout.Reference)).ShouldBe(1);
         (await AuditCountAsync("PAYMENT_APPROVED", checkout.Reference)).ShouldBe(1);
     }

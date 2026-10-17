@@ -196,6 +196,9 @@ public interface IPosInstallationAuthenticator
     /// <summary><c>null</c> si el token no es válido, la licencia no está activa o el equipo no es el activado.</summary>
     Task<PosInstallationIdentity?> AuthenticateAsync(string token, string fingerprint, CancellationToken cancellationToken);
 
-    /// <summary>La instalación (sin autenticar el equipo): para los paquetes cargados en el portal, que llegan cifrados para la nube.</summary>
+    /// <summary>
+    /// La instalación (sin autenticar el equipo): para los paquetes cargados en el portal, que llegan cifrados para la nube. <c>null</c> si no
+    /// existe, fue liberada o su licencia no está activa.
+    /// </summary>
     Task<PosInstallationIdentity?> FindAsync(Guid installationId, CancellationToken cancellationToken);
 }

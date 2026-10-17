@@ -231,6 +231,8 @@ else
         }
     }
 
+    private const long MaxPackageFileBytes = 200L * 1024 * 1024;
+
     private async Task SubirAsync(IBrowserFile? file)
     {
         if (file is null)
@@ -238,8 +240,9 @@ else
             return;
         }
 
+        // El paquete va comprimido y cifrado: el tamaño del archivo se limita aquí y lo descomprimido al abrirlo (SyncLimits, revisión S3).
         using var memory = new MemoryStream();
-        await file.OpenReadStream(maxAllowedSize: 200 * 1024 * 1024).CopyToAsync(memory);
+        await file.OpenReadStream(maxAllowedSize: MaxPackageFileBytes).CopyToAsync(memory);
         var result = await RunAsync(new UploadPackageCommand(memory.ToArray()), "Paquete cargado.");
         if (result.IsSuccess)
         {
@@ -247,6 +250,11 @@ else
             Snackbar.Add(r.Duplicate
                 ? $"Ese paquete ya se había cargado ({r.OrganizationName} · {r.BranchName})."
                 : $"{r.OrganizationName} · {r.BranchName}: {r.Items} datos, {r.Applied} nuevos o actualizados, {r.Ignored} ya estaban.", Severity.Info);
+            if (r.Unverified && !r.Duplicate)
+            {
+                Snackbar.Add("La tienda aún no registró su clave de firma (nunca sincronizó en línea con esta versión): no se pudo comprobar que el " +
+                    "paquete venga de ella. Quedó marcado como «sin verificar».", Severity.Warning);
+            }
             await CargarAsync();
         }
     }

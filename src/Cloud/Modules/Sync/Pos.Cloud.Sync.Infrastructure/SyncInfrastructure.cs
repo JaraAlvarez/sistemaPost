@@ -20,18 +20,29 @@ namespace Pos.Cloud.Sync.Infrastructure;
 /// </summary>
 internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
 {
-    public async Task<SyncAck> ApplyAsync(SyncBatch batch, PosInstallationIdentity installation, string via, Guid? uploadedBy, CancellationToken cancellationToken)
+    /// <summary>Documentos por sentencia al aplicar (un paquete trae hasta 200 000).</summary>
+    public const int ApplyChunk = 5_000;
+
+    /// <summary>Tolerancia de la versión sobre la hora del servidor (S2): una versión más futura se acota para no congelar el documento.</summary>
+    public const int VersionToleranceMinutes = 10;
+
+    public async Task<SyncAck> ApplyAsync(
+        SyncBatch batch, PosInstallationIdentity installation, string via, Guid? uploadedBy, CancellationToken cancellationToken, string? signatureStatus = null)
     {
         ArgumentNullException.ThrowIfNull(batch);
         ArgumentNullException.ThrowIfNull(installation);
         var (connection, transaction) = await OpenAsync(cancellationToken);
         var fresh = await connection.ExecuteAsync(new CommandDefinition(
             """
-            INSERT INTO sync.batches (id, installation_id, organization_id, via, received_at, items, uploaded_by)
-            VALUES (@id, @installation, @organization, @via, now(), @items, @uploadedBy)
+            INSERT INTO sync.batches (id, installation_id, organization_id, via, received_at, items, uploaded_by, signature_status)
+            VALUES (@id, @installation, @organization, @via, now(), @items, @uploadedBy, @signatureStatus)
             ON CONFLICT (id) DO NOTHING
             """,
-            new { id = batch.BatchId, installation = installation.InstallationId, organization = installation.OrganizationId, via, items = batch.Items.Count, uploadedBy },
+            new
+            {
+                id = batch.BatchId, installation = installation.InstallationId, organization = installation.OrganizationId, via, items = batch.Items.Count, uploadedBy,
+                signatureStatus,
+            },
             transaction, cancellationToken: cancellationToken)) == 1;
         if (!fresh)
         {
@@ -41,14 +52,15 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
         }
 
         var applied = 0;
-        if (batch.Items.Count > 0)
+        foreach (var chunk in Chunks(batch.Items))
         {
-            applied = await connection.ExecuteAsync(new CommandDefinition(
+            applied += await connection.ExecuteAsync(new CommandDefinition(
                 """
                 WITH incoming AS (
-                    SELECT DISTINCT ON (x.kind, x.id) x.kind, x.id, x.version, x."businessDate" AS business_date, x.data
+                    SELECT DISTINCT ON (x.kind, x.id) x.kind, x.id, LEAST(x.version, now() + make_interval(mins => @tolerance)) AS version,
+                           x."businessDate" AS business_date, x.data
                     FROM jsonb_to_recordset(@items::jsonb) AS x(kind text, id text, version timestamptz, "businessDate" date, data jsonb)
-                    WHERE x.kind IN ('SALE', 'CASH_SESSION', 'STOCK', 'PRODUCT')
+                    WHERE x.kind IN ('SALE', 'CASH_SESSION', 'STOCK', 'PRODUCT') AND x.id IS NOT NULL AND length(x.id) <= 64 AND x.version IS NOT NULL
                     ORDER BY x.kind, x.id, x.version DESC)
                 INSERT INTO sync.documents (installation_id, kind, doc_id, organization_id, version, business_date, data, received_at, received_via)
                 SELECT @installation, i.kind, i.id, @organization, i.version, i.business_date, i.data, now(), @via FROM incoming i
@@ -59,8 +71,8 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
                 """,
                 new
                 {
-                    items = JsonSerializer.Serialize(batch.Items, SyncJson.Options), installation = installation.InstallationId,
-                    organization = installation.OrganizationId, via,
+                    items = JsonSerializer.Serialize(chunk, SyncJson.Options), installation = installation.InstallationId,
+                    organization = installation.OrganizationId, via, tolerance = VersionToleranceMinutes,
                 },
                 transaction, cancellationToken: cancellationToken));
         }
@@ -70,6 +82,39 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
             "UPDATE sync.batches SET applied = @applied, ignored = @ignored WHERE id = @id", new { applied, ignored, id = batch.BatchId }, transaction,
             cancellationToken: cancellationToken));
         return new SyncAck(batch.BatchId, batch.Items.Count, applied, ignored, Duplicate: false);
+    }
+
+    public async Task<string?> GetSigningKeyAsync(Guid installationId, CancellationToken cancellationToken)
+    {
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT public_key FROM sync.installation_keys WHERE installation_id = @installationId", new { installationId }, transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task RegisterSigningKeyAsync(PosInstallationIdentity installation, string publicKey, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(installation);
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO sync.installation_keys (installation_id, organization_id, public_key, registered_at, updated_at)
+            VALUES (@installation, @organization, @publicKey, now(), now())
+            ON CONFLICT (installation_id) DO UPDATE
+                SET previous_key = sync.installation_keys.public_key, public_key = EXCLUDED.public_key, updated_at = now(),
+                    organization_id = EXCLUDED.organization_id
+                WHERE sync.installation_keys.public_key <> EXCLUDED.public_key
+            """,
+            new { installation = installation.InstallationId, organization = installation.OrganizationId, publicKey }, transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    private static IEnumerable<List<SyncItem>> Chunks(IReadOnlyList<SyncItem> items)
+    {
+        for (var i = 0; i < items.Count; i += ApplyChunk)
+        {
+            yield return [.. items.Skip(i).Take(ApplyChunk)];
+        }
     }
 
     public async Task<IReadOnlyList<SyncOrganizationDto>> OrganizationsAsync(Guid? accountId, CancellationToken cancellationToken) =>
@@ -244,7 +289,8 @@ internal sealed class SyncPackageOpener : ISyncPackageOpener, IDisposable
 
     public bool IsConfigured => _key is not null;
 
-    public SyncBatch Open(byte[] package) => SyncPackage.Open(package, _key ?? throw new InvalidOperationException("Sin clave de sincronización."));
+    public OpenedSyncPackage Open(byte[] package) =>
+        SyncPackage.OpenSigned(package, _key ?? throw new InvalidOperationException("Sin clave de sincronización."));
 
     public void Dispose() => _key?.Dispose();
 }
