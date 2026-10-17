@@ -242,6 +242,10 @@ else
                                             {
                                                 <span class="etiqueta promo"><MudIcon Icon="@Icons.Material.Outlined.LocalOffer" Style="font-size:14px" />@line.PromotionName</span>
                                             }
+                                            @if (line.WeightSource is { } origenPeso)
+                                            {
+                                                <span class="etiqueta @(origenPeso == "MANUAL" ? "alerta" : "neutra")">@(origenPeso switch { "SCALE" => "Báscula", "LABEL" => "Etiqueta", _ => "Peso digitado" })</span>
+                                            }
                                             @if (line.LineDiscount > 0)
                                             {
                                                 <span class="etiqueta promo">Descuento manual</span>
@@ -252,7 +256,7 @@ else
                                             }
                                         </div>
                                     </td>
-                                    <td class="num linea-cantidad">@Format.Quantity(line.Quantity)</td>
+                                    <td class="num linea-cantidad">@Format.Quantity(line.Quantity)@(line.WeightSource is not null ? " " + UnidadPeso(line.BaseUnitCode) : "")</td>
                                     <td class="num">@Format.Money(line.UnitPrice)</td>
                                     <td class="num linea-descuento">@(descuento == 0 ? "" : Format.Money(-descuento))</td>
                                     <td class="num linea-total">@Format.Money(line.Total)</td>
@@ -669,6 +673,42 @@ else
         </div>
     }
 
+    @* ---------------------------------------------------------------- Báscula (Fase 7-C) *@
+    @if (_panel == Panel.Pesando && _pesoProducto is { } pesando)
+    {
+        <div class="panel-fondo">
+            <div class="panel" style="width:min(460px, 96vw)" role="dialog" aria-modal="true" aria-labelledby="t-pesando">
+                <h2 id="t-pesando">@pesando.Name</h2>
+                <div class="caja-total-caja">
+                    <div class="caja-total-etiqueta"><span>Peso</span><span>@(_pesoLectura?.Stable == true ? "Estable" : "")</span></div>
+                    <div class="caja-total" aria-live="polite">@(_pesoLectura?.Display ?? "--")</div>
+                </div>
+                <div class="caja-aviso @_pesoTono mt-2" role="status"><MudIcon Icon="@Icons.Material.Outlined.Scale" />@_pesoMensaje</div>
+                <MudText Typo="Typo.caption" Class="d-block mt-2">
+                    @(pesando.UnitPrice is { } precioPeso ? $"{Format.Money(precioPeso)} por {UnidadPeso(pesando.BaseUnitCode)}" : "Sin precio")@(pesando.TareGrams > 0 ? $" · tara {pesando.TareGrams} g" : "")
+                </MudText>
+                <div class="acciones"><MudButton OnClick="CerrarPanel">Cancelar <kbd class="ml-2">Esc</kbd></MudButton></div>
+            </div>
+        </div>
+    }
+
+    @if (_panel == Panel.PesoDigitado && _pesoProducto is { } digitando)
+    {
+        <div class="panel-fondo">
+            <div class="panel" style="width:min(440px, 96vw)" role="dialog" aria-modal="true" aria-labelledby="t-peso-digitado">
+                <h2 id="t-peso-digitado">Digitar el peso</h2>
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@_pesoMensaje</MudAlert>
+                <MudText Typo="Typo.body2" Class="mb-2">@digitando.Name · la línea queda marcada como «peso digitado» y puede pedir autorización del supervisor.</MudText>
+                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_pesoDigitado" Min="0.001m" AutoFocus="true" Label="Peso en kilos (ej. 0,700)" Variant="Variant.Outlined"
+                                 Class="cobro-valor" Immediate="true" OnKeyDown="PesoDigitadoTeclaAsync" HideSpinButtons="true" Format="0.000" />
+                <div class="acciones">
+                    <MudButton OnClick="CerrarPanel">Cancelar</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AgregarPesoDigitadoAsync">Agregar <kbd class="ml-2">Enter</kbd></MudButton>
+                </div>
+            </div>
+        </div>
+    }
+
     @* ---------------------------------------------------------------- Ayuda (F1) *@
     @if (_panel == Panel.Ayuda)
     {
@@ -689,6 +729,11 @@ else
                     <div><kbd>F9</kbd>Recuperar suspendida</div>
                     <div><kbd>F10</kbd>Cobrar / confirmar cobro</div>
                     <div><kbd>Supr</kbd>Anular línea</div>
+                    @if (Scale.Enabled)
+                    {
+                        <div><kbd>Enter</kbd>Producto de báscula: lee el peso solo al registrarlo</div>
+                        <div><kbd>Ins</kbd>Tara manual de la báscula (bolsa o bandeja)</div>
+                    }
                     <div><kbd>Esc</kbd>Cerrar la lista, la ventana o volver de un panel</div>
                     <div><kbd>F1</kbd>Esta ayuda</div>
                 </div>

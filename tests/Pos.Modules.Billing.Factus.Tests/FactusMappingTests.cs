@@ -279,6 +279,19 @@ public class FactusMappingTests
     }
 
     [Fact]
+    public void La_libra_de_500_g_se_factura_en_kilos()
+    {
+        // 1,4 lb (500 g) a 3.000/lb = 4.200 = 0,7 kg a 6.000/kg.
+        var line = Included(1, "PAPA", "Papa pastusa", 1.4m, 3_000m, 0m, kind: "EXCLUDED", unit: "LB500");
+        var fiscal = FiscalDraftBuilder.Lines([line]).Single();
+
+        var item = FactusDraftMapper.Item(fiscal, supportDocument: false);
+
+        (item.Quantity, item.UnitMeasureCode, item.Price).ShouldBe((0.7m, "KGM", 6_000m));
+        (item.Price * item.Quantity).ShouldBe(fiscal.TaxBase);
+    }
+
+    [Fact]
     public void Rangos_de_Factus_a_rangos_neutros()
     {
         var invoice = FactusDraftMapper.ToRange(new FactusNumberingRange

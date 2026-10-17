@@ -43,6 +43,32 @@ public sealed record TerminalDto(Guid Id, Guid BranchId, string Code, string Nam
 public sealed record ReceiptPrinterDto(
     Guid PosTerminalId, bool Configured, string Connection, string? Address, int PaperWidthMm, string CodePage, bool AutoCut, bool DrawerConnected, string DrawerPin);
 
+/// <summary>
+/// Báscula conectada a la caja (Fase 7-C). <c>Driver</c>: TOLEDO_8217, CAS, GENERIC o SIMULATED (solo desarrollo). Los campos del puerto
+/// serie vacíos toman el valor de fábrica del driver. La interfaz de caja lo entrega tal cual al agente (<c>PUT /scale/config</c>).
+/// <c>Configured</c> = false: la caja no tiene báscula.
+/// </summary>
+public sealed record TerminalScaleDto(
+    Guid PosTerminalId,
+    bool Configured,
+    bool Enabled,
+    string Driver,
+    string? Port,
+    int? BaudRate,
+    int? DataBits,
+    string? Parity,
+    int? StopBits,
+    string? ReadMode,
+    string? RequestCommand,
+    int? TimeoutMs,
+    int? Decimals,
+    string? Brand,
+    string? Model,
+    string? CatalogCode,
+    int StableWaitSeconds,
+    int EmptyWaitSeconds,
+    bool AllowManualWeight);
+
 /// <summary>Sucursal con sus bodegas y cajas.</summary>
 public sealed record BranchDetailDto(BranchDto Branch, IReadOnlyList<WarehouseDto> Warehouses, IReadOnlyList<TerminalDto> Terminals);
 

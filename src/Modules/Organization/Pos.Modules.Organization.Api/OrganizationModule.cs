@@ -156,6 +156,15 @@ public sealed class OrganizationModule : IModule
                 .ToHttpResult())
             .RequirePermission(OrganizationPermissions.TerminalManage)
             .WithSummary("Configura la impresora de tiquetes: archivo, red (IP:9100), spooler de Windows o puerto serie; papel y cajón");
+
+        group.MapGet("/terminals/{terminalId:guid}/scale", async (Guid terminalId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetTerminalScaleQuery(terminalId), ct)).ToHttpResult())
+            .RequireAuthenticatedUser()
+            .WithSummary("Báscula conectada a la caja (la interfaz de caja se la entrega al agente)");
+        group.MapPut("/terminals/{terminalId:guid}/scale", async (Guid terminalId, ScaleConfiguration r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new SetTerminalScaleCommand(terminalId, r), ct)).ToHttpResult())
+            .RequirePermission(OrganizationPermissions.TerminalManage)
+            .WithSummary("Configura la báscula de la caja: Toledo 8217, CAS o genérica; puerto serie y tiempos de espera de la caja");
     }
 
     private static void MapSettings(RouteGroupBuilder group)

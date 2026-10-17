@@ -30,8 +30,8 @@ public sealed record AgentStatusDto(
     PrintOutcome? LastJob);
 
 /// <summary>
-/// API local del agente (solo <c>localhost</c>): <c>POST /print</c>, <c>POST /drawer/open</c>, <c>GET /status</c> y
-/// <c>POST /test-page</c>. Los errores son ProblemDetails con <c>code</c>, como en el servidor.
+/// API local del agente (solo <c>localhost</c>): <c>POST /print</c>, <c>POST /drawer/open</c>, <c>GET /status</c>,
+/// <c>POST /test-page</c> y la báscula (<see cref="ScaleEndpoints"/>). Los errores son ProblemDetails con <c>code</c>, como en el servidor.
 /// </summary>
 public static class AgentEndpoints
 {
@@ -61,11 +61,14 @@ public static class AgentEndpoints
         app.MapPost("/print", PrintAsync).WithSummary("Imprime el tiquete neutro (Pos.Printing) en la impresora indicada");
         app.MapPost("/drawer/open", OpenDrawerAsync).WithSummary("Abre el cajón conectado a la impresora indicada");
         app.MapPost("/test-page", TestPageAsync).WithSummary("Página de prueba: tildes, estilos, código de barras, QR, corte y pulso del cajón");
+        app.MapScaleEndpoints();
     }
 
     public static IResult Problem(HttpStatusCode status, string code, string detail) =>
         TypedResults.Problem(
-            title: status == HttpStatusCode.ServiceUnavailable ? "Impresora no disponible" : "No se pudo atender la petición",
+            title: status == HttpStatusCode.ServiceUnavailable
+                ? code.StartsWith("SCALE.", StringComparison.Ordinal) ? "Báscula no disponible" : "Impresora no disponible"
+                : "No se pudo atender la petición",
             detail: detail,
             statusCode: (int)status,
             extensions: new Dictionary<string, object?> { ["code"] = code });
@@ -142,7 +145,7 @@ public static class AgentEndpoints
     /// Lee el cuerpo JSON con el límite de tamaño (también sin <c>Content-Length</c>). Exigir <c>application/json</c> hace que un
     /// navegador tenga que pedir permiso CORS antes de enviar la petición.
     /// </summary>
-    private static async Task<(T? Value, IResult? Rejection)> ReadAsync<T>(HttpContext http, AgentOptions options, CancellationToken ct)
+    internal static async Task<(T? Value, IResult? Rejection)> ReadAsync<T>(HttpContext http, AgentOptions options, CancellationToken ct)
         where T : class
     {
         if (!http.Request.HasJsonContentType())

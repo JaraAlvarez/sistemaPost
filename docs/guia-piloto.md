@@ -135,3 +135,40 @@ aprobadas del día.
 **Primera prueba (con llaves de Staging):** configure el ambiente **Pruebas**, verifique la conexión, haga una venta pequeña con el
 documento de prueba que dé Sistecrédito, apruébela en el celular y revise que la venta quede completada con la referencia de la
 transacción. Luego pruebe un rechazo y un "Cancelar". Solo después cambie a **Producción** con las llaves de producción.
+
+## 10. Báscula conectada
+
+La báscula de mostrador va conectada al computador de la caja. Cuando el cajero registra un producto marcado **"Se vende por báscula"**
+(escanea o escribe el código y da Enter), BusinessPost lee el peso solo y agrega la línea (0,700 kg × $3.000/kg = $2.100). No hay
+botón "Pesar". Las etiquetas de la báscula etiquetadora (código que empieza por 20 a 28) siguen igual que antes.
+
+**Qué comprar**
+- Una báscula de mostrador con **salida serial RS-232** que hable **Toledo 8217** (la mayoría de Torrey, Moretti, CAS, Dibal lo traen
+  como opción) o el formato **CAS de 22 bytes** (ST,GS,…kg). Pregunte al vendedor por "protocolo 8217" o "salida para PC/ECR".
+- El **cable de datos** de esa báscula (a veces es especial: no sirve cualquier cable serial) y, si el computador no tiene puerto
+  COM, un **adaptador USB a serial** con chip FTDI o Prolific (instale su controlador del fabricante; BusinessPost no instala
+  controladores).
+
+**Qué configurar en la báscula** (menú técnico del fabricante)
+- Toledo 8217: protocolo 8217 / "ECR Toledo", **9600 baudios, 7 bits, paridad par, 1 bit de parada**, envío "a pedido".
+- CAS: formato 22 bytes, **9600 baudios, 8 bits, sin paridad, 1 bit de parada**, envío continuo.
+- Unidad en kilogramos.
+
+**Qué configurar en BusinessPost** (en el computador de la caja, con la báscula conectada)
+1. Windows → Administrador de dispositivos → Puertos (COM y LPT): anote el número del puerto (p. ej. COM3).
+2. Configuración → Cajas e impresoras → botón **Báscula** de la caja: marque "Esta caja tiene báscula", elija la marca o
+   protocolo y el puerto. Los valores del puerto serie se ponen solos; si la báscula usa otros, cámbielos en "Opciones avanzadas".
+3. **Probar báscula**: ponga un peso conocido. Debe verse el peso en vivo, la palabra "Estable" cuando quede quieto, y la tara
+   debe descontar la bandeja. Luego **Guardar**.
+4. En cada producto pesado: marque **"Se vende por báscula"**, la unidad (Kilogramo, Gramo o **Libra (500 g)**) y, si se empaca en
+   bolsa o bandeja, la **Tara (g)**.
+
+**En la caja**
+- Producto en movimiento: "Esperando peso estable…" (hasta 3 s); báscula vacía: "Ponga el producto en la báscula" (hasta 5 s);
+  si no llega peso no se agrega nada. Sobrepeso o peso negativo: aviso claro. Tiempos configurables en la báscula de la caja.
+- Si la báscula no responde, el cajero puede **digitar el peso** (si la caja lo permite): pide el permiso "Digitar el peso" o la
+  autorización del supervisor, queda marcado "Peso digitado" en la línea y en el tiquete, y queda en la auditoría.
+- **Ins** = tara manual (una bolsa que no está en el producto). Esc cancela la lectura.
+
+**Si no lee**: revise que la báscula esté encendida, el cable, el número de puerto, que ningún otro programa use el puerto y que la
+velocidad, bits y paridad coincidan con el menú de la báscula ("respondió, pero no en el formato…" = protocolo o velocidad distintos).

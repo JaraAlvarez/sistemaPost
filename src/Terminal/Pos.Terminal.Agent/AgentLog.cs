@@ -11,4 +11,13 @@ internal static partial class AgentLog
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Petición rechazada ({Code}) desde {Remote}")]
     public static partial void RequestRejected(ILogger logger, string code, string remote);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Báscula configurada: {Scale}")]
+    public static partial void ScaleConfigured(ILogger logger, string scale);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No se pudo leer la báscula {Scale}")]
+    public static partial void ScaleReadFailed(ILogger logger, Exception exception, string scale);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No se pudo leer o guardar la configuración de la báscula ({File})")]
+    public static partial void ScaleConfigUnreadable(ILogger logger, Exception exception, string file);
 }

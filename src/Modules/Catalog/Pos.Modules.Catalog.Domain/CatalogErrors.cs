@@ -72,7 +72,10 @@ public static class CatalogErrors
         "CATALOG.UNIT_SALE_MODE_MISMATCH", "La unidad base no corresponde al modo de venta (unidad, peso o volumen).");
 
     public static readonly Error ScaleRequiresWeight = Error.Validation(
-        "CATALOG.SCALE_REQUIRES_WEIGHT", "Un producto de báscula se vende por peso en kilogramos y necesita su PLU.");
+        "CATALOG.SCALE_REQUIRES_WEIGHT", "Un producto de báscula se vende por peso (kilo, gramo o libra).");
+
+    public static readonly Error InvalidTare = Error.Validation(
+        "CATALOG.INVALID_TARE", "La tara va de 0 a 5000 g y solo aplica a productos que se venden por peso.");
 
     public static readonly Error ServiceCannotTrackLots =
         Error.Validation("CATALOG.SERVICE_CANNOT_TRACK_LOTS", "Un servicio no maneja lotes ni vencimientos.");

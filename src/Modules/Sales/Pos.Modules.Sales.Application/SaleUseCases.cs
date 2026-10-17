@@ -7,6 +7,7 @@ using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Sales.Contracts;
 using Pos.Modules.Sales.Domain;
 using Pos.SharedKernel.Identifiers;
+using Pos.SharedKernel.Measurement;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
 
@@ -97,7 +98,12 @@ internal sealed class GetCurrentSaleHandler(ISalesStore store, TerminalResolver 
 /// de la etiqueta; si no, <c>Quantity</c> (1 por defecto). Valida que se pueda vender (RN-SAL-02), las existencias (RN-SAL-17)
 /// y los lotes vencidos (RN-SAL-18: <c>AuthorizeExpired</c> solo llega desde el endpoint que exige esa autorización).
 /// </summary>
-public sealed record AddLineCommand(Guid SaleId, string? Code, Guid? ProductId, Guid? PackagingId, decimal? Quantity, bool AuthorizeExpired = false) : ICommand<SaleDto>, IAllowedWhenRestricted;
+/// <para>Fase 7-C: <c>WeightKg</c> es el peso leído de la báscula de la caja (<c>WeightSource</c> SCALE, se descuenta la tara del
+/// producto) o digitado porque la báscula no respondía (MANUAL: solo por la ruta que exige <c>sales.weight.manual</c>, queda auditado).
+/// La cantidad se calcula en la unidad del producto (kg, g, libra de 500 g o libra).</para>
+public sealed record AddLineCommand(
+    Guid SaleId, string? Code, Guid? ProductId, Guid? PackagingId, decimal? Quantity, bool AuthorizeExpired = false, decimal? WeightKg = null,
+    string? WeightSource = null, bool AuthorizeManualWeight = false) : ICommand<SaleDto>, IAllowedWhenRestricted;
 
 internal sealed class AddLineHandler(
     SaleEditor editor,
@@ -133,9 +139,22 @@ internal sealed class AddLineHandler(
 
         var scale = item.Source is "SCALE_WEIGHT" or "SCALE_PRICE";
         var quantity = scale ? item.Quantity : request.Quantity ?? 1m;
+        var source = item.Source;
+        var manualWeight = false;
+        if (request.WeightKg is { } weightKg)
+        {
+            var weighed = WeighedQuantity(item, weightKg, request.WeightSource, request.AuthorizeManualWeight, scale);
+            if (weighed.IsFailure)
+            {
+                return weighed.Error;
+            }
+
+            (quantity, source) = weighed.Value;
+            manualWeight = source == "MANUAL_WEIGHT";
+        }
         Guid? expiredBy = request.AuthorizeExpired ? authorization.Current?.AuthorizedBy ?? actor.ActorId : null;
         var input = new SaleLineInput(
-            item.ProductId, item.Sku, item.Name, request.Code?.Trim(), item.Source, item.BaseUnitCode, item.PackagingId, item.PackagingName, item.Factor, quantity,
+            item.ProductId, item.Sku, item.Name, request.Code?.Trim(), source, item.BaseUnitCode, item.PackagingId, item.PackagingName, item.Factor, quantity,
             item.UnitPrice ?? 0m, item.PriceIncludesTax, item.CategoryId, item.BrandId, item.IsStockable, item.AllowsDecimalQuantity, item.AllowsOpenPrice,
             [.. item.Taxes.Select(t => new PricingTax(t.TaxId, t.Code, t.Kind, t.Rate, t.FixedAmount))], expiredBy, item.PriceListId,
             item.UnitPrice is null ? PriceSources.Open : item.PriceSource);
@@ -161,8 +180,59 @@ internal sealed class AddLineHandler(
                 cancellationToken);
         }
 
+        if (manualWeight)
+        {
+            await audit.WriteAsync(
+                new AuditEntry("sales", "SALE_MANUAL_WEIGHT", nameof(Sale), sale.Id, sale.AuditLabel,
+                    string.Create(System.Globalization.CultureInfo.GetCultureInfo("es-CO"), $"Peso digitado para {item.Sku} · {item.Name}: {request.WeightKg:0.000} kg (la báscula no respondía)."),
+                    AuthorizedBy: authorization.Current?.AuthorizedBy, Severity: AuditSeverity.Warning),
+                cancellationToken);
+        }
+
         await editor.RecalculateAsync(sale, cancellationToken);
         return sale.ToDto(item.UnitPrice is null ? [$"{item.Name}: fije el precio (precio abierto) antes de cobrar."] : null);
+    }
+
+    /// <summary>
+    /// Cantidad de una línea pesada en la caja: peso de la báscula menos la tara del producto (o el peso digitado), convertido a la unidad
+    /// del producto. Solo productos por peso, sin presentación y sin etiqueta de báscula (la etiqueta ya trae su peso).
+    /// </summary>
+    internal static Result<(decimal Quantity, string Source)> WeighedQuantity(
+        CatalogSaleItem item, decimal weightKg, string? weightSource, bool manualAuthorized, bool scaleLabel)
+    {
+        var manual = string.Equals(weightSource, WeightSources.Manual, StringComparison.OrdinalIgnoreCase);
+        if (!manual && !string.Equals(weightSource ?? WeightSources.Scale, WeightSources.Scale, StringComparison.OrdinalIgnoreCase))
+        {
+            return Error.Validation("SALES.INVALID_WEIGHT_SOURCE", "El origen del peso es SCALE (báscula) o MANUAL (digitado).");
+        }
+
+        if (manual && !manualAuthorized)
+        {
+            return Error.Forbidden("SALES.MANUAL_WEIGHT_ROUTE", "El peso digitado se registra por la ruta que exige el permiso de digitar el peso.");
+        }
+
+        if (scaleLabel || item.SaleMode != "WEIGHT" || item.PackagingId is not null || !WeightUnits.IsWeight(item.BaseUnitCode))
+        {
+            return Error.BusinessRule("SALES.NOT_WEIGHABLE", $"{item.Name} no se vende por peso: regístrelo sin peso.");
+        }
+
+        var net = decimal.Round(manual ? weightKg : weightKg - (item.TareGrams / 1000m), 3, MidpointRounding.AwayFromZero);
+        if (weightKg <= 0m || net <= 0m)
+        {
+            return Error.BusinessRule(
+                "SALES.WEIGHT_TOO_LOW",
+                item.TareGrams > 0 && !manual
+                    ? $"El peso ({weightKg:0.000} kg) no supera la tara de {item.Name} ({item.TareGrams} g): ponga el producto en la báscula."
+                    : "El peso debe ser mayor que cero: ponga el producto en la báscula.");
+        }
+
+        var quantity = WeightUnits.QuantityFromKg(net, item.BaseUnitCode)!.Value;
+        if (quantity <= 0m || net > 1_000m)
+        {
+            return Error.BusinessRule("SALES.WEIGHT_TOO_LOW", "El peso no es válido para la unidad del producto.");
+        }
+
+        return (quantity, manual ? "MANUAL_WEIGHT" : "SCALE_LIVE");
     }
 }
 

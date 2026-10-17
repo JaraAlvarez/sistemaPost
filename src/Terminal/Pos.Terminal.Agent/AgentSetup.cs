@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using Pos.Terminal.Agent.Api;
 using Pos.Terminal.Agent.Printing;
+using Pos.Terminal.Agent.Scales;
 using Pos.Terminal.Agent.Transports;
 
 namespace Pos.Terminal.Agent;
@@ -35,6 +36,9 @@ public static class AgentSetup
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<IPrinterTransportFactory, PrinterTransportFactory>();
         builder.Services.AddSingleton<PrintService>();
+        builder.Services.AddSingleton<SimulatedScale>();
+        builder.Services.AddSingleton<IScaleConnectionFactory, ScaleConnectionFactory>();
+        builder.Services.AddSingleton<ScaleService>();
         return builder;
     }
 
@@ -46,7 +50,7 @@ public static class AgentSetup
 
         // CORS solo para los orígenes configurados (la interfaz de caja del servidor local); el guardián ya rechazó los demás.
         var allowed = app.Services.GetRequiredService<IOptions<AgentOptions>>().Value.AllowedOrigins.Select(o => o.TrimEnd('/')).ToArray();
-        app.UseCors(policy => policy.WithOrigins(allowed).WithMethods("GET", "POST").WithHeaders("Content-Type"));
+        app.UseCors(policy => policy.WithOrigins(allowed).WithMethods("GET", "POST", "PUT").WithHeaders("Content-Type"));
         app.MapAgentEndpoints();
         return app;
     }

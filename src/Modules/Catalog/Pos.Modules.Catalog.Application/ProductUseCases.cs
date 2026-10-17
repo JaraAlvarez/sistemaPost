@@ -31,7 +31,8 @@ public sealed record ProductInput(
     bool TracksExpiry,
     string? PluCode,
     decimal? NetContent,
-    string? NetContentUnit);
+    string? NetContentUnit,
+    int TareGrams = 0);
 
 public sealed record ProductTaxInput(Guid TaxId, decimal? FixedAmount);
 
@@ -92,7 +93,7 @@ public sealed class ProductWriter(
 
         return new ProductData(sku, input.Name, input.ShortName, input.Description, input.CategoryId, input.BrandId, unit.Code, unit.Dimension,
             input.SaleMode, input.ProductType, input.IsSoldByScale, input.AllowsDecimalQuantity, input.AllowsOpenPrice, input.TracksLots,
-            input.TracksExpiry, input.PluCode, input.NetContent, input.NetContentUnit);
+            input.TracksExpiry, input.PluCode, input.NetContent, input.NetContentUnit, input.TareGrams);
     }
 
     /// <summary>Agrega un código (escrito o generado) validando que no pertenezca a otro producto o presentación.</summary>

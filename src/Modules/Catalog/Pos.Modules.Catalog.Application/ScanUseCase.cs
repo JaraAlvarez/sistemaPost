@@ -3,6 +3,7 @@ using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Catalog.Domain;
+using Pos.SharedKernel.Measurement;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
 
@@ -168,7 +169,8 @@ public sealed class CatalogSaleItems(ICatalogStore store, ICatalogQueries querie
         decimal? amount = price?.Price;
         if (reading is { Content: VariableBarcodeContent.Weight })
         {
-            quantity = reading.Value;
+            // La etiqueta trae kilos; un producto en gramos o libras recibe la cantidad en su unidad (Fase 7-C).
+            quantity = WeightUnits.QuantityFromKg(reading.Value, product.BaseUnitCode) ?? reading.Value;
             amount = price is { } p ? decimal.Round(quantity * p.Price, ProductPrice.PriceDecimals, MidpointRounding.AwayFromZero) : null;
         }
         else if (reading is { Content: VariableBarcodeContent.Price })
@@ -202,7 +204,8 @@ public sealed class CatalogSaleItems(ICatalogStore store, ICatalogQueries querie
             product.Id, product.Sku, product.Name, product.ShortName, packaging?.Id, packaging?.Name, packaging?.Factor ?? 1m, product.BaseUnitCode,
             product.SaleMode.Db(), source, quantity, price?.Price, amount, price?.IncludesTax ?? true, taxes, product.CategoryId, product.BrandId, product.IsStockable,
             product.AllowsDecimalQuantity, product.AllowsOpenPrice, reasons.Count == 0, reasons, priceListId,
-            reading is { Content: VariableBarcodeContent.Price } ? "SCALE_LABEL" : priced?.Source ?? "OPEN", priced?.AllowsPromotions ?? true);
+            reading is { Content: VariableBarcodeContent.Price } ? "SCALE_LABEL" : priced?.Source ?? "OPEN", priced?.AllowsPromotions ?? true,
+            product.IsSoldByScale, product.TareGrams);
     }
 }
 
@@ -223,6 +226,7 @@ internal sealed class ScanCodeHandler(ICatalogSaleItems items, ICurrentUser curr
         return new ScanResultDto(
             item.ProductId, item.Sku, item.Name, item.ShortName, item.PackagingId, item.PackagingName, item.Factor, item.BaseUnitCode, item.SaleMode,
             item.Source, item.Quantity, item.UnitPrice, item.Amount, item.PriceIncludesTax,
-            [.. item.Taxes.Select(t => new TaxLineDto(t.Code, t.Kind, t.Rate, t.FixedAmount))], item.IsSellable, item.NotSellableReasons);
+            [.. item.Taxes.Select(t => new TaxLineDto(t.Code, t.Kind, t.Rate, t.FixedAmount))], item.IsSellable, item.NotSellableReasons,
+            item.IsSoldByScale, item.TareGrams);
     }
 }

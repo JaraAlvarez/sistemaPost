@@ -30,6 +30,12 @@ public sealed partial class Caja
         CancelarVenta,
         Ayuda,
         Consulta,
+
+        /// <summary>Leyendo la báscula para un producto "Se vende por báscula" (Fase 7-C).</summary>
+        Pesando,
+
+        /// <summary>La báscula no responde: el cajero digita el peso (con permiso o supervisor).</summary>
+        PesoDigitado,
     }
 
     /// <summary>Medios que asigna el sistema (crédito de un cambio, cupo del cliente, puntos): no se eligen en el cobro.</summary>
@@ -109,6 +115,15 @@ public sealed partial class Caja
     private decimal _descuentoValor;
     private string? _descuentoMotivo;
 
+    // Fase 7-C: lectura automática de la báscula al registrar un producto de báscula.
+    private ScanResult? _pesoProducto;
+    private Guid _pesoProductoId;
+    private string _pesoMensaje = string.Empty;
+    private string _pesoTono = "info";
+    private ScaleRead? _pesoLectura;
+    private CancellationTokenSource? _pesoCts;
+    private decimal _pesoDigitado;
+
     [Inject]
     private ApiClient Api { get; set; } = default!;
 
@@ -117,6 +132,9 @@ public sealed partial class Caja
 
     [Inject]
     private AgentPrinter Printer { get; set; } = default!;
+
+    [Inject]
+    private AgentScale Scale { get; set; } = default!;
 
     [Inject]
     private ISnackbar Snackbar { get; set; } = default!;
@@ -149,6 +167,11 @@ public sealed partial class Caja
             _methods = [.. (await Api.GetAsync<List<PaymentMethod>>("api/v1/cash/payment-methods")).Where(m => m.Status == "ACTIVE" && !ReservedKinds.Contains(m.Kind)).OrderBy(m => m.SortOrder)];
             _cashDenominations = [.. (await Api.GetAsync<List<Denomination>>("api/v1/cash/denominations")).Where(d => d.Status == "ACTIVE").OrderByDescending(d => d.Value)];
             _session = await OptionalAsync<CashSession>("api/v1/cash/sessions/current");
+            if (Session.Me?.PosTerminalId is { } terminalId && await Scale.LoadAsync(terminalId) is { } avisoBascula)
+            {
+                Snackbar.Add($"Báscula: {avisoBascula} Mientras tanto se puede digitar el peso.", Severity.Warning);
+            }
+
             if (_session is not null)
             {
                 _sale = await OptionalAsync<Sale>("api/v1/sales/current");
@@ -273,6 +296,9 @@ public sealed partial class Caja
             case "Delete" when _panel == Panel.None:
                 await AnularLineaAsync();
                 break;
+            case "Insert" when _panel is Panel.None or Panel.Pesando && Scale.Enabled:
+                await TaraManualAsync();
+                break;
         }
 
         StateHasChanged();
@@ -355,7 +381,185 @@ public sealed partial class Caja
         var (quantity, _) = Separar(_scan);
         _scan = string.Empty;
         CerrarSugerencias();
-        await AgregarAsync(new { productId = product.GetProperty("id").GetGuid(), quantity });
+        var productId = product.GetProperty("id").GetGuid();
+        if (quantity is null && Scale.Enabled && await ProductoDeBasculaAsync(product.Str("sku")) is { } pesable)
+        {
+            await PesarAsync(pesable, productId);
+            return;
+        }
+
+        await AgregarAsync(new { productId, quantity });
+    }
+
+    // ------------------------------------------------------------------------------------------ Báscula (Fase 7-C)
+
+    /// <summary>
+    /// Si el código es de un producto "Se vende por báscula" (y no una etiqueta de báscula, que ya trae el peso), lo devuelve para
+    /// leer la báscula. Solo se consulta cuando la caja tiene báscula configurada.
+    /// </summary>
+    private async Task<ScanResult?> ProductoDeBasculaAsync(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        try
+        {
+            var item = await Api.GetAsync<ScanResult>($"api/v1/catalog/scan/{Uri.EscapeDataString(code)}?branchId={Session.Me!.BranchId}");
+            return item is { IsSoldByScale: true, PackagingId: null, Source: not ("SCALE_WEIGHT" or "SCALE_PRICE") } ? item : null;
+        }
+        catch (ApiException)
+        {
+            // Código desconocido u otro problema: la venta normal da el mensaje.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Lee la báscula y agrega la línea con el peso estable (decisión del propietario): espera hasta "Espera peso estable" segundos a
+    /// que se quede quieto y hasta "Espera producto" a que pongan el producto; con sobrepeso, negativo o sin báscula avisa. Esc cancela.
+    /// </summary>
+    private async Task PesarAsync(ScanResult producto, Guid productId)
+    {
+        _pesoCts?.Cancel();
+        var cts = _pesoCts = new CancellationTokenSource();
+        _pesoProducto = producto;
+        _pesoProductoId = productId;
+        _pesoLectura = null;
+        _pesoMensaje = "Leyendo la báscula…";
+        _pesoTono = "info";
+        _panel = Panel.Pesando;
+        StateHasChanged();
+
+        var config = Scale.Config!;
+        var inicio = DateTime.UtcNow;
+        DateTime? inestableDesde = null;
+        var tara = producto.TareGrams / 1000m;
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                var lectura = _pesoLectura = await AgentScale.ReadAsync();
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (lectura.Unavailable)
+                {
+                    BasculaSinRespuesta(lectura.Message, config.AllowManualWeight);
+                    return;
+                }
+
+                var ahora = DateTime.UtcNow;
+                if (lectura.IsOk && lectura.WeightKg - tara > 0m)
+                {
+                    _panel = Panel.None;
+                    await AgregarAsync(new { productId, weightKg = lectura.WeightKg, weightSource = "SCALE" });
+                    return;
+                }
+
+                if (lectura.Status == "UNSTABLE")
+                {
+                    inestableDesde ??= ahora;
+                    (_pesoMensaje, _pesoTono) = ("Esperando peso estable…", "info");
+                    if (ahora - inestableDesde > TimeSpan.FromSeconds(config.StableWaitSeconds))
+                    {
+                        TerminarPesaje("El peso no se quedó quieto: no se agregó. Vuelva a registrar el producto.");
+                        return;
+                    }
+                }
+                else
+                {
+                    inestableDesde = null;
+                    (_pesoMensaje, _pesoTono) = lectura.Status switch
+                    {
+                        "OK" => ($"El peso no supera la tara del producto ({producto.TareGrams} g): ponga el producto en la báscula.", "alerta"),
+                        "ZERO" => ("Ponga el producto en la báscula", "info"),
+                        _ => (lectura.Message, "error"),
+                    };
+                    if (ahora - inicio > TimeSpan.FromSeconds(config.EmptyWaitSeconds))
+                    {
+                        TerminarPesaje(lectura.Status == "ZERO" || lectura.Status == "OK"
+                            ? "No llegó peso a la báscula: no se agregó nada."
+                            : $"{lectura.Message} No se agregó nada.");
+                        return;
+                    }
+                }
+
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(150, cts.Token);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // El cajero canceló con Esc.
+        }
+    }
+
+    private void TerminarPesaje(string mensaje)
+    {
+        _panel = Panel.None;
+        Snackbar.Add(mensaje, Severity.Warning);
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await FocusScannerAsync();
+        });
+    }
+
+    /// <summary>La báscula o el agente no responden: si la caja lo permite, se digita el peso (queda marcado y exige permiso).</summary>
+    private void BasculaSinRespuesta(string mensaje, bool permiteDigitar)
+    {
+        if (!permiteDigitar)
+        {
+            TerminarPesaje($"{mensaje} Avise al administrador.");
+            return;
+        }
+
+        _pesoMensaje = mensaje;
+        _pesoDigitado = 0m;
+        _panel = Panel.PesoDigitado;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PesoDigitadoTeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AgregarPesoDigitadoAsync();
+        }
+    }
+
+    private async Task AgregarPesoDigitadoAsync()
+    {
+        if (_pesoDigitado <= 0m)
+        {
+            Snackbar.Add("Escriba el peso en kilos, por ejemplo 0,700.", Severity.Warning);
+            return;
+        }
+
+        var body = new { productId = _pesoProductoId, weightKg = _pesoDigitado };
+        _panel = Panel.None;
+        await RunAsync(async grant =>
+        {
+            _sale ??= await Api.PostAsync<Sale>("api/v1/sales");
+            _lastChange = null;
+            _sale = await Api.PostAsync<Sale>($"api/v1/sales/{_sale.Id}/lines/manual-weight", body, grant);
+            _selected = _sale.ActiveLines.LastOrDefault()?.Id;
+            _nueva = _selected;
+        });
+    }
+
+    /// <summary>Tara manual (tecla Insert): toma el peso actual (bolsa o bandeja que no está en el producto) y lo descuenta.</summary>
+    private async Task TaraManualAsync()
+    {
+        var lectura = await AgentScale.TareAsync(clear: false);
+        Snackbar.Add(
+            lectura.Unavailable || lectura.Status == "ERROR" ? lectura.Message
+                : lectura.TareKg > 0m ? $"Tara tomada: {lectura.TareKg.ToString("0.000", Format.Colombia)} kg." : "Tara quitada.",
+            lectura.Unavailable || lectura.Status == "ERROR" ? Severity.Warning : Severity.Info);
     }
 
     private async Task EscanerTeclaAsync(KeyboardEventArgs e)
@@ -413,6 +617,12 @@ public sealed partial class Caja
 
         _scan = string.Empty;
         CerrarSugerencias();
+        if (quantity is null && Scale.Enabled && await ProductoDeBasculaAsync(text) is { } pesable)
+        {
+            await PesarAsync(pesable, pesable.ProductId);
+            return;
+        }
+
         await AgregarAsync(new { code = text, quantity });
     }
 
@@ -967,6 +1177,8 @@ public sealed partial class Caja
     {
         _scCts?.Cancel();
         _scCts?.Dispose();
+        _pesoCts?.Cancel();
+        _pesoCts?.Dispose();
         _scCts = null;
         _sc = null;
         _scQr = null;
@@ -1273,6 +1485,7 @@ public sealed partial class Caja
 
         _panel = Panel.None;
         _pending = null;
+        _pesoCts?.Cancel();
         NuevoSistecredito();
         await FocusScannerAsync();
     }
@@ -1431,6 +1644,9 @@ public sealed partial class Caja
             _ => ($"{documento}: {receipt.DocumentStatus}", "info", Icons.Material.Outlined.Description),
         };
     }
+
+    /// <summary>Abreviatura de la unidad de peso (kg, g, lb).</summary>
+    private static string UnidadPeso(string? unitCode) => Pos.SharedKernel.Measurement.WeightUnits.Label(unitCode);
 
     private static string EstadoLicencia(LicenseSummary license) => license.State switch
     {

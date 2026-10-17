@@ -10,6 +10,7 @@ using Pos.Modules.Promotions.Contracts;
 using Pos.Modules.Sales.Contracts;
 using Pos.Modules.Sales.Domain;
 using Pos.Printing;
+using Pos.SharedKernel.Measurement;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
 
@@ -220,7 +221,8 @@ public static class SaleViews
                 l.Id, l.LineNo, l.ProductId, l.Sku, l.Name, l.ScannedCode, l.Source, l.BaseUnitCode, l.PackagingId, l.PackagingName, l.Factor, l.Quantity, l.UnitPrice,
                 l.PriceOverridden, l.Gross, l.PromotionId, l.PromotionName, l.PromotionDiscount, l.LineDiscount, l.GlobalDiscountShare, l.TaxBase, l.TaxTotal, l.Total,
                 l.Status.Db(), l.ExpiredAuthorizedBy is not null, l.ReturnedQuantity,
-                [.. l.Taxes.Select(t => new SaleLineTaxDto(t.Code, t.Kind, t.Rate, t.FixedAmount, t.TaxBase, t.Amount))], l.PriceListId, l.PriceSource))],
+                [.. l.Taxes.Select(t => new SaleLineTaxDto(t.Code, t.Kind, t.Rate, t.FixedAmount, t.TaxBase, t.Amount))], l.PriceListId, l.PriceSource,
+                WeightSources.FromLineSource(l.Source)))],
             [.. sale.Payments.OrderBy(p => p.LineNo).Select(p => new SalePaymentDto(
                 p.Id, p.PaymentMethodId, p.MethodCode, p.MethodKind, p.Tendered, p.Applied, p.Change, p.Reference, p.CardFranchise, p.CardLast4))],
             [.. sale.Discounts.Select(d => new SaleDiscountDto(d.Id, d.Scope.Db(), d.SaleLineId, d.Percent, d.Amount, d.Reason, d.AuthorizedBy, d.Status.Db()))],
@@ -236,6 +238,25 @@ public static class SaleViews
 /// </summary>
 public static class SaleTicketBuilder
 {
+    /// <summary>
+    /// Detalle de la línea en el tiquete: "2 UND x 2.900"; un producto por peso muestra el peso y el precio por su unidad
+    /// ("0,700 kg x $3.000/kg"), y el peso digitado lo dice ("(digitado)").
+    /// </summary>
+    public static string TicketLineDetail(decimal quantity, decimal unitPrice, string baseUnitCode, string? packagingName, string source)
+    {
+        if (packagingName is null && WeightUnits.IsWeight(baseUnitCode))
+        {
+            var unit = WeightUnits.Label(baseUnitCode);
+            var amount = string.Equals(baseUnitCode, WeightUnits.Gram, StringComparison.OrdinalIgnoreCase)
+                ? TicketLayout.Quantity(quantity)
+                : quantity.ToString("0.000", System.Globalization.CultureInfo.GetCultureInfo("es-CO"));
+            var manual = source == "MANUAL_WEIGHT" ? " (digitado)" : string.Empty;
+            return $"  {amount} {unit} x ${TicketLayout.Money(unitPrice)}/{unit}{manual}";
+        }
+
+        return $"  {TicketLayout.Quantity(quantity)} {packagingName ?? baseUnitCode} x {TicketLayout.Money(unitPrice)}";
+    }
+
     public const string InvoiceTitle = "Factura electrónica de venta";
     public const string CreditNoteTitle = "Nota crédito electrónica";
     public const string InProcessLegend = "Factura electrónica en proceso — se enviará a su correo / reimpresión en caja";
@@ -280,9 +301,8 @@ public static class SaleTicketBuilder
         e.Add(new SeparatorLine());
         foreach (var line in sale.ActiveLines.OrderBy(l => l.LineNo))
         {
-            var unit = line.PackagingName ?? line.BaseUnitCode;
             e.Add(new TextLine(line.Name));
-            e.Add(new ColumnsLine($"  {TicketLayout.Quantity(line.Quantity)} {unit} x {TicketLayout.Money(line.UnitPrice)}", TicketLayout.Money(line.Gross)));
+            e.Add(new ColumnsLine(TicketLineDetail(line.Quantity, line.UnitPrice, line.BaseUnitCode, line.PackagingName, line.Source), TicketLayout.Money(line.Gross)));
             if (line.PromotionDiscount > 0m)
             {
                 e.Add(new ColumnsLine($"  {line.PromotionName}", $"-{TicketLayout.Money(line.PromotionDiscount)}"));
