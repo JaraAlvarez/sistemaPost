@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Pos.Modules.Inventory.Contracts;
+using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Purchasing.Contracts;
+using Pos.Server.IntegrationTests.Phase3;
 using Pos.Server.IntegrationTests.Phase4;
 using Pos.Server.IntegrationTests.Phase5;
 using static Pos.Server.IntegrationTests.Phase2.ApiClient;
@@ -19,34 +21,25 @@ public class ReplenishmentApiTests
         await using var factory = new PosServerFactory();
         var shop = await PurchasingScenario.CreateAsync(factory);
         var owner = shop.Owner;
-
-        // Segundo proveedor (arroz) y un producto de otra categoría sin proveedor (panela).
-        var party = await shop.CreatePartyAsync(new
-        {
-            personType = "Legal", identificationType = "NIT", identificationNumber = "830114921", checkDigit = "1", legalName = "Arrocera del Llano SAS",
-            taxRegime = "48", fiscalResponsibilities = GreatTaxpayer,
-        });
-        var arrocera = await shop.SendAsync<SupplierDto>("/api/v1/purchasing/suppliers",
-            new { partyId = party.Id, supplier = new { code = "ARROCERA", paymentTermDays = 15, issuesInvoices = true } }, HttpStatusCode.Created);
+        var arrocera = await ArroceraAsync(shop);
         var pantry = await shop.Catalog.CategoryAsync("Despensa");
         var panela = (await shop.Catalog.ProductAsync("PANELA-1", "Panela 1 kg", pantry, price: 4_000m)).Id;
 
         await PutOkAsync(owner, $"/api/v1/purchasing/suppliers/{shop.SupplierId}/products",
             new { productId = shop.Yogurt, packagingId = shop.YogurtBox, supplierCode = "YF1", leadTimeDays = 2, isPreferred = true });
-        await PutOkAsync(owner, $"/api/v1/purchasing/suppliers/{arrocera.Id}/products",
+        await PutOkAsync(owner, $"/api/v1/purchasing/suppliers/{arrocera}/products",
             new { productId = shop.Rice, packagingId = (Guid?)null, supplierCode = "A500", leadTimeDays = 5, isPreferred = true });
 
         // Mínimos y máximos (pestaña Existencias del producto): yogurt 10–50, arroz mínimo 20 sin máximo, panela 5–15.
-        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Yogurt, minQuantity = 10, maxQuantity = 50 });
-        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 20 });
-        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = panela, minQuantity = 5, maxQuantity = 15 });
+        await PolicyAsync(shop, shop.Yogurt, 10, 50);
+        await PolicyAsync(shop, shop.Rice, 20, null);
+        await PolicyAsync(shop, panela, 5, 15);
         await owner.PutAsJsonAsync("/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = panela, minQuantity = 20, maxQuantity = 15 }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "INVENTORY.INVALID_POLICY");
-        var yogurtPolicies = await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={shop.Yogurt}");
-        yogurtPolicies.ShouldHaveSingleItem().MaxQuantity.ShouldBe(50m);
+        (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={shop.Yogurt}")).ShouldHaveSingleItem().MaxQuantity.ShouldBe(50m);
 
         // Pedido sugerido: yogurt 50 unidades → 3 cajas x24; arroz hasta el mínimo (20); panela sin proveedor.
-        var lines = await GetAsync<List<ReplenishmentLineDto>>(owner, $"/api/v1/purchasing/replenishment?warehouseId={shop.Floor}");
+        var lines = await LinesAsync(owner, $"?warehouseId={shop.Floor}");
         lines.Count.ShouldBe(3);
         var yogurt = lines.Single(l => l.ProductId == shop.Yogurt);
         yogurt.SupplierId.ShouldBe(shop.SupplierId);
@@ -55,29 +48,32 @@ public class ReplenishmentApiTests
         yogurt.SuggestedQuantity.ShouldBe(3m);
         yogurt.SuggestedBaseQuantity.ShouldBe(72m);
         var rice = lines.Single(l => l.ProductId == shop.Rice);
-        rice.SupplierId.ShouldBe(arrocera.Id);
+        rice.SupplierId.ShouldBe(arrocera);
         rice.SuggestedQuantity.ShouldBe(20m);
         var noSupplier = lines.Single(l => l.ProductId == panela);
         noSupplier.SupplierId.ShouldBeNull();
         noSupplier.SuggestedQuantity.ShouldBe(15m);
 
         // Filtros: por categoría y por proveedor.
-        (await GetAsync<List<ReplenishmentLineDto>>(owner, $"/api/v1/purchasing/replenishment?categoryId={pantry}")).ShouldHaveSingleItem().ProductId.ShouldBe(panela);
-        (await GetAsync<List<ReplenishmentLineDto>>(owner, $"/api/v1/purchasing/replenishment?supplierId={arrocera.Id}"))
-            .ShouldHaveSingleItem().ProductId.ShouldBe(shop.Rice);
+        (await LinesAsync(owner, $"?categoryId={pantry}")).ShouldHaveSingleItem().ProductId.ShouldBe(panela);
+        (await LinesAsync(owner, $"?supplierId={arrocera}")).ShouldHaveSingleItem().ProductId.ShouldBe(shop.Rice);
 
-        // Una línea sin proveedor no deja crear nada.
-        var request = lines.Select(l => new SuggestedOrderLineRequest(l.WarehouseId, l.SupplierId, l.ProductId, l.PackagingId, l.SuggestedQuantity)).ToList();
+        // Sin clave de envío, o con una línea sin proveedor, no se crea nada.
+        var request = lines.Select(l => new SuggestedOrderLineRequest(
+            l.WarehouseId, l.SupplierId, l.ProductId, l.PackagingId, l.SuggestedQuantity, SeenSuggestedQuantity: l.SuggestedQuantity)).ToList();
+        var batch = Guid.NewGuid();
         await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { lines = request }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "PURCHASING.SUGGESTION_BATCH_REQUIRED");
+        await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = batch, lines = request }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "PURCHASING.SUPPLIER_REQUIRED");
-        (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM purchasing.purchase_orders")).ShouldBe(0);
+        (await OrderCountAsync(shop)).ShouldBe(0);
 
         // Se asigna la panela a la arrocera y se crean las órdenes: una por proveedor, en borrador.
-        request = [.. request.Select(l => l.ProductId == panela ? l with { SupplierId = arrocera.Id } : l)];
-        var orders = await shop.SendAsync<List<SuggestedOrderDto>>("/api/v1/purchasing/replenishment/orders", new { lines = request });
+        request = [.. request.Select(l => l.ProductId == panela ? l with { SupplierId = arrocera } : l)];
+        var orders = await shop.SendAsync<List<SuggestedOrderDto>>("/api/v1/purchasing/replenishment/orders", new { batchId = batch, lines = request });
         orders.Count.ShouldBe(2);
         orders.Single(o => o.SupplierId == shop.SupplierId).LineCount.ShouldBe(1);
-        orders.Single(o => o.SupplierId == arrocera.Id).LineCount.ShouldBe(2);
+        orders.Single(o => o.SupplierId == arrocera).LineCount.ShouldBe(2);
         foreach (var created in orders)
         {
             var order = await GetAsync<PurchaseOrderDto>(owner, $"/api/v1/purchasing/orders/{created.OrderId}");
@@ -86,14 +82,26 @@ public class ReplenishmentApiTests
             order.Number.ShouldBe(created.Number);
         }
 
-        var dislacOrder = await GetAsync<PurchaseOrderDto>(owner, $"/api/v1/purchasing/orders/{orders.Single(o => o.SupplierId == shop.SupplierId).OrderId}");
-        var boxes = dislacOrder.Lines.ShouldHaveSingleItem();
+        var boxes = (await GetAsync<PurchaseOrderDto>(owner, $"/api/v1/purchasing/orders/{orders.Single(o => o.SupplierId == shop.SupplierId).OrderId}"))
+            .Lines.ShouldHaveSingleItem();
         boxes.PackagingId.ShouldBe(shop.YogurtBox);
         boxes.Quantity.ShouldBe(3m);
         boxes.BaseQuantity.ShouldBe(72m);
 
-        // Lo pedido (aunque esté en borrador) cuenta como pendiente: el sugerido baja a cero y no se duplica el pedido.
-        var after = await GetAsync<List<ReplenishmentLineDto>>(owner, $"/api/v1/purchasing/replenishment?warehouseId={shop.Floor}");
+        // El mismo envío repetido (doble clic, reintento tras un corte) devuelve las mismas órdenes y no crea otras.
+        var again = await shop.SendAsync<List<SuggestedOrderDto>>("/api/v1/purchasing/replenishment/orders", new { batchId = batch, lines = request });
+        again.Select(o => o.OrderId).ShouldBe(orders.Select(o => o.OrderId), ignoreOrder: true);
+        (await OrderCountAsync(shop)).ShouldBe(2);
+        await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = batch, lines = request.Take(1) }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Conflict, "PURCHASING.SUGGESTION_BATCH_REUSED");
+
+        // Otro envío con lo que se veía antes (otra pestaña): el sugerido ya cambió → recargar.
+        await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = Guid.NewGuid(), lines = request }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Conflict, "PURCHASING.SUGGESTION_CHANGED");
+        (await OrderCountAsync(shop)).ShouldBe(2);
+
+        // Lo pedido (aunque esté en borrador) cuenta como pendiente: el sugerido baja a cero.
+        var after = await LinesAsync(owner, $"?warehouseId={shop.Floor}");
         after.Single(l => l.ProductId == shop.Yogurt).PendingQuantity.ShouldBe(72m);
         after.ShouldAllBe(l => l.SuggestedQuantity == 0m);
 
@@ -102,12 +110,114 @@ public class ReplenishmentApiTests
     }
 
     [Fact]
+    public async Task Bodega_inactiva_proveedor_bloqueado_punto_de_pedido_y_envios_simultaneos()
+    {
+        await using var factory = new PosServerFactory();
+        var shop = await PurchasingScenario.CreateAsync(factory);
+        var owner = shop.Owner;
+        var arrocera = await ArroceraAsync(shop);
+        await PutOkAsync(owner, $"/api/v1/purchasing/suppliers/{shop.SupplierId}/products",
+            new { productId = shop.Yogurt, packagingId = (Guid?)null, supplierCode = "YF1", leadTimeDays = 2, isPreferred = true });
+        await PutOkAsync(owner, $"/api/v1/purchasing/suppliers/{arrocera}/products",
+            new { productId = shop.Rice, packagingId = (Guid?)null, supplierCode = "A500", leadTimeDays = 5, isPreferred = true });
+
+        // Punto de pedido sin máximo ni cantidad a pedir: se pide hasta el punto de pedido (8), no hasta el mínimo (5).
+        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 5, reorderPoint = 8 });
+        (await LinesAsync(owner, "")).Single(l => l.ProductId == shop.Rice).SuggestedQuantity.ShouldBe(8m);
+
+        // Bodega inactiva: sus productos no aparecen y una orden para ella dice cuál falló (y no se crea ninguna).
+        var created = await owner.PostAsJsonAsync($"/api/v1/organization/branches/{shop.Catalog.Setup.BranchId}/warehouses",
+            new { code = "BODEGA", name = "Bodega trasera", kind = "Storage", allowsSales = false }, Json, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
+        var storage = (await GetAsync<BranchDetailDto>(owner, $"/api/v1/organization/branches/{shop.Catalog.Setup.BranchId}"))
+            .Warehouses.Single(w => w.Code == "BODEGA").Id;
+        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = storage, productId = shop.Yogurt, minQuantity = 5, maxQuantity = 10 });
+        (await LinesAsync(owner, $"?warehouseId={storage}")).ShouldHaveSingleItem();
+        (await owner.PostAsync($"/api/v1/organization/warehouses/{storage}/deactivate", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await LinesAsync(owner, $"?warehouseId={storage}")).ShouldBeEmpty();
+
+        var rice = new SuggestedOrderLineRequest(shop.Floor, arrocera, shop.Rice, null, 8m);
+        var inactive = await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new
+        {
+            batchId = Guid.NewGuid(), lines = new[] { rice, new SuggestedOrderLineRequest(storage, shop.SupplierId, shop.Yogurt, null, 10m) },
+        }, Json, Ct);
+        var problem = await inactive.Content.ReadAsStringAsync(Ct);
+        inactive.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity, problem);
+        problem.ShouldContain("INVENTORY.WAREHOUSE_INACTIVE");
+        problem.ShouldContain("BODEGA");
+        (await OrderCountAsync(shop)).ShouldBe(0);
+
+        // Si la segunda orden falla (proveedor bloqueado), la primera tampoco queda (todo o nada).
+        await PolicyAsync(shop, shop.Yogurt, 10, 20);
+        await shop.SendAsync<SupplierDto>($"/api/v1/purchasing/suppliers/{shop.SupplierId}/status", new { status = "Blocked" });
+        var blocked = await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new
+        {
+            batchId = Guid.NewGuid(), lines = new[] { rice, new SuggestedOrderLineRequest(shop.Floor, shop.SupplierId, shop.Yogurt, null, 20m) },
+        }, Json, Ct);
+        problem = await blocked.Content.ReadAsStringAsync(Ct);
+        blocked.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity, problem);
+        problem.ShouldContain("PURCHASING.SUPPLIER_BLOCKED");
+        problem.ShouldContain("Distribuidora Láctea");
+        (await OrderCountAsync(shop)).ShouldBe(0);
+        (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM system.idempotency_keys")).ShouldBe(0);
+
+        // Dos envíos a la vez (dos personas, dos pestañas) con lo mismo que veían: uno crea la orden, el otro debe recargar.
+        var seen = (await LinesAsync(owner, $"?supplierId={arrocera}")).Single();
+        var line = new SuggestedOrderLineRequest(shop.Floor, arrocera, shop.Rice, null, seen.SuggestedQuantity, SeenSuggestedQuantity: seen.SuggestedQuantity);
+        var both = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
+            owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = Guid.NewGuid(), lines = new[] { line } }, Json, Ct)));
+        both.Count(r => r.StatusCode == HttpStatusCode.OK).ShouldBe(1);
+        both.Count(r => r.StatusCode == HttpStatusCode.Conflict).ShouldBe(1);
+        (await ErrorCodeAsync(both.Single(r => r.StatusCode == HttpStatusCode.Conflict))).ShouldBe("PURCHASING.SUGGESTION_CHANGED");
+        (await OrderCountAsync(shop)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Permisos_costos_y_roles()
+    {
+        await using var factory = new PosServerFactory();
+        var shop = await PurchasingScenario.CreateAsync(factory);
+        var owner = shop.Owner;
+        var security = SecurityScenario.ForExisting(factory, owner, shop.Catalog.Setup);
+
+        // La compra deja el último costo del proveedor; el arroz queda bajo el mínimo.
+        await shop.BuyAsync("FE-1", new { productId = shop.Rice, quantity = 2, unitCost = 1_800 });
+        await PolicyAsync(shop, shop.Rice, 20, 40);
+        (await LinesAsync(owner, "")).Single().LastCost.ShouldNotBeNull();
+
+        // Quien solo consulta compras ve el sugerido pero no el costo, ni crea órdenes.
+        await CreateRoleAsync(owner, "CONSULTA_COMPRAS", ["purchasing.purchase.view"]);
+        await security.CreateUserAsync("consulta", "CONSULTA_COMPRAS");
+        var viewer = await security.LocalClientAsync("consulta");
+        var line = (await LinesAsync(viewer, "")).Single();
+        line.LastCost.ShouldBeNull();
+        line.SuggestedQuantity.ShouldBe(38m);
+
+        // El rol Inventario define mínimos pero no crea órdenes de compra.
+        await security.CreateUserAsync("bodeguero", "INVENTORY");
+        var inventory = await security.LocalClientAsync("bodeguero");
+        await PutOkAsync(inventory, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 20, maxQuantity = 50 });
+        (await inventory.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new
+            {
+                batchId = Guid.NewGuid(), lines = new[] { new SuggestedOrderLineRequest(shop.Floor, shop.SupplierId, shop.Rice, null, 48m) },
+            }, Json, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+
+        // Un rol nuevo con solo ajustes de inventario ya no edita mínimos (los roles que existían antes lo reciben en la migración 047).
+        await CreateRoleAsync(owner, "AJUSTES", ["inventory.stock.view", "inventory.adjustment.manage"]);
+        await security.CreateUserAsync("ajustes", "AJUSTES");
+        var adjuster = await security.LocalClientAsync("ajustes");
+        (await adjuster.PutAsJsonAsync("/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 1 }, Json, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task Importar_minimos_y_maximos_con_vista_previa_y_calcular_sugeridos()
     {
         await using var factory = new PosServerFactory();
         var shop = await PurchasingScenario.CreateAsync(factory);
         var owner = shop.Owner;
-        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 4, maxQuantity = 8 });
+        await PolicyAsync(shop, shop.Rice, 4, 8);
 
         var template = await owner.GetAsync("/api/v1/inventory/policies/import/template", Ct);
         template.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -141,21 +251,71 @@ public class ReplenishmentApiTests
         (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={shop.Yogurt}")).Single().ReorderPoint.ShouldBe(8m);
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'STOCK_POLICIES_IMPORTED'")).ShouldBe(1);
 
-        // Calcular mínimos sugeridos: sin ventas no hay sugerencias; parámetros fuera de rango se rechazan.
-        (await GetAsync<List<MinimumSuggestionDto>>(owner, $"/api/v1/inventory/policies/suggestions?warehouseId={shop.Floor}&days=30&leadTimeDays=3&coverageDays=7"))
-            .ShouldBeEmpty();
+        // Calcular mínimos sugeridos: parámetros fuera de rango se rechazan; sin ventas no hay sugerencias.
         await owner.GetAsync($"/api/v1/inventory/policies/suggestions?warehouseId={shop.Floor}&days=0", Ct)
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "INVENTORY.INVALID_SUGGESTION_PARAMETERS");
+        var url = $"/api/v1/inventory/policies/suggestions?warehouseId={shop.Floor}&days=30&leadTimeDays=3&coverageDays=7";
+        (await GetAsync<MinimumSuggestionsDto>(owner, url)).Items.ShouldBeEmpty();
+
+        // Con ventas en el kardex: 60 arroces vendidos (y 6 devueltos) en los últimos 30 días = 1,8 diarios → mínimo 6, máximo 18.
+        var yesterday = PurchasingScenario.Today.AddDays(-1).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        foreach (var (type, direction, quantity) in new[] { ("SALE", -1, 40), ("SALE", -1, 20), ("CUSTOMER_RETURN", 1, 6) })
+        {
+            await shop.Catalog.ExecuteAsync(
+                $"""
+                INSERT INTO inventory.stock_movements (id, company_id, node_id, branch_id, warehouse_id, product_id, movement_type, direction, quantity,
+                    unit_cost, total_cost, balance_quantity, balance_value, balance_avg_cost, source_type, source_id, business_date, occurred_at, user_id)
+                SELECT gen_random_uuid(), w.company_id, gen_random_uuid(), w.branch_id, w.id, '{shop.Rice}', '{type}', {direction}, {quantity},
+                    0, 0, 0, 0, 0, 'SALE', gen_random_uuid(), DATE '{yesterday}', now(), gen_random_uuid()
+                FROM org.warehouses w WHERE w.id = '{shop.Floor}'
+                """);
+        }
+
+        var suggested = (await GetAsync<MinimumSuggestionsDto>(owner, url)).Items.ShouldHaveSingleItem();
+        suggested.ProductId.ShouldBe(shop.Rice);
+        suggested.SoldQuantity.ShouldBe(54m);
+        (suggested.SuggestedMinQuantity, suggested.SuggestedMaxQuantity).ShouldBe((6m, 18m));
+        (suggested.CurrentMinQuantity, suggested.CurrentMaxQuantity).ShouldBe((10m, 40m));
 
         // Aplicar los elegidos: conserva el punto de pedido que ya tenía.
         var result = await shop.SendAsync<StockPolicyBulkResultDto>("/api/v1/inventory/policies/apply-minimums", new
         {
-            items = new[] { new MinMaxInput(shop.Floor, shop.Yogurt, 12m, 30m) },
+            items = new[] { new MinMaxInput(shop.Floor, shop.Yogurt, 12m, 30m), new MinMaxInput(shop.Floor, shop.Rice, 6m, 18m) },
         });
-        result.Updated.ShouldBe(1);
+        result.Updated.ShouldBe(2);
         var yogurt = (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={shop.Yogurt}")).Single();
         (yogurt.MinQuantity, yogurt.MaxQuantity, yogurt.ReorderPoint).ShouldBe((12m, 30m, 8m));
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'STOCK_POLICIES_SUGGESTED'")).ShouldBe(1);
+    }
+
+    private static async Task<Guid> ArroceraAsync(PurchasingScenario shop)
+    {
+        var party = await shop.CreatePartyAsync(new
+        {
+            personType = "Legal", identificationType = "NIT", identificationNumber = "830114921", checkDigit = "1", legalName = "Arrocera del Llano SAS",
+            taxRegime = "48", fiscalResponsibilities = GreatTaxpayer,
+        });
+        return (await shop.SendAsync<SupplierDto>("/api/v1/purchasing/suppliers",
+            new { partyId = party.Id, supplier = new { code = "ARROCERA", paymentTermDays = 15, issuesInvoices = true } }, HttpStatusCode.Created)).Id;
+    }
+
+    private static Task PolicyAsync(PurchasingScenario shop, Guid product, decimal min, decimal? max) =>
+        PutOkAsync(shop.Owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = product, minQuantity = min, maxQuantity = max });
+
+    private static async Task<List<ReplenishmentLineDto>> LinesAsync(HttpClient client, string query)
+    {
+        var result = await GetAsync<ReplenishmentDto>(client, "/api/v1/purchasing/replenishment" + query);
+        result.Truncated.ShouldBeFalse();
+        return [.. result.Lines];
+    }
+
+    private static async Task<long> OrderCountAsync(PurchasingScenario shop) =>
+        await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM purchasing.purchase_orders");
+
+    private static async Task CreateRoleAsync(HttpClient owner, string code, string[] permissions)
+    {
+        var response = await owner.PostAsJsonAsync("/api/v1/identity/roles", new { code, name = code, permissions }, Json, Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(Ct));
     }
 
     private static async Task PutOkAsync(HttpClient client, string url, object body)

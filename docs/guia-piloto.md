@@ -209,13 +209,16 @@ Para no quedarse sin mercancía, cada producto puede tener en cada bodega un **m
 las órdenes de compra.
 
 **Cómo poner los mínimos y máximos** (permiso "Definir mínimos y máximos de existencias"; lo tienen el propietario, el administrador y los
-roles Inventario y Compras)
-- **Uno por uno**: en la ficha del producto, pestaña **Existencias** → "Mínimos y máximos": una fila por bodega; escriba los números y
-  pulse **Guardar** en esa fila. El máximo puede quedar vacío.
+roles Inventario y Compras: el rol Compras lo recibe a propósito, porque quien compra es quien suele fijar mínimos y máximos. Al actualizar,
+todo rol creado por la empresa que podía hacer ajustes de inventario también lo recibe, para que nadie pierda lo que ya podía hacer)
+- **Uno por uno**: en la ficha del producto, pestaña **Existencias** → "Mínimos y máximos": una fila por bodega con mínimo, punto de
+  pedido, máximo y cantidad a pedir; escriba los números y pulse **Guardar** en esa fila. El máximo puede quedar vacío. Si usa punto de
+  pedido, la pantalla pide también el máximo o la cantidad a pedir.
 - **Desde Excel**: Inventario → Importar desde Excel → "Mínimos y máximos". Descargue la plantilla (columnas `sku` o `codigo_barras`,
   `minimo`, y opcionales `maximo`, `punto_pedido` y `bodega` con el código de la bodega). Si el archivo no trae la bodega, se usa la
   que elija en la pantalla. Al subir el archivo se ve la **vista previa** fila por fila (nuevo, cambia, sin cambios o error con el
-  motivo: producto que no existe, máximo menor que el mínimo, producto repetido, decimales en un producto por unidad…). Nada se guarda
+  motivo: producto que no existe o descontinuado, máximo menor que el mínimo, producto repetido, decimales en un producto por unidad…;
+  un producto inactivo se acepta con un aviso). Nada se guarda
   hasta pulsar **Aplicar**, y solo si ninguna fila tiene errores. Una celda vacía de máximo o punto de pedido **conserva** lo que ya
   tenía.
 - **Calculados con la venta**: Inventario → Reabastecimiento → pestaña **"Calcular mínimos sugeridos"**. Elija la bodega, los días de
@@ -230,14 +233,18 @@ roles Inventario y Compras)
 "Compras y proveedores" encendida)
 - Muestra los productos con la existencia **bajo el mínimo** o en el punto de pedido, agrupados por **proveedor** (el preferido del
   producto o, si no hay, el de la compra más reciente). Se puede filtrar por bodega, categoría y proveedor.
-- **Pedir** = máximo − (existencia + lo ya pedido). Sin máximo: hasta el mínimo (o la cantidad a pedir, si la tiene). Lo "ya pedido"
+- **Pedir** = máximo − (existencia + lo ya pedido). Sin máximo: la cantidad a pedir, si la tiene; si no, hasta el punto de pedido (si es
+  mayor que el mínimo) o hasta el mínimo. Solo aparecen bodegas activas. Lo "ya pedido"
   son las órdenes de compra en borrador, aprobadas, enviadas o recibidas en parte que aún no llegan: así no se pide dos veces.
 - Si el proveedor vende por **caja** (la presentación del producto en la ficha del proveedor), la cantidad se redondea a **cajas
   completas**: faltan 30 unidades y la caja es de 24 → 2 cajas (48 unidades).
 - Puede cambiar la cantidad, marcar o desmarcar productos (o un proveedor completo). Los productos **sin proveedor** quedan en el grupo
   "Sin proveedor": elija uno por producto o para todos los marcados.
 - **Crear órdenes de compra** (permiso "Crear, enviar y cerrar órdenes de compra") crea **una orden en borrador por proveedor y bodega**
-  con el último costo del proveedor, y muestra los enlaces a cada orden. Si una falla (por ejemplo, el proveedor está bloqueado), no se
-  crea ninguna. Después, en Compras → Órdenes, revise, apruebe y envíe cada una como siempre.
+  con el último costo del proveedor, y muestra los enlaces a cada orden (el valor solo lo ve quien puede ver costos). Si una falla (por
+  ejemplo, el proveedor está bloqueado o la bodega se inactivó), no se crea ninguna y el aviso dice cuál falló.
+- **No se pide dos veces**: un doble clic o un reintento después de un corte devuelve las mismas órdenes. Si otra persona creó órdenes
+  mientras usted revisaba (o cambiaron las existencias), el sistema avisa "El pedido sugerido cambió" y pide **Actualizar** la pantalla.
+- Si hay más de 5.000 productos para pedir, se muestran los primeros 5.000 con un aviso: filtre por categoría o proveedor. Después, en Compras → Órdenes, revise, apruebe y envíe cada una como siempre.
 - Todo queda en la **Auditoría**: cada cambio de mínimo y máximo ("Mínimo y máximo · creado/modificado"), cada importación
   ("Mínimos y máximos importados de Excel"), los mínimos calculados guardados y las órdenes creadas desde el pedido sugerido.

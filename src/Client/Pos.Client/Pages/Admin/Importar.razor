@@ -137,7 +137,7 @@
                     <MudTable RowsPerPage="25" Items="FilasMinimos" Dense="true" Striped="true" Height="420px" FixedHeader="true">
                         <HeaderContent>
                             <MudTh>Fila</MudTh><MudTh>Acción</MudTh><MudTh>Producto</MudTh><MudTh>Bodega</MudTh><MudTh Class="num">Mínimo</MudTh>
-                            <MudTh Class="num">Máximo</MudTh><MudTh Class="num">Punto de pedido</MudTh><MudTh>Errores</MudTh>
+                            <MudTh Class="num">Máximo</MudTh><MudTh Class="num">Punto de pedido</MudTh><MudTh>Errores y avisos</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd>@context.RowNumber</MudTd>
@@ -151,6 +151,10 @@
                                 @foreach (var e in context.Errors)
                                 {
                                     <div style="color:var(--mud-palette-error)">@e</div>
+                                }
+                                @foreach (var w in context.Warnings)
+                                {
+                                    <div style="color:var(--mud-palette-warning)">@w</div>
                                 }
                             </MudTd>
                         </RowTemplate>
@@ -174,7 +178,7 @@
     private Guid? _bodegaMinimos;
 
     private List<StockPolicyImportRowDto> FilasMinimos =>
-        (_minimos?.Rows ?? []).Where(r => r.Errors.Count > 0 || !EnumText.Same(r.Action, "UNCHANGED")).Take(500).ToList();
+        (_minimos?.Rows ?? []).Where(r => r.Errors.Count > 0 || r.Warnings.Count > 0 || !EnumText.Same(r.Action, "UNCHANGED")).Take(500).ToList();
 
     private static string Cambio(decimal? antes, decimal? despues) =>
         (antes, despues) switch

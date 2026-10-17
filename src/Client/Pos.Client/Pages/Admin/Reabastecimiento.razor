@@ -59,10 +59,17 @@
                                 {
                                     <li>
                                         <MudLink Href="@($"/admin/compras/ordenes/{orden.OrderId}")">@orden.Number</MudLink>
-                                        · @orden.SupplierName · @orden.LineCount @(orden.LineCount == 1 ? "producto" : "productos") · @Format.Money(orden.Total)
+                                        · @orden.SupplierName · @orden.LineCount @(orden.LineCount == 1 ? "producto" : "productos")@(orden.Total is { } total ? $" · {Format.Money(total)}" : "")
                                     </li>
                                 }
                             </ul>
+                        </MudAlert>
+                    }
+
+                    @if (_truncado)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                            Se muestran los primeros 5.000 productos. Filtre por bodega, categoría o proveedor para ver el resto.
                         </MudAlert>
                     }
 
@@ -197,6 +204,13 @@
                                    OnClick="CalcularAsync">Calcular</MudButton>
                     </MudStack>
 
+                    @if (_sugeridosTruncado)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+                            Se muestran los 5.000 productos que más se vendieron. Los demás no aparecen en este cálculo.
+                        </MudAlert>
+                    }
+
                     @if (_sugeridos is { } sugeridos)
                     {
                         @if (sugeridos.Count == 0)
@@ -252,7 +266,10 @@
     private Guid? _bodega, _categoria, _proveedor, _bodegaCalculo;
     private int _tab, _dias = 30, _diasEntrega = 3, _diasCobertura = 7;
     private string? _error;
-    private bool _loading = true, _busy;
+    private bool _loading = true, _busy, _truncado, _sugeridosTruncado;
+
+    // Clave de idempotencia del envío: la misma mientras no se recargue el pedido (un doble clic o un reintento no duplica órdenes).
+    private Guid _lote = Guid.NewGuid();
 
     private bool VerPedido => Session.Has("purchasing.purchase.view") && Session.Feature(BusinessCatalog.Purchasing);
 
@@ -363,8 +380,10 @@
         _busy = true;
         try
         {
-            var lineas = await Api.GetAsync<List<ReplenishmentLineDto>>("api/v1/purchasing/replenishment" + (consulta.Count > 0 ? "?" + string.Join('&', consulta) : ""));
-            _lineas = [.. lineas.Select(l => new Linea
+            var pedido = await Api.GetAsync<ReplenishmentDto>("api/v1/purchasing/replenishment" + (consulta.Count > 0 ? "?" + string.Join('&', consulta) : ""));
+            _truncado = pedido.Truncated;
+            _lote = Guid.NewGuid();
+            _lineas = [.. pedido.Lines.Select(l => new Linea
             {
                 Dato = l, Cantidad = l.SuggestedQuantity, Proveedor = l.SupplierId, Marcada = l.SupplierId is not null && l.SuggestedQuantity > 0,
             })];
@@ -398,7 +417,9 @@
         {
             var creadas = await Api.PostAsync<List<SuggestedOrderDto>>("api/v1/purchasing/replenishment/orders", new
             {
-                lines = marcadas.Select(l => new SuggestedOrderLineRequest(l.Dato.WarehouseId, l.Proveedor, l.Dato.ProductId, l.Dato.PackagingId, l.Cantidad)),
+                batchId = _lote,
+                lines = marcadas.Select(l => new SuggestedOrderLineRequest(
+                    l.Dato.WarehouseId, l.Proveedor, l.Dato.ProductId, l.Dato.PackagingId, l.Cantidad, SeenSuggestedQuantity: l.Dato.SuggestedQuantity)),
             });
             Snackbar.Add($"Se crearon {creadas.Count} órdenes de compra en borrador.", Severity.Success);
             await CargarPedidoAsync();
@@ -422,9 +443,10 @@
         _busy = true;
         try
         {
-            var sugeridos = await Api.GetAsync<List<MinimumSuggestionDto>>(
+            var sugeridos = await Api.GetAsync<MinimumSuggestionsDto>(
                 $"api/v1/inventory/policies/suggestions?warehouseId={bodega}&days={_dias}&leadTimeDays={_diasEntrega}&coverageDays={_diasCobertura}");
-            _sugeridos = [.. sugeridos.Select(s => new FilaSugerida
+            _sugeridosTruncado = sugeridos.Truncated;
+            _sugeridos = [.. sugeridos.Items.Select(s => new FilaSugerida
             {
                 Dato = s, Minimo = s.SuggestedMinQuantity, Maximo = s.SuggestedMaxQuantity,
                 Marcada = s.SuggestedMinQuantity != s.CurrentMinQuantity || s.SuggestedMaxQuantity != s.CurrentMaxQuantity,

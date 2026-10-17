@@ -351,8 +351,15 @@ public sealed record ReplenishmentLineDto(
     decimal PackagingFactor,
     decimal SuggestedQuantity);
 
-/// <summary>Línea elegida para la orden: cantidad en la presentación (o en unidades base sin presentación); costo opcional (si falta, el último del proveedor).</summary>
-public sealed record SuggestedOrderLineRequest(Guid WarehouseId, Guid? SupplierId, Guid ProductId, Guid? PackagingId, decimal Quantity, decimal? UnitCost = null);
+/// <summary>Pedido sugerido. <c>Truncated</c>: había más de 5.000 productos y solo se muestran los primeros (filtre por categoría o proveedor).</summary>
+public sealed record ReplenishmentDto(IReadOnlyList<ReplenishmentLineDto> Lines, bool Truncated);
 
-/// <summary>Orden de compra en borrador creada desde el pedido sugerido.</summary>
-public sealed record SuggestedOrderDto(Guid OrderId, string Number, Guid SupplierId, string SupplierName, Guid WarehouseId, int LineCount, decimal Total);
+/// <summary>
+/// Línea elegida para la orden: cantidad en la presentación (o en unidades base sin presentación); costo opcional (si falta, el último del
+/// proveedor). <c>SeenSuggestedQuantity</c>: el sugerido que se veía en la pantalla; si al crear ya es otro, se pide recargar.
+/// </summary>
+public sealed record SuggestedOrderLineRequest(
+    Guid WarehouseId, Guid? SupplierId, Guid ProductId, Guid? PackagingId, decimal Quantity, decimal? UnitCost = null, decimal? SeenSuggestedQuantity = null);
+
+/// <summary>Orden de compra en borrador creada desde el pedido sugerido (<c>Total</c> solo con inventory.cost.view).</summary>
+public sealed record SuggestedOrderDto(Guid OrderId, string Number, Guid SupplierId, string SupplierName, Guid WarehouseId, int LineCount, decimal? Total);

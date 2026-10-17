@@ -308,7 +308,8 @@ public sealed record StockPolicyImportRowDto(
     decimal? ReorderPoint,
     decimal? CurrentMinQuantity,
     decimal? CurrentMaxQuantity,
-    IReadOnlyList<string> Errors);
+    IReadOnlyList<string> Errors,
+    IReadOnlyList<string> Warnings);
 
 /// <summary>Resultado de la importación: vista previa (<c>Applied</c> = false) o aplicada.</summary>
 public sealed record StockPolicyImportDto(
@@ -338,6 +339,9 @@ public sealed record MinimumSuggestionDto(
     decimal? CurrentMaxQuantity,
     decimal SuggestedMinQuantity,
     decimal SuggestedMaxQuantity);
+
+/// <summary>Mínimos sugeridos. <c>Truncated</c>: había más de 5.000 productos con ventas y se muestran los que más venden.</summary>
+public sealed record MinimumSuggestionsDto(IReadOnlyList<MinimumSuggestionDto> Items, bool Truncated);
 
 /// <summary>Mínimo y máximo a guardar para un producto en una bodega (aplicar sugeridos).</summary>
 public sealed record MinMaxInput(Guid WarehouseId, Guid ProductId, decimal MinQuantity, decimal? MaxQuantity);

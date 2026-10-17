@@ -81,7 +81,21 @@ public interface IPurchasingQueries
     Task<IReadOnlyList<ReplenishmentRow>> ListReplenishmentAsync(ReplenishmentFilter filter, CancellationToken cancellationToken);
 }
 
-public sealed record ReplenishmentFilter(Guid BranchId, Guid? WarehouseId, Guid? CategoryId, Guid? SupplierId);
+/// <summary>Pedido sugerido: candado por sucursal y claves de idempotencia de cada envío (RN-GEN-09).</summary>
+public interface ISuggestedOrderGate
+{
+    /// <summary>Espera el turno: dos envíos de la misma sucursal no se cruzan (se libera al terminar la transacción).</summary>
+    Task LockAsync(Guid branchId, CancellationToken cancellationToken);
+
+    Task<StoredSuggestionBatch?> FindAsync(string key, CancellationToken cancellationToken);
+
+    Task SaveAsync(string key, string requestHash, string responseJson, DateTimeOffset now, CancellationToken cancellationToken);
+}
+
+public sealed record StoredSuggestionBatch(string RequestHash, string ResponseJson);
+
+/// <summary>Bodegas activas de la sucursal; <c>Limit</c> = máximo de filas.</summary>
+public sealed record ReplenishmentFilter(Guid BranchId, Guid? WarehouseId, Guid? CategoryId, Guid? SupplierId, int Limit = 5001);
 
 /// <summary>Fila cruda del reabastecimiento (las cuentas del sugerido las hace <see cref="ReplenishmentMath"/>).</summary>
 public sealed record ReplenishmentRow(

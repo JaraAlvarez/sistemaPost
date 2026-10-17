@@ -259,6 +259,38 @@ internal sealed class CatalogReader(PosDbContext context) : ICatalogReader
         return product is null ? null : ToInfo(product);
     }
 
+    public async Task<IReadOnlyDictionary<string, CatalogProductInfo>> FindByCodesAsync(
+        IReadOnlyCollection<string> skusOrBarcodes, CancellationToken cancellationToken = default)
+    {
+        var codes = skusOrBarcodes.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.Ordinal).ToList();
+        var result = new Dictionary<string, CatalogProductInfo>(StringComparer.Ordinal);
+        if (codes.Count == 0)
+        {
+            return result;
+        }
+
+        var skus = codes.Select(Product.NormalizeSku).Distinct().ToList();
+        var barcodes = codes.Select(Barcodes.NormalizeForLookup).Distinct().ToList();
+        var bySku = (await context.Set<Product>().AsNoTracking().Where(p => skus.Contains(p.Sku)).ToListAsync(cancellationToken))
+            .GroupBy(p => p.Sku).ToDictionary(g => g.Key, g => g.First());
+        var byBarcode = (await (from b in context.Set<ProductBarcode>().AsNoTracking()
+                                join p in context.Set<Product>().AsNoTracking() on b.ProductId equals p.Id
+                                where b.PackagingId == null && barcodes.Contains(b.NormalizedCode)
+                                select new { b.NormalizedCode, Product = p }).ToListAsync(cancellationToken))
+            .GroupBy(x => x.NormalizedCode).ToDictionary(g => g.Key, g => g.First().Product);
+        foreach (var code in codes)
+        {
+            // Igual que FindByCodeAsync: primero el SKU, luego el código de barras.
+            var product = bySku.GetValueOrDefault(Product.NormalizeSku(code)) ?? byBarcode.GetValueOrDefault(Barcodes.NormalizeForLookup(code));
+            if (product is not null)
+            {
+                result[code] = ToInfo(product);
+            }
+        }
+
+        return result;
+    }
+
     public async Task<IReadOnlyList<Guid>> ListStockableProductIdsAsync(IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken = default)
     {
         var products = context.Set<Product>().AsNoTracking()

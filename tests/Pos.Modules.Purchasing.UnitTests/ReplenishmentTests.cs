@@ -26,6 +26,20 @@ public class ReplenishmentMathTests
         ReplenishmentMath.SuggestedBaseQuantity(12m, 0m, 10m, null, null).ShouldBe(0m);
     }
 
+    [Fact]
+    public void Con_punto_de_pedido_y_sin_maximo_ni_cantidad_pide_hasta_el_punto()
+    {
+        // Mínimo 5, punto de pedido 8: con 3 en existencia se piden 5 (hasta el punto), no 2 (hasta el mínimo).
+        ReplenishmentMath.SuggestedBaseQuantity(3m, 0m, 5m, null, null, 8m).ShouldBe(5m);
+        ReplenishmentMath.SuggestedBaseQuantity(3m, 2m, 5m, null, null, 8m).ShouldBe(3m);
+        // Justo en el punto da cero: por eso la ficha pide el máximo o la cantidad a pedir cuando hay punto de pedido.
+        ReplenishmentMath.SuggestedBaseQuantity(8m, 0m, 5m, null, null, 8m).ShouldBe(0m);
+        // Un punto menor que el mínimo no baja el objetivo; con máximo o cantidad a pedir, el punto no cambia la cuenta.
+        ReplenishmentMath.SuggestedBaseQuantity(1m, 0m, 5m, null, null, 2m).ShouldBe(4m);
+        ReplenishmentMath.SuggestedBaseQuantity(3m, 0m, 5m, 30m, null, 8m).ShouldBe(27m);
+        ReplenishmentMath.SuggestedBaseQuantity(3m, 0m, 5m, null, 12m, 8m).ShouldBe(12m);
+    }
+
     [Theory]
     [InlineData(30, 24, false, 2, 48)] // 30 unidades en cajas x24 → 2 cajas.
     [InlineData(24, 24, false, 1, 24)] // Justo una caja.

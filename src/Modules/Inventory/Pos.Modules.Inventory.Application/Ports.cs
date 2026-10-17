@@ -124,9 +124,9 @@ public interface IInventoryReadModel
 
     /// <summary>
     /// Venta neta por producto en una bodega entre dos fechas de negocio (ventas menos anulaciones y devoluciones), solo productos
-    /// inventariables no descontinuados con venta mayor que cero. Para "Calcular mínimos sugeridos".
+    /// inventariables no descontinuados con venta mayor que cero, hasta <paramref name="limit"/> filas. Para "Calcular mínimos sugeridos".
     /// </summary>
-    Task<IReadOnlyList<ProductSalesRow>> GetNetSalesAsync(Guid warehouseId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ProductSalesRow>> GetNetSalesAsync(Guid warehouseId, DateOnly from, DateOnly to, int limit, CancellationToken cancellationToken);
 }
 
 public sealed record ProductSalesRow(Guid ProductId, string Sku, string ProductName, string BaseUnitCode, bool AllowsDecimalQuantity, decimal SoldQuantity);

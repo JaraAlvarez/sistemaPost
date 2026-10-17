@@ -342,7 +342,8 @@
                                 <MudText Typo="Typo.body2" Class="mb-3">
                                     Cuando la existencia baja del <b>mínimo</b> (o llega al <b>punto de pedido</b>), el producto aparece en
                                     <MudLink Href="/admin/reabastecimiento">Reabastecimiento</MudLink> con lo que falta para llegar al <b>máximo</b>.
-                                    Deje el máximo vacío si no lo usa.
+                                    Deje el máximo vacío si no lo usa; en ese caso se pide la <b>cantidad a pedir</b> o, sin ella, hasta el mínimo (o hasta
+                                    el punto de pedido si es mayor). Si usa punto de pedido, indique también el máximo o la cantidad a pedir.
                                 </MudText>
                                 @if (_politicas.Count == 0)
                                 {
@@ -352,7 +353,7 @@
                                 {
                                     <MudSimpleTable Dense="true" Outlined="true">
                                         <thead>
-                                            <tr><th>Bodega</th><th class="num">Mínimo</th><th class="num">Punto de pedido</th><th class="num">Máximo</th><th></th></tr>
+                                            <tr><th>Bodega</th><th class="num">Mínimo</th><th class="num">Punto de pedido</th><th class="num">Máximo</th><th class="num">Cantidad a pedir</th><th></th></tr>
                                         </thead>
                                         <tbody>
                                             @foreach (var fila in _politicas)
@@ -364,6 +365,7 @@
                                                         <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.Minimo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Mínimo en {fila.Bodega}")" /></td>
                                                         <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.Punto" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Punto de pedido en {fila.Bodega}")" /></td>
                                                         <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.Maximo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Máximo en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.CantidadPedido" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Cantidad a pedir en {fila.Bodega}")" /></td>
                                                         <td>
                                                             <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || fila.Minimo is null)"
                                                                        OnClick="@(() => GuardarPoliticaAsync(fila))">Guardar</MudButton>
@@ -374,6 +376,7 @@
                                                         <td class="num">@Cantidad(fila.Minimo)</td>
                                                         <td class="num">@Cantidad(fila.Punto)</td>
                                                         <td class="num">@Cantidad(fila.Maximo)</td>
+                                                        <td class="num">@Cantidad(fila.CantidadPedido)</td>
                                                         <td></td>
                                                     }
                                                 </tr>
@@ -529,7 +532,7 @@
 
         public decimal? Maximo { get; set; }
 
-        public decimal? CantidadPedido { get; init; }
+        public decimal? CantidadPedido { get; set; }
     }
 
     private string Estado => _producto?.Status ?? "";
@@ -700,6 +703,19 @@
     {
         if (Id is not { } id || fila.Minimo is not { } minimo)
         {
+            return;
+        }
+
+        if (fila.Punto is not null && fila.Maximo is null && fila.CantidadPedido is null)
+        {
+            Snackbar.Add("Con punto de pedido indique también el máximo o la cantidad a pedir: si no, al llegar al punto el sugerido puede quedar en cero.",
+                Severity.Warning);
+            return;
+        }
+
+        if (fila.CantidadPedido is <= 0)
+        {
+            Snackbar.Add("La cantidad a pedir debe ser mayor que cero (o déjela vacía).", Severity.Warning);
             return;
         }
 

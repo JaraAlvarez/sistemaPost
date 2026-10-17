@@ -233,7 +233,7 @@ internal sealed class InventoryReadModel(PosDbContext context, IInstallationCont
         public string? LotNumber { get; set; }
     }
 
-    public async Task<IReadOnlyList<ProductSalesRow>> GetNetSalesAsync(Guid warehouseId, DateOnly from, DateOnly to, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ProductSalesRow>> GetNetSalesAsync(Guid warehouseId, DateOnly from, DateOnly to, int limit, CancellationToken cancellationToken)
     {
         var (connection, transaction) = await DbSession.OpenAsync(context, cancellationToken);
         var rows = await connection.QueryAsync<SalesRow>(new CommandDefinition(
@@ -251,8 +251,8 @@ internal sealed class InventoryReadModel(PosDbContext context, IInstallationCont
                 GROUP BY m.product_id) s
             JOIN catalog.products p ON p.id = s.product_id
             WHERE s.sold > 0 AND p.product_type = 'STOCKABLE' AND p.status <> 'DISCONTINUED' AND p.deleted_at IS NULL
-            ORDER BY p.name COLLATE es_co
-            LIMIT {MaxRows}
+            ORDER BY s.sold DESC, p.name COLLATE es_co
+            LIMIT {Math.Clamp(limit, 1, MaxRows + 1)}
             """,
             new
             {

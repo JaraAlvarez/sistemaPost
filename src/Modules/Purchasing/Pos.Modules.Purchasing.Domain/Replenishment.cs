@@ -7,7 +7,9 @@ namespace Pos.Modules.Purchasing.Domain;
 /// <list type="bullet">
 /// <item>Con máximo: máximo − (existencia + pedido pendiente).</item>
 /// <item>Sin máximo y con cantidad a pedir: esa cantidad − pedido pendiente.</item>
-/// <item>Sin ninguno de los dos: hasta el mínimo, mínimo − (existencia + pedido pendiente).</item>
+/// <item>Sin ninguno de los dos: hasta el punto de pedido si es mayor que el mínimo, o hasta el mínimo:
+/// mayor(mínimo, punto de pedido) − (existencia + pedido pendiente). Si la existencia está justo en el punto de pedido esto da cero:
+/// por eso la ficha del producto pide el máximo o la cantidad a pedir cuando se usa punto de pedido.</item>
 /// </list>
 /// Nunca es negativo. Una existencia negativa (se vendió sin existencias registradas) aumenta el sugerido. Después se redondea hacia arriba
 /// a la presentación de compra (cajas completas): 30 unidades en cajas x24 → 2 cajas (48 unidades).
@@ -15,12 +17,13 @@ namespace Pos.Modules.Purchasing.Domain;
 public static class ReplenishmentMath
 {
     /// <summary>Sugerido en unidades base, sin redondear.</summary>
-    public static decimal SuggestedBaseQuantity(decimal stock, decimal pending, decimal min, decimal? max, decimal? reorderQuantity)
+    public static decimal SuggestedBaseQuantity(
+        decimal stock, decimal pending, decimal min, decimal? max, decimal? reorderQuantity, decimal? reorderPoint = null)
     {
         var available = stock + Math.Max(0m, pending);
         var need = max is { } top ? top - available
             : reorderQuantity is { } lot ? lot - Math.Max(0m, pending)
-            : min - available;
+            : Math.Max(min, reorderPoint ?? 0m) - available;
         return Math.Max(0m, need);
     }
 

@@ -140,17 +140,10 @@ internal sealed class ImportStockPoliciesHandler(
             return InventoryErrors.PolicyImportNeedsWarehouse;
         }
 
-        // Productos del archivo (por SKU o código de barras) y sus políticas actuales.
-        var products = new Dictionary<string, CatalogProductInfo?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in table.Value.Rows)
-        {
-            if (row.Get(productColumn) is { } code && !products.ContainsKey(code))
-            {
-                products[code] = await catalog.FindByCodeAsync(code, cancellationToken);
-            }
-        }
-
-        var policies = (await store.GetPoliciesAsync([.. products.Values.OfType<CatalogProductInfo>().Select(p => p.Id)], cancellationToken))
+        // Productos del archivo (por SKU o código de barras, en una sola consulta) y sus políticas actuales.
+        var products = await catalog.FindByCodesAsync(
+            [.. table.Value.Rows.Select(r => r.Get(productColumn)).OfType<string>().Distinct(StringComparer.Ordinal)], cancellationToken);
+        var policies = (await store.GetPoliciesAsync([.. products.Values.Select(p => p.Id).Distinct()], cancellationToken))
             .ToDictionary(p => (p.WarehouseId, p.ProductId));
 
         var seen = new Dictionary<(Guid, Guid), int>();
@@ -158,6 +151,7 @@ internal sealed class ImportStockPoliciesHandler(
         foreach (var row in table.Value.Rows)
         {
             var errors = new List<string>();
+            var warnings = new List<string>();
             var code = row.Get(productColumn);
             var product = code is null ? null : products.GetValueOrDefault(code);
             if (code is null)
@@ -171,6 +165,14 @@ internal sealed class ImportStockPoliciesHandler(
             else if (!product.IsStockable)
             {
                 errors.Add("El producto es un servicio: no maneja existencias.");
+            }
+            else if (product.Status == "DISCONTINUED")
+            {
+                errors.Add("El producto está descontinuado: ya no se compra ni se repone.");
+            }
+            else if (product.Status == "INACTIVE")
+            {
+                warnings.Add("El producto está inactivo: no aparecerá en la caja hasta activarlo.");
             }
 
             var warehouseCode = row.Get("bodega");
@@ -218,7 +220,7 @@ internal sealed class ImportStockPoliciesHandler(
                 : "UPDATE";
             analyzed.Add((
                 new StockPolicyImportRowDto(row.Number, action, code, product?.Id, product?.Name, warehouse?.Code, min, max, reorderPoint,
-                    current?.MinQty, current?.MaxQty, errors),
+                    current?.MinQty, current?.MaxQty, errors, warnings),
                 warehouse, current?.ReorderQty));
         }
 
@@ -289,12 +291,14 @@ internal sealed class ImportStockPoliciesHandler(
 /// "Calcular mínimos sugeridos": venta neta de los últimos <c>Days</c> días en la bodega ÷ días = venta diaria; mínimo = venta diaria ×
 /// días de entrega; máximo = venta diaria × (días de entrega + días de cobertura). Solo muestra: nada se guarda hasta aplicar.
 /// </summary>
-public sealed record SuggestMinimumsQuery(Guid WarehouseId, int Days, int LeadTimeDays, int CoverageDays) : IQuery<IReadOnlyList<MinimumSuggestionDto>>;
+public sealed record SuggestMinimumsQuery(Guid WarehouseId, int Days, int LeadTimeDays, int CoverageDays) : IQuery<MinimumSuggestionsDto>;
 
 internal sealed class SuggestMinimumsHandler(InventoryGuards guards, IInventoryReadModel readModel, IInventoryStore store, IClock clock)
-    : IQueryHandler<SuggestMinimumsQuery, IReadOnlyList<MinimumSuggestionDto>>
+    : IQueryHandler<SuggestMinimumsQuery, MinimumSuggestionsDto>
 {
-    public async Task<Result<IReadOnlyList<MinimumSuggestionDto>>> Handle(SuggestMinimumsQuery request, CancellationToken cancellationToken)
+    public const int MaxRows = 5000;
+
+    public async Task<Result<MinimumSuggestionsDto>> Handle(SuggestMinimumsQuery request, CancellationToken cancellationToken)
     {
         if (request.Days is < 1 or > MinimumSuggestion.MaxDays || request.LeadTimeDays is < 1 or > 180 || request.CoverageDays is < 0 or > 180)
         {
@@ -310,18 +314,20 @@ internal sealed class SuggestMinimumsHandler(InventoryGuards guards, IInventoryR
         // Los últimos N días completos (hoy no cuenta: el día no ha terminado).
         var to = clock.Today.AddDays(-1);
         var from = clock.Today.AddDays(-request.Days);
-        var sales = await readModel.GetNetSalesAsync(request.WarehouseId, from, to, cancellationToken);
+        var sales = await readModel.GetNetSalesAsync(request.WarehouseId, from, to, MaxRows + 1, cancellationToken);
+        var truncated = sales.Count > MaxRows;
+        sales = [.. sales.Take(MaxRows)];
         var policies = (await store.GetPoliciesAsync([.. sales.Select(s => s.ProductId)], cancellationToken))
             .Where(p => p.WarehouseId == request.WarehouseId)
             .ToDictionary(p => p.ProductId);
-        return sales.Select(s =>
+        return new MinimumSuggestionsDto([.. sales.Select(s =>
         {
             var (average, min, max) = MinimumSuggestion.Calculate(s.SoldQuantity, request.Days, request.LeadTimeDays, request.CoverageDays, s.AllowsDecimalQuantity);
             var current = policies.GetValueOrDefault(s.ProductId);
             return new MinimumSuggestionDto(
                 warehouse.Value.Id, warehouse.Value.Code, s.ProductId, s.Sku, s.ProductName, s.BaseUnitCode, s.SoldQuantity, average,
                 current?.MinQty, current?.MaxQty, min, max);
-        }).ToList();
+        })], truncated);
     }
 }
 

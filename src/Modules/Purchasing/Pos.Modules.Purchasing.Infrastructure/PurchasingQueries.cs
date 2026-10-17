@@ -250,12 +250,13 @@ internal sealed class PurchasingQueries(PosDbContext context, IInstallationConte
                 ORDER BY x.is_preferred DESC, x.last_purchase_at DESC NULLS LAST, x.created_at
                 LIMIT 1) sup ON true
             WHERE sp.branch_id = @branchId AND sp.deleted_at IS NULL AND pr.deleted_at IS NULL AND pr.status <> 'DISCONTINUED'
+              AND w.status = 'ACTIVE' AND w.kind <> 'IN_TRANSIT'
               AND (COALESCE(bal.quantity, 0) < sp.min_qty OR (sp.reorder_point IS NOT NULL AND COALESCE(bal.quantity, 0) <= sp.reorder_point))
               AND (@warehouseId::uuid IS NULL OR sp.warehouse_id = @warehouseId)
               AND (@category::text IS NULL OR c.path LIKE @category)
               AND (@supplierId::uuid IS NULL OR sup.supplier_id = @supplierId)
             ORDER BY sup.supplier_name NULLS LAST, w.code, pr.name COLLATE es_co
-            LIMIT 5000
+            LIMIT {Math.Clamp(filter.Limit, 1, 100_000)}
             """,
             new
             {

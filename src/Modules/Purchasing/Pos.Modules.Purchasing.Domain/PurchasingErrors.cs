@@ -142,4 +142,15 @@ public static class PurchasingErrors
 
     public static readonly Error SupplierRequiredForSuggestion = Error.Validation(
         "PURCHASING.SUPPLIER_REQUIRED", "Hay productos marcados sin proveedor: asígneles uno en el grupo \"Sin proveedor\" o desmárquelos.");
+
+    public static readonly Error SuggestionBatchRequired = Error.Validation(
+        "PURCHASING.SUGGESTION_BATCH_REQUIRED", "Falta la clave del pedido (batchId): vuelva a cargar la pantalla e intente de nuevo.");
+
+    public static readonly Error SuggestionBatchReused = Error.Conflict(
+        "PURCHASING.SUGGESTION_BATCH_REUSED", "Ese pedido ya se envió con otros productos o cantidades: vuelva a cargar la pantalla.");
+
+    public static Error SuggestionChanged(IEnumerable<string> products) => Error.Conflict(
+        "PURCHASING.SUGGESTION_CHANGED",
+        $"El pedido sugerido cambió mientras lo revisaba (otra persona creó órdenes o cambiaron las existencias): {string.Join(", ", products)}. "
+        + "Actualice la pantalla, revise las cantidades y vuelva a crear las órdenes.");
 }
