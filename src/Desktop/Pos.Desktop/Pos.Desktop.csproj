@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Ventana propia de BusinessPost (Fase 13-B, D13B-07): BusinessPost.exe reemplaza a "Microsoft Edge en modo aplicación". Es una
+    ventana de Windows (WinForms) con WebView2, el motor de Edge que ya trae Windows 10/11; muestra la misma interfaz de siempre, con
+    pantalla de carga de la marca, sin barra de direcciones y sin poder navegar a otros sitios. No guarda datos de la tienda.
+    Se publica autocontenido en un solo archivo (tools/scripts/build-installer.ps1) y el instalador lo deja en {app}\desktop.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Pos.Desktop</RootNamespace>
+    <AssemblyName>BusinessPost</AssemblyName>
+    <ApplicationIcon>BusinessPost.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+    <ApplicationDefaultFont>Segoe UI, 9pt</ApplicationDefaultFont>
+    <!-- P/Invoke a user32 con LibraryImport (código generado) para traer al frente la ventana ya abierta. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- El paquete WebView2 trae también el control de WPF (no se usa); su referencia a WindowsBase 5.0 solo genera un aviso. -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+    <!-- Un solo .exe: las bibliotecas nativas (WebView2Loader.dll) van dentro y se extraen solas. -->
+    <!-- Solo el .exe (y el aviso de licencia) en la carpeta publicada: símbolos dentro del .exe, sin los XML de documentación. -->
+    <DebugType>embedded</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
+    <EnableCompressionInSingleFile Condition="'$(PublishSingleFile)' == 'true'">true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+    <!-- Aviso de la licencia BSD-3-Clause de WebView2: debe acompañar al binario redistribuido. -->
+    <None Include="LICENSE-WebView2.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pantalla de carga local (nunca remota) y su tipografía Inter (OFL-1.1, misma copia de la interfaz de la tienda). -->
+    <EmbeddedResource Include="Recursos\carga.html" LogicalName="carga.html" />
+    <EmbeddedResource Include="..\..\Client\Pos.Client\wwwroot\fonts\inter-latin.woff2" Link="Recursos\inter-latin.woff2" LogicalName="inter-latin.woff2" />
+    <EmbeddedResource Include="..\..\Client\Pos.Client\wwwroot\fonts\inter-latin-ext.woff2" Link="Recursos\inter-latin-ext.woff2" LogicalName="inter-latin-ext.woff2" />
+    <EmbeddedResource Include="..\..\Client\Pos.Client\wwwroot\fonts\OFL.txt" Link="Recursos\OFL.txt" LogicalName="OFL.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Modo precalentar (D17C-02): el instalador puede abrirlo con "precalentar" para que el antivirus lo revise antes del primer uso. -->
+    <Compile Include="..\..\Shared\Precalentamiento\Precalentamiento.cs" Link="Precalentamiento.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Desktop.Tests" />
+  </ItemGroup>
+</Project>

@@ -141,3 +141,27 @@ da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a 
   mano; el instalador espera a que BusinessPost responda (y lo vuelve a iniciar si hace falta) y Windows lo reinicia solo si se cae.
 - **En desarrollo:** para evitar la espera después de cada compilación, arranque el servidor con
   `dotnet src/Server/Pos.Server.Host/bin/Debug/net10.0/Pos.Server.Host.dll` en lugar del `.exe`.
+
+## 9. Ventana propia BusinessPost.exe (Fase 13-B, D13B-07)
+
+- **Qué es:** el acceso directo "BusinessPost" (escritorio y menú Inicio) abre `C:\Program Files\BusinessPost\desktop\BusinessPost.exe`,
+  una ventana de Windows con WebView2 (el motor de Edge que ya trae Windows 10/11) en lugar de Edge en modo aplicación. Mismo
+  programa para "única caja", "equipo principal" y "caja adicional". Si falta el `.exe`, el instalador deja los accesos de Edge de antes.
+- **A dónde se conecta:** `--url <dirección>` en la línea de comandos (pruebas y soporte; con `--huella <sha256>` para un certificado
+  propio) → `C:\ProgramData\BusinessPost\config\desktop.json` (opcional: `StartUrl`, `ServerCertificateThumbprint` y
+  `AllowedOrigins`, sitios extra que pueden abrirse dentro de la ventana) → caja adicional: `updater.json` (`ServerUrl` y la huella
+  del equipo principal, que escribe el instalador) → `http://localhost:<Pos:Server:Port de server.json>/` (5480 por defecto).
+- **Pantalla de carga:** propia, dentro del programa. Consulta `/health/live` cada segundo: "Iniciando BusinessPost…", a los 20 s el
+  aviso de la revisión de Windows y a los 5 min un error con "Reintentar" y "Cómo resolverlo". Si la conexión se cae con la ventana
+  abierta (reinicio del servicio, actualización), vuelve a esta pantalla y entra sola cuando responde; nunca se ve la página de error de Edge.
+- **Reglas:** solo navega dentro de la dirección de BusinessPost; los enlaces a otros sitios (pagar la mensualidad, tutiendanueva.com) se
+  abren en el navegador predeterminado. Sin herramientas de desarrollo, sin zoom con Ctrl + rueda y con el menú del clic derecho reducido
+  a Cortar/Copiar/Pegar. Imprimir (`window.print`) y las descargas (cuadro "Guardar como") funcionan. **F11** pone o quita la pantalla
+  completa (útil en la caja). La caja adicional acepta el certificado propio del equipo principal solo si su huella coincide.
+- **Por usuario de Windows:** `%LOCALAPPDATA%\BusinessPost\desktop.json` (tamaño, posición, maximizada, pantalla completa),
+  `desktop.log` (registro para soporte) y `WebView2\` (datos del motor). Un solo programa abierto a la vez: abrirlo otra vez trae al
+  frente la ventana existente.
+- **Si no abre:** si Windows no tiene "Microsoft Edge WebView2 Runtime" (raro en Windows 10/11), el programa lo dice y ofrece abrir la
+  página oficial de descarga. `BusinessPost.exe --precalentar` carga el programa y termina (para el paso de Windows Defender del instalador).
+- **Actualizaciones:** `BusinessPost.exe` se actualiza con el instalador (no va en el ZIP del actualizador). El ícono se genera con
+  `tools/scripts/generar-icono-escritorio.ps1`.

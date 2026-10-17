@@ -124,6 +124,9 @@
     <Project Path="src/Shared/Pos.Updates.Contracts/Pos.Updates.Contracts.csproj" />
     <Project Path="src/Shared/Pos.Sync.Contracts/Pos.Sync.Contracts.csproj" />
   </Folder>
+  <Folder Name="/src/Desktop/">
+    <Project Path="src/Desktop/Pos.Desktop/Pos.Desktop.csproj" />
+  </Folder>
   <Folder Name="/src/Terminal/">
     <Project Path="src/Terminal/Pos.Terminal.Agent/Pos.Terminal.Agent.csproj" />
   </Folder>
@@ -158,6 +161,7 @@
     <Project Path="tests/Pos.Modules.Sales.UnitTests/Pos.Modules.Sales.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />
+    <Project Path="tests/Pos.Desktop.Tests/Pos.Desktop.Tests.csproj" />
     <Project Path="tests/Pos.Terminal.Agent.Tests/Pos.Terminal.Agent.Tests.csproj" />
   </Folder>
 </Solution>

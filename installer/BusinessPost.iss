@@ -59,14 +59,20 @@ Source: "{#PackageDir}\app\{#AppVersion}\migrator\*"; DestDir: "{app}\app\{#AppV
 Source: "{#PackageDir}\app\{#AppVersion}\agent\*";    DestDir: "{app}\app\{#AppVersion}\agent";    Flags: recursesubdirs ignoreversion
 Source: "{#PackageDir}\pgsql\*";                      DestDir: "{app}\pgsql";                      Flags: recursesubdirs ignoreversion; Check: IsServerMode
 Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"; Flags: ignoreversion
+; Ventana propia BusinessPost.exe (Fase 13-B, D13B-07), en los dos modos. Si está abierta al reinstalar, se reemplaza al reiniciar.
+Source: "{#PackageDir}\desktop\*"; DestDir: "{app}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist
 ; Ayudantes del primer arranque (Fase 13-B): no se instalan; se usan desde la carpeta temporal durante la instalación.
 Source: "scripts\precalentar.ps1";      Flags: dontcopy
 Source: "scripts\esperar-servicio.ps1"; Flags: dontcopy
 
 [Icons]
-; La interfaz se abre en Edge en modo aplicación (Fase 15, D15-03): sin barra de direcciones ni pestañas, como un programa.
-Name: "{commondesktop}\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"
-Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"
+; La interfaz se abre en la ventana propia BusinessPost.exe (Fase 13-B, D13B-07): lee la dirección de C:\ProgramData\BusinessPost\config
+; (equipo principal: localhost; caja adicional: el equipo principal de updater.json) y muestra la pantalla de carga mientras arranca.
+Name: "{commondesktop}\BusinessPost"; Filename: "{app}\desktop\BusinessPost.exe"; WorkingDir: "{app}\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
+Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{app}\desktop\BusinessPost.exe"; WorkingDir: "{app}\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
+; Respaldo solo si falta BusinessPost.exe: Edge en modo aplicación (Fase 15, D15-03), como antes.
+Name: "{commondesktop}\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"; Check: not HasDesktopApp
+Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; Check: not HasDesktopApp
 Name: "{commonprograms}\BusinessPost\Paquete de soporte"; Filename: "{app}\app\current\migrator\Pos.Server.Migrator.exe"; Parameters: "support-bundle"; Check: IsServerMode
 
 [UninstallRun]
@@ -112,6 +118,12 @@ begin
   Result := ExpandConstant('{commonpf32}\Microsoft\Edge\Application\msedge.exe');
   if not FileExists(Result) then
     Result := ExpandConstant('{commonpf64}\Microsoft\Edge\Application\msedge.exe');
+end;
+
+// Fase 13-B (D13B-07): los accesos directos abren BusinessPost.exe; Edge en modo aplicación queda solo de respaldo si falta.
+function HasDesktopApp: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\desktop\BusinessPost.exe'));
 end;
 
 procedure InitializeWizard;

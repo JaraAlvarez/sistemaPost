@@ -59,6 +59,8 @@ Publish 'src\Server\Pos.Server.Host\Pos.Server.Host.csproj' (Join-Path $app 'ser
 Publish 'src\Server\Pos.Server.Migrator\Pos.Server.Migrator.csproj' (Join-Path $app 'migrator')
 Publish 'src\Terminal\Pos.Terminal.Agent\Pos.Terminal.Agent.csproj' (Join-Path $app 'agent')
 Publish 'src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj' (Join-Path $package 'updater') -SingleFile
+# Ventana propia BusinessPost.exe (Fase 13-B, D13B-07): un solo .exe autocontenido; el instalador lo copia a {app}\desktop.
+Publish 'src\Desktop\Pos.Desktop\Pos.Desktop.csproj' (Join-Path $package 'desktop') -SingleFile
 
 # Firma de código (Authenticode): los ejecutables propios firmados no quedan retenidos por Windows Defender en el primer arranque.
 function Sign([string[]] $files) {
@@ -74,7 +76,7 @@ function Sign([string[]] $files) {
 
 if ($CodeSigningThumbprint) {
     Write-Host 'Firmando los ejecutables propios (Authenticode)...' -ForegroundColor Cyan
-    $own = Get-ChildItem $app, (Join-Path $package 'updater') -Recurse -Include 'Pos.*.exe', 'Pos.*.dll', 'BusinessPost*.exe' | ForEach-Object FullName
+    $own = Get-ChildItem $app, (Join-Path $package 'updater'), (Join-Path $package 'desktop') -Recurse -Include 'Pos.*.exe', 'Pos.*.dll', 'BusinessPost*.exe' | ForEach-Object FullName
     Sign $own
 } else {
     Write-Warning 'Sin -CodeSigningThumbprint: los ejecutables van sin firma de código. El primer arranque tras instalar o actualizar puede tardar varios minutos (docs/guia-instalacion.md §8).'

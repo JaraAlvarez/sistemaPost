@@ -21,6 +21,8 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.13" />
+    <!-- Fase 13-B (D13B-07): ventana propia BusinessPost.exe con el motor de Edge (WebView2). BSD-3-Clause. -->
+    <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
     <PackageVersion Include="MiniExcel" Version="1.46.0" />
     <!-- Fase 12-A (nube): componentes del portal web y código QR para el doble factor. -->
     <PackageVersion Include="MudBlazor" Version="9.11.0" />

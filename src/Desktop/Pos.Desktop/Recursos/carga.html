@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BusinessPost</title>
+<!--
+  Pantalla de carga de BusinessPost.exe (Fase 13-B, D13B-07). Va dentro del programa (nunca se descarga): la sirve la propia ventana en
+  https://carga.businesspost.invalid/ mientras espera a que BusinessPost responda. Estilo de la maqueta aprobada
+  (docs/diseno/instalador-premium-maqueta.html). La ventana le envía {fase: "iniciando" | "lento" | "error", direccion, cajaAdicional}.
+-->
+<style>
+@font-face{font-family:Inter;font-style:normal;font-weight:100 900;font-display:swap;src:url(/inter-latin.woff2) format("woff2");
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:Inter;font-style:normal;font-weight:100 900;font-display:swap;src:url(/inter-latin-ext.woff2) format("woff2");
+  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+:root{--azul-1:#11157D;--azul-2:#2524C8;--morado:#5B3DF5;--morado-2:#4A2DE0;--turquesa:#2DD4BF;--texto:#1F2432;--texto-2:#6B7280}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:Inter,"Segoe UI Variable","Segoe UI",system-ui,sans-serif;color:#fff;user-select:none;cursor:default;
+  background:linear-gradient(150deg,var(--azul-1),var(--azul-2) 55%,var(--morado));display:grid;place-items:center;position:relative}
+body::before{content:"";position:absolute;right:-180px;bottom:-200px;width:620px;height:620px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(45,212,191,.28),transparent);pointer-events:none}
+body::after{content:"";position:absolute;left:-200px;top:-220px;width:620px;height:620px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,255,255,.08),transparent);pointer-events:none}
+.onda{position:absolute;left:0;bottom:0;width:100%;height:28vh;pointer-events:none}
+main{position:relative;z-index:1;width:min(560px,calc(100% - 48px));text-align:center;animation:entra .4s ease}
+@keyframes entra{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.logo{display:inline-flex;align-items:center;gap:14px;font-weight:800;font-size:30px;letter-spacing:-.02em}
+.logo .post{color:#C4B5FD}
+.giro{width:46px;height:46px;margin:44px auto 26px;border-radius:50%;border:4px solid rgba(255,255,255,.18);border-top-color:var(--turquesa);
+  animation:gira .9s linear infinite}
+@keyframes gira{to{transform:rotate(360deg)}}
+h1{font-size:20px;font-weight:600;margin:0 0 10px;letter-spacing:-.01em}
+.detalle{font-size:14.5px;line-height:1.6;margin:0 auto;max-width:460px;color:rgba(255,255,255,.78);min-height:3.2em}
+.tarjeta{display:none;margin-top:36px;background:#fff;color:var(--texto);border-radius:22px;padding:28px 30px;text-align:left;
+  box-shadow:0 40px 90px -30px rgba(10,6,50,.75),inset 0 1px rgba(255,255,255,.4)}
+.tarjeta h2{font-size:19px;margin:0 0 8px;letter-spacing:-.01em}
+.tarjeta p{font-size:14px;line-height:1.6;color:var(--texto-2);margin:0}
+.botones{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.btn{border:0;border-radius:999px;padding:12px 24px;font:inherit;font-weight:600;font-size:14px;cursor:pointer;transition:.15s}
+.btn-primario{background:var(--morado);color:#fff;box-shadow:6px 6px 16px rgba(93,68,160,.35)}
+.btn-primario:hover{background:var(--morado-2);transform:translateY(-1px)}
+.btn-sec{background:#F2F1F9;color:var(--texto)}
+.btn-sec:hover{background:#e6e4f5}
+.btn:focus-visible{outline:3px solid rgba(91,61,245,.35);outline-offset:2px}
+.pasos{display:none;margin:18px 0 0;padding:16px 18px 16px 36px;background:#F7F6FC;border-radius:14px;font-size:13.5px;line-height:1.6;color:var(--texto)}
+.pasos li+li{margin-top:6px}
+.pasos .caja{display:none}
+.direccion{margin-top:14px;font-size:12px;color:var(--texto-2)}
+body.error .giro{display:none}
+body.error .tarjeta{display:block}
+body.error h1,body.error .detalle{display:none}
+body.error .logo{margin-bottom:0}
+body.ayuda .pasos{display:block}
+body.caja .pasos .caja{display:list-item}
+</style>
+</head>
+<body>
+<svg class="onda" viewBox="0 0 340 150" preserveAspectRatio="none" aria-hidden="true"><path d="M0,70 C90,130 220,20 340,80 L340,150 L0,150 Z" fill="rgba(255,255,255,.06)"/><path d="M0,100 C110,150 230,60 340,110 L340,150 L0,150 Z" fill="rgba(255,255,255,.07)"/></svg>
+<main>
+  <div class="logo">
+    <svg width="54" height="54" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".14"/><path fill="#fff" fill-rule="evenodd" d="M9 7H17C20 7 22 9 22 11.6C22 13.3 21.1 14.7 19.8 15.4C21.8 16.1 23 17.9 23 20.1C23 23 20.8 25 17.8 25H9ZM12.6 10.2V14H16.7C17.9 14 18.6 13.2 18.6 12.1C18.6 11 17.9 10.2 16.7 10.2ZM12.6 17.1V21.8H17.2C18.6 21.8 19.4 20.9 19.4 19.45C19.4 18 18.6 17.1 17.2 17.1Z"/><circle cx="26" cy="26" r="2.6" fill="#2DD4BF"/></svg>
+    <span>Business<span class="post">Post</span></span>
+  </div>
+
+  <div class="giro" role="progressbar" aria-label="Cargando"></div>
+  <h1 id="titulo">Iniciando BusinessPost…</h1>
+  <p class="detalle" id="detalle" aria-live="polite">&nbsp;</p>
+
+  <section class="tarjeta" role="alert">
+    <h2>BusinessPost no responde todavía</h2>
+    <p>Lleva más de 5 minutos sin responder. Sus datos están a salvo: puede volver a intentarlo o seguir los pasos para resolverlo.</p>
+    <div class="botones">
+      <button class="btn btn-primario" id="reintentar" type="button">Reintentar</button>
+      <button class="btn btn-sec" id="como" type="button" aria-expanded="false">Cómo resolverlo</button>
+    </div>
+    <ol class="pasos" id="pasos">
+      <li class="caja">Esta es una caja adicional: revise que el <b>equipo principal</b> del local esté encendido y conectado a la misma red.</li>
+      <li><b>Reinicie el computador.</b> BusinessPost se inicia solo al encender el equipo; después de reiniciar, espere un par de minutos y ábralo de nuevo.</li>
+      <li>La primera vez después de instalar o actualizar, Windows revisa los archivos nuevos y puede tardar varios minutos más.</li>
+      <li>Si aun así no abre, en el <b>menú Inicio</b> busque <b>BusinessPost → Paquete de soporte</b> (en el equipo principal) y envíe a soporte el archivo que queda en el escritorio.</li>
+    </ol>
+    <div class="direccion" id="direccion"></div>
+  </section>
+</main>
+<script>
+(function () {
+  "use strict";
+  var textos = {
+    iniciando: ["Iniciando BusinessPost…", ""],
+    lento: ["Iniciando BusinessPost…", "La primera vez puede tardar unos minutos mientras Windows revisa los archivos…"],
+    error: ["", ""]
+  };
+  var webview = window.chrome && window.chrome.webview;
+
+  function mostrar(estado) {
+    var fase = textos[estado.fase] ? estado.fase : "iniciando";
+    document.body.classList.toggle("error", fase === "error");
+    document.body.classList.toggle("caja", !!estado.cajaAdicional);
+    document.getElementById("titulo").textContent = textos[fase][0];
+    document.getElementById("detalle").textContent = textos[fase][1] || " ";
+    document.getElementById("direccion").textContent = estado.direccion ? "Dirección: " + estado.direccion : "";
+  }
+
+  document.getElementById("reintentar").addEventListener("click", function () {
+    document.body.classList.remove("ayuda");
+    mostrar({ fase: "iniciando" });
+    if (webview) webview.postMessage("reintentar");
+  });
+  document.getElementById("como").addEventListener("click", function () {
+    var abierto = document.body.classList.toggle("ayuda");
+    this.setAttribute("aria-expanded", abierto ? "true" : "false");
+  });
+
+  if (webview) {
+    webview.addEventListener("message", function (e) { if (e.data && typeof e.data === "object") mostrar(e.data); });
+    webview.postMessage("lista");
+  }
+})();
+</script>
+</body>
+</html>

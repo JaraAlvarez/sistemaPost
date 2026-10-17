@@ -153,3 +153,10 @@ También puede pagar desde el portal de BusinessPost, en **Personal → Mi suscr
 Instale BusinessPost en el computador nuevo con la misma opción que tenía el anterior. En la página **"Recuperar desde un
 backup"** escriba el **código de recuperación** que guardó en el paso 3 y, en la página siguiente, elija el archivo del backup
 (termina en `.posbak`). Si no tiene el archivo del backup, comuníquese con soporte antes de instalar.
+
+## 10. La ventana de BusinessPost
+
+BusinessPost se abre en **su propia ventana** (con su ícono y su nombre en la barra de tareas), no en el navegador. Mientras el sistema
+arranca verá la pantalla **"Iniciando BusinessPost…"**; la primera vez después de instalar puede tardar unos minutos. Si lleva más de 5
+minutos, use **"Reintentar"** o **"Cómo resolverlo"**. En la caja, **F11** pone la ventana en pantalla completa (vuelva a pulsar F11 para
+salir). Los enlaces a otras páginas, como pagar la mensualidad, se abren en su navegador de siempre.
