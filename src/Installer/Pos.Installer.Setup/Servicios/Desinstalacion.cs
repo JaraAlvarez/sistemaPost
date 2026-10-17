@@ -27,7 +27,7 @@ internal sealed class Desinstalacion(Action<object> avisar)
     }
 
     /// <summary>Backup final cifrado y verificado en Documentos (sobrevive aunque se borren los datos). Devuelve la ruta o el error.</summary>
-    public static async Task<Respuesta<string>> BackupFinalAsync(CancellationToken cancellationToken)
+    public static async Task<Respuesta<string>> BackupFinalAsync(string destino, CancellationToken cancellationToken)
     {
         var carpeta = Sistema.CarpetaInstalada();
         var migrador = carpeta is null ? null : Path.Combine(carpeta, "app", "current", "migrator", "Pos.Server.Migrator.exe");
@@ -36,8 +36,8 @@ internal sealed class Desinstalacion(Action<object> avisar)
             return new(null, "En este equipo no hay datos de la tienda para respaldar (es una caja adicional).");
         }
 
-        var destino = Sistema.CarpetaBackupFinal();
         Directory.CreateDirectory(destino);
+        var antes = SalidaMigrador.Backups(destino);
         var inicio = new ProcessStartInfo(migrador)
         {
             UseShellExecute = false,
@@ -50,10 +50,15 @@ internal sealed class Desinstalacion(Action<object> avisar)
         var salida = proceso.StandardOutput.ReadToEndAsync(cancellationToken);
         var errores = proceso.StandardError.ReadToEndAsync(cancellationToken);
         await proceso.WaitForExitAsync(cancellationToken);
-        _ = await salida + await errores;
-        var archivo = new DirectoryInfo(destino).GetFiles("*.posbak").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault();
+        var texto = await salida;
+        _ = await errores;
+        // La ruta EXACTA que informó el migrador (no "el .posbak más reciente" de la carpeta: puede haber otros, p. ej. en una USB). Si
+        // la salida no se pudo leer (p. ej. una carpeta con tildes en la página de códigos de la consola), el archivo NUEVO de esa carpeta.
+        var archivo = SalidaMigrador.RutaBackup(texto) is { } informado && File.Exists(informado)
+            ? informado
+            : SalidaMigrador.BackupNuevo(destino, antes);
         return proceso.ExitCode == 0 && archivo is not null
-            ? new(archivo.FullName)
+            ? new(Path.GetFullPath(archivo))
             : new(null, "No se pudo hacer el backup final. Puedes desinstalar igual; tus datos se conservan si no marcas \"Borrar también los datos\".");
     }
 

@@ -149,3 +149,24 @@ public class BackupTests
         sanitized.ShouldContain("Password=***");
     }
 }
+
+/// <summary>I3: el instalador entrega el código de recuperación al migrador en un archivo que se lee una vez y se borra.</summary>
+public class RecoveryCodeFileTests
+{
+    [Fact]
+    public void Lee_el_codigo_sin_espacios_y_borra_el_archivo()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"recuperacion-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(file, "  7F3A-91C2-0B44-E1D8-AB12-CD34\r\n");
+
+        var (code, deleted) = RecoveryCodeFile.ReadAndDelete(file);
+
+        code.ShouldBe("7F3A-91C2-0B44-E1D8-AB12-CD34");
+        deleted.ShouldBeTrue();
+        File.Exists(file).ShouldBeFalse("El código no debe quedar en disco.");
+    }
+
+    [Fact]
+    public void Sin_el_archivo_lo_dice_claramente() =>
+        Should.Throw<FileNotFoundException>(() => RecoveryCodeFile.ReadAndDelete(Path.Combine(Path.GetTempPath(), $"no-existe-{Guid.NewGuid():N}.txt")));
+}

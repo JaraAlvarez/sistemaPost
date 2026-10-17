@@ -92,7 +92,7 @@ public class EsperaAutorizacionTests
         (await simulacion.EjecutarAsync(espera)).ShouldBe(EstadoEspera.Vencida);
 
         espera.FallasDeConexion.ShouldBeGreaterThan(100);
-        espera.Mensaje!.ShouldContain("Continuar con Google");
+        espera.Mensaje!.ShouldContain("Reintentar");
         simulacion.Ahora.ShouldBeLessThanOrEqualTo(espera.Vence, "Nunca consulta después de vencer.");
     }
 

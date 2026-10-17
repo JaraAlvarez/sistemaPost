@@ -38,20 +38,82 @@ internal static class Program
         }
 
         // Desinstalar desde {app}\instalador: el desinstalador de Inno borra esa carpeta, así que se trabaja desde una copia temporal.
-        if (desinstalar && !maqueta && !args.Contains("--copia", StringComparer.OrdinalIgnoreCase)
+        var copiaTemporal = args.Contains("--copia", StringComparer.OrdinalIgnoreCase);
+        if (desinstalar && !maqueta && !copiaTemporal
             && Sistema.CarpetaInstalada() is { } carpeta
-            && Environment.ProcessPath!.StartsWith(carpeta, StringComparison.OrdinalIgnoreCase))
+            && Rutas.EstaDentro(Environment.ProcessPath, carpeta))
         {
-            var copia = Path.Combine(Sistema.CarpetaTemporal(), $"BusinessPost-Desinstalar-{Guid.NewGuid():N}.exe");
-            File.Copy(Environment.ProcessPath, copia, overwrite: true);
+            var copia = Path.Combine(Sistema.CarpetaTemporal(), $"{Rutas.PrefijoCopiaDesinstalar}{Guid.NewGuid():N}.exe");
+            File.Copy(Environment.ProcessPath!, copia, overwrite: true);
             Process.Start(new ProcessStartInfo(copia) { UseShellExecute = false, ArgumentList = { "--desinstalar", "--copia" } });
             return 0;
         }
 
+        Sistema.BorrarCopiasViejas();
+        // IR6: archivos del código que dejó una ejecución anterior cuyo paquete siguió trabajando.
+        Sistema.BorrarArchivosDeCodigo(TimeSpan.FromHours(2));
         ApplicationConfiguration.Initialize();
         // ‑‑maqueta ‑‑pantalla <nombre>: abre directo en una pantalla (revisión del diseño).
         var pantalla = Array.FindIndex(args, a => string.Equals(a, "--pantalla", StringComparison.OrdinalIgnoreCase)) is var p and >= 0 && p + 1 < args.Length ? args[p + 1] : null;
         Application.Run(new VentanaInstalador(new Opciones(desinstalar, maqueta, paquete, pantalla, ArgumentosCaptura.Leer(args))));
+
+        // PN1: al cerrar la ventana durante la instalación, la tarea en segundo plano detiene el paquete (y lo que lanzó) y borra el
+        // archivo del código de recuperación. Antes el proceso salía sin esperarla. Se espera con límite (Detener espera hasta 30 s).
+        // IL5: si el paquete está en la base de datos (migrar o restaurar) no se corta: se espera a que termine (con un límite amplio).
+        EsperarTrabajoPendiente(PasoCritico ? Instalacion.EsperaPasoCritico + TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(45));
+        if (!PaqueteSigue)
+        {
+            Sistema.BorrarArchivosDeCodigo();
+        }
+        if (copiaTemporal)
+        {
+            // La copia temporal no puede borrarse mientras corre: se borra al salir (y, si algo lo impide, al reiniciar Windows).
+            Sistema.ProgramarBorradoDeEsteArchivo();
+        }
+
         return SinWebView2 ? SalidaSinWebView2 : 0;
+    }
+
+    private static readonly List<Task> TrabajosPendientes = [];
+
+    private static volatile bool _pasoCritico;
+
+    /// <summary>IR6: venció la espera y el paquete Inno sigue trabajando (no se borra el archivo del código).</summary>
+    public static bool PaqueteSigue { get; set; }
+
+    /// <summary>IL5: el paquete Inno está migrando o restaurando la base de datos (no se debe cortar).</summary>
+    public static bool PasoCritico
+    {
+        get => _pasoCritico;
+        set => _pasoCritico = value;
+    }
+
+    /// <summary>Instalación o desinstalación en segundo plano: <see cref="Main"/> la espera (con límite) antes de salir.</summary>
+    public static void RegistrarTrabajo(Task tarea)
+    {
+        lock (TrabajosPendientes)
+        {
+            TrabajosPendientes.RemoveAll(t => t.IsCompleted);
+            TrabajosPendientes.Add(tarea);
+        }
+    }
+
+    internal static bool EsperarTrabajoPendiente(TimeSpan limite)
+    {
+        Task[] pendientes;
+        lock (TrabajosPendientes)
+        {
+            pendientes = [.. TrabajosPendientes.Where(t => !t.IsCompleted)];
+        }
+
+        try
+        {
+            return pendientes.Length == 0 || Task.WaitAll(pendientes, limite);
+        }
+        catch (AggregateException)
+        {
+            // Las tareas ya informan sus fallas en la página; aquí solo importa que terminaron.
+            return true;
+        }
     }
 }

@@ -95,7 +95,7 @@ y hasta cuándo está vigente**. Revise que sea su empresa y pulse **Continuar**
   activo el **código de verificación** (doble factor), el instalador se lo pide: escriba los 6 números de su aplicación.
 - Si siempre entra al portal con Google y no recuerda su contraseña, en el portal vaya a **Mi cuenta → Cambiar contraseña** y
   vuelva al instalador (el botón "Continuar con Google" del instalador todavía no está disponible).
-- **En prueba de 30 días:** escriba su nombre, su correo y una contraseña de mínimo 10 caracteres (dos veces).
+- **En prueba de 30 días:** escriba su nombre, su correo y una contraseña de mínimo 8 caracteres (dos veces; la revisa el servidor de la tienda con su regla de contraseñas).
 
 ![Paso 4 · Tu cuenta: el correo y la contraseña de su portal.](imagenes/instalacion/04-instalador-tu-cuenta.png)
 

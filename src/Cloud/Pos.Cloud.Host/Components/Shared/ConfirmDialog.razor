@@ -13,7 +13,14 @@
         {
             <MudText Typo="Typo.body2" Class="texto-secundario mt-2">@Detail</MudText>
         }
-        @if (AskReason)
+        @if (AskSecret)
+        {
+            @* Contraseña o código TOTP del superadministrador (re-autenticación): una línea, oculto y fuera de la auditoría. *@
+            <MudTextField T="string" @bind-Value="_reason" Label="@ReasonLabel" Variant="Variant.Outlined" Class="mt-4" InputType="InputType.Password"
+                          Immediate="true" Required="true" RequiredError="Escriba su contraseña o su código." autocomplete="off"
+                          HelperText="No queda en la auditoría." />
+        }
+        else if (AskReason)
         {
             <MudTextField T="string" @bind-Value="_reason" Label="@ReasonLabel" Variant="Variant.Outlined" Class="mt-4" Lines="2" MaxLength="300"
                           Immediate="true" Required="true" RequiredError="Indique el motivo."
@@ -60,9 +67,13 @@
     [Parameter]
     public int MinReasonLength { get; set; } = 5;
 
+    /// <summary>Pide un secreto (contraseña o código TOTP) en vez de un motivo.</summary>
+    [Parameter]
+    public bool AskSecret { get; set; }
+
     private string? _reason;
 
-    private bool CanConfirm => !AskReason || (_reason ?? string.Empty).Trim().Length >= MinReasonLength;
+    private bool CanConfirm => !(AskReason || AskSecret) || (_reason ?? string.Empty).Trim().Length >= MinReasonLength;
 
     private string ColorName => Color switch
     {

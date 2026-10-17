@@ -472,12 +472,14 @@ internal sealed class DisableOwnTotpHandler(IPortalUserContext current, PortalAu
             return PortalIdentityErrors.TotpNotEnabled;
         }
 
-        if (Totp.Verify(secret, request.Code, auth.Clock.UtcNow, user.TotpLastStep) is null)
+        if (Totp.Verify(secret, request.Code, auth.Clock.UtcNow, user.TotpLastStep) is not { } step)
         {
             return PortalIdentityErrors.InvalidCode;
         }
 
-        user.ResetTotp();
+        // El código queda usado (no sirve otra vez en su ventana de 30 s) y el último paso se conserva tras desactivar.
+        user.UseTotpStep(step);
+        user.ResetTotp(keepLastStep: true);
         await OwnAccount.KeepOnlyCurrentAsync(auth, user, session, "Desactivación del doble factor", cancellationToken);
         await auth.AuditAsync(user, "PORTAL_TOTP_DISABLED", $"{user.Email} desactivó su doble factor desde Mi cuenta; se cerraron sus otras sesiones.",
             AuditSeverity.Warning, cancellationToken);

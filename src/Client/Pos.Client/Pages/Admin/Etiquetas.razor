@@ -71,7 +71,7 @@
                         <MudSelect T="Guid?" @bind-Value="_categoria" Label="Categoría (incluye sus subcategorías)" Dense="true" Style="min-width: 320px;">
                             @foreach (var category in _categorias)
                             {
-                                <MudSelectItem T="Guid?" Value="@category.Id">@category.Path</MudSelectItem>
+                                <MudSelectItem T="Guid?" Value="@category.Id">@(new string(' ', Math.Max(0, category.Level - 1) * 4) + category.Name)</MudSelectItem>
                             }
                         </MudSelect>
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy || _categoria is null" OnClick="@(() => AgregarAsync(new { source = LabelSources.Category, categoryId = _categoria }))">Agregar a la lista</MudButton>

@@ -3,7 +3,8 @@ namespace Pos.Server.Host.Middleware;
 /// <summary>
 /// Cabeceras de seguridad de la interfaz (Fase 15, revisión de seguridad de la Fase 14): Blazor WebAssembly necesita
 /// <c>wasm-unsafe-eval</c>; MudBlazor usa estilos en línea; la caja habla con su agente de impresión local (<c>localhost:5490</c>).
-/// El asistente inicial (<c>/instalacion</c>) es una página única con su script en línea.
+/// El asistente inicial (<c>/instalacion</c>) es una página única con su script APARTE (<c>/instalacion/asistente.js</c>): su política
+/// no admite scripts en línea.
 /// </summary>
 internal sealed class ContentSecurityPolicyMiddleware(RequestDelegate next)
 {
@@ -11,8 +12,10 @@ internal sealed class ContentSecurityPolicyMiddleware(RequestDelegate next)
         "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; " +
         "connect-src 'self' http://localhost:5490; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
+    /// <summary>Sin scripts en línea (el del asistente es <c>/instalacion/asistente.js</c>): el token del propietario vive en sessionStorage.</summary>
     private const string Installation =
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'";
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; " +
+        "form-action 'self'; object-src 'none'";
 
     public Task InvokeAsync(HttpContext context)
     {
