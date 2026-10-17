@@ -453,7 +453,8 @@ internal sealed class CatalogStore(PosDbContext context) : ICatalogStore
 
         // 2) Una sola consulta: los primeros números libres después del último usado. El rango basta con count + los ocupados por encima.
         // Se compara como texto (prefijo + consecutivo de 7 dígitos + cualquier dígito de control): sin conversiones que fallen con códigos
-        // alfanuméricos y aprovechando el índice de normalized_code.
+        // alfanuméricos. El NOT EXISTS usa un rango (no LIKE con g, que no es constante) para que sí aproveche el índice de normalized_code;
+        // ':' es el carácter siguiente a '9' en la collation C.
         var pattern = prefix + "%";
         var free = await context.Database.SqlQuery<long>($"""
             WITH cur AS (
@@ -469,7 +470,9 @@ internal sealed class CatalogStore(PosDbContext context) : ICatalogStore
             WHERE NOT EXISTS (
                 SELECT 1 FROM catalog.product_barcodes b
                 WHERE b.company_id = {companyId} AND b.deleted_at IS NULL
-                  AND b.normalized_code LIKE {prefix} || lpad(g::text, 7, '0') || '_')
+                  AND b.normalized_code >= {prefix} || lpad(g::text, 7, '0')
+                  AND b.normalized_code < {prefix} || lpad(g::text, 7, '0') || ':'
+                  AND length(b.normalized_code) = 13)
             ORDER BY g
             LIMIT {count}
             """).ToListAsync(cancellationToken);
