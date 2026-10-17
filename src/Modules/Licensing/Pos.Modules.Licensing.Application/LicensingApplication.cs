@@ -28,6 +28,8 @@ public static class LicenseErrors
         LicenseErrorCodes.FingerprintInvalid, "No se pudo leer la identificación de este equipo (placa, disco y Windows). Ejecute el servidor como servicio de Windows.");
     public static readonly Error Unreachable = Error.BusinessRule(
         "LICENSE.SERVER_UNREACHABLE", "No se pudo comunicar con el servidor de licencias. Revise la conexión a Internet e intente de nuevo.");
+    public static readonly Error NoPaymentLink = Error.NotFound(
+        "LICENSE.NO_PAYMENT_LINK", "No hay un pago pendiente de la mensualidad: la licencia está al día o el pago en línea no está disponible.");
     public static readonly Error TokenRejected = Error.BusinessRule(
         "LICENSE.TOKEN_REJECTED", "El servidor respondió con una licencia que no corresponde a este equipo o no está firmada por una clave de confianza.");
 
@@ -49,6 +51,31 @@ public static class LicenseErrors
     };
 }
 
+/// <summary>
+/// Enlace de pago en línea que envía la nube (Fase 12-C, D12C-08). No va firmado, así que el POS solo acepta una dirección absoluta
+/// http o https, sin usuario ni contraseña, sin espacios y de hasta <see cref="MaxLength"/> caracteres; cualquier otra cosa se ignora.
+/// </summary>
+public static class LicensePaymentLink
+{
+    public const int MaxLength = 500;
+
+    /// <summary>El enlace limpio (sin espacios alrededor) o <c>null</c> si no es una dirección web válida.</summary>
+    public static string? Normalize(string? value)
+    {
+        var text = value?.Trim();
+        if (string.IsNullOrEmpty(text) || text.Length > MaxLength || text.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
+        {
+            return null;
+        }
+
+        return Uri.TryCreate(text, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+            && string.IsNullOrEmpty(uri.UserInfo) && !string.IsNullOrEmpty(uri.Host)
+                ? text
+                : null;
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ Puertos
 
 /// <summary>Datos de la empresa y la tienda que se declaran al activar y en el check-in.</summary>
@@ -66,12 +93,16 @@ public interface ILicenseStateStore
 
     Task SetLastStateAsync(string state, CancellationToken cancellationToken);
 
-    /// <summary>Guarda un token verificado (con la hora CONFIABLE de su emisión) y limpia los indicadores (revocada, reactivación, liberado).</summary>
-    Task SaveTokenAsync(string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, CancellationToken cancellationToken);
+    /// <summary>
+    /// Guarda un token verificado (con la hora CONFIABLE de su emisión) y limpia los indicadores (revocada, reactivación, liberado).
+    /// <paramref name="paymentUrl"/> reemplaza el enlace de pago guardado (<c>null</c> lo borra: la licencia está al día).
+    /// </summary>
+    Task SaveTokenAsync(
+        string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, string? paymentUrl, CancellationToken cancellationToken);
 
     Task SaveCheckinErrorAsync(string error, bool? revoked, bool? reactivationRequired, CancellationToken cancellationToken);
 
-    /// <summary>Equipo liberado: se olvida el token.</summary>
+    /// <summary>Equipo liberado: se olvida el token y el enlace de pago.</summary>
     Task ClearTokenAsync(CancellationToken cancellationToken);
 
     Task RaiseMaxObservedAsync(DateTimeOffset value, CancellationToken cancellationToken);
@@ -131,22 +162,23 @@ public sealed class LicenseStateCache : ILicenseGate, ILicenseStatus
 {
     private volatile Snapshot? _snapshot;
 
-    private sealed record Snapshot(LicenseEvaluation Evaluation, LicenseGateState Gate);
+    private sealed record Snapshot(LicenseEvaluation Evaluation, LicenseGateState Gate, string? PaymentUrl);
 
     public LicenseEvaluation? Current => _snapshot?.Evaluation;
 
     LicenseGateState ILicenseGate.Current => _snapshot?.Gate ?? LicenseGateState.Unrestricted;
 
     public LicenseSummaryDto Summary => _snapshot is { } s
-        ? new LicenseSummaryDto(s.Evaluation.State, s.Evaluation.DaysLeft, s.Evaluation.Notices)
+        ? new LicenseSummaryDto(s.Evaluation.State, s.Evaluation.DaysLeft, s.Evaluation.Notices, s.PaymentUrl)
         : new LicenseSummaryDto(LicenseStates.Demo, null, []);
 
-    public void Update(LicenseEvaluation evaluation)
+    public void Update(LicenseEvaluation evaluation, string? paymentUrl = null)
     {
         ArgumentNullException.ThrowIfNull(evaluation);
         _snapshot = new Snapshot(
             evaluation,
-            new LicenseGateState(evaluation.Restricted, evaluation.State == LicenseStates.Demo, evaluation.Restricted ? evaluation.Reason : null));
+            new LicenseGateState(evaluation.Restricted, evaluation.State == LicenseStates.Demo, evaluation.Restricted ? evaluation.Reason : null),
+            paymentUrl);
     }
 }
 
@@ -187,7 +219,7 @@ public sealed class LicenseService(
         }
 
         var evaluation = Evaluate(record);
-        cache.Update(evaluation);
+        cache.Update(evaluation, PaymentUrlOf(record));
         if (!persist)
         {
             return (evaluation, record);
@@ -268,7 +300,9 @@ public sealed class LicenseService(
             return Result.Failure<LicenseStatusDto>(LicenseErrors.TokenRejected);
         }
 
-        await store.SaveTokenAsync(response.Token, LicenseKey.VisiblePrefix(key), claims.IssuedAt, activation: true, Offset(claims), cancellationToken);
+        await store.SaveTokenAsync(
+            response.Token, LicenseKey.VisiblePrefix(key), claims.IssuedAt, activation: true, Offset(claims), LicensePaymentLink.Normalize(response.PaymentUrl),
+            cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("licensing", "LICENSE_ACTIVATED", "License", installation.NodeId, "Licencia",
                 $"Licencia {LicenseKey.VisiblePrefix(key)}… activada: {claims.OrganizationName} ({claims.OrganizationNit}), edición {claims.Edition}, vigente hasta {claims.ValidUntil:yyyy-MM-dd}."),
@@ -300,7 +334,10 @@ public sealed class LicenseService(
         await RecordAsync(kind, started, result, cancellationToken);
         if (result.Response is { } response && VerifyForThisDevice(response.Token) is { } claims)
         {
-            await store.SaveTokenAsync(response.Token, record.LicenseKeyPrefix, claims.IssuedAt, activation: false, Offset(claims), cancellationToken);
+            // El enlace de pago se reemplaza con lo que diga la nube: si ya no lo envía (pago aplicado), se borra.
+            await store.SaveTokenAsync(
+                response.Token, record.LicenseKeyPrefix, claims.IssuedAt, activation: false, Offset(claims), LicensePaymentLink.Normalize(response.PaymentUrl),
+                cancellationToken);
         }
         else
         {
@@ -396,8 +433,12 @@ public sealed class LicenseService(
         return new LicenseStatusDto(
             evaluation.State, evaluation.Reason, evaluation.DaysLeft, claims?.Edition, claims?.OrganizationName, claims?.OrganizationNit,
             record.LicenseKeyPrefix, claims?.SubscriptionStatus, claims?.ValidUntil, claims?.GraceUntil,
-            record.Token is null ? evaluation.DemoEndsAt : null, record.ActivatedAt, record.LastCheckinAt, record.LastCheckinError, evaluation.Notices);
+            record.Token is null ? evaluation.DemoEndsAt : null, record.ActivatedAt, record.LastCheckinAt, record.LastCheckinError, evaluation.Notices,
+            PaymentUrlOf(record));
     }
+
+    /// <summary>Sin licencia activada no hay nada que pagar; lo guardado se vuelve a validar al leerlo (la BD no es de fiar).</summary>
+    private static string? PaymentUrlOf(LicenseRecord record) => record.Token is null ? null : LicensePaymentLink.Normalize(record.PaymentUrl);
 }
 
 // ------------------------------------------------------------------------------------------------ Casos de uso

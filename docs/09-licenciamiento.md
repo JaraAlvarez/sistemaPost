@@ -26,7 +26,7 @@ flowchart LR
     LSAPI[License Server API]
     LSDB[(BD licencias)]
     ADM[Panel interno de administración<br/>clientes, planes, licencias]
-    PAY[Pasarela de pagos - futuro]
+    PAY[Pasarela de pagos Wompi - Fase 12-C]
     LSAPI --- LSDB
     ADM --- LSAPI
     PAY -. webhooks .-> LSAPI
@@ -252,3 +252,20 @@ Módulo `Licensing` del POS (`src/Modules/Licensing`), API `/api/v1/license`. Pe
 | Reloj | Hora confiable = emisión del token; atrasar el reloj más de 24 h restringe hasta el siguiente check-in (`LICENSE_CLOCK_ROLLBACK`) |
 | Permisos | `licensing.license.view` y `.check` (propietario y administrador), `licensing.license.manage` (solo propietario) |
 | Cajas | No hablan con la nube: ven el estado en `/auth/me` (`license`); la restricción se aplica en el servidor |
+
+## Notas de implementación (Fase 12-C, nube): pago en línea
+
+Decisión: [ADR-0063](adr/0063-pago-en-linea-de-suscripciones-con-wompi.md) · propuesta: [fase-12c](fases/fase-12c-propuesta.md) ·
+configuración: [despliegue-nube.md §20](despliegue-nube.md).
+
+| Tema | Implementado |
+|---|---|
+| Pasarela | Wompi Web Checkout detrás de `IPaymentGateway`; **apagada** sin las cuatro llaves (`Payments__Wompi__*`): "Pago en línea no configurado" y renovación manual como siempre |
+| Tablas (`V2026.10.009`) | `licensing.prices` (historial, solo inserción, nace vacía), `payment_links` (uno vigente por suscripción), `payment_orders` (referencia `BP-<año>-<n>`, valor congelado), `payment_events` (solo inserción) |
+| Fuente de verdad | Evento firmado `POST /v1/payments/wompi/events` + consulta de la transacción con la llave privada; la página de regreso solo muestra el estado |
+| Renovación | La misma de la renovación manual (`Subscription.Renew`, referencia `WOMPI <transacción> <referencia>`), una sola vez por orden (bloqueo + restricciones únicas) |
+| Revisión | Valor o moneda distintos, suscripción suspendida o cancelada → `REVIEW_REQUIRED` con alerta en el tablero y "Marcar revisado" |
+| Conciliación | Cada 15 min ⚙️ las órdenes pendientes; vencen a las 24 h ⚙️; "Consultar ahora" en la pantalla Pagos |
+| Check-in | `PaymentUrl` en la respuesta (no firmado) cuando faltan 15 días ⚙️ o menos, en gracia o vencida; nunca suspendida ni cancelada |
+| Portal | Pantallas **Precios** y **Pagos**, pestaña "Pagos en línea" de la empresa (historial, "Copiar enlace de pago", QR), alerta del tablero y "Mi suscripción" del rol Cliente |
+| Permisos nuevos | `licensing.payment.view` (superadministrador y soporte), `licensing.payment.manage` y `licensing.price.manage` (superadministrador), `licensing.subscription.self` (cliente) |

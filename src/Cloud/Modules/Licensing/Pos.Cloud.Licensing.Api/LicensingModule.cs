@@ -25,13 +25,69 @@ public sealed class LicensingModule : IModule
     {
         // Se lee al resolver (no al registrar): así vale la configuración FINAL del host (variables, secretos, pruebas).
         var section = configuration.GetSection(LicensingOptions.SectionName);
-        LicensingInfrastructureRegistration.Register(services, _ => section.Get<LicensingOptions>() ?? new LicensingOptions());
+        var payments = configuration.GetSection(PaymentsOptions.SectionName);
+        LicensingInfrastructureRegistration.Register(
+            services, _ => section.Get<LicensingOptions>() ?? new LicensingOptions(), _ => payments.Get<PaymentsOptions>() ?? new PaymentsOptions());
     }
+
+    /// <summary>Política de límite de peticiones por IP de los eventos de la pasarela de pagos (la registra el host).</summary>
+    public const string PaymentEventsRateLimit = "payment-events";
+
+    /// <summary>Tamaño máximo del cuerpo de un evento de la pasarela.</summary>
+    public const int MaxEventBytes = 64 * 1024;
 
     public void MapEndpoints(IEndpointRouteBuilder api)
     {
         MapPosApi(api);
+        MapPaymentsApi(api);
         MapAdminApi(api);
+    }
+
+    /// <summary>Dirección pública de la petición (esquema, host y ruta base), para los enlaces de pago.</summary>
+    public static string PublicBaseUrl(HttpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return $"{request.Scheme}://{request.Host}{request.PathBase}";
+    }
+
+    /// <summary>
+    /// Pago en línea (Fase 12-C). Anónimo por diseño: el evento lo autentica su firma (D12C-13) y el enlace su código de 128 bits
+    /// (D12C-07). Siempre con límite de peticiones por IP.
+    /// </summary>
+    private static void MapPaymentsApi(IEndpointRouteBuilder app)
+    {
+        var payments = app.MapGroup("/v1/payments").WithTags("Pago en línea").AllowAnonymous();
+
+        payments.MapPost("/wompi/events", async (HttpRequest request, IDispatcher d, CancellationToken ct) =>
+            {
+                if (request.ContentLength > MaxEventBytes)
+                {
+                    return (IResult)TypedResults.Problem(title: "Solicitud demasiado grande", statusCode: StatusCodes.Status413PayloadTooLarge);
+                }
+
+                var buffer = new char[MaxEventBytes + 1];
+                using var reader = new StreamReader(request.Body);
+                var read = await reader.ReadBlockAsync(buffer.AsMemory(), ct);
+                if (read > MaxEventBytes)
+                {
+                    return TypedResults.Problem(title: "Solicitud demasiado grande", statusCode: StatusCodes.Status413PayloadTooLarge);
+                }
+
+                var result = await d.Send(new HandlePaymentEventCommand(new string(buffer, 0, read), request.Headers[WompiProtocol.ChecksumHeader].ToString()), ct);
+                return result.IsFailure ? LicenseProblem(result.Error)
+                    : result.Value.Error is { } error ? LicenseProblem(error)
+                    : TypedResults.Ok(result.Value.Value);
+            })
+            .RequireRateLimiting(PaymentEventsRateLimit)
+            .WithSummary("Evento firmado de Wompi (transaction.updated): verifica la firma, confirma la transacción y renueva una sola vez");
+
+        payments.MapGet("/links/{code}", async (string code, IDispatcher d, CancellationToken ct) => ToHttp(await d.Send(new GetPaymentPageQuery(code), ct)))
+            .RequireRateLimiting(PosApiRateLimit)
+            .WithSummary("Resumen público del enlace de pago: empresa, edición, vencimiento y valores (sin NIT ni datos sensibles)");
+        payments.MapPost("/links/{code}/orders", async (string code, CreateOrderRequest r, HttpContext http, IDispatcher d, CancellationToken ct) =>
+                ToHttp(await d.Send(new CreatePaymentOrderCommand(code, r.Periods, PublicBaseUrl(http.Request)), ct)))
+            .RequireRateLimiting(PosApiRateLimit)
+            .WithSummary("Crea la orden de pago (valor congelado) y devuelve la redirección firmada al checkout de Wompi");
     }
 
     private static void MapPosApi(IEndpointRouteBuilder app)
@@ -43,7 +99,7 @@ public sealed class LicensingModule : IModule
             .WithSummary("Activa una instalación con la clave de licencia y devuelve el token firmado");
         pos.MapPost("/checkins", async (CheckinRequest request, HttpContext http, IDispatcher d, CancellationToken ct) =>
             {
-                var result = await d.Send(new CheckinCommand(request, http.Connection.RemoteIpAddress), ct);
+                var result = await d.Send(new CheckinCommand(request, http.Connection.RemoteIpAddress, PublicBaseUrl(http.Request)), ct);
                 return result.IsFailure ? LicenseProblem(result.Error)
                     : result.Value.Error is { } error ? LicenseProblem(error)
                     : TypedResults.Ok(result.Value.Value);
@@ -137,6 +193,38 @@ public sealed class LicensingModule : IModule
 
         admin.MapGet("/signing-keys", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListSigningKeysQuery(), ct)).ToHttpResult())
             .RequireAuthorization(CloudPermissions.SigningKeyView);
+
+        // Pago en línea (Fase 12-C).
+        admin.MapGet("/payments/settings", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetPaymentSettingsQuery(), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentView);
+        admin.MapGet("/payments/prices", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListPricesQuery(), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentView);
+        admin.MapPost("/payments/prices", async (SetPriceCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToCreatedResult(_ => "/admin/payments/prices"))
+            .RequireAuthorization(CloudPermissions.PriceManage);
+        admin.MapGet("/payments/orders", async (string? status, DateTimeOffset? from, DateTimeOffset? to, string? search, Guid? organizationId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListPaymentOrdersQuery(new PaymentOrderFilter(status, from, to, search, organizationId)), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentView);
+        admin.MapGet("/payments/orders/{id:guid}", async (Guid id, IDispatcher d, CancellationToken ct) => (await d.Send(new GetPaymentOrderQuery(id), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentView);
+        admin.MapPost("/payments/orders/{id:guid}/check", async (Guid id, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new CheckPaymentOrderCommand(id), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentView)
+            .WithSummary("Consultar ahora: concilia la orden con la pasarela");
+        admin.MapPost("/payments/orders/{id:guid}/review", async (Guid id, NoteRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new MarkPaymentReviewedCommand(id, r.Note), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentManage);
+        admin.MapGet("/payments/alerts", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetPaymentAlertsQuery(), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.DashboardView);
+        admin.MapPost("/subscriptions/{id:guid}/payment-link", async (Guid id, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new EnsurePaymentLinkCommand(id), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentView)
+            .WithSummary("Enlace de pago vigente de la suscripción (lo crea si no tiene)");
+        admin.MapPost("/subscriptions/{id:guid}/payment-link/regenerate", async (Guid id, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new RegeneratePaymentLinkCommand(id), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.PaymentManage);
+        admin.MapGet("/my/subscriptions", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetMySubscriptionsQuery(), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.SubscriptionSelfView);
     }
 
     /// <summary>Errores de la API del POS: 429 por límite de la licencia y 503 si el servidor no puede firmar.</summary>
@@ -174,3 +262,7 @@ public sealed record ExtendGraceRequest(int Days, string Reason);
 public sealed record ChangeEditionRequest(string Edition, string Reason);
 
 public sealed record MaxInstallationsRequest(int? MaxInstallations);
+
+public sealed record CreateOrderRequest(int Periods = 1);
+
+public sealed record NoteRequest(string Note);

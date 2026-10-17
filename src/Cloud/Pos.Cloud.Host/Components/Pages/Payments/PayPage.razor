@@ -1,0 +1,110 @@
+@page "/pagar/{Code}"
+@layout PaymentLayout
+@attribute [AllowAnonymous]
+@using Pos.Application.Abstractions.Messaging
+@using Pos.Cloud.Licensing.Api
+@inject IDispatcher Dispatcher
+@inject NavigationManager Navigation
+
+@* Enlace público de pago (D12C-07): solo nombre de la empresa, edición, vencimiento y valor. "Pagar" crea la orden (valor
+   congelado) y redirige a la página de Wompi; la renovación llega por el evento firmado, nunca desde esta página. *@
+<PageTitle>Pagar suscripción · BusinessPost</PageTitle>
+
+@if (_notFound is not null)
+{
+    <h1 class="auth-title">Enlace de pago</h1>
+    <AuthAlert>@_notFound</AuthAlert>
+}
+else if (_page is not null)
+{
+    <h1 class="auth-title">Pagar la suscripción</h1>
+    <p class="auth-lead">Pague en línea con Nequi, PSE, tarjeta o Bancolombia. La suscripción se renueva sola cuando la pasarela confirma el pago.</p>
+
+    <dl class="pay-summary">
+        <dt>Empresa</dt><dd>@_page.OrganizationName</dd>
+        <dt>Edición</dt><dd>@_page.EditionName (@_page.BillingPeriodName)</dd>
+        <dt>Estado</dt><dd>@_page.StatusName</dd>
+        <dt>Vigente hasta</dt><dd>@PortalPageBase.Day(_page.ValidUntil)</dd>
+    </dl>
+
+    @if (_error is not null)
+    {
+        <AuthAlert>@_error</AuthAlert>
+    }
+
+    @if (!_page.CanPay)
+    {
+        <AuthAlert Warning="true">@_page.Message</AuthAlert>
+    }
+    else
+    {
+        <EditForm Model="Input" method="post" OnValidSubmit="PayAsync" FormName="pagar" class="auth-form">
+            <fieldset class="pay-options">
+                <legend>¿Cuánto quiere pagar? (valores con IVA incluido)</legend>
+                <InputRadioGroup @bind-Value="Input.Periods" Name="periods">
+                    @foreach (var option in _page.Options)
+                    {
+                        <label class="pay-option">
+                            <InputRadio Value="@option.Periods" Name="periods" />
+                            <span>@option.Label</span>
+                        </label>
+                    }
+                </InputRadioGroup>
+            </fieldset>
+            <button type="submit" class="auth-button auth-button-primary">Pagar</button>
+        </EditForm>
+        <p class="auth-hint">Será dirigido a la página segura de Wompi (Bancolombia). BusinessPost nunca ve ni guarda los datos de su tarjeta o cuenta.</p>
+    }
+
+    <p class="auth-foot">¿Dudas con su pago? Comuníquese con BusinessPost e indique la referencia que le muestra Wompi.</p>
+}
+
+@code {
+    [Parameter]
+    public string Code { get; set; } = string.Empty;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private PayInput Input { get; set; } = default!;
+
+    private PaymentPageDto? _page;
+    private string? _notFound;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        var page = await Dispatcher.Send(new GetPaymentPageQuery(Code));
+        if (page.IsFailure)
+        {
+            _notFound = page.Error.Message;
+            return;
+        }
+
+        _page = page.Value;
+        if (Input.Periods == 0 && _page.Options.Count > 0)
+        {
+            Input.Periods = _page.Options[0].Periods;
+        }
+    }
+
+    private async Task PayAsync()
+    {
+        var created = await Dispatcher.Send(new CreatePaymentOrderCommand(Code, Input.Periods, LicensingModule.PublicBaseUrl(HttpContext.Request)));
+        if (created.IsFailure)
+        {
+            _error = created.Error.Message;
+            return;
+        }
+
+        // Redirección al checkout de Wompi (la política de seguridad de /pagar admite ese origen en form-action).
+        Navigation.NavigateTo(created.Value.CheckoutUrl, forceLoad: true);
+    }
+
+    private sealed class PayInput
+    {
+        public int Periods { get; set; }
+    }
+}

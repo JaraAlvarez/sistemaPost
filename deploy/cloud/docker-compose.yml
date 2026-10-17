@@ -75,6 +75,13 @@ services:
       Portal__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
       Portal__Google__ClientSecret: ${GOOGLE_CLIENT_SECRET:-}
       Portal__RequireTotp: ${PORTAL_REQUIRE_TOTP:-false}
+      # Pago en línea con Wompi (ADR-0063, docs/despliegue-nube.md §20). Sin las cuatro llaves queda APAGADO (renovación manual).
+      Payments__Wompi__Environment: ${WOMPI_ENVIRONMENT:-Sandbox}
+      Payments__Wompi__PublicKey: ${WOMPI_PUBLIC_KEY:-}
+      Payments__Wompi__PrivateKey: ${WOMPI_PRIVATE_KEY:-}
+      Payments__Wompi__IntegritySecret: ${WOMPI_INTEGRITY_SECRET:-}
+      Payments__Wompi__EventsSecret: ${WOMPI_EVENTS_SECRET:-}
+      Payments__PublicBaseUrl: ${PAYMENTS_PUBLIC_BASE_URL:-}
       TZ: America/Bogota
       # Registros: información propia; el detalle de ASP.NET Core y EF Core solo desde advertencias.
       Serilog__MinimumLevel__Default: Information

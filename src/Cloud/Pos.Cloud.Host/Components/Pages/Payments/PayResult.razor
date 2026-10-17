@@ -1,0 +1,71 @@
+@page "/pagar/resultado"
+@page "/pagar/resultado/{Reference}"
+@layout PaymentLayout
+@attribute [AllowAnonymous]
+@using System.Globalization
+@using Pos.Application.Abstractions.Messaging
+@inject IDispatcher Dispatcher
+
+@* Regreso desde Wompi (agrega ?id=<transacción>). Solo LEE nuestra orden (D12C-04): la renovación la hace el evento firmado
+   o la conciliación. Mientras el pago no sea definitivo, la página se recarga sola unas pocas veces. *@
+<PageTitle>Resultado del pago · BusinessPost</PageTitle>
+
+@if (_result is not null && !_result.Final && Attempt < MaxAttempts)
+{
+    <HeadContent>
+        <meta http-equiv="refresh" content="@($"5;url={NextUrl}")" />
+    </HeadContent>
+}
+
+<h1 class="auth-title">Resultado del pago</h1>
+@if (_result is not null)
+{
+    <p class="pay-status" role="status">@_result.StatusText</p>
+    <dl class="pay-summary">
+        @if (_result.Reference is not null)
+        {
+            <dt>Referencia</dt><dd>@_result.Reference</dd>
+        }
+        @if (_result.AmountCop is { } amount)
+        {
+            <dt>Valor</dt><dd>@PaymentText.Money(amount)</dd>
+        }
+    </dl>
+    @if (!_result.Final)
+    {
+        <p class="auth-hint">@(Attempt < MaxAttempts ? "Esta página se actualiza sola en unos segundos." : "Puede cerrar esta página: cuando la pasarela confirme el pago, la suscripción se renueva sola.")</p>
+    }
+}
+
+<p class="auth-foot">En el sistema de su tienda use «Ya pagué, verificar» para ver la nueva fecha de vigencia.</p>
+
+@code {
+    private const int MaxAttempts = 6;
+
+    [Parameter]
+    public string? Reference { get; set; }
+
+    [SupplyParameterFromQuery(Name = "id")]
+    private string? TransactionId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "intento")]
+    private int Attempt { get; set; }
+
+    private PaymentResultDto? _result;
+
+    private string NextUrl
+    {
+        get
+        {
+            var path = Reference is null ? "pagar/resultado" : $"pagar/resultado/{Uri.EscapeDataString(Reference)}";
+            var id = TransactionId is null ? string.Empty : $"id={Uri.EscapeDataString(TransactionId)}&";
+            return string.Create(CultureInfo.InvariantCulture, $"{path}?{id}intento={Attempt + 1}");
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Dispatcher.Send(new GetPaymentResultQuery(TransactionId, Reference));
+        _result = result.IsSuccess ? result.Value : null;
+    }
+}

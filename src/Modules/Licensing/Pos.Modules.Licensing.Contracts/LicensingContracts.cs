@@ -47,6 +47,8 @@ public sealed record LicenseNoticeDto(string Code, string Severity, string Text)
 /// <summary>
 /// Estado de la licencia de este equipo: <c>State</c> (<see cref="LicenseStates"/>), el motivo en español y <c>DaysLeft</c>, los días hasta
 /// el siguiente cambio de estado (fin de la demostración, del periodo o de la gracia; <c>null</c> si no aplica).
+/// <c>PaymentUrl</c> (Fase 12-C): enlace para pagar la mensualidad en línea; la nube lo envía cuando faltan 15 días o menos, o la licencia
+/// está en gracia o restringida. <c>null</c> si la licencia está al día o el pago en línea no está disponible.
 /// </summary>
 public sealed record LicenseStatusDto(
     string State,
@@ -63,13 +65,17 @@ public sealed record LicenseStatusDto(
     DateTimeOffset? ActivatedAt,
     DateTimeOffset? LastCheckinAt,
     string? LastCheckinError,
-    IReadOnlyList<LicenseNoticeDto> Notices)
+    IReadOnlyList<LicenseNoticeDto> Notices,
+    string? PaymentUrl = null)
 {
     public bool IsRestricted => LicenseStates.IsRestricted(State);
 }
 
-/// <summary>Resumen para <c>/auth/me</c> y el tablero: lo visible para cualquier usuario (sin datos de la clave).</summary>
-public sealed record LicenseSummaryDto(string State, int? DaysLeft, IReadOnlyList<LicenseNoticeDto> Notices);
+/// <summary>
+/// Resumen para <c>/auth/me</c> y el tablero: lo visible para cualquier usuario (sin datos de la clave). <c>PaymentUrl</c> (Fase 12-C) solo
+/// llega a quien puede ver la licencia; la franja de avisos de la administración muestra con él la acción "Pagar".
+/// </summary>
+public sealed record LicenseSummaryDto(string State, int? DaysLeft, IReadOnlyList<LicenseNoticeDto> Notices, string? PaymentUrl = null);
 
 /// <summary>Un intento de verificación con el servidor de licencias.</summary>
 public sealed record LicenseCheckinDto(DateTimeOffset OccurredAt, string Kind, bool Succeeded, string? ErrorCode, string? SubscriptionStatus, int DurationMs);

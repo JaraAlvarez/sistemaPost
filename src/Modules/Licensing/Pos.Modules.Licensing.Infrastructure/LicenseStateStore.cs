@@ -20,7 +20,7 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
             SELECT s.node_id AS NodeId, s.token AS Token, s.license_key_prefix AS LicenseKeyPrefix, s.activated_at AS ActivatedAt,
                    s.last_checkin_at AS LastCheckinAt, s.last_checkin_error AS LastCheckinError, s.revoked AS Revoked,
                    s.reactivation_required AS ReactivationRequired, s.deactivated AS Deactivated, s.clock_offset_seconds AS ClockOffsetSeconds,
-                   s.max_observed_utc AS MaxObservedUtc, i.created_at AS DemoStartedAt
+                   s.max_observed_utc AS MaxObservedUtc, i.created_at AS DemoStartedAt, s.payment_url AS PaymentUrl
             FROM licensing.license_state s
             CROSS JOIN system.installation i
             WHERE s.node_id = @node
@@ -30,7 +30,7 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
             ? null
             : new LicenseRecord(
                 row.NodeId, row.Token, row.LicenseKeyPrefix, Utc(row.ActivatedAt), Utc(row.LastCheckinAt), row.LastCheckinError, row.Revoked,
-                row.ReactivationRequired, row.Deactivated, row.ClockOffsetSeconds, Utc(row.MaxObservedUtc), Utc(row.DemoStartedAt));
+                row.ReactivationRequired, row.Deactivated, row.ClockOffsetSeconds, Utc(row.MaxObservedUtc), Utc(row.DemoStartedAt), row.PaymentUrl);
     }
 
     /// <summary>Crea la fila del nodo si no existe (al arrancar). La mayor hora observada empieza en la creación de la instalación.</summary>
@@ -58,15 +58,17 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
         ExecuteAsync("UPDATE licensing.license_state SET last_state = @state, updated_at = now() WHERE node_id = @node", new { state, node = installation.NodeId },
             cancellationToken);
 
-    public Task SaveTokenAsync(string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, CancellationToken cancellationToken) =>
+    public Task SaveTokenAsync(
+        string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, string? paymentUrl, CancellationToken cancellationToken) =>
         ExecuteAsync(
             """
             UPDATE licensing.license_state SET token = @token, license_key_prefix = COALESCE(@keyPrefix, license_key_prefix),
                 activated_at = CASE WHEN @activation THEN @at ELSE activated_at END, last_checkin_at = @at, last_checkin_error = NULL,
-                revoked = false, reactivation_required = false, deactivated = false, clock_offset_seconds = @clockOffsetSeconds, updated_at = now()
+                revoked = false, reactivation_required = false, deactivated = false, clock_offset_seconds = @clockOffsetSeconds,
+                payment_url = @paymentUrl, updated_at = now()
             WHERE node_id = @node
             """,
-            new { token, keyPrefix, at, activation, clockOffsetSeconds, node = installation.NodeId }, cancellationToken);
+            new { token, keyPrefix, at, activation, clockOffsetSeconds, paymentUrl, node = installation.NodeId }, cancellationToken);
 
     public Task SaveCheckinErrorAsync(string error, bool? revoked, bool? reactivationRequired, CancellationToken cancellationToken) =>
         ExecuteAsync(
@@ -81,7 +83,7 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
         ExecuteAsync(
             """
             UPDATE licensing.license_state SET token = NULL, deactivated = true, revoked = false, reactivation_required = false,
-                last_checkin_error = NULL, updated_at = now()
+                last_checkin_error = NULL, payment_url = NULL, updated_at = now()
             WHERE node_id = @node
             """,
             new { node = installation.NodeId }, cancellationToken);
@@ -160,7 +162,7 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
 
     private sealed record StateRow(
         Guid NodeId, string? Token, string? LicenseKeyPrefix, DateTime? ActivatedAt, DateTime? LastCheckinAt, string? LastCheckinError, bool Revoked,
-        bool ReactivationRequired, bool Deactivated, long ClockOffsetSeconds, DateTime MaxObservedUtc, DateTime DemoStartedAt);
+        bool ReactivationRequired, bool Deactivated, long ClockOffsetSeconds, DateTime MaxObservedUtc, DateTime DemoStartedAt, string? PaymentUrl);
 
     private sealed record CheckinRow(DateTime OccurredAt, string Kind, bool Succeeded, string? ErrorCode, string? SubscriptionStatus, int DurationMs);
 

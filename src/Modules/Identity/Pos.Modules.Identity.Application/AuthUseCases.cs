@@ -174,9 +174,16 @@ public sealed class AuthServices(
         var openIncidents = effective.Contains(AuditPermissions.LogVerify) ? await integrity.OpenIncidentsAsync(cancellationToken) : 0;
         // Alertas de backups (D11-10) para quien puede verlos.
         var backupAlerts = effective.Contains(BackupPermissions.View) ? (await backups.GetAlertsAsync(cancellationToken)).Count : 0;
+        // Estado de la licencia para todos (Fase 12-B): la barra muestra "demostración", "vence en N días"… El enlace de pago en línea
+        // (Fase 12-C) solo para quien puede ver la licencia: la caja no muestra pagos.
+        var summary = license.Summary;
+        if (summary.PaymentUrl is not null && (terminal || !effective.Contains(LicensePermissions.View)))
+        {
+            summary = summary with { PaymentUrl = null };
+        }
+
         return new MeDto(user.Id, user.Username, user.DisplayName, sessionId, terminal ? "TERMINAL" : "BACKOFFICE", branchId, posTerminalId,
-            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts,
-            license.Summary); // Estado de la licencia para todos (Fase 12-B): la barra muestra "demostración", "vence en N días"…
+            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts, summary);
     }
 
     /// <summary>Ingreso fallido (Fase 10, §5.1): queda en la bitácora además de <c>identity.login_attempts</c>.</summary>

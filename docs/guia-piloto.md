@@ -42,6 +42,7 @@ clientes, sin poner en riesgo la operación de la tienda.
 - **Supervisor:** autorizaciones en pantalla, descuentos, anulaciones, lotes vencidos, revisar jornadas y cerrar una jornada abandonada.
 - **Administrador:** compras (factura con lotes y vencimientos), proveedores y cuentas por pagar, conteos y ajustes, traslados, gastos,
   promociones, clientes, reportes.
+- **Dueño de la tienda:** cómo pagar la mensualidad en línea desde la administración (§8).
 - Practique **una venta de cada tipo** antes de abrir: efectivo con cambio, datáfono, mixta, con cliente, con descuento autorizado.
 
 ## 4. Primer día
@@ -79,3 +80,21 @@ clientes, sin poner en riesgo la operación de la tienda.
 Si un día el sistema no permite vender (servidor dañado, falla grave): la tienda usa su método anterior ese día y anota las ventas; se
 recupera el servidor con el último backup (guía de recuperación, menos de una hora) y, al volver, las ventas anotadas se registran en el
 sistema como una venta por cada día con la nota "contingencia". Nunca se editan datos directamente en la base de datos.
+
+## 8. Cómo pagar la mensualidad en línea (para el dueño de la tienda)
+
+Cuando faltan **15 días o menos** para el vencimiento, o la licencia está **en gracia** o **restringida**, el sistema ofrece pagar en
+línea sin entrar al portal:
+
+1. Arriba de la administración aparece el aviso de la licencia con el enlace **Pagar** (se abre en otra pestaña). También puede ir a
+   **Administración → Licencia**: ahí está la tarjeta **"Pagar mensualidad"**.
+2. Oprima **Pagar mensualidad** y pague con **Nequi, PSE, tarjeta o Bancolombia**. Si prefiere pagar desde el celular, escanee el
+   **código QR** de la tarjeta con la cámara del teléfono.
+3. Al aprobarse el pago, la licencia **se renueva sola**: el sistema la verifica una vez al día. Para verla al instante, oprima
+   **"Ya pagué, verificar"** en la misma tarjeta. Si el pago ya se aplicó, la fecha "Vigente hasta" cambia y la tarjeta desaparece.
+4. Con PSE o Bancolombia el banco puede tardar unos minutos (a veces más) en confirmar: si dice "Todavía no se ve el pago", espere y
+   vuelva a oprimir **"Ya pagué, verificar"** más tarde. Nunca pague dos veces el mismo mes sin preguntar antes a soporte.
+
+Notas: la caja no muestra pagos (solo quien puede ver la licencia en la administración). Se necesita Internet en el equipo para pagar
+y verificar; mientras tanto la tienda sigue vendiendo con normalidad (en restringida, solo en las jornadas abiertas). Si la tarjeta no
+aparece, la licencia está al día o el pago en línea todavía no está habilitado: pague como siempre y avise a soporte.

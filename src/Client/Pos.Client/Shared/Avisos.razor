@@ -18,6 +18,12 @@
                 }
                 <a href="@item.Href" title="@item.Detalle">@item.Corto</a>
             }
+            @if (Session.Me?.License?.PaymentUrl is { } pago)
+            {
+                @* Fase 12-C: acceso directo al pago en línea (el QR y "Ya pagué, verificar" están en Licencia). *@
+                <span class="avisos-separador" aria-hidden="true">·</span>
+                <a class="avisos-pagar" href="@pago" target="_blank" rel="noopener noreferrer" title="Pagar la mensualidad en línea (se abre en otra pestaña)">Pagar</a>
+            }
         </span>
         <button type="button" class="avisos-detalle-boton" @onclick="@(() => _abierto = !_abierto)" aria-expanded="@(_abierto ? "true" : "false")">
             @(_abierto ? "Ocultar" : "Ver detalle")

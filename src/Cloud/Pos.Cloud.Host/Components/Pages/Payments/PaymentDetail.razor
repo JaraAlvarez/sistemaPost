@@ -1,0 +1,133 @@
+@page "/pagos/{OrderId:guid}"
+@attribute [Authorize(Policy = CloudPermissions.PaymentView)]
+@inherits PortalPageBase
+@inject IDialogService Dialogs
+
+<PageTitle>@(_detail?.Order.Reference ?? "Pago") · BusinessPost</PageTitle>
+
+@if (LoadError is not null)
+{
+    <PageHeader Title="Pago" Section="Pagos en línea" ParentText="Pagos" ParentHref="pagos" />
+    <MudAlert Severity="Severity.Error">@LoadError</MudAlert>
+}
+else if (_detail is null)
+{
+    <MudSkeleton Width="35%" Height="40px" Class="mb-2" />
+    <MudPaper Elevation="0" Class="bp-card"><TableSkeleton /></MudPaper>
+}
+else
+{
+    var o = _detail.Order;
+    <PageHeader Title="@($"Pago {o.Reference}")" Section="Pagos en línea" ParentText="Pagos" ParentHref="pagos">
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <StatusChip Text="@PaymentOrderTable.PaymentStatusName(o)" Color="@PaymentOrderTable.PaymentStatusColor(o)" />
+            <MudText Typo="Typo.body2" Class="texto-secundario">
+                <MudLink Href="@($"empresas/{o.OrganizationId}")" Typo="Typo.body2">@o.OrganizationName</MudLink> · NIT @o.Nit
+            </MudText>
+        </MudStack>
+    </PageHeader>
+
+    @if (o.Status == "REVIEW_REQUIRED" && o.ReviewedAt is null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">
+            <strong>Requiere revisión:</strong> @o.ReviewReason La suscripción NO se renovó sola. Revise el caso (renovación manual,
+            devolución en el panel de Wompi…) y márquelo como revisado con una nota.
+        </MudAlert>
+    }
+
+    <MudPaper Elevation="0" Class="bp-card pa-5">
+        <MudSimpleTable Dense="true" Elevation="0" Class="bp-kv mb-4" Style="max-width: 760px">
+            <tbody>
+                <tr><th scope="row">Edición</th><td>@EditionName(o.Edition) · @PaymentOrderTable.PaymentPeriods(o)</td></tr>
+                <tr><th scope="row">Valor (congelado)</th><td>@PaymentText.Money(o.AmountCop) IVA incluido</td></tr>
+                <tr><th scope="row">Creada</th><td>@Date(o.CreatedAt)</td></tr>
+                <tr><th scope="row">Actualizada</th><td>@Date(o.UpdatedAt)</td></tr>
+                <tr><th scope="row">Transacción de Wompi</th><td><span class="mono">@(o.GatewayTransactionId ?? "—")</span> @(o.PaymentMethodType is null ? null : $"({o.PaymentMethodType})")</td></tr>
+                <tr><th scope="row">Renovación aplicada</th><td>@(o.AppliedAt is null ? "No" : Date(o.AppliedAt))</td></tr>
+                @if (o.ReviewReason is not null)
+                {
+                    <tr><th scope="row">Motivo de revisión</th><td style="white-space: normal">@o.ReviewReason</td></tr>
+                }
+                @if (o.ReviewedAt is not null)
+                {
+                    <tr><th scope="row">Revisado</th><td style="white-space: normal">@Date(o.ReviewedAt) por @o.ReviewedByName: @o.ReviewNote</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+            @if (o.AppliedAt is null && o.Status != "REVIEW_REQUIRED")
+            {
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Sync" Disabled="Busy" OnClick="CheckAsync">Consultar ahora</MudButton>
+            }
+            @if (o.Status == "REVIEW_REQUIRED" && o.ReviewedAt is null)
+            {
+                <AuthorizeView Policy="@CloudPermissions.PaymentManage">
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning" StartIcon="@Icons.Material.Filled.TaskAlt" Disabled="Busy" OnClick="ReviewAsync">Marcar revisado</MudButton>
+                </AuthorizeView>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Elevation="0" Class="bp-card bp-section">
+        <div class="pa-4 pb-0"><MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Webhook" Size="Size.Small" aria-hidden="true" />Eventos recibidos y consultas</MudText></div>
+        @if (_detail.Events.Count == 0)
+        {
+            <EmptyState Title="Aún no hay eventos de la pasarela para esta orden." Icon="@Icons.Material.Outlined.HourglassEmpty" />
+        }
+        else
+        {
+            <div class="bp-table-wrap">
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead><tr><th scope="col">Recibido</th><th scope="col">Origen</th><th scope="col">Firma</th><th scope="col">Transacción</th><th scope="col">Estado</th><th scope="col" class="num">Valor</th><th scope="col">Ambiente</th><th scope="col">Nota</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in _detail.Events)
+                        {
+                            <tr>
+                                <td>@Date(e.ReceivedAt)</td>
+                                <td>@(e.Source == "WEBHOOK" ? "Evento" : "Consulta")</td>
+                                <td>@(e.SignatureValid switch { true => "Válida", false => "RECHAZADA", null => "—" })</td>
+                                <td><span class="mono">@(e.TransactionId ?? "—")</span></td>
+                                <td>@(e.TransactionStatus ?? "—")</td>
+                                <td class="num">@(e.AmountInCents is { } c ? PaymentText.Money(c / 100m) : "—")</td>
+                                <td>@(e.Environment ?? "—")</td>
+                                <td style="white-space: normal">@(e.RejectionReason ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        }
+    </MudPaper>
+}
+
+@code {
+    [Parameter]
+    public Guid OrderId { get; set; }
+
+    private PaymentOrderDetailDto? _detail;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _detail = await LoadAsync(new GetPaymentOrderQuery(OrderId));
+
+    private async Task CheckAsync()
+    {
+        var checkedNow = await RunAsync(new CheckPaymentOrderCommand(OrderId), "Consulta hecha en la pasarela.");
+        if (checkedNow.IsSuccess)
+        {
+            Snackbar.Add(checkedNow.Value, Severity.Info);
+            await LoadAsync();
+        }
+    }
+
+    private async Task ReviewAsync()
+    {
+        var note = await Dialogs.ConfirmWithReasonAsync(
+            "Marcar revisado", "¿Qué se hizo con este pago?", "Marcar revisado", "Nota de la revisión", Color.Warning,
+            detail: "Por ejemplo: «Renové a mano 1 mes» o «Devuelto en el panel de Wompi». Queda en la auditoría.");
+        if (note is not null && await RunAsync(new MarkPaymentReviewedCommand(OrderId, note), "Pago marcado como revisado."))
+        {
+            await LoadAsync();
+        }
+    }
+}

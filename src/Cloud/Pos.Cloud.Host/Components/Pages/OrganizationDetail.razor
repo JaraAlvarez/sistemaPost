@@ -93,6 +93,42 @@ else
                 }
             </MudTabPanel>
 
+            <MudTabPanel Text="@($"Pagos en línea ({_payments.Count})")" Icon="@Icons.Material.Outlined.Payments">
+                <AuthorizeView Policy="@CloudPermissions.PaymentView" Context="paymentAuth">
+                    <Authorized>
+                        @if (_paymentSettings is { Configured: false })
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+                                Pago en línea no configurado: las renovaciones se registran a mano con «Renovar».
+                            </MudAlert>
+                        }
+                        else if (sub is null)
+                        {
+                            <EmptyState Title="La empresa no tiene suscripción vigente: no hay enlace de pago." Icon="@Icons.Material.Outlined.LinkOff" />
+                        }
+                        else if (_link is null)
+                        {
+                            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Link" Disabled="Busy" OnClick="@(() => ShowLinkAsync(sub.Id))">Mostrar enlace de pago y QR</MudButton>
+                        }
+                        else
+                        {
+                            @if (_canManagePayments)
+                            {
+                                <PaymentLinkPanel Link="_link" Busy="Busy" OnRegenerate="@(() => RegenerateLinkAsync(sub.Id))" />
+                            }
+                            else
+                            {
+                                <PaymentLinkPanel Link="_link" Busy="Busy" />
+                            }
+                        }
+
+                        <MudText Typo="Typo.subtitle1" HtmlTag="h3" Class="mt-6 mb-2">Historial de pagos en línea</MudText>
+                        <PaymentOrderTable Rows="_payments" ShowOrganization="false" Outlined="true" EmptyTitle="Esta empresa no tiene pagos en línea." />
+                    </Authorized>
+                    <NotAuthorized><MudText>Su rol no consulta los pagos en línea.</MudText></NotAuthorized>
+                </AuthorizeView>
+            </MudTabPanel>
+
             <MudTabPanel Text="Licencia" Icon="@Icons.Material.Outlined.VpnKey">
                 @if (license is null)
                 {
@@ -259,18 +295,62 @@ else
     private string? _legalName;
     private string? _city;
     private bool _orgActive = true;
+    private IReadOnlyList<PaymentOrderRowDto> _payments = [];
+    private PaymentSettingsDto? _paymentSettings;
+    private PaymentLinkDto? _link;
+    private bool _canManagePayments;
 
-    protected override Task OnParametersSetAsync() => LoadAsync();
+    [CascadingParameter]
+    private Task<AuthenticationState>? Authentication { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _link = null;
+        _canManagePayments = Authentication is not null && (await Authentication).User.HasPortalPermission(CloudPermissions.PaymentManage);
+        await LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
         _detail = await LoadAsync(new GetOrganizationQuery(OrganizationId));
+        var payments = await Operations.SendAsync(new ListPaymentOrdersQuery(new PaymentOrderFilter(OrganizationId: OrganizationId)));
+        _payments = payments.IsSuccess ? payments.Value : [];
+        var settings = await Operations.SendAsync(new GetPaymentSettingsQuery());
+        _paymentSettings = settings.IsSuccess ? settings.Value : null;
         if (_detail is not null)
         {
             _legalName = _detail.Organization.LegalName;
             _city = _detail.Organization.City;
             _orgActive = _detail.Organization.Status == "ACTIVE";
             _maxInstallations = _detail.Licenses.FirstOrDefault(l => l.Status == "ACTIVE")?.MaxInstallations;
+        }
+    }
+
+    private async Task ShowLinkAsync(Guid subscriptionId)
+    {
+        var link = await Operations.SendAsync(new EnsurePaymentLinkCommand(subscriptionId));
+        if (link.IsSuccess)
+        {
+            _link = link.Value;
+        }
+        else
+        {
+            Snackbar.Add($"{link.Error.Message} [{link.Error.Code}]", Severity.Error);
+        }
+    }
+
+    private async Task RegenerateLinkAsync(Guid subscriptionId)
+    {
+        if (!await Dialogs.ConfirmAsync("Regenerar enlace de pago", "¿Regenerar el enlace de pago de esta empresa?", "Regenerar", Color.Warning,
+                detail: "El enlace anterior (y su QR) deja de funcionar. Envíe el nuevo al cliente."))
+        {
+            return;
+        }
+
+        var link = await RunAsync(new RegeneratePaymentLinkCommand(subscriptionId), "Enlace de pago regenerado.");
+        if (link.IsSuccess)
+        {
+            _link = link.Value;
         }
     }
 

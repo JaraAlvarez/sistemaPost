@@ -1,0 +1,92 @@
+@* Lista de órdenes de pago en línea (pantalla Pagos, ficha de la empresa y "Mi suscripción"). *@
+@if (Rows.Count == 0)
+{
+    <EmptyState Title="@EmptyTitle" Icon="@Icons.Material.Outlined.Payments" />
+}
+else
+{
+    <div class="bp-table-wrap">
+        <MudSimpleTable Dense="true" Hover="true" Elevation="0" Outlined="@Outlined">
+            <thead>
+                <tr>
+                    <th scope="col">Fecha</th><th scope="col">Referencia</th>
+                    @if (ShowOrganization)
+                    {
+                        <th scope="col">Empresa</th><th scope="col">NIT</th>
+                    }
+                    <th scope="col">Periodos</th><th scope="col" class="num">Valor</th><th scope="col">Estado</th><th scope="col">Medio</th><th scope="col">Transacción</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var o in Rows)
+                {
+                    <tr>
+                        <td>@PortalPageBase.Date(o.CreatedAt)</td>
+                        <td>
+                            @if (Linked)
+                            {
+                                <MudLink Href="@($"pagos/{o.Id}")"><span class="mono">@o.Reference</span></MudLink>
+                            }
+                            else
+                            {
+                                <span class="mono">@o.Reference</span>
+                            }
+                        </td>
+                        @if (ShowOrganization)
+                        {
+                            <td><MudLink Href="@($"empresas/{o.OrganizationId}")">@o.OrganizationName</MudLink></td>
+                            <td>@o.Nit</td>
+                        }
+                        <td>@PaymentPeriods(o)</td>
+                        <td class="num">@PaymentText.Money(o.AmountCop)</td>
+                        <td><StatusChip Text="@PaymentStatusName(o)" Color="@PaymentStatusColor(o)" /></td>
+                        <td>@(o.PaymentMethodType ?? "—")</td>
+                        <td><span class="mono">@(o.GatewayTransactionId ?? "—")</span></td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PaymentOrderRowDto> Rows { get; set; } = [];
+
+    [Parameter]
+    public string EmptyTitle { get; set; } = "No hay pagos en línea.";
+
+    [Parameter]
+    public bool ShowOrganization { get; set; } = true;
+
+    /// <summary>La referencia abre el detalle (/pagos/{id}); el cliente no tiene esa pantalla.</summary>
+    [Parameter]
+    public bool Linked { get; set; } = true;
+
+    [Parameter]
+    public bool Outlined { get; set; }
+
+    public static string PaymentPeriods(PaymentOrderRowDto o) =>
+        o.BillingPeriod == "ANNUAL" ? (o.Periods == 1 ? "1 año" : $"{o.Periods} años") : (o.Periods == 1 ? "1 mes" : $"{o.Periods} meses");
+
+    public static string PaymentStatusName(PaymentOrderRowDto o) => o.Status switch
+    {
+        "PENDING" => "Pendiente",
+        "APPROVED" => "Aprobado",
+        "DECLINED" => "Rechazado",
+        "VOIDED" => "Anulado",
+        "ERROR" => "Error",
+        "EXPIRED" => "Vencido",
+        "REVIEW_REQUIRED" => o.ReviewedAt is null ? "Requiere revisión" : "Revisado",
+        _ => o.Status,
+    };
+
+    public static Color PaymentStatusColor(PaymentOrderRowDto o) => o.Status switch
+    {
+        "APPROVED" => Color.Success,
+        "PENDING" => Color.Info,
+        "REVIEW_REQUIRED" => o.ReviewedAt is null ? Color.Error : Color.Default,
+        "DECLINED" or "ERROR" or "VOIDED" => Color.Warning,
+        _ => Color.Default,
+    };
+}

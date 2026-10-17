@@ -211,7 +211,7 @@ public sealed record LicensedCustomer(Guid AccountId, Guid OrganizationId, Guid 
     }
 
     public static async Task<LicensedCustomer> CreateAsync(
-        HttpClient superadmin, string edition = LicenseEditions.MultiTerminal, bool trial = true, int? maxInstallations = null)
+        HttpClient superadmin, string edition = LicenseEditions.MultiTerminal, bool trial = true, int? maxInstallations = null, int? trialDays = null)
     {
         var (number, dv) = NewNit();
         var account = await PortalApi.PostAsync<Guid>(superadmin, "/admin/accounts", new AccountInput(
@@ -230,6 +230,7 @@ public sealed record LicensedCustomer(Guid AccountId, Guid OrganizationId, Guid 
             edition,
             billingPeriod = "MONTHLY",
             trial,
+            trialDays,
             paymentReference = trial ? null : "TRANSFERENCIA-001",
             periods = 1,
         });

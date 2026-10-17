@@ -1,0 +1,123 @@
+/* =================================================================================================== Ingreso al portal */
+/* Mismo diseño que el ingreso de tutiendanueva.com: fondo claro con halos, marco con degradado azul → morado → claro y una onda abajo,
+   marca a la izquierda y tarjeta clara con campos en píldora. Se aplica solo dentro de .acceso (AccountLayout); las páginas de pago
+   (.pay) y el resto del portal no cambian. Siempre claro, como el original. */
+.auth.acceso {
+    --auth-fondo: #EAF1FB; --auth-tarjeta: #F2F1F9; --auth-texto: #1F2432; --auth-texto-2: #6B7280; --auth-borde: #DCDCEB;
+    --auth-campo: #EEF1F4; --auth-primario: #5B3DF5; --auth-primario-hover: #4A2DE0; --auth-primario-texto: #FFFFFF; --auth-enlace: #5B3DF5;
+    --auth-error-fondo: #FEF2F2; --auth-error-borde: #FCA5A5; --auth-error-texto: #7F1D1D;
+    --auth-aviso-fondo: #FFFBEB; --auth-aviso-borde: #FCD34D; --auth-aviso-texto: #78350F;
+    --google-fondo: #FFFFFF; --google-borde: transparent; --google-texto: #1F1F1F; --google-hover: #FFFFFF;
+    --bp-foco: #5B3DF5;
+    --acceso-hundido: inset 6px 6px 13px rgba(163, 177, 198, .5), inset -6px -6px 13px rgba(255, 255, 255, .9);
+
+    color-scheme: light;
+    display: flex; align-items: center; justify-content: center; padding: 2.5rem 1.5rem; position: relative; overflow: hidden;
+    background:
+        radial-gradient(56.25rem 37.5rem at 15% 10%, rgba(91, 61, 245, .12), transparent 60%),
+        radial-gradient(56.25rem 37.5rem at 88% 92%, rgba(59, 130, 246, .12), transparent 60%),
+        #EAF1FB;
+}
+
+/* Marco con degradado. */
+.acceso-marco {
+    position: relative; width: 100%; max-width: 65rem; min-height: 35rem; display: flex; border-radius: 1.75rem; overflow: hidden;
+    background: linear-gradient(100deg, #11157D, #2524C8 28%, #5737FA 52%, #EDF3FB 78%, #F8FAFF);
+    box-shadow:
+        0 4.375rem 8.75rem -1.875rem rgba(23, 14, 82, .42), 0 1.875rem 3.75rem -.9375rem rgba(23, 14, 82, .32),
+        0 .625rem 1.5625rem -.5rem rgba(23, 14, 82, .2), inset 0 1px rgba(255, 255, 255, .5);
+}
+.acceso-onda { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* Marca (izquierda). */
+.acceso-marca {
+    flex: 1 1 55%; position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center;
+    padding: 3rem 2.5rem 3rem 3.5rem; color: #FFFFFF;
+}
+.acceso-marca .bp-brand { color: #FFFFFF; margin-bottom: 1.75rem; }
+.acceso-marca .bp-brand-accent { color: #C4B5FD; }
+.acceso-titular { font-size: 2.1rem; line-height: 1.15; font-weight: 800; letter-spacing: -.02em; margin: 0 0 1rem; color: #FFFFFF; }
+.acceso-lema { font-size: .95rem; line-height: 1.55; margin: 0; max-width: 24rem; color: rgba(255, 255, 255, .78); }
+
+/* Tarjeta (derecha). */
+.acceso-lado {
+    flex: 1 1 45%; position: relative; z-index: 1; display: flex; align-items: center; justify-content: center;
+    padding: 2.5rem 3.5rem 2.5rem 1.5rem;
+}
+.acceso .auth-card {
+    width: 100%; max-width: 25rem; text-align: center; background: var(--auth-tarjeta); border: 0; border-radius: 1.75rem;
+    padding: 2.5rem 2rem;
+    box-shadow: 0 1.5625rem 3.75rem -.75rem rgba(15, 10, 50, .45), 0 .5rem 1.25rem -.375rem rgba(15, 10, 50, .25);
+}
+.acceso .auth-card > .bp-brand { display: none; }
+
+.acceso-avatar { display: flex; flex-direction: column; align-items: center; gap: .5rem; margin-bottom: 1.25rem; }
+.acceso-avatar-circulo {
+    width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(145deg, #6D4DFB, #3D2BC9); box-shadow: 0 10px 22px -6px rgba(91, 61, 245, .55), inset 0 1px rgba(255, 255, 255, .35);
+}
+.acceso-avatar-circulo .bp-brand { margin: 0; }
+.acceso-avatar-circulo .bp-brand-mark rect { fill: transparent; }
+.acceso-avatar-texto { font-size: .85rem; font-weight: 700; color: var(--auth-texto); }
+
+.acceso .auth-title { font-size: 1.6rem; font-weight: 500; letter-spacing: -.01em; margin: 0 0 .35rem; }
+.acceso .auth-lead { font-size: .8125rem; margin: 0 0 1.5rem; }
+.acceso .auth-hint, .acceso-pie { font-size: .75rem; line-height: 1.5; color: var(--auth-texto-2); }
+.acceso-pie { margin: 1.25rem 0 0; padding-top: 1rem; border-top: 1px solid var(--auth-borde); }
+.acceso .auth-alert { text-align: left; }
+.acceso .auth-steps { text-align: left; }
+
+/* Campos en píldora, hundidos, con icono. Las etiquetas quedan para los lectores de pantalla; el texto guía va en el placeholder. */
+.acceso .auth-field { margin: 0 0 .9rem; text-align: left; }
+.acceso .auth-field label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.acceso input[type=email], .acceso input[type=password], .acceso input[type=text] {
+    min-height: 42px; padding: 10px 18px 10px 44px; font-size: .875rem; border: 0; border-radius: 999px;
+    background-color: var(--auth-campo); box-shadow: var(--acceso-hundido);
+    background-repeat: no-repeat; background-position: 16px center; background-size: 16px 16px;
+}
+.acceso input[type=email] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='m3 7 9 6 9-6'/%3E%3C/svg%3E");
+}
+.acceso input[type=password] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E");
+}
+.acceso input.auth-code { padding-left: 18px; background-image: none; }
+.acceso input::placeholder { color: #9CA3AF; }
+.acceso input:focus {
+    outline: none; box-shadow: var(--acceso-hundido), 0 0 0 3px rgba(91, 61, 245, .25);
+}
+
+/* Botones en píldora. */
+.acceso .auth-button { min-height: 44px; border-radius: 999px; font-size: .875rem; }
+.acceso .auth-button-primary {
+    background: var(--auth-primario); border: 0;
+    box-shadow: 7px 7px 16px rgba(93, 68, 160, .35), -5px -5px 14px rgba(255, 255, 255, .6);
+    transition: background-color .15s, transform .15s, box-shadow .15s;
+}
+.acceso .auth-button-primary:hover { background: var(--auth-primario-hover); transform: translateY(-1px); }
+.acceso .auth-button-primary:active { transform: translateY(0); }
+.acceso .auth-button-secondary { border: 0; background: transparent; box-shadow: none; }
+
+/* "Continuar con Google": píldora blanca con sombra, como en tutiendanueva (logotipo y texto según las pautas de Google). */
+.acceso .account-google { display: flex; justify-content: center; margin-top: 1rem; }
+.acceso .google-button {
+    width: auto; padding: 0 18px; border: 0; box-shadow: 0 4px 10px rgba(15, 23, 42, .14); transition: box-shadow .15s, transform .15s;
+}
+.acceso .google-button:hover { box-shadow: 0 8px 18px rgba(15, 23, 42, .2); transform: translateY(-2px); }
+.acceso .google-button:active { box-shadow: 0 2px 4px rgba(15, 23, 42, .15); transform: translateY(0); }
+.acceso .auth-divider { margin: 1.25rem 0 0; font-size: .75rem; }
+
+/* Pantallas angostas: sin la marca ni la onda; el marco queda como fondo de la tarjeta. */
+@media (max-width: 859.98px) {
+    .auth.acceso { padding: 1.25rem 1rem; }
+    .acceso-marco { min-height: 0; justify-content: center; background: linear-gradient(160deg, #11157D, #2524C8 45%, #5737FA); }
+    .acceso-onda, .acceso-marca { display: none; }
+    .acceso-lado { flex: 1 1 auto; padding: 2rem 1rem; }
+    .acceso .auth-card { padding: 2rem 1.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .acceso .auth-button-primary, .acceso .google-button { transition: none; transform: none !important; }
+}

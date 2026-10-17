@@ -35,6 +35,9 @@ internal sealed class FakeLicenseCloud : HttpMessageHandler
 
     public CheckinAuditSeal? LastSeal { get; private set; }
 
+    /// <summary>Enlace de pago en línea que devuelve la nube (Fase 12-C); <c>null</c> = licencia al día.</summary>
+    public string? PaymentUrl { get; set; }
+
     public int Checkins { get; private set; }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -76,7 +79,8 @@ internal sealed class FakeLicenseCloud : HttpMessageHandler
         return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = JsonContent.Create(
-                new LicenseTokenResponse(LicenseToken.Sign(claims, Key), Key.Kid, SubscriptionStatus, claims.ValidUntil, 7, claims.RefreshAfter, claims.Messages),
+                new LicenseTokenResponse(
+                    LicenseToken.Sign(claims, Key), Key.Kid, SubscriptionStatus, claims.ValidUntil, 7, claims.RefreshAfter, claims.Messages, PaymentUrl),
                 options: Web),
         };
     }
@@ -131,6 +135,8 @@ public class LicenseServerFactory : PosServerFactory
 /// </summary>
 public class LicenseApiTests
 {
+    private const string PaymentUrl = "https://licencias.test/pagar/Q7wX2kLm9pR4tY6uZ3vB8n";
+
     [Fact]
     public async Task Demostracion_activacion_restriccion_reactivacion_y_reloj_atrasado()
     {
@@ -161,15 +167,33 @@ public class LicenseApiTests
         status.LicenseKeyPrefix.ShouldBe(LicenseKey.VisiblePrefix(FakeLicenseCloud.ValidKey));
         status.OrganizationNit.ShouldBe("900123456-8");
 
-        // Jornada abierta con una venta en curso; la nube suspende la suscripción.
+        status.PaymentUrl.ShouldBeNull();
+        (await shop.Owner.GetAsync("/api/v1/license/payment-qr", Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        // Jornada abierta con una venta en curso; la nube suspende la suscripción y envía el enlace de pago (Fase 12-C).
         var sale = await shop.StartAsync();
         sale = await shop.AddAsync(sale.Id, shop.Rice, 2);
         factory.Cloud.SubscriptionStatus = SubscriptionStatuses.Suspended;
+        factory.Cloud.PaymentUrl = PaymentUrl;
         await Task.Delay(TimeSpan.FromSeconds(2.5), Ct); // horizonte seguro del sello de auditoría
         status = await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/check");
         status.State.ShouldBe(LicenseStates.Restricted);
         status.Notices.ShouldContain(n => n.Code == "SUBSCRIPTION_SUSPENDED");
         factory.Cloud.LastSeal.ShouldNotBeNull(); // Ancla externa de la auditoría (ADR-0048).
+
+        // Restringida, el enlace de pago se ve en la licencia y en la sesión del dueño (no en la de la caja) y su QR se dibuja en SVG.
+        status.PaymentUrl.ShouldBe(PaymentUrl);
+        (await GetAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license")).PaymentUrl.ShouldBe(PaymentUrl);
+        (await GetAsync<MeDto>(shop.Owner, "/api/v1/auth/me")).License.ShouldNotBeNull().PaymentUrl.ShouldBe(PaymentUrl);
+        (await GetAsync<MeDto>(shop.Cashier, "/api/v1/auth/me")).License.ShouldNotBeNull().PaymentUrl.ShouldBeNull();
+        using (var qr = await shop.Owner.GetAsync("/api/v1/license/payment-qr?url=https://otro.test/", Ct))
+        {
+            qr.StatusCode.ShouldBe(HttpStatusCode.OK);
+            qr.Content.Headers.ContentType!.MediaType.ShouldBe("image/svg+xml");
+            (await qr.Content.ReadAsStringAsync(Ct)).ShouldContain("<svg");
+        }
+
+        (await shop.Cashier.GetAsync("/api/v1/license/payment-qr", Ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
 
         // Restringida: se vende y se cobra en la jornada abierta, se consulta y se exporta; no se administra.
         (await shop.CompleteAsync(sale.Id, [Pay(shop.Cash, 10_000m)])).TicketText.ShouldNotContain("DEMOSTRACIÓN");
@@ -177,9 +201,13 @@ public class LicenseApiTests
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "LICENSE.RESTRICTED");
         (await shop.Owner.GetAsync("/api/v1/reports/SALES_DAILY", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // La nube reactiva: todo vuelve a funcionar.
+        // La nube reactiva (pago aplicado): todo vuelve a funcionar y el enlace de pago desaparece.
         factory.Cloud.SubscriptionStatus = SubscriptionStatuses.Active;
-        (await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/check")).State.ShouldBe(LicenseStates.Valid);
+        factory.Cloud.PaymentUrl = null;
+        status = await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/check");
+        status.State.ShouldBe(LicenseStates.Valid);
+        status.PaymentUrl.ShouldBeNull();
+        (await GetAsync<MeDto>(shop.Owner, "/api/v1/auth/me")).License.ShouldNotBeNull().PaymentUrl.ShouldBeNull();
         (await RawAsync(shop.Owner, HttpMethod.Post, "/api/v1/catalog/categories", new { name = "Nueva", sortOrder = 0 })).StatusCode.ShouldBe(HttpStatusCode.Created);
 
         // Reloj atrasado 3 días: restringida hasta que un check-in confirma la hora confiable.

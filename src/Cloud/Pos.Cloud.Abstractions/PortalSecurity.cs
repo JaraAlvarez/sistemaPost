@@ -51,18 +51,34 @@ public static class CloudPermissions
     /// <summary>Cargar un paquete .possync exportado por una tienda sin Internet.</summary>
     public const string SyncPackageUpload = "sync.package.upload";
 
-    private static readonly HashSet<string> SupportPermissions =
-        [DashboardView, LicensingView, SubscriptionSupport, DeviceRelease, AuditView, SyncDataView, SyncPackageUpload];
+    /// <summary>Ver los pagos en línea, los enlaces de pago y los precios; "Consultar ahora" una orden en la pasarela (Fase 12-C).</summary>
+    public const string PaymentView = "licensing.payment.view";
 
-    private static readonly HashSet<string> CustomerPermissions = [SyncDataView, SyncPackageUpload];
+    /// <summary>"Marcar revisado" un pago y regenerar el enlace de pago de una suscripción (solo superadministrador).</summary>
+    public const string PaymentManage = "licensing.payment.manage";
+
+    /// <summary>Fijar los precios de las ediciones (solo superadministrador, D12C-02).</summary>
+    public const string PriceManage = "licensing.price.manage";
+
+    /// <summary>"Mi suscripción": el cliente ve el vencimiento y los pagos de SUS empresas y paga en línea (D12C-09).</summary>
+    public const string SubscriptionSelfView = "licensing.subscription.self";
+
+    private static readonly HashSet<string> SupportPermissions =
+        [DashboardView, LicensingView, SubscriptionSupport, DeviceRelease, AuditView, SyncDataView, SyncPackageUpload, PaymentView];
+
+    private static readonly HashSet<string> CustomerPermissions = [SyncDataView, SyncPackageUpload, SubscriptionSelfView];
 
     private static readonly HashSet<string> SuperadminPermissions =
     [
         DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease,
-        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload,
+        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload, PaymentView, PaymentManage,
+        PriceManage,
     ];
 
-    public static IReadOnlyCollection<string> All => SuperadminPermissions;
+    private static readonly HashSet<string> AllPermissions = [.. SuperadminPermissions, .. CustomerPermissions, .. SupportPermissions];
+
+    /// <summary>Todos los permisos que existen (cada uno tiene su política de autorización).</summary>
+    public static IReadOnlyCollection<string> All => AllPermissions;
 
     public static IReadOnlySet<string> ForRole(string? role) => role switch
     {

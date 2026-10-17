@@ -1,0 +1,93 @@
+@page "/mi-suscripcion"
+@attribute [Authorize(Policy = CloudPermissions.SubscriptionSelfView)]
+@inherits PortalPageBase
+@inject NavigationManager Navigation
+
+@* "Mi suscripción" del cliente (D12C-09): vencimiento, historial de pagos y "Pagar" (lleva al enlace público /pagar/<código>). *@
+<PageTitle>Mi suscripción · BusinessPost</PageTitle>
+<PageHeader Title="Mi suscripción" Section="Personal"
+            Description="Vigencia de la suscripción de sus empresas y los pagos en línea. Al pagar, la suscripción se renueva sola y su tienda lo ve en su próximo reporte." />
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
+}
+
+@if (_data is null)
+{
+    <MudPaper Elevation="0" Class="bp-card"><TableSkeleton Rows="3" /></MudPaper>
+}
+else
+{
+    @if (!_data.Configured)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+            Pago en línea no configurado. Para renovar, comuníquese con BusinessPost.
+        </MudAlert>
+    }
+
+    @if (_data.Organizations.Count == 0)
+    {
+        <MudPaper Elevation="0" Class="bp-card">
+            <EmptyState Title="Su usuario no tiene empresas asociadas." Hint="Pida a BusinessPost que asocie su cuenta." Icon="@Icons.Material.Outlined.Storefront" />
+        </MudPaper>
+    }
+
+    @foreach (var o in _data.Organizations)
+    {
+        var sub = o.Subscription;
+        <MudPaper Elevation="0" Class="bp-card pa-5 mb-6">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-4">
+                <MudText Typo="Typo.h6" HtmlTag="h2">@o.OrganizationName</MudText>
+                @if (sub is not null)
+                {
+                    <StatusChip Status="@sub.EffectiveStatus" />
+                }
+            </MudStack>
+            @if (sub is null)
+            {
+                <MudText>No tiene una suscripción vigente. Comuníquese con BusinessPost.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Elevation="0" Class="bp-kv mb-4" Style="max-width: 640px">
+                    <tbody>
+                        <tr><th scope="row">Edición</th><td>@EditionName(sub.Edition) (@(sub.BillingPeriod == "ANNUAL" ? "anual" : "mensual"))</td></tr>
+                        <tr><th scope="row">Vigente hasta</th><td>@Date(sub.ValidUntil)</td></tr>
+                        <tr><th scope="row">Gracia hasta</th><td>@Date(sub.GraceUntil)</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+                @if (o.CanPay)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Payments" Disabled="Busy" OnClick="@(() => PayAsync(o.OrganizationId))">Pagar</MudButton>
+                }
+                else if (_data.Configured)
+                {
+                    <MudText Typo="Typo.body2" Class="texto-secundario">Para renovar esta suscripción, comuníquese con BusinessPost.</MudText>
+                }
+            }
+
+            <MudText Typo="Typo.subtitle1" HtmlTag="h3" Class="mt-6 mb-2">Pagos en línea</MudText>
+            <PaymentOrderTable Rows="o.Payments" ShowOrganization="false" Linked="false" Outlined="true" EmptyTitle="Aún no hay pagos en línea." />
+        </MudPaper>
+    }
+}
+
+@code {
+    private CustomerSubscriptionsDto? _data;
+
+    protected override async Task OnInitializedAsync() => _data = await LoadAsync(new GetMySubscriptionsQuery());
+
+    private async Task PayAsync(Guid organizationId)
+    {
+        var link = await Operations.SendAsync(new EnsureMyPaymentLinkCommand(organizationId));
+        if (link.IsFailure)
+        {
+            Snackbar.Add(link.Error.Message, Severity.Error);
+            return;
+        }
+
+        // La página pública de pago se sirve sin el circuito interactivo (formulario renderizado en el servidor).
+        Navigation.NavigateTo(link.Value.Path, forceLoad: true);
+    }
+}

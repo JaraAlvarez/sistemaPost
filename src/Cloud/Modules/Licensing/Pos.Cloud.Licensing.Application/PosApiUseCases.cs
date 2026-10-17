@@ -233,9 +233,10 @@ internal sealed class ActivateLicenseHandler(
 /// <summary>
 /// Check-in diario (§5.2): el token (aunque esté vencido) autentica la instalación y la huella actual el equipo. Devuelve un
 /// token renovado con el estado actual de la suscripción. Un rechazo también queda registrado (por eso el resultado es un
-/// <see cref="Outcome{T}"/> y la transacción se confirma).
+/// <see cref="Outcome{T}"/> y la transacción se confirma). <c>BaseUrl</c>: dirección pública de la petición, para el enlace de
+/// pago en línea que se devuelve cuando la suscripción está por vencer, en gracia o vencida (Fase 12-C, D12C-08).
 /// </summary>
-public sealed record CheckinCommand(CheckinRequest Request, IPAddress? IpAddress) : ICommand<Outcome<LicenseTokenResponse>>;
+public sealed record CheckinCommand(CheckinRequest Request, IPAddress? IpAddress, string? BaseUrl = null) : ICommand<Outcome<LicenseTokenResponse>>;
 
 internal sealed class CheckinHandler(
     ILicensingStore store,
@@ -243,6 +244,7 @@ internal sealed class CheckinHandler(
     ITrustedSigningKeys trustedKeys,
     ILicenseThrottle throttle,
     LicenseTokenFactory tokens,
+    PaymentLinks paymentLinks,
     IAuditWriter audit,
     IIdGenerator ids,
     IClock clock) : ICommandHandler<CheckinCommand, Outcome<LicenseTokenResponse>>
@@ -312,6 +314,11 @@ internal sealed class CheckinHandler(
         subscription.Refresh(new ChangeContext(SystemActor.Id, now, ids));
         installation.RecordCheckin(request.AppVersion, request.ActiveTerminals, command.IpAddress, now);
         var response = tokens.Issue(organization, subscription, license, installation, installation.ActiveDevice!, request.AppVersion);
+        if (await paymentLinks.ForCheckinAsync(subscription, command.BaseUrl, cancellationToken) is { } paymentUrl)
+        {
+            response = response with { PaymentUrl = paymentUrl };
+        }
+
         store.Add(Checkin.Issued(ids.NewId(), installation, installation.ActiveActivation!.Id, report, subscription.Status, subscription.ValidUntil, now));
         return Outcome.Ok(response);
     }
