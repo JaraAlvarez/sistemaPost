@@ -67,7 +67,7 @@ A la izquierda está el menú, organizado en grupos:
 |---|---|
 | **Tablero** | Resumen del día. |
 | **Ventas y caja** | Turnos de caja, Gastos, Reportes, Facturación electrónica. |
-| **Inventario** | Productos y precios, Existencias, Reabastecimiento, Conteos, Traslados, Ajustes, Importar desde Excel. |
+| **Inventario** | Productos y precios, Etiquetas, Existencias, Reabastecimiento, Conteos, Traslados, Ajustes, Importar desde Excel. |
 | **Compras y proveedores** | Compras, Proveedores, Cuentas por pagar. |
 | **Clientes y promociones** | Clientes, Promociones. |
 | **Administración** | Usuarios, Configuración, Cajas e impresoras, Auditoría, Licencia, Sincronización, Backups, Actualizaciones. |
@@ -81,8 +81,9 @@ oscuro**, y a la derecha está su nombre, con las opciones **Cambiar contraseña
 
 ### Cambiar su contraseña
 
-En el menú de su nombre, elija **Cambiar contraseña**. Escriba la contraseña actual y dos veces la nueva (mínimo 10 caracteres; use
-una frase fácil de recordar).
+En el menú de su nombre, elija **Cambiar contraseña**. Escriba la contraseña actual y dos veces la nueva. El sistema exige al menos 8
+caracteres (valor del parámetro de longitud mínima, que se puede subir), que no contenga su usuario y que no sea una de sus últimas 5
+contraseñas. Use 10 o más (esta pantalla ya pide 10): una frase fácil de recordar.
 
 ![Cambiar contraseña.](imagenes/uso/adm-05-cambiar-contrasena.png)
 
@@ -168,6 +169,7 @@ Al abrir un producto verá sus pestañas:
 ![Cambiar precio con fecha de vigencia.](imagenes/uso/adm-11-producto-cambiar-precio.png)
 
 Dentro del producto, la ventana de cambiar precio también deja elegir la **lista de precios**, la **sucursal** y la **presentación**.
+Después del cambio, imprima la etiqueta nueva en **Inventario → Etiquetas** (sección 16).
 
 ### Productos que se venden por peso
 
@@ -204,7 +206,7 @@ Ninguna de las dos borra el historial: las ventas y movimientos pasados se conse
 **Buenas prácticas**
 
 - Un solo producto por artículo; si llega con otro código de barras, agréguelo en **Códigos de barras** en lugar de crear otro producto.
-- Programe los cambios de precio con **Rige desde** para que coincidan con el cambio de los precios en la góndola.
+- Programe los cambios de precio con **Rige desde** y el mismo día imprima las etiquetas nuevas (sección 16).
 - Revise de vez en cuando el reporte **Cambios de precios, costos e impuestos**.
 
 ## 4. Existencias
@@ -233,8 +235,9 @@ Marque **Solo bajo el mínimo** para ver lo que se está acabando; esos producto
 | **Máximo** | Hasta dónde llenar. |
 | **Cantidad a pedir** (opcional) | Lo que se pide si no hay máximo. |
 
-Esta pantalla está en **Inventario → Reabastecimiento** (se ve con la función **Compras y proveedores** encendida). No tiene captura en
-este manual.
+Esta pantalla está en **Inventario → Reabastecimiento**. El pedido sugerido se ve con la función **Compras y proveedores** encendida y el
+permiso de consultar compras; la pantalla también la ve quien puede definir mínimos y máximos (el propietario, el administrador y los
+roles Inventario y Compras).
 
 ### Tres formas de poner los mínimos y máximos
 
@@ -244,7 +247,13 @@ este manual.
    `minimo` y, opcionales, `maximo`, `punto_pedido` y `bodega`), súbala, revise la vista previa y pulse **Aplicar**.
 3. **Calculados con la venta:** en **Reabastecimiento**, pestaña **Calcular mínimos sugeridos**, elija la bodega, los **días de venta**
    que quiere mirar, los **días de entrega** del proveedor y los **días de cobertura**, y pulse **Calcular**. Revise la tabla (puede
-   cambiar cualquier número o desmarcar productos) y pulse **Guardar los marcados**.
+   cambiar cualquier número o desmarcar productos) y pulse **Guardar los marcados**. El punto de pedido que ya tuviera se conserva.
+
+![Reabastecimiento → Calcular mínimos sugeridos: bodega, días de venta, días de entrega y días de cobertura.](imagenes/uso/adm-56-reabastecimiento-calcular-minimos.png)
+
+Al importar desde Excel, la vista previa marca los errores fila por fila (producto que no existe o descontinuado, máximo menor que el
+mínimo, producto repetido, decimales en un producto por unidad) y una celda vacía de máximo o punto de pedido **conserva** lo que ya
+tenía. Si usa punto de pedido, el sistema exige también el máximo o la cantidad a pedir.
 
 Cómo calcula los sugeridos:
 
@@ -257,12 +266,18 @@ Cómo calcula los sugeridos:
 ### Hacer el pedido sugerido
 
 1. Abra **Inventario → Reabastecimiento**, pestaña **Pedido sugerido**. Aparecen los productos bajo el mínimo (o en el punto de
-   pedido), agrupados por **proveedor**. Puede filtrar por bodega, categoría y proveedor.
-2. Revise la columna **Pedir**: es el máximo menos lo que hay y lo que ya está pedido. Si el proveedor vende por caja, se redondea a
-   cajas completas.
+   pedido), agrupados por **proveedor** (el preferido del producto o, si no tiene, el de la compra más reciente). Puede filtrar por
+   bodega, categoría y proveedor.
+2. Revise la columna **Pedir**: es el máximo menos lo que hay y lo que ya está pedido. Sin máximo, se pide la cantidad a pedir o, si
+   no la tiene, hasta el punto de pedido o el mínimo. Si el proveedor vende por caja, se redondea a cajas completas (faltan 30 y la
+   caja es de 24: se piden 2 cajas).
 3. Cambie las cantidades que quiera y marque o desmarque productos (o un proveedor completo).
 4. Los productos del grupo **Sin proveedor** necesitan uno: elíjalo por producto o para todos los marcados.
-5. Pulse **Crear órdenes de compra**. Se crea **una orden en borrador por proveedor**, con enlaces a cada una.
+![Reabastecimiento → Pedido sugerido: tres productos bajo el mínimo, todavía sin proveedor asignado.](imagenes/uso/adm-55-reabastecimiento-pedido-sugerido.png)
+
+5. Pulse **Crear órdenes de compra**. Se crea **una orden en borrador por proveedor y bodega**, con el último costo del proveedor y
+   enlaces a cada una. Si una no se puede crear (por ejemplo, el proveedor está bloqueado), no se crea ninguna y el aviso dice cuál
+   falló.
 6. Vaya a **Compras → Órdenes de compra** para revisarlas, aprobarlas y enviarlas (sección 10).
 
 > **Importante:** lo "ya pedido" son las órdenes que todavía no llegan. Por eso el pedido sugerido no pide dos veces lo mismo. Si
@@ -273,6 +288,7 @@ Cómo calcula los sugeridos:
 - Calcule los mínimos con al menos 30 días de venta real y recalcúlelos cada temporada (diciembre, regreso a clases).
 - Haga el pedido el mismo día de la semana con cada proveedor.
 - Asigne a cada producto su **proveedor preferido**: el pedido sale ordenado por proveedor.
+- Si hay más de 5.000 productos para pedir, la pantalla muestra los primeros 5.000: filtre por categoría o proveedor.
 
 ## 6. Conteos de inventario
 
@@ -283,8 +299,8 @@ Cómo calcula los sugeridos:
 ### Paso a paso
 
 1. Abra **Inventario → Conteos** y pulse **Nuevo conteo**.
-2. Elija la **bodega** y el **tipo**: **Completo** (todos los productos) o **Parcial** (algunas categorías o productos). Marque
-   **ciego** si no quiere que quien cuenta vea la cantidad del sistema.
+2. Elija la **bodega** y el **tipo**: **Completo** (todos los productos) o **Parcial** (algunas categorías o productos). La casilla
+   **Conteo ciego** viene marcada: quien cuenta no ve la cantidad del sistema. Desmárquela solo si quiere mostrarla.
 3. Guarde y pulse **Iniciar**: el sistema "congela" la cantidad teórica en ese momento.
 
 ![Nuevo conteo: bodega, tipo y conteo ciego.](imagenes/uso/adm-23-conteo-nuevo.png)
@@ -403,6 +419,7 @@ compra** y **Órdenes de compra**.
 3. Agregue cada producto con la cantidad y el costo. Si el producto maneja lotes, escriba el **lote** y el **vencimiento**.
 4. Pulse **Guardar borrador** y revise los totales contra la factura en papel.
 5. Pulse **Confirmar compra**. Desde ese momento entra la mercancía.
+6. Si quiere, pulse **Imprimir etiquetas** en la compra confirmada: abre Etiquetas con lo que llegó (sección 16).
 
 ![Nueva factura de compra.](imagenes/uso/adm-44-compra-nueva.png)
 
@@ -594,15 +611,80 @@ promociones → Promociones** (con la función **Promociones** encendida).
 
 ## 16. Etiquetas de góndola
 
-La impresión de etiquetas de precio para góndola **todavía no está disponible** en BusinessPost; llegará en una próxima versión.
+**Para qué sirve:** imprimir las etiquetas de precio de la góndola (habladores) y los adhesivos con código de barras, con el **mismo
+precio que cobra la caja**. Está en **Inventario → Etiquetas**. La puede usar quien consulta productos; generar códigos internos exige
+poder modificar productos.
 
-Mientras tanto, para saber qué etiquetas cambiar:
+La pantalla tiene tres pasos: **1. ¿Qué productos?**, **2. Revise la lista** y **3. Imprimir**.
 
-1. Antes de un cambio de precios, programe los nuevos precios con **Rige desde** (sección 3).
-2. Use el reporte **Cambios de precios, costos e impuestos** (Ventas y caja → Reportes) para sacar la lista de productos con precio
-   nuevo y actualice esas etiquetas a mano o con su programa de etiquetas.
+![Inventario → Etiquetas: la lista armada, con el precio, la oferta y la cantidad de cada producto.](imagenes/uso/adm-57-etiquetas-lista.png)
 
-> **Consejo:** cambie la etiqueta y el precio el mismo día. Un precio distinto en góndola y en caja genera reclamos y desconfianza.
+### 1. Arme la lista
+
+En **Agregar productos por** elija cómo traerlos. Puede combinar varias formas; si un producto ya estaba en la lista, se toma la cantidad
+nueva.
+
+| Forma | Qué trae | Cuándo usarla |
+|---|---|---|
+| **Buscar productos uno por uno** | El producto que busque por nombre, SKU o código (botón **Agregar**). | Una o pocas etiquetas. |
+| **Una categoría** | Todos los productos activos de la categoría, con sus subcategorías. | Renovar las etiquetas de un pasillo. |
+| **Cambios de precio desde una fecha** | Los productos cuyo precio nuevo ya rige y empezó desde ese día. | Después de subir o bajar precios. |
+| **Productos de una compra** | Lo que llegó en una compra, con una etiqueta por unidad (2 cajas × 12 = 24); lo que se vende por peso lleva una sola. | Al recibir mercancía. Se escribe el **número interno** de la compra, no el de la factura del proveedor. |
+| **Productos sin código de barras** | Los productos que no tienen código. | Para ponerles adhesivo con código. |
+
+La opción **Productos de una compra** aparece con la función Compras y proveedores encendida. En una compra confirmada también está el
+botón **Imprimir etiquetas**, que abre esta pantalla con esa compra.
+
+Los productos **descontinuados** no salen (la pantalla avisa cuántos se omitieron) y los **inactivos** salen marcados como "(inactivo)"
+para que usted decida. Si su empresa tiene varias sucursales, elija arriba la **Sucursal (precios y promociones)**: los precios y las
+ofertas dependen de ella.
+
+### 2. Revise la lista
+
+Para cada producto verá:
+
+- **Precio:** el precio al público, calculado igual que en la caja (con IVA e impuestos fijos como la bolsa o el IBUA). Los centavos se
+  suben al peso, para que la góndola nunca diga menos de lo que se cobra.
+- **Oferta:** la promoción vigente hoy en la sucursal. Un precio especial o un porcentaje sale con el precio normal tachado y "hasta
+  dd/mm" si la promoción tiene fecha final; "Lleve 3 pague 2" o "Desde 3 und" salen como texto. Las promociones que solo rigen ciertos
+  días u horas **no** se imprimen en la góndola.
+- **Precio por kilo o por litro**, debajo del nombre, cuando el producto tiene contenido neto (por ejemplo, café de 500 g).
+- **Cantidad:** cuántas copias imprimir (0 = no se imprime). Con el ícono de la papelera quita el producto; **Vaciar lista** empieza de
+  nuevo.
+
+**Productos sin código de barras:** la etiqueta lleva el SKU, que la caja también lee. Si prefiere un código de barras, pulse **Generar
+código interno**: el sistema crea un código EAN-13 que empieza por **29**, lo guarda en el producto y lo deja en la Auditoría. Pide
+confirmación antes. Si algún producto no se pudo (ya tenía código o está descontinuado), se informa sin detener los demás.
+
+### 3. Imprima
+
+![Tamaños de etiqueta: hojas A4 y adhesivos para impresora de etiquetas.](imagenes/uso/adm-58-etiquetas-tamanos.png)
+
+Elija el **Tamaño de la etiqueta**, marque si quiere **Imprimir la fecha** y pulse **Descargar PDF**:
+
+| Tamaño | Papel | Cómo imprimir |
+|---|---|---|
+| **Hoja A4 · 24 etiquetas de góndola (66 × 35 mm)** | Hoja carta o A4, adhesiva o normal | Imprima **al 100 %** (sin "ajustar a la página") y recorte por las líneas grises. |
+| **Hoja A4 · 14 etiquetas grandes (100 × 40 mm)** | Igual que la anterior | Igual; sirve también para códigos largos que no caben en la pequeña. |
+| **Adhesivo 40 × 25 mm** | Rollo de impresora de etiquetas (Zebra, Xprinter, TSC…) | El PDF viene al tamaño exacto, una etiqueta por página. En Windows elija ese tamaño de papel y etiquetas con separación (gap). |
+| **Adhesivo 50 × 30 mm** | Rollo de impresora de etiquetas | Igual que el anterior. |
+
+En un computador de caja aparece además **Imprimir en la impresora de tiquetes**: imprime nombre, precio y código de barras una tras
+otra en el papel de tiquetes, para recortar a mano. Sirve para salir del paso; para la góndola es mejor el PDF.
+
+> **Importante:** si un código de barras no cabe bien en la etiqueta elegida (por ejemplo, un código largo en el adhesivo de 40 × 25
+> mm), la pantalla lo avisa. Las barras demasiado delgadas no se leen: use la hoja de 14 etiquetas grandes o genere el código interno.
+
+Límites: hasta 2.000 etiquetas por archivo, 200 en la impresora de tiquetes y 500 copias por producto. Si necesita más, imprima por
+partes.
+
+**Buenas prácticas**
+
+- Después de cada cambio de precios, use **Cambios de precio desde una fecha** y cambie las etiquetas **el mismo día**. Un precio
+  distinto en góndola y en caja genera reclamos y desconfianza.
+- Al recibir mercancía, imprima las etiquetas desde la compra: salen justas para lo que llegó.
+- Haga una prueba con una sola hoja antes de imprimir cientos: confirme que se imprime al 100 % y que el lector de la caja lee el
+  código.
 
 ## 17. Turnos de caja: reportes X y Z
 
@@ -741,21 +823,28 @@ gastos, Caja, Antifraude y Auditoría).
 
 | Rol | Puede |
 |---|---|
-| **Propietario** | Todo, incluidos la licencia y el código de recuperación. |
+| **Propietario** | Todo. Es el único que activa la licencia y maneja el código de recuperación. |
 | **Administrador** | Toda la operación y la configuración, salvo lo exclusivo del propietario. |
 | **Supervisor de caja** | Vender y autorizar descuentos, cancelaciones, peso digitado y lotes vencidos; revisar y cerrar turnos; ver reportes de caja. |
-| **Cajero** | Vender, quitar una línea antes de cobrar, reimprimir y crear clientes rápidos. |
-| **Inventario** | Productos, existencias, conteos, ajustes, traslados e importación. |
-| **Compras** | Proveedores, órdenes, facturas de compra, cuentas por pagar y mínimos y máximos. |
+| **Cajero** | Vender, reimprimir y crear clientes rápidos. Quitar una línea antes de cobrar depende del permiso de anular líneas (si no lo tiene, pide supervisor). |
+| **Inventario** | Productos, existencias, conteos, ajustes, traslados e importación; también registra compras y define mínimos y máximos. |
+| **Compras** | Proveedores, órdenes, facturas de compra, cuentas por pagar, y definir mínimos y máximos. |
 | **Contador** | Consultar reportes, impuestos y auditoría, y exportarlos. No modifica nada. |
 | **Encargado de promociones** | Crear, simular, activar y terminar promociones. |
 
 Los roles vienen listos; todavía no se pueden editar desde la pantalla.
 
-### Inactivar, bloquear y desbloquear
+### Inactivar, activar y desbloquear
 
-- **Inactivar:** para quien ya no trabaja en el negocio. Hágalo el mismo día.
+En la lista de usuarios, cada fila tiene sus botones:
+
+- **Inactivar:** para quien ya no trabaja en el negocio. Hágalo el mismo día. Ya no podrá entrar a la caja ni a la administración.
+- **Activar:** devuelve el acceso a un usuario inactivo.
 - **Desbloquear:** tras varios intentos fallidos, el usuario queda bloqueado unos minutos; desde aquí se desbloquea antes.
+
+> **Importante:** por ahora no hay pantalla para cambiar el rol, el código de caja o el PIN de un usuario que ya existe, ni para
+> restablecerle la contraseña: llegará próximamente. Revise bien esos datos al crearlo. Mientras tanto, si una persona olvidó su
+> contraseña o necesita otro rol, comuníquese con el soporte de BusinessPost.
 
 **Buenas prácticas**
 
@@ -772,11 +861,11 @@ marcha**; aquí, un resumen:
 |---|---|
 | **Empresa** | Razón social, nombre comercial, régimen, municipio, dirección y contacto. El NIT no se cambia. |
 | **Funciones del negocio** | Tipo de negocio e interruptores de Báscula y PLU, Lotes y vencimientos, Venta por metro o fracción, Precio abierto, Promociones y Compras y proveedores. Apagar una función la oculta, no borra datos. |
-| **Sucursales y bodegas** | Sedes y sus bodegas (piso de venta, bodega trasera, averías, tránsito). |
+| **Sucursales y bodegas** | Sedes y sus bodegas. Cada sucursal nueva trae PISO (piso de venta), AVERIAS y TRANSITO; otras, como una bodega trasera, las crea usted. |
 | **Medios de pago** | Medios que ve el cajero al cobrar, y la conexión con Sistecrédito. |
 | **Parámetros** | Reglas del sistema: tope de diferencia en cierres, redondeo del efectivo, aprobación de ajustes, alertas de vencimiento, backups. |
 
-![Configuración → Empresa.](imagenes/uso/conf-07-empresa.png)
+![Configuración → Funciones del negocio: el tipo de negocio y un interruptor por función.](imagenes/uso/conf-15-funciones-del-negocio.png)
 
 ![Configuración → Parámetros.](imagenes/uso/conf-12-parametros.png)
 
@@ -796,7 +885,9 @@ marcha**; aquí, un resumen:
 | **Impresora** | Conexión, ancho del papel, página de códigos, corte y cajón monedero. |
 | **Báscula** | Marca, puerto y prueba de la báscula (con la función Báscula y PLU encendida). |
 | **Inactivar** | Deja la caja fuera de uso. |
-| **Bloquear** | Impide vender en esa caja temporalmente. |
+| **Bloquear** | Impide vender en esa caja hasta que la desbloquee. |
+| **Emparejar equipo** (solo Multicaja) | Muestra el código para unir el computador de esa caja: en el equipo nuevo se abre BusinessPost, se elige **Emparejar este equipo** y se escribe el código. |
+| **Emparejar PC administrativo** (solo Multicaja, arriba) | Igual, para un computador de oficina que solo usa la administración. |
 
 En **Multicaja**, en **Equipos emparejados** aparecen los computadores de cada caja adicional. En **Caja Única**, el mismo equipo hace
 todo y no se emparejan otros.
@@ -821,7 +912,11 @@ Pulse **Verificar la integridad** para comprobar que nadie alteró la bitácora.
 
 **Para qué sirve:** ver el estado de su licencia (edición, clave, vigencia y última verificación) y activarla.
 
-Para activar: escriba la clave (empieza por `POS-`) y pulse **Activar**. Necesita Internet en ese momento.
+Para activar: escriba la clave (empieza por `POS-`) y pulse **Activar**. Necesita Internet en ese momento, y **solo el usuario
+Propietario** puede hacerlo.
+
+> **Importante:** si instaló en demostración, active la licencia antes de que se cumplan **30 días** desde la instalación. Si no, la
+> licencia queda **Restringida**: puede consultar, exportar y respaldar su información, pero las cajas **no pueden abrir turnos**.
 
 ![Administración → Licencia, todavía sin activar.](imagenes/uso/adm-96-licencia.png)
 
@@ -897,7 +992,9 @@ Un supervisor abre el turno en **Turnos de caja** y usa **Cerrar como supervisor
 Después de varios intentos fallidos el usuario se bloquea por unos minutos. En **Usuarios** puede **Desbloquearlo** antes.
 
 **Olvidé la contraseña del propietario.**
-Comuníquese con el soporte de BusinessPost. Por eso conviene que haya al menos un administrador además del propietario.
+Si instaló con su cuenta del portal, el usuario propietario es el correo del portal y su contraseña es la que usaba en el portal
+al instalar. Si aun así no puede entrar, comuníquese con el soporte de BusinessPost. Por eso conviene que haya al menos un
+administrador además del propietario.
 
 **¿Puedo borrar un producto, un cliente o un proveedor?**
 No se borran para no perder el historial: se **inactivan**. Inactivos no estorban en la operación diaria.
@@ -909,7 +1006,8 @@ No. Apagar una función solo la oculta. Vuelva a encenderla en **Configuración 
 Por ahora, un producto por talla o color con su propio código de barras. La función Tallas y colores llegará en una próxima versión.
 
 **¿Cómo imprimo etiquetas de góndola?**
-Todavía no está disponible. Use el reporte **Cambios de precios, costos e impuestos** para saber qué etiquetas cambiar (sección 16).
+En **Inventario → Etiquetas**: arme la lista (por ejemplo, con los cambios de precio desde una fecha), revise y descargue el PDF en el
+tamaño de su papel (sección 16).
 
 **¿El sistema funciona sin Internet?**
 Sí. Se sigue vendiendo; lo pendiente (nube, facturas electrónicas, verificación de la licencia) se envía cuando vuelve el Internet.

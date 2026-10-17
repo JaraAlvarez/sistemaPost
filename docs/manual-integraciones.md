@@ -331,7 +331,7 @@ $2.100). No hay que pulsar ningún botón para pesar. Las etiquetas impresas por
     unidad de peso (Kilogramo, Gramo o **Libra (500 g)**) y marque **Se vende por báscula (la caja lee el peso al registrarlo)**. Si se
     empaca en bolsa o bandeja, escriba su peso en **Tara (g)**. Guarde.
 
-![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas, permitir digitar el peso y la prueba con el peso en vivo.](imagenes/uso/integ-03-bascula.png)
+![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas y la opción de digitar el peso. El peso en vivo aparece al pulsar Probar báscula con la báscula conectada.](imagenes/uso/integ-03-bascula.png)
 
 **En la caja:**
 

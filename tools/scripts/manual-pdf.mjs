@@ -151,6 +151,7 @@ const pagina = `<!doctype html>
   blockquote.importante { border-left-color: #D98B06; background: #FFF6E5; }
   table { width: 100%; border-collapse: collapse; margin: 1mm 0 4mm; font-size: 9.2pt; line-height: 1.4; }
   thead { display: table-header-group; }
+  p:has(+ table), p:has(+ ul), p:has(+ ol) { break-after: avoid; }
   tr { break-inside: avoid; }
   th { background: var(--fondo); font-weight: 650; text-align: left; }
   th, td { border: 1px solid var(--linea); padding: 1.4mm 2mm; vertical-align: top; }

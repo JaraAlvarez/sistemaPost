@@ -18,8 +18,10 @@
 //
 // Uso (desde la raíz del repositorio):
 //   node tools/scripts/capturas-uso.mjs --tiquetes <carpeta de salida del agente> [--url http://localhost:5486/] [--fases todas]
-//   Fases, en este orden: asistente, datos, turno-cerrado, caja (incluye caja-fin), turno-abierto, admin, tiquetes, optimizar
+//   Fases, en este orden: asistente, datos, turno-cerrado, caja (incluye caja-fin), turno-abierto, admin, complementos, tiquetes, optimizar
 //   ("todas" = todas; "caja-fin" sola repite el final de la caja: báscula sin respuesta, 1366×768 y cierre).
+//   "complementos": Funciones del negocio, Reabastecimiento y Etiquetas (después de "admin"; basta con haber corrido asistente y datos).
+//   Para tomar solo esas sin rehacer las demás: --fases asistente,datos,complementos --crudas <carpeta aparte> (y optimice solo esas).
 //   Las fases dependen de las anteriores (la base debe estar en el estado que dejó la fase previa).
 //
 // Las franjas de licencia en demostración y la alerta de backups (propias de una base de desarrollo recién creada) se ocultan, igual que
@@ -40,7 +42,7 @@ const CRUDAS = resolve(argumento("--crudas", join(tmpdir(), "capturas-uso-crudas
 const TIQUETES = argumento("--tiquetes", "");
 const EDGE = argumento("--edge", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe");
 const FASES = argumento("--fases", "todas").split(",");
-const ORDEN = ["asistente", "datos", "turno-cerrado", "caja", "caja-fin", "turno-abierto", "admin", "tiquetes", "optimizar"];
+const ORDEN = ["asistente", "datos", "turno-cerrado", "caja", "caja-fin", "turno-abierto", "admin", "complementos", "tiquetes", "optimizar"];
 const fase = (f) => FASES.includes("todas") || FASES.includes(f);
 mkdirSync(CRUDAS, { recursive: true });
 
@@ -97,6 +99,7 @@ async function clic(texto, sel = "button, .mud-tab, a, [role=tab], .mud-nav-link
   await espera(ms);
 }
 async function clicFila(texto, ms = 3000) {
+  for (let t = 0; t < 15000 && !(await evaluar(`[...document.querySelectorAll("tbody tr")].some(e => e.offsetParent !== null && e.textContent.includes(${J(texto)}))`)); t += 500) await espera(500);
   const ok = await evaluar(`(() => { const tr = [...document.querySelectorAll("tbody tr")].filter(e => e.offsetParent !== null).find(e => e.textContent.includes(${J(texto)}));
     if (!tr) return false; const a = tr.querySelector("a"); (a || tr.querySelector("td") || tr).click(); return true; })()`);
   if (!ok) throw new Error("No encontré la fila «" + texto + "»");
@@ -135,6 +138,11 @@ async function marcar(etiqueta, valor = true) {
   await evaluar(`(() => { const l = [...document.querySelectorAll("label, .mud-checkbox")].find(e => e.textContent.trim().startsWith(${J(etiqueta)}));
     const i = l && (l.querySelector("input[type=checkbox]") || l.closest(".mud-input-control, .mud-checkbox")?.querySelector("input[type=checkbox]")); if (i && i.checked !== ${valor}) i.click(); })()`);
   await espera(500);
+}
+/** Espera (con equipos lentos) a que la página muestre un texto. */
+async function esperarTexto(textoBuscado, ms = 30000) {
+  for (let t = 0; t < ms; t += 500) { if (await evaluar(`document.body.innerText.includes(${J(textoBuscado)})`)) return; await espera(500); }
+  throw new Error("La pantalla no mostró «" + textoBuscado + "»");
 }
 async function subirArchivo(selector, archivo) {
   const doc = await cdp("DOM.getDocument", { depth: -1, pierce: true });
@@ -284,10 +292,10 @@ async function faseAsistente() {
   await ir(BASE + "instalacion", 3500);
   const poner = (name, v) => evaluar(`(() => { const e = document.querySelector('[name="${name}"]'); e.value = ${J(v)}; e.dispatchEvent(new Event("input")); e.dispatchEvent(new Event("change")); })()`);
   await poner("legalName", "Supermercado La Economía SAS"); await poner("tradeName", "La Economía");
-  await poner("identificationNumber", "900123456"); await poner("checkDigit", "8");
+  await poner("identificationNumber", "900000000"); await poner("checkDigit", dvNit("900000000"));
   await evaluar(`document.getElementById("municipioBuscar").focus()`); await teclear("Medell"); await espera(1500);
   await evaluar(`(() => { const o = [...document.querySelectorAll("#municipios option")].find(o => o.value.includes("05001")); document.getElementById("municipioBuscar").value = o.value; })()`);
-  await poner("address", "Calle 50 # 45-20"); await poner("phone", "604 555 1234"); await poner("email", "contacto@laeconomia.co");
+  await poner("address", "Calle 50 # 45-20"); await poner("phone", "604 555 1234"); await poner("email", "contacto@example.co");
   await poner("branchName", "Centro");
   await poner("username", DUENO.usuario); await poner("displayName", "Dueño de la tienda"); await poner("password", DUENO.clave);
   await poner("posCode", DUENO.codigo); await poner("pin", DUENO.pin);
@@ -299,8 +307,10 @@ async function faseAsistente() {
   await evaluar(`document.getElementById("demo").click()`); await espera(800);
   await foto("conf-04-asistente-codigo-recuperacion");
   await evaluar(`document.getElementById("generar").click()`); await espera(2500);
+  // El código real se guarda antes de taparlo en la imagen (los manuales nunca muestran un código de recuperación).
+  await evaluar(`(() => { const c = document.getElementById("codigo"); c.dataset.real = c.textContent; c.textContent = c.textContent.replace(/[A-Za-z0-9]/g, "X"); })()`);
   await foto("conf-05-asistente-codigo-generado");
-  await evaluar(`(() => { const e = document.querySelector("#form-confirmar [name=code]"); e.value = document.getElementById("codigo").textContent; document.querySelector("#form-confirmar button").click(); })()`);
+  await evaluar(`(() => { const e = document.querySelector("#form-confirmar [name=code]"); e.value = document.getElementById("codigo").dataset.real; document.querySelector("#form-confirmar button").click(); })()`);
   await espera(2500);
   await foto("conf-06-asistente-todo-listo");
 }
@@ -319,8 +329,10 @@ async function faseDatos() {
   await foto("adm-31-importar-vista-previa");
   await clic("Aplicar", "button", { ms: 4000 });
   await arriba(); await foto("adm-32-importar-aplicado");
-  await evaluar(`[...document.querySelectorAll("input[type=file]")].pop().setAttribute("data-captura", "saldo")`);
+  // El de saldo inicial (después vienen los de mínimos y máximos): el que está junto al botón «Subir saldo inicial».
+  await evaluar(`[...document.querySelectorAll("input[type=file]")].find(i => { for (let e = i.parentElement; e; e = e.parentElement) { const t = e.textContent; if (t.includes("Subir")) return t.includes("Subir saldo inicial") && !t.includes("Subir mínimos"); } return false; }).setAttribute("data-captura", "saldo")`);
   await subirArchivo("input[data-captura=saldo]", saldoCsv);
+  await esperarTexto("creado en borrador", 60000);
   await abajo(); await foto("adm-33-importar-saldo-inicial", { ms: 200 });
   await ruta("admin/ajustes");
   await foto("adm-34-ajustes-saldo-inicial-en-borrador");
@@ -351,9 +363,9 @@ async function faseDatos() {
   const bodegas = (await pos.get(`organization/branches/${branch.id}`)).warehouses;
   const piso = bodegas.find((w) => /SALES/i.test(w.kind)), bodega = bodegas.find((w) => w.code === "BOD");
   for (const [nit, legalName, tradeName, code, days, tel, email] of [
-    ["900456789", "Distribuidora Láctea del Valle SAS", "Lácteos del Valle", "LACVAL", 30, "3005550101", "facturas@lacteosdelvalle.example"],
-    ["901112223", "Comercializadora Andina de Abarrotes SAS", "Andina Abarrotes", "ANDINA", 15, "3105550202", "cartera@andina.example"],
-    ["800987654", "Aseo Total Ltda", "Aseo Total", "ASEOTO", 0, "6045550303", "pedidos@aseototal.example"]]) {
+    ["900000011", "Distribuidora Láctea del Valle SAS", "Lácteos del Valle", "LACVAL", 30, "3005550101", "facturas@example.co"],
+    ["900000022", "Comercializadora Andina de Abarrotes SAS", "Andina Abarrotes", "ANDINA", 15, "3105550202", "cartera@example.co"],
+    ["800000033", "Aseo Total Ltda", "Aseo Total", "ASEOTO", 0, "6045550303", "pedidos@example.co"]]) {
     const party = await pos.post("parties", { personType: "Legal", identificationType: "NIT", identificationNumber: nit, checkDigit: dvNit(nit), legalName, tradeName,
       taxRegime: "48", fiscalResponsibilities: ["O-13"], email, contacts: [{ name: "Asesor comercial", position: "Ventas", phone: tel, isPrimary: true }] });
     await pos.post("purchasing/suppliers", { partyId: party.id, supplier: { code, paymentTermDays: days, issuesInvoices: true } });
@@ -365,11 +377,11 @@ async function faseDatos() {
   const politicas = await pos.get("customers/privacy-policies");
   if (politicas[0] && politicas[0].status !== "ACTIVE") await pos.post(`customers/privacy-policies/${politicas[0].id}/activate`);
   for (const c of [
-    { personType: "NATURAL", identificationType: "CC", identificationNumber: "1036600111", firstNames: "María Fernanda", lastNames: "Ríos Patiño", phone: "300 555 0111", email: "mariafernanda@example.com" },
-    { personType: "NATURAL", identificationType: "CC", identificationNumber: "71600222", firstNames: "Jorge Iván", lastNames: "Castaño Mejía", phone: "301 555 0222", email: null },
-    { personType: "NATURAL", identificationType: "CC", identificationNumber: "43600333", firstNames: "Luz Marina", lastNames: "Gómez Arango", phone: "310 555 0333", email: "luzmarina@example.com", grupo: gEmp.id },
-    { personType: "LEGAL", identificationType: "NIT", identificationNumber: "901600444", checkDigit: dvNit("901600444"), legalName: "Restaurante El Buen Sabor SAS", phone: "604 555 0444", email: "compras@buensabor.example", grupo: gMay.id },
-    { personType: "NATURAL", identificationType: "CC", identificationNumber: "1017600555", firstNames: "Andrés Felipe", lastNames: "Zapata Ruiz", phone: "320 555 0555", email: "andresz@example.com" }]) {
+    { personType: "NATURAL", identificationType: "CC", identificationNumber: "1000000001", firstNames: "María Fernanda", lastNames: "Ríos Patiño", phone: "300 555 0111", email: "mariafernanda@example.co" },
+    { personType: "NATURAL", identificationType: "CC", identificationNumber: "1000000002", firstNames: "Jorge Iván", lastNames: "Castaño Mejía", phone: "301 555 0222", email: null },
+    { personType: "NATURAL", identificationType: "CC", identificationNumber: "1000000003", firstNames: "Luz Marina", lastNames: "Gómez Arango", phone: "310 555 0333", email: "luzmarina@example.co", grupo: gEmp.id },
+    { personType: "LEGAL", identificationType: "NIT", identificationNumber: "900000044", checkDigit: dvNit("900000044"), legalName: "Restaurante El Buen Sabor SAS", phone: "604 555 0444", email: "compras@example.co", grupo: gMay.id },
+    { personType: "NATURAL", identificationType: "CC", identificationNumber: "1000000005", firstNames: "Andrés Felipe", lastNames: "Zapata Ruiz", phone: "320 555 0555", email: "andresz@example.co" }]) {
     const { grupo, ...cuerpo } = c;
     const r = await pos.post("customers/quick", { ...cuerpo, consents: [{ purpose: "Service", granted: true }] });
     if (grupo) await pos.put(`customers/${r.customer?.partyId ?? r.partyId}/pricing`, { groupId: grupo });
@@ -471,7 +483,7 @@ async function faseDatos() {
   // Facturación electrónica: credenciales, modo "en cada venta" en pruebas, rangos de la DIAN y asignación a la sucursal.
   await ruta("admin/facturacion");
   await foto("integ-07-facturacion-sin-configurar");
-  await escribir("Usuario (correo de Factus)", "facturacion@laeconomia.co"); await escribir("Contraseña", "clave-de-ejemplo");
+  await escribir("Usuario (correo de Factus)", "facturacion@example.co"); await escribir("Contraseña", "clave-de-ejemplo");
   await escribir("Client ID", "cliente-de-ejemplo"); await escribir("Client secret", "secreto-de-ejemplo"); await sinFoco();
   await foto("integ-08-facturacion-credenciales");
   await clic("Guardar credenciales", "button", { ms: 2000 });
@@ -643,7 +655,7 @@ async function faseCaja() {
   await escanear(CODIGO["ASE-003"]); await escanear("2*" + CODIGO["ASE-001"]); await escanear("2*" + CODIGO["ABA-004"]); await escanear(CODIGO["ABA-007"]);
   await teclaCaja("F10", "cobro de la venta 4", `!!document.querySelector("#t-cobro")`);
   await clic("Sistecrédito", ".cobro-medios button", { ms: 800 });
-  await escribir("Número de documento del cliente", "1036600111"); await sinFoco();
+  await escribir("Número de documento del cliente", "1000000001"); await sinFoco();
   await fotoCaja("cobro-sistecredito");
   await clic("Efectivo", ".cobro-medios button", { ms: 600 });
   await enfocar("Recibido en Efectivo"); await reemplazar("100000");
@@ -1109,9 +1121,47 @@ print(f"{len([f for f in os.listdir(dst) if f.endswith('.png')])} imágenes, {to
   console.log("  " + r.stdout.trim());
 }
 
+// ══════════════ Complementos: Funciones del negocio, Reabastecimiento y Etiquetas (basta con las fases asistente y datos) ══════════════
+async function faseComplementos() {
+  await entrarAdministracion(false);
+  await ruta("admin", 4000);
+  await paso(async () => {
+    await ruta("admin/configuracion", 4000);
+    await clic("Funciones del negocio", ".mud-tab", { ms: 1800 });
+    await foto("conf-15-funciones-del-negocio");
+  });
+  await paso(async () => {
+    await ruta("admin/reabastecimiento", 5000);
+    await foto("adm-55-reabastecimiento-pedido-sugerido");
+  });
+  await paso(async () => {
+    await clic("Calcular mínimos sugeridos", ".mud-tab", { ms: 1500 });
+    await foto("adm-56-reabastecimiento-calcular-minimos");
+  });
+  await paso(async () => {
+    await ruta("admin/etiquetas", 4500);
+    // (La lista «Categoría» de Etiquetas muestra la ruta interna de la categoría en lugar del nombre: se arma la lista buscando.)
+    for (const buscar of ["leche", "café", "arroz", "tomate"]) {
+      await escribir("Buscar por nombre", buscar); await espera(1500);
+      await evaluar(`[...document.querySelectorAll("table button")].filter(b => b.textContent.trim() === "Agregar").forEach(b => b.click())`);
+      await espera(1500);
+      await enfocar("Buscar por nombre"); await reemplazar(""); await evaluar(`document.activeElement.value = ""`);
+    }
+    await enfocar("Buscar por nombre"); await sinFoco(); await arriba();
+    await evaluar(`document.querySelectorAll(".mud-snackbar").forEach(e => e.remove())`);
+    await foto("adm-57-etiquetas-lista");
+  });
+  await paso(async () => {
+    await abajo();
+    await elegir("Tamaño de la etiqueta", null);
+    await foto("adm-58-etiquetas-tamanos", { ms: 300 });
+    await tecla("Escape", 400);
+  });
+}
+
 // ═════════════════════════════════════ Orden de las fases ═════════════════════════════════════
 try {
-  const navegadorNecesario = ORDEN.slice(0, 8).some((f) => fase(f) && f !== "turno-cerrado" && f !== "turno-abierto");
+  const navegadorNecesario = ORDEN.slice(0, 9).some((f) => fase(f) && f !== "turno-cerrado" && f !== "turno-abierto");
   if (navegadorNecesario) await abrirEdge();
   if (fase("asistente")) { console.log("Fase asistente"); await faseAsistente(); }
   if (fase("datos")) { console.log("Fase datos"); await faseDatos(); }
@@ -1121,6 +1171,7 @@ try {
   if (fase("turno-abierto")) { console.log("Fase turno abierto (Ana Cajera)"); await turnoApi(ANA, 6, false); }
   if (fase("admin")) { console.log("Fase administración"); await faseAdmin(); }
   if (fase("tiquetes")) { console.log("Fase tiquetes"); await faseTiquetes(); }
+  if (fase("complementos")) { console.log("Fase complementos"); await faseComplementos(); }
   if (fase("optimizar")) { console.log("Fase optimizar"); faseOptimizar(); }
   if (fallidas.length) console.warn(`${fallidas.length} paso(s) de la administración no se capturaron: ${fallidas.join(" | ")}`);
   if (avisosError.length) console.warn(`La interfaz mostró "Ocurrió un error inesperado" ${avisosError.length} vez/veces (se recargó): ${avisosError.join("; ")}`);

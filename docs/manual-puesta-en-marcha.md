@@ -15,7 +15,7 @@ muestran las pantallas reales con datos de ejemplo de una tienda ficticia (Super
 
 1. Cronograma sugerido
 2. Antes de abrir: reúna la información
-3. El asistente de configuración inicial
+3. La instalación deja la tienda creada
 4. Datos de la empresa
 5. Sucursales y bodegas
 6. Medios de pago
@@ -40,14 +40,14 @@ aparece en dos; si es grande, dese más tiempo para cargar productos y capacitar
 
 | Momento | Qué hacer | Responsable | Tiempo aproximado |
 |---|---|---|---|
-| **1 a 2 semanas antes de abrir** | Reunir la información: datos de la empresa, lista de productos con precios, inventario con costos, proveedores, personal y equipos (sección 2) | Dueño | 2 a 5 días, a ratos |
-| **2 a 3 días antes** | Instalar BusinessPost y hacer el asistente inicial (sección 3). Revisar empresa, sucursales, bodegas, medios de pago, tipo de negocio y parámetros (secciones 4 a 8) | Dueño o administrador | 2 a 3 horas |
+| **1 a 2 semanas antes de abrir** | Tener la cuenta del portal de BusinessPost (correo, contraseña y, si lo activó, el código de verificación de doble factor) y la clave de licencia. Reunir la información: datos de la empresa, lista de productos con precios, inventario con costos, proveedores, personal y equipos (sección 2) | Dueño | 2 a 5 días, a ratos |
+| **2 a 3 días antes** | Instalar BusinessPost: la instalación deja la tienda creada (sección 3). En Multicaja, instalar y emparejar cada caja adicional. Revisar empresa, sucursales, bodegas, medios de pago, tipo de negocio y parámetros (secciones 4 a 8) | Dueño o administrador | 2 a 3 horas |
 | **2 a 3 días antes** | Cargar productos y precios desde Excel, y revisarlos (sección 9) | Administrador o bodega | 1 a 4 horas según el catálogo |
-| **1 día antes** | Contar la mercancía y cargar el inventario inicial (sección 10). Crear usuarios (sección 11). Configurar cajas, impresora y báscula (sección 12) | Administrador y bodega | Medio día a un día |
-| **1 día antes** | Venta de prueba, cierre de prueba y capacitación de cajeros y supervisores (secciones 14 y 15) | Dueño y cajeros | 1 a 2 horas |
+| **1 día antes** | Contar la mercancía y cargar el inventario inicial (sección 10). Imprimir las etiquetas de góndola (sección 9). Crear usuarios (sección 11). Configurar cajas, impresora y báscula (sección 12) | Administrador y bodega | Medio día a un día |
+| **1 día antes** | Venta de prueba, cierre de prueba y capacitación de cajeros y supervisores (secciones 14 y 15). Si factura electrónicamente: pasar Factus de pruebas a **producción** (sección 13) | Dueño y cajeros | 1 a 2 horas |
 | **Día 1** | Abrir con acompañamiento, corregir productos y precios sobre la marcha, cerrar cada caja y revisar (sección 16) | Todos | Todo el día |
 | **Semana 1** | Revisión diaria de cierres, un conteo parcial, la primera compra real y su pago (sección 16) | Administrador | 20 a 30 minutos al día |
-| **Mes 1** | Mínimos y máximos, promociones, reportes del mes para el contador, revisión de usuarios y permisos (sección 16) | Dueño y administrador | 2 a 3 horas en el mes |
+| **Mes 1** | Mínimos y máximos, promociones, reportes del mes para el contador, revisión de usuarios y permisos (sección 16). Si instaló en demostración, activar la licencia antes del día 30 | Dueño y administrador | 2 a 3 horas en el mes |
 
 > **Consejo:** no arranque un viernes, un fin de semana ni en quincena. Un martes o un miércoles le dan días tranquilos para
 > aprender y corregir antes de los días de más ventas.
@@ -58,7 +58,7 @@ Tener todo esto a la mano le ahorra muchas horas frente al computador:
 
 | Qué | Para qué | Dónde se usa |
 |---|---|---|
-| Razón social, NIT con dígito de verificación, régimen, municipio, dirección, teléfono y correo | Datos que salen en el tiquete y en la factura electrónica | Asistente inicial y Configuración → Empresa |
+| Razón social, NIT, régimen, municipio, dirección, teléfono y correo | Datos que salen en el tiquete y en la factura electrónica | Instalador (Tu negocio) y Configuración → Empresa |
 | Nombre de cada sede (si tiene más de una) y de sus bodegas | Separar inventario y ventas por sede y por bodega | Configuración → Sucursales y bodegas |
 | Formas de pago que acepta (efectivo, datáfono, transferencia, Nequi, Daviplata, bonos, Sistecrédito) | Que la caja cuadre por cada medio | Configuración → Medios de pago |
 | Lista de productos: código de barras, nombre, categoría, marca, unidad, IVA y precio de venta | Cargar el catálogo de una vez | Inventario → Importar desde Excel |
@@ -66,67 +66,74 @@ Tener todo esto a la mano le ahorra muchas horas frente al computador:
 | Proveedores: NIT, contacto, plazo de pago | Compras y cuentas por pagar | Compras y proveedores → Proveedores |
 | Personal: nombre de cada persona y qué hace (cajero, supervisor, bodega, administrador, contador) | Un usuario por persona, con el rol correcto | Administración → Usuarios |
 | Equipos: computador de cada caja, impresora de tiquetes, cajón monedero, lector de código de barras y báscula | Dejar cada caja lista para vender | Administración → Cajas e impresoras |
-| Su clave de licencia (empieza por `POS-`) | Activar el programa | Asistente inicial o Administración → Licencia |
+| Su cuenta del portal (correo, contraseña y, si lo usa, el código de doble factor) y su clave de licencia (empieza por `POS-`) | Instalar, activar la licencia y entrar como propietario | Instalador y Administración → Licencia |
 
 > **Importante:** cuente la mercancía lo más cerca posible del día de apertura. Si cuenta con mucha anticipación, lo que venda en
 > el sistema anterior mientras tanto hará que las existencias no cuadren.
 
-## 3. El asistente de configuración inicial
+## 3. La instalación deja la tienda creada
 
-Al terminar la instalación, BusinessPost abre solo el **asistente de configuración inicial**. Son cuatro pasos: Empresa, Licencia,
-Código de recuperación y Listo.
+Con el instalador de BusinessPost (el que se descarga del portal), **la tienda queda creada durante la instalación**: el instalador
+crea la empresa con los datos de **Tu negocio**, activa la licencia con su clave, crea la sucursal **"Principal"** y la **"Caja 1"**, y
+muestra el **código de recuperación** de los backups. El paso a paso está en el **Manual de instalación** (secciones 3 y 4). Lo que
+debe tener presente:
 
-### Paso 1: Empresa, sucursal, caja y propietario
-
-1. Escriba los datos de la empresa: **razón social**, **NIT** y su **dígito de verificación**, régimen, **municipio**, dirección,
-   teléfono y correo.
-2. Escriba el nombre y el código de la **primera sucursal** (por ejemplo, S01 Centro) y el código de la **primera caja** (por
-   ejemplo, C01).
-
-![Asistente, paso 1: datos de la empresa, la primera sucursal y la primera caja.](imagenes/uso/conf-01-asistente-empresa.png)
-
-3. Más abajo, cree al **Propietario**, el usuario con acceso total: nombre de usuario, nombre completo y una contraseña de al menos
-   10 caracteres. Si el dueño también va a vender, póngale un **código de caja** y un **PIN**.
-4. Pulse **Guardar y continuar**.
-
-![Asistente, paso 1 (abajo): el usuario propietario y el botón Guardar y continuar.](imagenes/uso/conf-02-asistente-empresa-continuacion.png)
-
-> **Importante:** el usuario propietario puede hacer todo, incluso cambiar la licencia y el código de recuperación. Guarde su
-> contraseña en un lugar seguro y no la use para el trabajo de todos los días: cree usuarios para cada persona (sección 11).
-
-### Paso 2: Licencia
-
-Escriba su **clave de licencia** y pulse **Activar**. Si todavía no la tiene, pulse **Seguir en demostración**: el programa funciona
-completo durante 30 días y puede activar la licencia después en **Administración → Licencia**.
-
-![Asistente, paso 2: activar la licencia o seguir en demostración.](imagenes/uso/conf-03-asistente-licencia.png)
-
-### Paso 3: Código de recuperación
-
-El **código de recuperación** sirve para abrir las copias de seguridad (backups) en otro computador si el suyo se daña o se pierde.
-
-1. Lea la explicación y pulse **Generar el código**.
-2. **Anótelo o imprímalo.** Se muestra una sola vez.
-3. Escríbalo de nuevo en el campo de abajo para confirmar que lo guardó bien.
-
-![Asistente, paso 3: explicación del código de recuperación.](imagenes/uso/conf-04-asistente-codigo-recuperacion.png)
-
-![Asistente, paso 3: el código generado y el campo para escribirlo de nuevo.](imagenes/uso/conf-05-asistente-codigo-generado.png)
+- **Su usuario de propietario es la cuenta del portal:** entra a la administración con el **correo y la contraseña de su portal**.
+  Si instaló en prueba de 30 días, con el correo y la contraseña que escribió en el instalador.
+- **El código de recuperación** se muestra una sola vez al final de la instalación. Imprímalo o anótelo y marque la casilla que
+  confirma que lo guardó. No hay que volver a escribirlo.
+- **El tipo de negocio** se eligió en la instalación (paso **Tu negocio**). Se puede cambiar después (sección 7).
+- Los nombres "Principal" y "Caja 1" se pueden cambiar en **Configuración → Sucursales y bodegas** y en **Cajas e impresoras**.
 
 > **Importante:** guarde el código de recuperación **fuera del local** (por ejemplo, en su casa). Si hay un robo, un incendio o se
 > daña el disco, sin ese código las copias de seguridad no se pueden abrir en otro equipo.
 
-### Paso 4: Listo
+> **Importante:** si instaló en **demostración**, active la licencia **antes de que se cumplan 30 días** desde la instalación, en
+> **Administración → Licencia** (solo el usuario Propietario puede activarla). Si se vencen, la licencia queda **Restringida** y
+> las cajas **no pueden abrir turnos**: puede consultar y exportar su información, pero no vender.
 
-Pulse **Abrir BusinessPost**. Entre a la pestaña **Administración** con el usuario propietario que acaba de crear.
+### Multicaja: instale y empareje cada caja adicional
+
+Si su plan es Multicaja, después del equipo principal instale BusinessPost en cada caja con la opción **Es una caja adicional** y
+emparéjela desde **Administración → Cajas e impresoras** del equipo principal, con el botón **Emparejar equipo** de la caja (sección 12
+y Manual de instalación, "Agregar cajas").
+
+### Camino alterno: el asistente de configuración inicial
+
+Solo si se instaló con el **instalador clásico** (equipos sin el componente WebView2) o si el instalador no pudo terminar de configurar
+el servidor, al abrir BusinessPost aparece en el navegador el **asistente de configuración inicial**. Tiene cuatro pasos: Empresa,
+Licencia, Código de recuperación y Listo.
+
+1. **Empresa:** elija el **tipo de negocio**, escriba los datos de la empresa (razón social, NIT, régimen, municipio, dirección,
+   teléfono y correo), el nombre de la primera sucursal y cree al **propietario** (usuario, nombre y contraseña: el sistema exige al
+   menos 8 caracteres y el asistente pide 10). Si el dueño también va a vender, aquí puede ponerle un código de caja y un PIN
+   (opcional). Pulse **Guardar y continuar**.
+
+![Asistente, paso 1: el tipo de negocio y los datos de la empresa.](imagenes/uso/conf-01-asistente-empresa.png)
+
+![Asistente, paso 1 (abajo): el usuario propietario y el botón Guardar y continuar.](imagenes/uso/conf-02-asistente-empresa-continuacion.png)
+
+2. **Licencia:** escriba la clave y pulse **Activar**, o pulse **Seguir en demostración** (30 días).
+
+![Asistente, paso 2: activar la licencia o seguir en demostración.](imagenes/uso/conf-03-asistente-licencia.png)
+
+3. **Código de recuperación:** pulse **Generar el código**, anótelo o imprímalo (se muestra una sola vez) y escríbalo de nuevo para
+   confirmar que lo guardó.
+
+![Asistente, paso 3: el código generado (aquí tapado) y el campo para escribirlo de nuevo.](imagenes/uso/conf-05-asistente-codigo-generado.png)
+
+4. **Listo:** pulse **Abrir BusinessPost** y entre a la pestaña **Administración** con el usuario propietario.
 
 ![Asistente, paso 4: todo listo.](imagenes/uso/conf-06-asistente-todo-listo.png)
+
+> **Importante:** el usuario propietario puede hacer todo, incluso activar la licencia. Guarde su contraseña en un lugar seguro y no
+> la use para el trabajo de todos los días: cree usuarios para cada persona (sección 11).
 
 ## 4. Datos de la empresa
 
 En **Administración → Configuración → Empresa** revise que todo esté bien escrito: estos datos salen en los tiquetes y en las
 facturas electrónicas. Puede corregir la razón social, el nombre comercial, el régimen, el municipio, la dirección, el teléfono y el
-correo. La **identificación (NIT)** no se puede cambiar después del asistente.
+correo. La **identificación (NIT)** no se puede cambiar después de la instalación.
 
 ![Configuración → Empresa: datos editables; la identificación queda fija.](imagenes/uso/conf-07-empresa.png)
 
@@ -137,7 +144,7 @@ correo. La **identificación (NIT)** no se puede cambiar después del asistente.
 
 ### Sucursales
 
-En **Configuración → Sucursales y bodegas** está la sucursal que creó en el asistente. Si tiene otra sede, pulse **Nueva sucursal** y
+En **Configuración → Sucursales y bodegas** está la sucursal que creó la instalación ("Principal"; en las imágenes, la sucursal de ejemplo "Centro"). Puede cambiarle el nombre con **Editar**. Si tiene otra sede, pulse **Nueva sucursal** y
 escriba el código (por ejemplo, S02), el nombre, el municipio y la dirección.
 
 ![Configuración → Sucursales y bodegas: la sucursal Centro.](imagenes/uso/conf-08-sucursales.png)
@@ -145,14 +152,16 @@ escriba el código (por ejemplo, S02), el nombre, el municipio y la dirección.
 ### Bodegas
 
 Cada sucursal tiene sus **bodegas**: lugares donde se guarda la mercancía. Pulse **Bodegas** en la fila de la sucursal para verlas.
-BusinessPost crea unas de ejemplo que puede usar tal cual:
+Al crear una sucursal, BusinessPost crea tres bodegas:
 
 | Bodega | Para qué sirve |
 |---|---|
-| **PISO** (Piso de venta) | Lo que está en las góndolas. Es la bodega desde la que **vende** la caja. |
-| **BOD** (Bodega trasera) | El depósito: lo que llega del proveedor y todavía no sale a la venta. |
-| **AVERIAS** | Productos dañados o vencidos, separados para no venderlos. |
-| **TRANSITO** | Mercancía que va de una bodega a otra (la usan los traslados). |
+| **PISO** (Piso de venta) | Lo que está en las góndolas. Es la bodega principal de la sucursal y desde la que **vende** la caja. |
+| **AVERIAS** (Averías) | Productos dañados o vencidos, separados para no venderlos. |
+| **TRANSITO** (En tránsito) | Mercancía que va de una bodega a otra (la usan los traslados). |
+
+Si tiene un depósito aparte, créelo usted, como la **BOD** (Bodega trasera) de la tienda de ejemplo: lo que llega del proveedor y
+todavía no sale a la venta.
 
 ![Bodegas de la sucursal Centro.](imagenes/uso/conf-09-bodegas.png)
 
@@ -194,6 +203,8 @@ los menús y los formularios.
 
 Puede revisarlo o cambiarlo en **Administración → Configuración → Funciones del negocio**: elija otro tipo y pulse **Cambiar el tipo
 de negocio**, o encienda y apague cada función con su interruptor.
+
+![Configuración → Funciones del negocio: tipo Supermercado / minimercado con sus funciones encendidas.](imagenes/uso/conf-15-funciones-del-negocio.png)
 
 Qué funciones quedan encendidas según el tipo:
 
@@ -329,6 +340,17 @@ el **PLU de báscula**, la casilla **Se vende por báscula** y la **tara** en gr
 | Ropa, calzado o deportes | Un producto por talla o color, cada uno con su código de barras (por ejemplo, "Tenis X talla 38"). |
 | Ferretería o papelería | **Permite cantidades con decimales** en cable, manguera o tela; presentaciones (caja, paquete, resma). |
 
+### Imprima las etiquetas de góndola
+
+Con los precios revisados, imprima las etiquetas de precio en **Inventario → Etiquetas**: agregue los productos por **categoría** (un
+pasillo a la vez), revise precios y cantidades, elija el tamaño (hoja A4 de 24 o de 14 etiquetas, o adhesivos para impresora de
+etiquetas) y pulse **Descargar PDF**. Imprima las hojas **al 100 %**. A los productos sin código de barras puede generarles un **código
+interno** (empieza por 29) desde la misma pantalla. El paso a paso está en el Manual de administración, sección Etiquetas de góndola.
+
+![Inventario → Etiquetas: la lista con precios y cantidades antes de imprimir.](imagenes/uso/adm-57-etiquetas-lista.png)
+
+> **Consejo:** imprima primero una sola hoja y compruebe que el lector de la caja lee el código antes de imprimir toda la tienda.
+
 ## 10. Cargar el inventario inicial
 
 Con los productos creados, cargue las cantidades que contó y su costo. Así las existencias y la utilidad quedan bien desde el
@@ -336,7 +358,7 @@ primer día.
 
 1. En **Inventario → Importar desde Excel**, sección **Saldo inicial de inventario**, prepare un archivo con las columnas `sku` (o
    `codigo_barras`), `cantidad` y `costo` (costo unitario).
-2. Elija la bodega y pulse **Subir saldo inicial**. BusinessPost crea un **ajuste en borrador** con todos los productos.
+2. Elija la **sucursal** y pulse **Subir saldo inicial**. El saldo entra a la bodega principal de esa sucursal (el piso de venta). BusinessPost crea un **ajuste en borrador** con todos los productos.
 
 ![Saldo inicial subido: el ajuste quedó en borrador.](imagenes/uso/adm-33-importar-saldo-inicial.png)
 
@@ -370,6 +392,7 @@ Cada persona debe tener **su propio usuario**. Así cada venta, descuento o ajus
    primera vez que entra.
 3. Elija el **rol**.
 4. Si la persona va a vender, escriba su **código de caja** (3 a 6 dígitos) y su **PIN** (4 a 6 dígitos). Con ellos entra a la caja.
+   Revíselos bien: por ahora el rol, el código de caja y el PIN no se pueden cambiar después desde la pantalla (próximamente).
 5. Pulse **Crear**.
 
 ![Administración → Usuarios: lista de usuarios con su estado y último ingreso.](imagenes/uso/adm-90-usuarios-lista.png)
@@ -380,11 +403,11 @@ Cada persona debe tener **su propio usuario**. Así cada venta, descuento o ajus
 
 | Rol | Para quién | Qué puede hacer |
 |---|---|---|
-| **Propietario** | El dueño | Todo, incluidos la licencia y el código de recuperación. |
+| **Propietario** | El dueño | Todo. Es el único que activa la licencia y maneja el código de recuperación. |
 | **Administrador** | Administrador del local | Toda la operación y la configuración, salvo lo exclusivo del propietario. |
 | **Supervisor de caja** | Jefe de cajas | Vender, autorizar descuentos y cancelaciones, peso digitado y lotes vencidos; revisar y cerrar turnos. |
-| **Cajero** | Cajeros | Vender, quitar una línea antes de cobrar, reimprimir y crear clientes rápidos. Los descuentos y las cancelaciones necesitan supervisor. |
-| **Inventario** | Bodeguero | Productos, existencias, conteos, ajustes, traslados e importación. |
+| **Cajero** | Cajeros | Vender, reimprimir y crear clientes rápidos. Quitar una línea antes de cobrar depende del permiso de anular líneas; los descuentos y las cancelaciones necesitan supervisor. |
+| **Inventario** | Bodeguero | Productos, existencias, conteos, ajustes, traslados e importación; también registra compras y define mínimos y máximos. |
 | **Compras** | Comprador | Proveedores, órdenes, facturas de compra y cuentas por pagar. |
 | **Contador** | Su contador | Consultar reportes, impuestos y auditoría, y exportarlos. No modifica nada. |
 | **Encargado de promociones** | Mercadeo | Crear, simular, activar y terminar promociones. |
@@ -397,8 +420,10 @@ Cada persona debe tener **su propio usuario**. Así cada venta, descuento o ajus
 
 ## 12. Cajas, impresora y báscula
 
-En **Administración → Cajas e impresoras** está la caja que creó en el asistente, con sus botones **Editar**, **Impresora**,
-**Báscula**, **Inactivar** y **Bloquear**. Para crear otra caja, pulse **Nueva caja**.
+En **Administración → Cajas e impresoras** está la caja que creó la instalación ("Caja 1"), con sus botones **Editar**, **Impresora**,
+**Báscula**, **Inactivar** y **Bloquear**. Para crear otra caja, pulse **Nueva caja**. En **Multicaja** aparecen además **Emparejar
+equipo** (en cada caja, para unir el computador de esa caja) y **Emparejar PC administrativo** (arriba, para un computador de
+oficina que solo usa la administración).
 
 ![Administración → Cajas e impresoras.](imagenes/uso/adm-93-cajas-lista.png)
 
@@ -427,7 +452,7 @@ Si su báscula va conectada al computador de la caja, pulse **Báscula**, marque
 puerto, y use **Probar báscula** con un peso conocido: debe verse el peso en vivo y la palabra "Estable". El detalle está en el
 **Manual de integraciones y facturación**.
 
-![Báscula de la caja con el peso en vivo.](imagenes/uso/integ-03-bascula.png)
+![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas y la opción de digitar el peso. El peso en vivo aparece al pulsar Probar báscula con la báscula conectada.](imagenes/uso/integ-03-bascula.png)
 
 ## 13. Facturación electrónica
 
@@ -439,6 +464,16 @@ numeración asignados a cada sucursal. El paso a paso completo está en el **Man
 
 > **Importante:** haga la venta de prueba con la facturación en **ambiente de pruebas** o apagada. En **producción** cada venta genera
 > una factura real ante la DIAN.
+
+### Antes del Día 1: pasar a producción
+
+Cuando las facturas de prueba estén bien y su contador las haya revisado, el día antes de abrir:
+
+1. En **Facturación electrónica → Configuración**, escriba las **credenciales de producción** de Factus y pulse **Guardar
+   credenciales**.
+2. Elija el ambiente **Producción (documentos reales ante la DIAN)** y el modo que va a usar. Pulse **Guardar modo y ambiente**.
+3. En **Rangos de numeración**, pulse **Sincronizar desde Factus** y **asigne** los rangos de producción a cada sucursal (o caja).
+4. Haga una venta real pequeña y verifique en **Documentos** que quede **Aceptado**, y que el tiquete traiga número, CUFE y QR.
 
 ## 14. Primera venta de prueba
 
@@ -563,7 +598,8 @@ Imprima esta lista y márquela antes de abrir al público.
 
 | Listo | Tarea | Dónde |
 |---|---|---|
-| ☐ | El asistente inicial está completo y la licencia está activada (o en demostración con fecha para activarla) | Administración → Licencia |
+| ☐ | La instalación terminó y la licencia está activada (o en demostración, con fecha para activarla antes del día 30) | Administración → Licencia |
+| ☐ | En Multicaja: cada caja adicional instalada y emparejada | Administración → Cajas e impresoras |
 | ☐ | El código de recuperación está anotado y guardado fuera del local | Asistente, paso 3 |
 | ☐ | Los datos de la empresa están completos y revisados por el contador | Configuración → Empresa |
 | ☐ | Sucursales y bodegas creadas; la bodega de venta está marcada | Configuración → Sucursales y bodegas |
@@ -574,8 +610,9 @@ Imprima esta lista y márquela antes de abrir al público.
 | ☐ | Productos por peso con unidad, PLU, báscula y tara | Ficha del producto |
 | ☐ | Saldo inicial aplicado (y aprobado, si lo pidió) | Inventario → Ajustes |
 | ☐ | Un usuario por persona, con su rol, código y PIN de caja | Administración → Usuarios |
+| ☐ | Etiquetas de góndola impresas y puestas, con el mismo precio de la caja | Inventario → Etiquetas |
 | ☐ | Cada caja con su impresora configurada y, si aplica, su báscula probada | Administración → Cajas e impresoras |
-| ☐ | Facturación electrónica configurada (si aplica) y probada en ambiente de pruebas | Ventas y caja → Facturación electrónica |
+| ☐ | Facturación electrónica probada en pruebas y pasada a **producción** con sus rangos asignados (si aplica) | Ventas y caja → Facturación electrónica |
 | ☐ | Venta de prueba hecha: tiquete impreso, cajón abierto, precios bien | Caja |
 | ☐ | Cierre de prueba hecho y Reporte Z impreso | Caja y Turnos de caja |
 | ☐ | Cajeros y supervisores capacitados (entrar, vender, cobrar, suspender, autorizar y cerrar) | Caja |

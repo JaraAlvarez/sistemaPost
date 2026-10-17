@@ -93,8 +93,10 @@ y hasta cuándo está vigente**. Revise que sea su empresa y pulse **Continuar**
 - **Con clave:** escriba el **correo y la contraseña de su portal de BusinessPost** (los mismos con los que descargó el
   instalador). Con esa misma cuenta entrará a la administración de BusinessPost, también sin Internet. Si en el portal tiene
   activo el **código de verificación** (doble factor), el instalador se lo pide: escriba los 6 números de su aplicación.
-- Si siempre entra al portal con Google y no recuerda su contraseña, en el portal vaya a **Mi cuenta → Cambiar contraseña** y
-  vuelva al instalador (el botón "Continuar con Google" del instalador todavía no está disponible).
+- **Con Google:** si entra al portal con Google, pulse **Continuar con Google**. Se abre el navegador: entre a su portal, revise que
+  vea el mismo código que muestra el instalador y pulse **Autorizar**. Como Google no funciona sin Internet, el instalador le pide
+  crear una **contraseña de BusinessPost** (mínimo 12 caracteres, con letras y números): con su correo y esa contraseña entrará a
+  la administración, también sin Internet.
 - **En prueba de 30 días:** escriba su nombre, su correo y una contraseña de mínimo 10 caracteres (dos veces).
 
 ![Paso 4 · Tu cuenta: el correo y la contraseña de su portal.](imagenes/instalacion/04-instalador-tu-cuenta.png)
@@ -171,17 +173,20 @@ revisar y cambiar después en **Administración → Configuración** (pestaña *
 ![Administración → Configuración: los datos de su empresa, listos desde la instalación.](imagenes/instalacion/18-pos-configuracion.png)
 
 Solo si instaló con el **instalador clásico** (equipos sin WebView2), al terminar se abre en el navegador la **Configuración
-inicial**: elija **qué tipo de negocio tiene** (las mismas seis opciones del paso 8), complete la empresa, la sucursal, la caja y el
+inicial**: elija **qué tipo de negocio tiene** (las mismas seis opciones del paso 5), complete la empresa, la sucursal y el
 propietario; luego la licencia (o **Seguir en demostración**) y, por
 último, genere el **código de recuperación**, guárdelo fuera del local y confírmelo.
 
 ### Su usuario de propietario
 
-- Si instaló **con clave**, su usuario es **el correo de su portal** y su contraseña, **la misma del portal**. Entra a la
+- Si instaló **con clave**, su usuario es **el correo de su portal** y su contraseña, **la misma del portal** (o, si entró con
+  Google, la contraseña de BusinessPost que creó en el instalador). Entra a la
   administración aunque no haya Internet. Si después cambia la contraseña en el portal, en BusinessPost siga usando la que
   tenía (por ahora no se cambia sola; cámbiela también en BusinessPost).
 - Si instaló **en prueba**, su usuario es el correo que escribió y la contraseña que eligió.
-- Para vender en la caja con **código y PIN**, créelos en **Administración → Usuarios** (en su usuario: código de caja y PIN).
+- El usuario propietario entra a la **administración**. Para vender en la caja se necesita un usuario con **código de caja y PIN**:
+  créelo en **Administración → Usuarios → Nuevo usuario** (sección 5). Por ahora el código y el PIN se ponen al crear el usuario y
+  no se pueden agregar después a uno que ya existe; si el dueño también va a vender, créese un usuario de caja aparte.
 
 ## 5. Entrar a BusinessPost
 

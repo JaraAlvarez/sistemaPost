@@ -1,9 +1,9 @@
 # Índice de capturas de los manuales de uso
 
-166 capturas reales de BusinessPost (versión 0.1.0, Caja Única) para escribir: (1) Guía de puesta en marcha, (2) Manual de
+171 capturas reales de BusinessPost (versión 0.1.0, Caja Única) para escribir: (1) Guía de puesta en marcha, (2) Manual de
 administración, (3) Manual de caja, (4) Integraciones y facturación y (5) Beneficios y buenas prácticas.
 
-- **Tienda de ejemplo** (datos ficticios): *Supermercado La Economía SAS*, NIT 900.123.456-8, sucursal **Centro** (S01), caja **C01**,
+- **Tienda de ejemplo** (datos ficticios): *Supermercado La Economía SAS*, NIT 900.000.000-5, sucursal **Centro** (S01), caja **C01**,
   Calle 50 # 45-20, Medellín. 36 productos (28 por unidad en Abarrotes, Lácteos, Aseo y Bebidas; 8 por peso en Fruver y Carnes, PLU
   101–105 y 201–203), 3 proveedores, 5 clientes, 2 listas de precio (Empleados −5 %, Mayorista −8 %), 4 promociones (3 activas).
 - **Usuarios**: `dueno` «Dueño de la tienda» (propietario, código 100), **Ana Cajera** (601), Jorge Cajero (602), **Pedro Supervisor**
@@ -56,13 +56,19 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
    cliente. En una instalación real el instalador lo trae y aquí se ven los backups verificados. Úsela solo para señalar el botón
    «Respaldar ahora».
 8. Devoluciones y **cambios de mercancía** no tienen pantalla: existen solo en la API (`POST /api/v1/exchanges`, reintegro por garantía).
-9. Todas las ventas se hicieron dentro de la misma hora (gráfico «Ventas por hora» con una sola barra).
+9. **Retoma con main (b83a6db):** las capturas `conf-`, `adm-` (menos `adm-97`) e `integ-01…03` e `integ-11` se volvieron a tomar con
+   main, datos de ejemplo claramente falsos (NIT 900.000.000-5, cédulas 1000000001…, correos @example.co) y el código de recuperación
+   tapado en `conf-05`; en `adm-98` se tapó el hash del build. Las `caja-` e `integ-04…20` siguen siendo de la toma anterior (en
+   `caja-28` se cambió la cédula por 1000000001). Fase nueva `complementos`: `conf-15` y `adm-55…58`. **Error del producto visto:** en
+   Etiquetas, la lista «Categoría (incluye sus subcategorías)» muestra la ruta interna de la categoría (identificadores) en lugar del
+   nombre (`Pages/Admin/Etiquetas.razor`, opción `@category.Path`); por eso `adm-57` se armó buscando productos uno por uno.
+10. Todas las ventas se hicieron dentro de la misma hora (gráfico «Ventas por hora» con una sola barra).
 
 ## Puesta en marcha y configuración (`conf-`)
 
 | Archivo | Pantalla | Qué muestra | Ruta / menú | Textos notables |
 |---|---|---|---|---|
-| conf-01-asistente-empresa.png | Asistente de configuración inicial, paso 1 | Formulario lleno: empresa (razón social, NIT 900123456 + DV 8, régimen, municipio MEDELLÍN (05001), dirección, teléfono, correo), sucursal S01 Centro, caja C01 | `http://localhost:5480/instalacion` (lo abre el instalador) | «Configuración inicial», pasos 1. Empresa · 2. Licencia · 3. Código de recuperación · 4. Listo |
+| conf-01-asistente-empresa.png | Asistente de configuración inicial, paso 1 | Formulario lleno: empresa (razón social, NIT 900000000 + DV 5, tipo de negocio, régimen, municipio MEDELLÍN (05001), dirección, teléfono, correo), sucursal S01 Centro, caja C01 | `http://localhost:5480/instalacion` (lo abre el instalador) | «Configuración inicial», pasos 1. Empresa · 2. Licencia · 3. Código de recuperación · 4. Listo |
 | conf-02-asistente-empresa-continuacion.png | Asistente, paso 1 (abajo) | Propietario: usuario, nombre, contraseña (mín. 10), código de caja y PIN; botón | igual | «Propietario (acceso total)», «Guardar y continuar» |
 | conf-03-asistente-licencia.png | Asistente, paso 2 | Clave de licencia o seguir en demostración 30 días | igual | «Activar», «Seguir en demostración», el tiquete dice "DEMOSTRACIÓN" |
 | conf-04-asistente-codigo-recuperacion.png | Asistente, paso 3 | Explicación del código de recuperación de backups | igual | «Se muestra una sola vez», «Generar el código» |
@@ -76,6 +82,7 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 | conf-12-parametros.png | Configuración → Parámetros | Lista de parámetros con nivel (empresa/sucursal/caja), valor y origen | pestaña «Parámetros» | «valor por defecto», «Cambiar» |
 | conf-13-parametros-continuacion.png | Parámetros (más abajo) | Más parámetros (backups, caja, documentos…) | igual | |
 | conf-14-parametro-cambiar.png | Cambiar un parámetro | Ventana con descripción, clave técnica, valor actual y nuevo valor | botón «Cambiar» | «Número, lista o valor JSON» |
+| conf-15-funciones-del-negocio.png | Configuración → Funciones del negocio | Tipo Supermercado / minimercado y los siete interruptores (Tallas y colores deshabilitada) | pestaña «Funciones del negocio» | «no se borra ningún dato», «Disponible en una próxima versión» |
 
 ## Administración (`adm-`)
 
@@ -132,6 +139,10 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 | adm-52-cxp-vencimientos.png | Vencimientos | Vencidas y por vencer en 7 días | pestaña | |
 | adm-53-cxp-pagos.png | Pagos | Pago TRF-004512 | pestaña | «Anular» |
 | adm-54-registrar-pago-proveedor.png | Registrar pago a proveedor | Factura AND-5512 marcada, medio Transferencia, referencia | «Pagar» en la factura | «Total del pago» |
+| adm-55-reabastecimiento-pedido-sugerido.png | Reabastecimiento → Pedido sugerido | Cerveza Águila, Gaseosa Coca-Cola y Huevos AA bajo el mínimo, en el grupo «Sin proveedor» | Inventario → Reabastecimiento | «Asignar proveedor a los marcados», «Crear órdenes de compra» |
+| adm-56-reabastecimiento-calcular-minimos.png | Reabastecimiento → Calcular mínimos sugeridos | Bodega PISO, 30 días de venta, 3 de entrega, 7 de cobertura (sin resultados: las ventas de la demostración son de hoy) | pestaña «Calcular mínimos sugeridos» | «Calcular», «Guardar los marcados» |
+| adm-57-etiquetas-lista.png | Etiquetas | Lista de 4 productos con precio, precio por kilo o litro y cantidad; aviso de producto sin código y «Generar código interno (1)» | Inventario → Etiquetas | «1. ¿Qué productos?», «2. Revise la lista» |
+| adm-58-etiquetas-tamanos.png | Etiquetas → Imprimir | Lista «Tamaño de la etiqueta» abierta: hojas A4 de 24 y 14, adhesivos 40 × 25 y 50 × 30 | paso «3. Imprimir» | «Imprimir la fecha», «Descargar PDF» |
 | adm-60-clientes-lista.png | Clientes | 5 clientes con grupo | Clientes y promociones → Clientes | «Nuevo cliente» |
 | adm-61-clientes-grupos.png | Grupos de clientes | General, Empleados (lista Empleados), Mayoristas | pestaña Grupos | «Nuevo grupo» |
 | adm-62-grupo-nuevo.png | Nuevo grupo | Código, nombre, lista de precios | «Nuevo grupo» | |

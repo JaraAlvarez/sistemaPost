@@ -93,7 +93,7 @@ Vea qué elegir en [Recomendaciones por tipo de negocio](#3-recomendaciones-por-
 | **F8 Suspender** y **F9 Recuperar** | Si al cliente le falta algo, atiende al siguiente sin perder la venta. |
 | **F10 Cobrar** con varios medios en la misma venta (efectivo, datáfono, transferencia, Sistecrédito…) | El cliente paga como quiera y la caja cuadra por cada medio de pago. |
 | **F3 Cliente** de la venta | Sabe quién le compra y qué compra (vea [Clientes](#clientes)). |
-| **Supr Anular línea** (quitar un producto antes de cobrar) | El cajero corrige solo, sin llamar al supervisor; cada línea quitada queda en la **Auditoría** y en el reporte **Antifraude por cajero**. |
+| **Supr Anular línea** (quitar un producto antes de cobrar) | Quien tiene el permiso de anular líneas corrige solo; si no lo tiene, la caja pide la autorización del supervisor. Cada línea quitada queda en la **Auditoría** y en el reporte **Antifraude por cajero**. |
 | **F6 Descuento** y **F7 Cancelar venta** (la venta en curso) | Se pueden hacer, pero quedan registrados y, si el cajero no tiene permiso, piden la **autorización de un supervisor** en la misma pantalla. |
 | Funciona **sin Internet** | La tienda sigue vendiendo aunque se caiga el Internet; lo pendiente (nube, facturas, backups en la nube) se envía solo cuando vuelve. |
 | **F1** muestra todos los atajos | El cajero nuevo aprende solo. |
@@ -130,6 +130,8 @@ desapercibidas.
 | **Ajustes** con motivo, y **Ajuste rápido** para el producto que está en la tienda pero el sistema no tiene | Toda entrada o salida tiene una razón y un responsable. |
 | **Traslados** entre bodegas (en tránsito, recibido, recibido con diferencias) | Controla lo que se mueve entre bodegas o sucursales. |
 | **Importar desde Excel** productos, precios y saldo inicial, con vista previa de errores | Arranca rápido y cambia muchos precios de una vez. |
+| **Etiquetas** de góndola y adhesivos con código de barras (hojas A4 o rollo de etiquetas), por producto, categoría, cambios de precio o compra | La góndola muestra el mismo precio y la misma oferta que cobra la caja; los productos sin código reciben un código interno. |
+| **Reabastecimiento**: mínimos y máximos por bodega y **pedido sugerido** que crea las órdenes de compra por proveedor | No se queda sin mercancía ni compra de más. |
 | **Lotes y vencimientos** por producto (con la función **Lotes y vencimientos** encendida) | Vende primero lo que vence primero y no vende vencidos sin autorización. |
 
 ### Compras, proveedores y gastos
@@ -217,15 +219,15 @@ Si un cobro aprobado no terminó en venta, aparece en **Cobros por revisar** par
 Necesita la función **Báscula y PLU** encendida (viene así en Supermercado y en Fruver o carnicería). Si está apagada, la caja no
 lee la báscula y en el producto no salen el PLU, "Se vende por báscula" ni la tara.
 
-![Cajas e impresoras · Báscula de la caja con la prueba de peso en vivo.](imagenes/uso/integ-03-bascula.png)
+![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas y la opción de digitar el peso. El peso en vivo aparece al pulsar Probar báscula con la báscula conectada.](imagenes/uso/integ-03-bascula.png)
 
 - **Báscula etiquetadora** (sección de carnes o fruver): imprime una etiqueta con el peso o el precio y la caja la lee como un
   código de barras. En el producto se registra el **PLU de báscula**.
 - **Báscula conectada a la caja** (cable serial o USB-serial): se configura en **Administración → Cajas e impresoras**, botón **Báscula** de cada caja (Toledo 8217, CAS
   o genérica) y se prueba con el **peso en vivo**. En la caja, al registrar un producto marcado **"Se vende por báscula"**, el
   sistema lee el peso solo, espera a que esté estable y descuenta la **tara** del producto. **Ins** hace tara manual.
-- Si la báscula no responde, se puede digitar el peso solo con permiso o con autorización del supervisor; la línea queda marcada
-  como "(digitado)".
+- Si la báscula no responde, se puede digitar el peso solo con permiso o con autorización del supervisor; en la caja la línea queda
+  marcada "Peso digitado" y en el tiquete el peso sale seguido de " (digitado)".
 - Unidades de peso: kilogramo, gramo, libra internacional y **Libra (500 g)**, la de uso en Colombia.
 
 **Lo que gana:** cobra exactamente lo que pesa, sin errores de digitación, y sabe cuándo un peso fue digitado a mano.
@@ -369,12 +371,12 @@ del propietario.
 
 | Rol | Para quién | Puede |
 |---|---|---|
-| **Propietario** | El dueño | Todo. Solo él maneja el código de recuperación de los backups y la licencia (y autorizará el reintegro por garantía cuando llegue, vea [Lo que viene](#lo-que-viene)). |
+| **Propietario** | El dueño | Todo. Solo él maneja el código de recuperación de los backups y activa la licencia (y autorizará el reintegro por garantía cuando llegue, vea [Lo que viene](#lo-que-viene)). |
 | **Administrador** | Administrador del local | Toda la operación y la configuración (incluido el tipo de negocio y las funciones), salvo lo exclusivo del propietario. |
 | **Supervisor de caja** | Jefe de cajas | Vender, autorizar descuentos, cancelaciones de la venta en curso, precios abiertos, vencidos y peso digitado; revisar y cerrar turnos; ver reportes de ventas, caja y antifraude. |
-| **Cajero** | Cajeros | Vender, **quitar una línea antes de cobrar** (**Supr**; queda en la auditoría), reimprimir y crear clientes rápidos. **No** da descuentos ni cancela la venta sin supervisor. |
-| **Inventario** | Bodeguero | Productos, existencias, conteos, ajustes, traslados e importación. |
-| **Compras** | Comprador | Proveedores, órdenes, facturas de compra y cuentas por pagar. |
+| **Cajero** | Cajeros | Vender, reimprimir y crear clientes rápidos. **Quitar una línea antes de cobrar** (**Supr**) depende del permiso de anular líneas: si no lo tiene, pide supervisor; siempre queda en la auditoría. **No** da descuentos ni cancela la venta sin supervisor. |
+| **Inventario** | Bodeguero | Productos, existencias, conteos, ajustes, traslados e importación; también registra compras y define los **mínimos y máximos**. |
+| **Compras** | Comprador | Proveedores, órdenes, facturas de compra y cuentas por pagar. También define los **mínimos y máximos** de existencias (quien compra suele fijarlos). |
 | **Contador** | Su contador | Consultar reportes contables, impuestos, auditoría y exportar. No modifica nada. |
 | **Encargado de promociones** | Mercadeo | Crear, simular, activar y terminar promociones. |
 
@@ -439,7 +441,8 @@ están en su ficha (**Productos y precios → Datos**) y solo se ven si la funci
   **Categorías de ejemplo:** Abarrotes, Lácteos y huevos, Bebidas, Frutas y verduras, Carnes, Aseo y hogar, Cuidado personal.
 - Marque **Maneja lotes** y **Maneja fecha de vencimiento** en lácteos, carnes frías, panadería y medicamentos de venta libre.
 - Use **báscula** para fruver y carnes (etiquetadora en la sección o conectada a la caja).
-- Ponga el **mínimo** en los productos de alta rotación y haga el pedido con **Productos bajo mínimo**.
+- Ponga el **mínimo** y el **máximo** en los productos de alta rotación y haga el pedido con **Inventario → Reabastecimiento →
+  Pedido sugerido**, que arma las órdenes de compra por proveedor.
 - Use **promociones** semanales y **listas de precios** para clientes mayoristas o tenderos.
 - Si vende cable, tela u otros productos por fracción, encienda **Venta por metro o fracción**.
 - Multicaja: mire **Ventas por hora** y **Ventas por caja** para saber cuántas cajas abrir en las horas pico.
@@ -520,7 +523,8 @@ Imprima estas listas y péguelas cerca del computador de la administración.
 |---|---|---|
 | ☐ | **Backups**: último resultado correcto y sin avisos de destinos fallando | Administrador |
 | ☐ | Un **conteo parcial** de una o dos categorías | Inventario |
-| ☐ | **Productos bajo mínimo** → hacer los pedidos | Compras |
+| ☐ | **Reabastecimiento → Pedido sugerido** → crear y enviar las órdenes de compra | Compras |
+| ☐ | **Etiquetas → Cambios de precio desde una fecha** → cambiar las etiquetas de la góndola | Inventario |
 | ☐ | **Lotes por vencer y vencidos** → promoción, devolución o retiro | Inventario |
 | ☐ | **Antifraude por cajero** y **Descuentos y promociones** | Propietario o supervisor |
 | ☐ | **Edades de cartera por pagar** → programar pagos | Compras |
