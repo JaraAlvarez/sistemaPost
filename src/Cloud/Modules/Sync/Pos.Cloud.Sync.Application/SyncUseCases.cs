@@ -79,10 +79,16 @@ public interface ISyncRepository
 
     Task<SyncBatchRecord?> GetBatchAsync(Guid batchId, CancellationToken cancellationToken);
 
+    /// <summary>Empresa de la instalación (nula si la nube no la conoce).</summary>
+    Task<Guid?> InstallationOrganizationAsync(Guid installationId, CancellationToken cancellationToken);
+
     /// <summary>Marca el lote como verificado (la firma coincide con la clave registrada).</summary>
     Task MarkVerifiedAsync(Guid batchId, Guid? reviewedBy, CancellationToken cancellationToken);
 
-    /// <summary>Descarta el lote: borra los documentos que dejó (los que no reescribió otro lote después). Devuelve cuántos borró.</summary>
+    /// <summary>
+    /// Descarta el lote: los documentos que REEMPLAZÓ vuelven a su versión anterior y los que CREÓ se borran (solo los que ningún lote
+    /// posterior reescribió). Devuelve cuántos documentos restauró o borró.
+    /// </summary>
     Task<int> DiscardAsync(Guid batchId, Guid? reviewedBy, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<SyncOrganizationDto>> OrganizationsAsync(Guid? accountId, CancellationToken cancellationToken);
@@ -167,7 +173,9 @@ public static class SyncErrors
     public static readonly Error InvalidSigningKey = Error.Validation(
         "SYNC.INVALID_SIGNING_KEY", "La clave de firma de la tienda o su prueba de posesión no son válidas.");
     public static readonly Error WrongSigner = Error.Validation(
-        "SYNC.WRONG_SIGNER", "El paquete no está firmado con la clave registrada de esa tienda: puede haber sido fabricado o alterado.");
+        "SYNC.WRONG_SIGNER",
+        "El paquete no está firmado con la clave registrada de esa tienda: puede haber sido fabricado o alterado. No se cargó nada. Si es de la " +
+        "tienda (p. ej. la reinstalaron o cambió de equipo), reinicie su clave o espere a que sincronice en línea y vuelva a cargar el MISMO archivo.");
     public static readonly Error TooManyUploads = Error.Conflict(
         "SYNC.TOO_MANY_UPLOADS", "Demasiados paquetes cargados en poco tiempo. Espere unos minutos e intente de nuevo.");
     public static readonly Error BatchNotFound = Error.NotFound("SYNC.BATCH_NOT_FOUND", "El lote no existe.");
@@ -208,7 +216,7 @@ internal sealed class ReceiveBatchHandler(IPosInstallationAuthenticator authenti
             return SyncErrors.TooLarge;
         }
 
-        if (command.Batch.Items.Any(i => i.Data.ValueKind != System.Text.Json.JsonValueKind.Undefined && i.Data.GetRawText().Length > SyncLimits.MaxItemBytes))
+        if (command.Batch.Items.Any(i => SyncLimits.DataBytes(i.Data) > SyncLimits.MaxItemBytes))
         {
             return SyncErrors.ItemTooLarge;
         }
@@ -324,7 +332,7 @@ internal sealed class UploadPackageHandler(
 [RequiresPermission(CloudPermissions.SyncPackageReview)]
 public sealed record VerifySyncBatchCommand(Guid BatchId) : ICommand;
 
-internal sealed class VerifySyncBatchHandler(ISyncRepository repository, IPortalUserContext user, IAuditWriter audit, IClock clock)
+internal sealed class VerifySyncBatchHandler(ISyncRepository repository, ISyncAccess access, IPortalUserContext user, IAuditWriter audit, IClock clock)
     : ICommandHandler<VerifySyncBatchCommand>
 {
     public async Task<Result> Handle(VerifySyncBatchCommand command, CancellationToken cancellationToken)
@@ -332,6 +340,11 @@ internal sealed class VerifySyncBatchHandler(ISyncRepository repository, IPortal
         if (await repository.GetBatchAsync(command.BatchId, cancellationToken) is not { } batch)
         {
             return SyncErrors.BatchNotFound;
+        }
+
+        if (await SyncReview.CheckAsync(repository, access, batch.InstallationId, cancellationToken) is { } denied)
+        {
+            return denied;
         }
 
         if (batch.SignatureStatus != "UNVERIFIED")
@@ -358,7 +371,7 @@ internal sealed class VerifySyncBatchHandler(ISyncRepository repository, IPortal
 [RequiresPermission(CloudPermissions.SyncPackageReview)]
 public sealed record DiscardSyncBatchCommand(Guid BatchId) : ICommand<int>;
 
-internal sealed class DiscardSyncBatchHandler(ISyncRepository repository, IPortalUserContext user, IAuditWriter audit)
+internal sealed class DiscardSyncBatchHandler(ISyncRepository repository, ISyncAccess access, IPortalUserContext user, IAuditWriter audit)
     : ICommandHandler<DiscardSyncBatchCommand, int>
 {
     public async Task<Result<int>> Handle(DiscardSyncBatchCommand command, CancellationToken cancellationToken)
@@ -366,6 +379,11 @@ internal sealed class DiscardSyncBatchHandler(ISyncRepository repository, IPorta
         if (await repository.GetBatchAsync(command.BatchId, cancellationToken) is not { } batch)
         {
             return SyncErrors.BatchNotFound;
+        }
+
+        if (await SyncReview.CheckAsync(repository, access, batch.InstallationId, cancellationToken) is { } denied)
+        {
+            return denied;
         }
 
         if (batch.SignatureStatus != "UNVERIFIED")
@@ -376,7 +394,7 @@ internal sealed class DiscardSyncBatchHandler(ISyncRepository repository, IPorta
         var deleted = await repository.DiscardAsync(batch.BatchId, user.UserId, cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("sync", "SYNC_BATCH_DISCARDED", "SyncBatch", batch.BatchId, null,
-                $"{user.DisplayName ?? "Un usuario"} descartó el paquete sin verificar {batch.BatchId}: se borraron {deleted} documento(s).",
+                $"{user.DisplayName ?? "Un usuario"} descartó el paquete sin verificar {batch.BatchId}: {deleted} documento(s) volvieron a su versión anterior o se borraron.",
                 Severity: AuditSeverity.Warning),
             cancellationToken);
         return deleted;
@@ -390,7 +408,7 @@ internal sealed class DiscardSyncBatchHandler(ISyncRepository repository, IPorta
 [RequiresPermission(CloudPermissions.SyncPackageReview)]
 public sealed record ResetSyncSigningKeyCommand(Guid InstallationId, string Reason) : ICommand;
 
-internal sealed class ResetSyncSigningKeyHandler(ISyncRepository repository, IPortalUserContext user, IAuditWriter audit)
+internal sealed class ResetSyncSigningKeyHandler(ISyncRepository repository, ISyncAccess access, IPortalUserContext user, IAuditWriter audit)
     : ICommandHandler<ResetSyncSigningKeyCommand>
 {
     public static readonly Error ReasonRequired = Error.Validation("SYNC.REASON_REQUIRED", "Escriba el motivo (de 5 a 300 caracteres).");
@@ -404,6 +422,11 @@ internal sealed class ResetSyncSigningKeyHandler(ISyncRepository repository, IPo
             return ReasonRequired;
         }
 
+        if (await SyncReview.CheckAsync(repository, access, command.InstallationId, cancellationToken) is { } denied)
+        {
+            return denied;
+        }
+
         if (!await repository.ResetSigningKeyAsync(command.InstallationId, user.UserId, cancellationToken))
         {
             return NoKey;
@@ -415,6 +438,20 @@ internal sealed class ResetSyncSigningKeyHandler(ISyncRepository repository, IPo
                 Severity: AuditSeverity.Warning),
             cancellationToken);
         return Result.Success();
+    }
+}
+
+/// <summary>Revisar un lote o una clave exige que la instalación exista y que el usuario tenga acceso a su empresa.</summary>
+internal static class SyncReview
+{
+    public static async Task<Error?> CheckAsync(ISyncRepository repository, ISyncAccess access, Guid installationId, CancellationToken cancellationToken)
+    {
+        if (await repository.InstallationOrganizationAsync(installationId, cancellationToken) is not { } organizationId)
+        {
+            return SyncErrors.UnknownInstallation;
+        }
+
+        return await access.CanAccessAsync(organizationId, cancellationToken) ? null : SyncErrors.Forbidden;
     }
 }
 

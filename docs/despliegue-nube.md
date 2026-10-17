@@ -515,7 +515,11 @@ docker compose up -d
    nueva. Desde entonces sus paquetes deben venir firmados con ella. Los paquetes de una tienda que aún no la registró se cargan
    «sin verificar» y aparecen en **Datos de las tiendas → Paquetes sin verificar**: el superadministrador los verifica (cuando la tienda ya
    registró la clave que los firmó) o los descarta. Si una tienda se restauró en otro equipo o la clave quedó expuesta, use **Reiniciar
-   clave** en su sucursal. Migraciones `V2026.10.013` a `V2026.10.015`: se aplican solas; **actualice la nube antes que las tiendas**
+   clave** en su sucursal. Si al cargar un paquete el portal dice que **no está firmado con la clave registrada**, no se cargó nada:
+   si el paquete es de la tienda, reinicie su clave (o espere a que sincronice en línea) y **vuelva a cargar el mismo archivo**.
+   Descartar un paquete sin verificar devuelve a su versión anterior los datos que reemplazó y borra los que creó; la tienda no vuelve a
+   subir sola lo que ya se confirmó: si era legítima, cuando la tienda registre su clave vuelva a cargar el mismo archivo (un paquete
+   descartado se puede cargar otra vez). Migraciones `V2026.10.013` a `V2026.10.015`: se aplican solas; **actualice la nube antes que las tiendas**
    (§10).
 
 ## 18. Dentro de un dominio existente con Caddy (businesspost.tutiendanueva.com)

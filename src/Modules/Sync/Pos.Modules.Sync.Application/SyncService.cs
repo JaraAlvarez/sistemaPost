@@ -104,8 +104,11 @@ public sealed class SyncService(
 
         var batches = await store.ListBatchesAsync(30, cancellationToken);
         var reason = await NotConfiguredReasonAsync(cancellationToken);
+
+        // Avisos: lotes que sí se enviaron o exportaron pero omitieron datos demasiado grandes.
+        var warnings = batches.Where(b => b.Status != "FAILED" && !string.IsNullOrEmpty(b.Error)).Select(b => b.Error!).Distinct(StringComparer.Ordinal).Take(5).ToList();
         return new SyncStatusDto(reason is null, reason, batches.FirstOrDefault(b => b.Status == "ACKED")?.AckedAt,
-            batches.Count > 0 && batches[0].Status == "FAILED" ? batches[0].Error : null, pending, batches);
+            batches.Count > 0 && batches[0].Status == "FAILED" ? batches[0].Error : null, pending, batches, warnings);
     }
 
     /// <summary>Envía lo pendiente en lotes de <see cref="BatchSize"/> (hasta <paramref name="maxBatches"/>). Devuelve cuántos datos confirmó la nube.</summary>
@@ -119,10 +122,23 @@ public sealed class SyncService(
         var confirmed = 0;
         for (var n = 0; n < maxBatches; n++)
         {
-            var (batch, positions) = await BuildAsync(exported: false, BatchSize, cancellationToken);
+            var (batch, positions, skipped) = await BuildAsync(exported: false, BatchSize, cancellationToken);
             if (batch.Items.Count == 0)
             {
-                break;
+                if (skipped is null)
+                {
+                    break;
+                }
+
+                // Solo había datos demasiado grandes: se saltan (con el aviso) para que no traben lo que viene después.
+                foreach (var (kind, position) in positions)
+                {
+                    await store.SaveAckedAsync(kind, position, cancellationToken);
+                }
+
+                await store.RecordBatchAsync(new SyncBatchDto(batch.BatchId, environment.UtcNow, "ONLINE", 0, "ACKED", 0, 0, skipped, environment.UtcNow),
+                    cancellationToken);
+                continue;
             }
 
             var result = await cloud.SendAsync(batch, credential, cancellationToken);
@@ -138,7 +154,7 @@ public sealed class SyncService(
                 await store.SaveAckedAsync(kind, position, cancellationToken);
             }
 
-            await store.RecordBatchAsync(new SyncBatchDto(batch.BatchId, environment.UtcNow, "ONLINE", batch.Items.Count, "ACKED", ack.Applied, ack.Ignored, null,
+            await store.RecordBatchAsync(new SyncBatchDto(batch.BatchId, environment.UtcNow, "ONLINE", batch.Items.Count, "ACKED", ack.Applied, ack.Ignored, skipped,
                 environment.UtcNow), cancellationToken);
             confirmed += batch.Items.Count;
         }
@@ -159,11 +175,11 @@ public sealed class SyncService(
 
         // La nube no abre paquetes de más de 128 MiB descomprimidos (S3): si no cabe, se exportan menos datos y el resto va en el siguiente.
         var limit = MaxPackageItems;
-        var (batch, positions) = await BuildAsync(exported: true, limit, cancellationToken);
+        var (batch, positions, skipped) = await BuildAsync(exported: true, limit, cancellationToken);
         while (batch.Items.Count > 1 && System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(batch, SyncJson.Options).LongLength > SyncLimits.MaxPackageBytes * 9 / 10)
         {
             limit = batch.Items.Count / 2;
-            (batch, positions) = await BuildAsync(exported: true, limit, cancellationToken);
+            (batch, positions, skipped) = await BuildAsync(exported: true, limit, cancellationToken);
         }
 
         var content = SyncPackage.Seal(batch, publicKey, signer.Key);
@@ -172,7 +188,7 @@ public sealed class SyncService(
             await store.SaveExportedAsync(kind, position, cancellationToken);
         }
 
-        await store.RecordBatchAsync(new SyncBatchDto(batch.BatchId, environment.UtcNow, "FILE", batch.Items.Count, "EXPORTED", null, null, null, null),
+        await store.RecordBatchAsync(new SyncBatchDto(batch.BatchId, environment.UtcNow, "FILE", batch.Items.Count, "EXPORTED", null, null, skipped, null),
             cancellationToken);
         return ($"tienda-{environment.UtcNow:yyyyMMdd-HHmm}.possync", content, batch.Items.Count);
     }
@@ -182,10 +198,16 @@ public sealed class SyncService(
         : await credentials.GetAsync(cancellationToken) is null ? "La licencia no está activada: la tienda se identifica ante la nube con su licencia."
         : null;
 
-    private async Task<(SyncBatch Batch, Dictionary<string, CursorPosition> Positions)> BuildAsync(bool exported, int limit, CancellationToken cancellationToken)
+    /// <summary>
+    /// Arma el lote. Los datos de más de <see cref="SyncLimits.MaxItemBytes"/> (en UTF-8, como los mide la nube) se SALTAN: la nube los
+    /// rechazaría y trabarían el lote entero. <c>Skipped</c> es el aviso visible (queda en el lote y en el estado), o nulo si no se saltó nada.
+    /// </summary>
+    private async Task<(SyncBatch Batch, Dictionary<string, CursorPosition> Positions, string? Skipped)> BuildAsync(
+        bool exported, int limit, CancellationToken cancellationToken)
     {
         var cursors = await store.CursorsAsync(cancellationToken);
         var items = new List<SyncItem>();
+        var skipped = new List<string>();
         var positions = new Dictionary<string, CursorPosition>(StringComparer.Ordinal);
         foreach (var kind in SyncKinds.All)
         {
@@ -198,12 +220,26 @@ public sealed class SyncService(
             var read = await feeds.ReadAsync(kind, Position(cursors, kind, exported), remaining, cancellationToken);
             if (read.Count > 0)
             {
-                items.AddRange(read.Select(r => r.Item));
+                foreach (var r in read)
+                {
+                    if (SyncLimits.DataBytes(r.Item.Data) > SyncLimits.MaxItemBytes)
+                    {
+                        skipped.Add($"{r.Item.Kind} {r.Item.Id}");
+                    }
+                    else
+                    {
+                        items.Add(r.Item);
+                    }
+                }
+
                 positions[kind] = read[^1].Position;
             }
         }
 
-        return (new SyncBatch(Guid.CreateVersion7(), environment.InstallationId, environment.UtcNow, environment.AppVersion, items), positions);
+        var warning = skipped.Count == 0 ? null
+            : $"Se omitieron {skipped.Count} dato(s) de más de {SyncLimits.MaxItemBytes / (1024 * 1024)} MiB que la nube no acepta: " +
+              string.Join(", ", skipped.Take(5)) + (skipped.Count > 5 ? "…" : string.Empty);
+        return (new SyncBatch(Guid.CreateVersion7(), environment.InstallationId, environment.UtcNow, environment.AppVersion, items), positions, warning);
     }
 
     private static CursorPosition Position(IReadOnlyDictionary<string, SyncCursor> cursors, string kind, bool exported) =>

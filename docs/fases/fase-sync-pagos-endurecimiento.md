@@ -38,8 +38,12 @@ Diseño breve de las correcciones pedidas por la revisión de seguridad. Rama `f
 - `STOCK` deja de subir `averageCost` (el portal solo muestra cantidad y valor total).
 - Ronda 2: `V2026.10.102` (tienda) marca las ventas de los clientes que ya estaban anonimizados, para que se reenvíen sin el nombre;
   `V2026.10.015` (nube) quita `customerIdentification` y `averageCost` de lo ya recibido (`jsonb -`).
+- Ronda 3: la nube también los quita AL RECIBIR (`ApplyAsync`), así una tienda sin actualizar (1.3.0) no los vuelve a dejar guardados.
 - «Ventas recientes» del portal se muestra y ordena por `completedAt` de la venta (no por la versión, que cambia con una anulación o una
-  supresión).
+  supresión). **Pendiente:** índice para esa consulta. El cast de texto a `timestamptz` no es inmutable (depende de la zona de la sesión)
+  y PostgreSQL no lo admite en un índice; ordenar por el texto tampoco sirve (las tiendas pueden mandar distintos desfases). Requiere una
+  columna `completed_at` en `sync.documents` llenada al recibir; con el volumen de v1 la consulta filtra por empresa y tipo con el índice
+  existente.
 
 ### S2 · Paquete .possync firmado por la tienda
 
@@ -57,16 +61,22 @@ Diseño breve de las correcciones pedidas por la revisión de seguridad. Rama `f
   (`previous_key`) se acepta 7 días más (paquetes exportados antes de rotar). Un superadministrador puede **reiniciar** la clave de una
   tienda desde el portal («Datos de las tiendas» → «Reiniciar clave», auditado `SYNC_KEY_RESET`): queda sin clave hasta su próxima
   sincronización en línea.
-- En la tienda, `sync-signing.key` se escribe de forma atómica (temporal + reemplazo). Si no se puede leer (DPAPI de otra máquina tras
-  restaurar en otro equipo, archivo dañado) se genera una clave nueva con una advertencia en el log, en vez de fallar en cada ciclo: la
-  nube la verá como rotación.
+- En la tienda, `sync-signing.key` se escribe de forma atómica (temporal + reemplazo). Si existe pero no se puede descifrar o no es una
+  clave (`CryptographicException`/`FormatException`: DPAPI de otra máquina tras restaurar, archivo dañado) se renombra a `.bak` y se genera
+  una nueva con una advertencia; la nube la verá como rotación. Un error de disco (`IOException`) no regenera: falla ese ciclo y el
+  siguiente vuelve a intentar.
 - Al cargar un paquete en el portal: primero se lee el ENCABEZADO (en claro, autenticado por el cifrado) y se revisan la instalación y el
   acceso del usuario a su empresa ANTES de descifrar y descomprimir. Si la instalación tiene clave registrada, el paquete DEBE venir
   firmado con ella (o con la anterior en sus 7 días); si no la tiene, se aplica y el lote queda `UNVERIFIED`, con la clave que lo
   firmó (`signer_key`). El portal muestra los lotes sin verificar por sucursal; con la permisión `sync.package.review`
   (superadministrador) se pueden **verificar** (cuando la tienda registra su clave y es la que firmó) o **descartar** (se borran de
   `sync.documents` los documentos que dejó ese lote y que ningún lote posterior reescribió: `documents.batch_id`). Único `DELETE` de
-  `pos_app` en la nube.
+  `pos_app` en la nube. Ronda 3: cuando un lote `UNVERIFIED` REEMPLAZA un documento, su estado anterior queda en `previous_*`; al
+  descartar, lo reemplazado vuelve a su versión anterior y lo creado se borra. Verificar el lote limpia el respaldo. Verificar, descartar y
+  reiniciar exigen que la instalación exista y que el usuario tenga acceso a su empresa. Un paquete descartado se puede volver a cargar
+  (el mismo archivo): se aplica de nuevo.
+- Si la nube rechaza un paquete por `WRONG_SIGNER` no se aplica nada: si el paquete es de la tienda, se reinicia su clave (o se espera a
+  que sincronice en línea) y se vuelve a cargar el MISMO archivo (el mensaje lo dice).
 - `FindAsync` exige licencia activa e instalación no liberada; el portal dice por qué no carga (equipo liberado, licencia vencida o
   revocada, o instalación desconocida).
 - Cargas de paquetes: ⚙️ 10 por usuario cada 10 minutos (`Sync:MaxUploadsPer10Minutes`).
@@ -76,7 +86,10 @@ Diseño breve de las correcciones pedidas por la revisión de seguridad. Rama `f
 
 - `SyncPackage.Open` limita: ítems del encabezado (antes de descifrar) y del lote, contados MIENTRAS se leen (convertidor que recorre la
   lista dato por dato, `SyncLimits.MaxPackageItems` = 200 000), cada dato a 1 MiB (`MaxItemBytes`) y los bytes descomprimidos a 128 MiB
-  (`MaxPackageBytes`) con un flujo que cuenta. La tienda arma paquetes de hasta el 90 % de ese tamaño (si no caben, exporta menos datos y el
+  (`MaxPackageBytes`) con un flujo que cuenta. (System.Text.Json entrega al convertidor la lista ya leída en su búfer, acotado por ese
+  flujo; el convertidor crea los datos uno por uno y corta en cuanto pasa un límite.) El tamaño de un dato se mide igual en los dos lados:
+  bytes UTF-8 de su JSON (`SyncLimits.DataBytes`). En la tienda, un dato de más de 1 MiB se SALTA con un aviso visible en
+  «Sincronización con la nube» (queda en el lote) y no traba el envío. La tienda arma paquetes de hasta el 90 % de ese tamaño (si no caben, exporta menos datos y el
   resto sale en el paquete siguiente). Los lotes en línea también rechazan datos de más de 1 MiB. La nube aplica en bloques de 5 000.
 
 ### Bajas

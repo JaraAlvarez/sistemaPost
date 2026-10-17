@@ -42,6 +42,13 @@ internal sealed class SyncOutboxRedaction(PosDbContext context) : ISyncOutboxRed
 {
     public const string Redacted = "(suprimido)";
 
+    /// <summary>Columnas con datos del titular (aunque no todas estén marcadas [PersonalData]): solo esas se suprimen.</summary>
+    public static readonly string[] PersonalColumns =
+    [
+        "legal_name", "first_names", "last_names", "trade_name", "identification_number", "check_digit", "search_text", "email", "phone",
+        "address", "notes", "block_reason",
+    ];
+
     public Task<int> RedactAsync(string entity, Guid id, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entity);
@@ -50,7 +57,9 @@ internal sealed class SyncOutboxRedaction(PosDbContext context) : ISyncOutboxRed
             $$"""
             UPDATE system.outbox_messages
             SET payload = jsonb_set(payload, '{changes}',
-                    COALESCE((SELECT jsonb_object_agg(c.key, to_jsonb({{Redacted}}::text)) FROM jsonb_each(payload -> 'changes') AS c(key, value)), '{}'::jsonb))
+                    COALESCE((SELECT jsonb_object_agg(c.key, CASE WHEN c.key = ANY({{PersonalColumns}}) AND c.value <> 'null'::jsonb
+                                                                    THEN to_jsonb({{Redacted}}::text) ELSE c.value END)
+                              FROM jsonb_each(payload -> 'changes') AS c(key, value)), '{}'::jsonb))
                 || '{"redacted": true}'::jsonb
             WHERE destination = 'SYNC' AND type = 'sync.entity_changed.v1' AND payload ->> 'entity' = {{entity}} AND payload ->> 'id' = {{key}}
               AND jsonb_typeof(payload -> 'changes') = 'object'

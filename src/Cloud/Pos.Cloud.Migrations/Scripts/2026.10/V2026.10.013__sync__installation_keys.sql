@@ -9,7 +9,9 @@
 --     instalación aún no tenía clave (se aplica por compatibilidad y queda marcado); DISCARDED = un administrador lo descartó y se
 --     borraron los documentos que ese lote dejó. NULL = lote en línea. signer_key: la clave que firmó el paquete (v2), para verificarlo
 --     cuando la instalación registre la suya.
---   · documents.batch_id: último lote que escribió el documento (para descartar un lote no verificado).
+--   · documents.batch_id: último lote que escribió el documento. Cuando un lote UNVERIFIED reemplaza un documento, el estado anterior queda
+--     en previous_* : descartar el lote lo RESTAURA (o borra el documento si ese lote lo creó). Un lote verificado o en línea posterior
+--     limpia previous_*.
 -- =====================================================================================================
 
 CREATE TABLE sync.installation_keys (
@@ -49,6 +51,15 @@ COMMENT ON COLUMN sync.batches.signature_status IS
     'Paquetes cargados en el portal: VERIFIED, UNVERIFIED (la instalación aún no registraba clave) o DISCARDED (descartado por un administrador).';
 
 ALTER TABLE sync.documents
-    ADD COLUMN batch_id uuid;
+    ADD COLUMN batch_id                uuid,
+    ADD COLUMN previous_version        timestamptz,
+    ADD COLUMN previous_business_date  date,
+    ADD COLUMN previous_data           jsonb,
+    ADD COLUMN previous_received_at    timestamptz,
+    ADD COLUMN previous_received_via   varchar(10),
+    ADD COLUMN previous_batch_id       uuid,
+    ADD CONSTRAINT ck_documents__previous CHECK (
+        (previous_data IS NULL) = (previous_version IS NULL) AND (previous_data IS NULL) = (previous_received_at IS NULL)
+        AND (previous_data IS NULL) = (previous_received_via IS NULL));
 
 CREATE INDEX ix_documents__batch ON sync.documents (batch_id) WHERE batch_id IS NOT NULL;

@@ -152,10 +152,21 @@ public class SyncSigningTests(SyncPackagesCloudFixture cloud) : IClassFixture<Sy
         // Antes de registrar clave: uno firmado (se podrá verificar) y uno sin firma (versión anterior: solo se puede descartar).
         var signedSale = Guid.CreateVersion7().ToString();
         var unsignedSale = Guid.CreateVersion7().ToString();
+        var replacedSale = Guid.CreateVersion7().ToString();
+
+        // Una venta que ya estaba (en línea, sin registrar clave) y que el paquete sin firma va a reemplazar.
+        using (var client = cloud.Factory.CreateClient())
+        {
+            await PortalApi.EnsureAsync(await SendAsync(client, Batch(installation, Sale(replacedSale, DateTimeOffset.UtcNow.AddMinutes(-10))), pos.Token!,
+                pos.Identity.Fingerprint), HttpStatusCode.OK);
+        }
+
         (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale(signedSale, DateTimeOffset.UtcNow.AddMinutes(-3))), cloud.Factory.CloudPublicKey, storeKey)))
             .Value.Unverified.ShouldBeTrue();
-        (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale(unsignedSale, DateTimeOffset.UtcNow.AddMinutes(-3))), cloud.Factory.CloudPublicKey)))
-            .Value.Unverified.ShouldBeTrue();
+        var unsignedPackage = new SyncBatch(Guid.CreateVersion7(), installation, DateTimeOffset.UtcNow, "1.0.0",
+            [Sale(unsignedSale, DateTimeOffset.UtcNow.AddMinutes(-3)), Sale(replacedSale, DateTimeOffset.UtcNow.AddMinutes(-3), "VOIDED")]);
+        (await UploadAsync(SyncPackage.Seal(unsignedPackage, cloud.Factory.CloudPublicKey))).Value.Unverified.ShouldBeTrue();
+        (await ScalarAsync<string>($"SELECT data->>'status' FROM sync.documents WHERE doc_id = '{replacedSale}'")).ShouldBe("VOIDED");
         var signedBatch = await ScalarAsync<Guid>($"SELECT batch_id FROM sync.documents WHERE doc_id = '{signedSale}'");
         var unsignedBatch = await ScalarAsync<Guid>($"SELECT batch_id FROM sync.documents WHERE doc_id = '{unsignedSale}'");
 
@@ -173,8 +184,11 @@ public class SyncSigningTests(SyncPackagesCloudFixture cloud) : IClassFixture<Sy
         (await ScalarAsync<string>($"SELECT signature_status FROM sync.batches WHERE id = '{signedBatch}'")).ShouldBe("VERIFIED");
         (await AsSuperadminAsync(d => d.Send(new VerifySyncBatchCommand(unsignedBatch), Ct))).Error.Code.ShouldBe(SyncErrors.CannotVerify.Code);
 
-        (await AsSuperadminAsync(d => d.Send(new DiscardSyncBatchCommand(unsignedBatch), Ct))).Value.ShouldBe(1);
+        // Descartar: lo que creó se borra y lo que reemplazó vuelve a su versión anterior.
+        (await AsSuperadminAsync(d => d.Send(new DiscardSyncBatchCommand(unsignedBatch), Ct))).Value.ShouldBe(2);
         (await ScalarAsync<long>($"SELECT count(*) FROM sync.documents WHERE doc_id = '{unsignedSale}'")).ShouldBe(0);
+        (await ScalarAsync<string>($"SELECT data->>'status' FROM sync.documents WHERE doc_id = '{replacedSale}'")).ShouldBe("COMPLETED");
+        (await ScalarAsync<string>($"SELECT received_via FROM sync.documents WHERE doc_id = '{replacedSale}'")).ShouldBe("ONLINE");
         (await ScalarAsync<string>($"SELECT signature_status FROM sync.batches WHERE id = '{unsignedBatch}'")).ShouldBe("DISCARDED");
         (await ScalarAsync<long>($"SELECT count(*) FROM audit.audit_log WHERE action = 'SYNC_BATCH_DISCARDED' AND entity_id = '{unsignedBatch}'")).ShouldBe(1);
 
@@ -183,6 +197,39 @@ public class SyncSigningTests(SyncPackagesCloudFixture cloud) : IClassFixture<Sy
         (await ScalarAsync<object>($"SELECT public_key FROM sync.installation_keys WHERE installation_id = '{installation}'")).ShouldBe(DBNull.Value);
         (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale(Guid.CreateVersion7().ToString(), DateTimeOffset.UtcNow)), cloud.Factory.CloudPublicKey, storeKey)))
             .Value.Unverified.ShouldBeTrue();
+
+        // El mismo archivo descartado se puede volver a cargar (aquí, sin clave registrada tras el reinicio: queda sin verificar).
+        var reloaded = await UploadAsync(SyncPackage.Seal(unsignedPackage, cloud.Factory.CloudPublicKey));
+        reloaded.IsSuccess.ShouldBeTrue(reloaded.IsFailure ? reloaded.Error.Message : null);
+        reloaded.Value.Duplicate.ShouldBeFalse();
+        (await ScalarAsync<long>($"SELECT count(*) FROM sync.documents WHERE doc_id = '{unsignedSale}'")).ShouldBe(1);
+
+        // Revisar exige que la instalación exista.
+        (await AsSuperadminAsync(d => d.Send(new ResetSyncSigningKeyCommand(Guid.CreateVersion7(), "Instalación inventada"), Ct)))
+            .Error.Code.ShouldBe(SyncErrors.UnknownInstallation.Code);
+    }
+
+    [Fact]
+    public async Task La_nube_no_guarda_la_cedula_ni_el_costo_promedio_aunque_la_tienda_los_mande()
+    {
+        var (pos, _) = await ActivatedAsync();
+        using var client = cloud.Factory.CreateClient();
+        var now = DateTimeOffset.UtcNow.AddMinutes(-2);
+        using var sale = JsonDocument.Parse("""{"number": "S-1", "status": "COMPLETED", "customer": "Laura", "customerIdentification": "1020304050", "total": 5}""");
+        using var stock = JsonDocument.Parse("""{"sku": "A1", "quantity": 2, "averageCost": 1500, "totalValue": 3000}""");
+        var saleId = Guid.CreateVersion7().ToString();
+        var stockId = Guid.CreateVersion7().ToString();
+        var batch = new SyncBatch(Guid.CreateVersion7(), pos.Identity.InstallationId, now, "1.3.0",
+        [
+            new SyncItem(SyncKinds.Sale, saleId, now, Today, sale.RootElement.Clone()),
+            new SyncItem(SyncKinds.Stock, stockId, now, null, stock.RootElement.Clone()),
+        ]);
+        await PortalApi.EnsureAsync(await SendAsync(client, batch, pos.Token!, pos.Identity.Fingerprint), HttpStatusCode.OK);
+
+        (await ScalarAsync<bool>($"SELECT data ? 'customerIdentification' FROM sync.documents WHERE doc_id = '{saleId}'")).ShouldBeFalse();
+        (await ScalarAsync<string>($"SELECT data->>'customer' FROM sync.documents WHERE doc_id = '{saleId}'")).ShouldBe("Laura");
+        (await ScalarAsync<bool>($"SELECT data ? 'averageCost' FROM sync.documents WHERE doc_id = '{stockId}'")).ShouldBeFalse();
+        (await ScalarAsync<string>($"SELECT data->>'totalValue' FROM sync.documents WHERE doc_id = '{stockId}'")).ShouldBe("3000");
     }
 
     [Fact]

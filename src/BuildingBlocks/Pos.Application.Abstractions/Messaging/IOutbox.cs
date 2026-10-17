@@ -25,6 +25,9 @@ public interface IOutbox
 /// </summary>
 public interface ISyncOutboxRedaction
 {
-    /// <summary>Reemplaza por <c>(suprimido)</c> todos los valores de los mensajes SYNC de la entidad (<c>esquema.tabla</c>) y el id dados.</summary>
+    /// <summary>
+    /// Reemplaza por <c>(suprimido)</c> los valores con datos del titular (nombre, identificación, texto de búsqueda, contacto, notas) de los
+    /// mensajes SYNC de la entidad (<c>esquema.tabla</c>) y el id dados; los demás campos se conservan.
+    /// </summary>
     Task<int> RedactAsync(string entity, Guid id, CancellationToken cancellationToken = default);
 }

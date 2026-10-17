@@ -377,26 +377,42 @@ public static class SyncInfrastructureRegistration
 /// <summary>
 /// Clave Ed25519 de la instalación (revisión S2) en <c>{DataRoot}\config\sync-signing.key</c>: se crea la primera vez y se guarda protegida
 /// con DPAPI de la máquina, como la clave de los backups. Fuera de Windows queda en claro y la protegen solo los permisos del archivo
-/// (ver <see cref="ProtectedSecret"/>). Se escribe de forma atómica (archivo temporal + reemplazo). Si el archivo no se puede leer (DPAPI de
-/// otra máquina tras restaurar en otro equipo, archivo dañado) se genera una clave nueva con una advertencia, en vez de fallar en cada ciclo:
-/// la nube la registra como rotación en la siguiente sincronización en línea.
+/// (ver <see cref="ProtectedSecret"/>). Se escribe de forma atómica (archivo temporal + reemplazo).
+/// <para>
+/// Si el archivo existe pero NO se puede descifrar o no es una clave (<see cref="System.Security.Cryptography.CryptographicException"/> o
+/// <see cref="FormatException"/>: DPAPI de otra máquina tras restaurar en otro equipo, archivo dañado), se renombra a <c>.bak</c> y se genera
+/// una clave nueva con una advertencia (la nube la verá como rotación). Un error de disco (<see cref="IOException"/>,
+/// <see cref="UnauthorizedAccessException"/>) NO regenera nada: falla este ciclo y se reintenta en el siguiente.
+/// </para>
 /// </summary>
 internal sealed partial class SyncSigningKeyStore(string keyFile, ILogger<SyncSigningKeyStore> logger) : ISyncSigner, IDisposable
 {
     // Identificador criptográfico interno y estable: cambiarlo dejaría ilegible la clave ya guardada.
     public const string Purpose = "PosSupermercado.Sync.SigningKey.v1";
 
-    private readonly Lazy<Key> _key = new(() => LoadOrCreate(keyFile, logger), LazyThreadSafetyMode.ExecutionAndPublication);
+    private readonly Lock _gate = new();
+    private Key? _key;
 
-    public Key Key => _key.Value;
+    public Key Key
+    {
+        get
+        {
+            // Sin Lazy: un error de disco no queda guardado para siempre; el próximo ciclo vuelve a intentar.
+            lock (_gate)
+            {
+                return _key ??= LoadOrCreate(keyFile, logger);
+            }
+        }
+    }
 
     public string PublicKey => SyncSigning.PublicOf(Key);
 
     public void Dispose()
     {
-        if (_key.IsValueCreated)
+        lock (_gate)
         {
-            _key.Value.Dispose();
+            _key?.Dispose();
+            _key = null;
         }
     }
 
@@ -404,14 +420,16 @@ internal sealed partial class SyncSigningKeyStore(string keyFile, ILogger<SyncSi
     {
         if (File.Exists(file))
         {
+            var stored = File.ReadAllBytes(file); // IOException: falla el ciclo, no se regenera.
             try
             {
-                var stored = File.ReadAllBytes(file);
                 return SyncSigning.ImportPrivate(OperatingSystem.IsWindows() ? ProtectedSecret.UnprotectBytes(stored, Purpose) : stored);
             }
-            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException or ArgumentException or IOException)
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException)
             {
-                LogUnreadable(logger, file, ex);
+                var backup = file + ".bak";
+                File.Move(file, backup, overwrite: true);
+                LogUnreadable(logger, file, backup, ex);
             }
         }
 
@@ -424,6 +442,11 @@ internal sealed partial class SyncSigningKeyStore(string keyFile, ILogger<SyncSi
             File.WriteAllBytes(temporary, OperatingSystem.IsWindows() ? ProtectedSecret.ProtectBytes(raw, Purpose) : raw);
             File.Move(temporary, file, overwrite: true);
         }
+        catch
+        {
+            key.Dispose();
+            throw;
+        }
         finally
         {
             System.Security.Cryptography.CryptographicOperations.ZeroMemory(raw);
@@ -433,6 +456,6 @@ internal sealed partial class SyncSigningKeyStore(string keyFile, ILogger<SyncSi
     }
 
     [LoggerMessage(Level = LogLevel.Warning,
-        Message = "La clave de firma de la sincronización ({File}) no se pudo leer; se genera una nueva y la nube la registrará en la próxima sincronización en línea")]
-    private static partial void LogUnreadable(ILogger logger, string file, Exception exception);
+        Message = "La clave de firma de la sincronización ({File}) no se pudo leer; se guardó como {Backup} y se genera una nueva, que la nube registrará en la próxima sincronización en línea")]
+    private static partial void LogUnreadable(ILogger logger, string file, string backup, Exception exception);
 }

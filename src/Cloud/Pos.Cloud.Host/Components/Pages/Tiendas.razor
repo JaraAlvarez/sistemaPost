@@ -291,7 +291,9 @@ else
 
     private async Task DescartarAsync(UnverifiedBatchDto batch)
     {
-        if (!await Dialogs.ConfirmAsync("Descartar paquete", $"Se borrarán los datos que dejó este paquete ({batch.Items} datos) y que ningún otro lote reescribió.",
+        if (!await Dialogs.ConfirmAsync("Descartar paquete",
+                $"Los datos que este paquete reemplazó ({batch.Items} datos) vuelven a su versión anterior y los que creó se borran. Si la tienda es legítima, " +
+                "lo que ya confirmó no se vuelve a subir solo: cuando registre su clave, vuelva a cargar el mismo archivo.",
                 "Descartar"))
         {
             return;

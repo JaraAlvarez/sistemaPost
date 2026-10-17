@@ -37,7 +37,11 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
             """
             INSERT INTO sync.batches (id, installation_id, organization_id, via, received_at, items, uploaded_by, signature_status, signer_key)
             VALUES (@id, @installation, @organization, @via, now(), @items, @uploadedBy, @signatureStatus, @signerKey)
-            ON CONFLICT (id) DO NOTHING
+            -- Un paquete DESCARTADO se puede volver a cargar (p. ej. cuando la tienda ya registró su clave): se aplica de nuevo.
+            ON CONFLICT (id) DO UPDATE
+                SET received_at = now(), uploaded_by = EXCLUDED.uploaded_by, signature_status = EXCLUDED.signature_status,
+                    signer_key = EXCLUDED.signer_key, reviewed_at = NULL, reviewed_by = NULL, applied = NULL, ignored = NULL
+                WHERE sync.batches.signature_status = 'DISCARDED' AND sync.batches.installation_id = EXCLUDED.installation_id
             """,
             new
             {
@@ -58,8 +62,10 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
             applied += await connection.ExecuteAsync(new CommandDefinition(
                 """
                 WITH incoming AS (
+                    -- Lo que la nube no usa no se guarda aunque lo mande una tienda sin actualizar (cédula/NIT del cliente, costo promedio).
                     SELECT DISTINCT ON (x.kind, x.id) x.kind, x.id, LEAST(x.version, now() + make_interval(mins => @tolerance)) AS version,
-                           x."businessDate" AS business_date, x.data
+                           x."businessDate" AS business_date,
+                           CASE x.kind WHEN 'SALE' THEN x.data - 'customerIdentification' WHEN 'STOCK' THEN x.data - 'averageCost' ELSE x.data END AS data
                     FROM jsonb_to_recordset(@items::jsonb) AS x(kind text, id text, version timestamptz, "businessDate" date, data jsonb)
                     WHERE x.kind IN ('SALE', 'CASH_SESSION', 'STOCK', 'PRODUCT') AND x.id IS NOT NULL AND length(x.id) <= 64 AND x.version IS NOT NULL
                     ORDER BY x.kind, x.id, x.version DESC)
@@ -67,13 +73,21 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
                 SELECT @installation, i.kind, i.id, @organization, i.version, i.business_date, i.data, now(), @via, @batch FROM incoming i
                 ON CONFLICT (installation_id, kind, doc_id) DO UPDATE
                     SET version = EXCLUDED.version, business_date = EXCLUDED.business_date, data = EXCLUDED.data,
-                        received_at = EXCLUDED.received_at, received_via = EXCLUDED.received_via, batch_id = EXCLUDED.batch_id
+                        received_at = EXCLUDED.received_at, received_via = EXCLUDED.received_via, batch_id = EXCLUDED.batch_id,
+                        -- Un lote sin verificar guarda lo que reemplaza (para restaurarlo si se descarta); uno verificado o en línea lo limpia.
+                        previous_version = CASE WHEN @unverified THEN sync.documents.version END,
+                        previous_business_date = CASE WHEN @unverified THEN sync.documents.business_date END,
+                        previous_data = CASE WHEN @unverified THEN sync.documents.data END,
+                        previous_received_at = CASE WHEN @unverified THEN sync.documents.received_at END,
+                        previous_received_via = CASE WHEN @unverified THEN sync.documents.received_via END,
+                        previous_batch_id = CASE WHEN @unverified THEN sync.documents.batch_id END
                     WHERE sync.documents.version < EXCLUDED.version
                 """,
                 new
                 {
                     items = JsonSerializer.Serialize(chunk, SyncJson.Options), installation = installation.InstallationId,
                     organization = installation.OrganizationId, via, tolerance = VersionToleranceMinutes, batch = batch.BatchId,
+                    unverified = signatureStatus == "UNVERIFIED",
                 },
                 transaction, cancellationToken: cancellationToken));
         }
@@ -147,6 +161,14 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
         return [.. rows.Select(r => new UnverifiedBatchDto(r.BatchId, r.InstallationId, r.BranchName, Utc(r.ReceivedAt)!.Value, r.Items, r.HasSignature, r.MatchesKey))];
     }
 
+    public async Task<Guid?> InstallationOrganizationAsync(Guid installationId, CancellationToken cancellationToken)
+    {
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+            "SELECT organization_id FROM licensing.installations WHERE installation_id = @installationId", new { installationId }, transaction,
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<SyncBatchRecord?> GetBatchAsync(Guid batchId, CancellationToken cancellationToken)
     {
         var (connection, transaction) = await OpenAsync(cancellationToken);
@@ -164,12 +186,31 @@ internal sealed class SyncRepository(CloudDbContext context) : ISyncRepository
         await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE sync.batches SET signature_status = 'VERIFIED', reviewed_at = now(), reviewed_by = @reviewedBy WHERE id = @batchId",
             new { batchId, reviewedBy }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE sync.documents
+            SET previous_version = NULL, previous_business_date = NULL, previous_data = NULL, previous_received_at = NULL, previous_received_via = NULL,
+                previous_batch_id = NULL
+            WHERE batch_id = @batchId AND previous_data IS NOT NULL
+            """,
+            new { batchId }, transaction, cancellationToken: cancellationToken));
     }
 
     public async Task<int> DiscardAsync(Guid batchId, Guid? reviewedBy, CancellationToken cancellationToken)
     {
         var (connection, transaction) = await OpenAsync(cancellationToken);
-        var deleted = await connection.ExecuteAsync(new CommandDefinition(
+        // Lo que el lote reemplazó vuelve a su estado anterior; lo que el lote creó se borra.
+        var restored = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE sync.documents
+            SET version = previous_version, business_date = previous_business_date, data = previous_data, received_at = previous_received_at,
+                received_via = previous_received_via, batch_id = previous_batch_id,
+                previous_version = NULL, previous_business_date = NULL, previous_data = NULL, previous_received_at = NULL,
+                previous_received_via = NULL, previous_batch_id = NULL
+            WHERE batch_id = @batchId AND previous_data IS NOT NULL
+            """,
+            new { batchId }, transaction, cancellationToken: cancellationToken));
+        var deleted = restored + await connection.ExecuteAsync(new CommandDefinition(
             "DELETE FROM sync.documents WHERE batch_id = @batchId", new { batchId }, transaction, cancellationToken: cancellationToken));
         await connection.ExecuteAsync(new CommandDefinition(
             "UPDATE sync.batches SET signature_status = 'DISCARDED', reviewed_at = now(), reviewed_by = @reviewedBy WHERE id = @batchId",

@@ -40,8 +40,12 @@ public static class SyncLimits
     /// </summary>
     public const long MaxPackageBytes = 128L * 1024 * 1024;
 
-    /// <summary>Bytes de UN dato (venta, cierre, saldo o producto) en JSON.</summary>
+    /// <summary>Bytes de UN dato (venta, cierre, saldo o producto): su JSON en UTF-8 (<see cref="DataBytes"/>).</summary>
     public const int MaxItemBytes = 1024 * 1024;
+
+    /// <summary>Tamaño de un dato como lo miden la tienda y la nube: bytes UTF-8 de su JSON.</summary>
+    public static int DataBytes(JsonElement data) =>
+        data.ValueKind == JsonValueKind.Undefined ? 0 : Encoding.UTF8.GetByteCount(data.GetRawText());
 }
 
 /// <summary>
@@ -358,7 +362,10 @@ public static class SyncPackage
 }
 
 /// <summary>
-/// Lee la lista de datos de un paquete uno por uno: falla en cuanto pasa del máximo de datos o un dato pasa del máximo de bytes (revisión S3).
+/// Lee la lista de datos de un paquete (revisión S3). System.Text.Json entrega a un convertidor propio el valor COMPLETO ya leído del flujo:
+/// la lista entera queda en el búfer (acotado por <see cref="SyncLimits.MaxPackageBytes"/> con <see cref="LimitedReadStream"/>), pero los
+/// datos se convierten uno por uno y la lectura se corta en cuanto pasa del máximo de datos o un dato pasa del máximo de bytes, sin crear
+/// todos los objetos para contarlos después.
 /// </summary>
 internal sealed class LimitedItemsConverter(int maxItems, int maxItemBytes) : JsonConverter<IReadOnlyList<SyncItem>>
 {
@@ -377,9 +384,9 @@ internal sealed class LimitedItemsConverter(int maxItems, int maxItemBytes) : Js
                 throw new SyncPackageException($"El paquete supera el máximo de {maxItems} datos.");
             }
 
-            var start = reader.TokenStartIndex;
             using var item = JsonDocument.ParseValue(ref reader);
-            if (reader.BytesConsumed - start > maxItemBytes)
+            if (item.RootElement.ValueKind != JsonValueKind.Object
+                || (item.RootElement.TryGetProperty("data", out var data) && SyncLimits.DataBytes(data) > maxItemBytes))
             {
                 throw new SyncPackageException($"Un dato del paquete supera {maxItemBytes / 1024} KiB.");
             }

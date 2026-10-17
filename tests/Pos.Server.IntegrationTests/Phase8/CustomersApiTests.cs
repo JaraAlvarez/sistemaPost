@@ -305,6 +305,14 @@ public class CustomersApiTests
         (await shop.Catalog.ScalarAsync<long>(
                 $"SELECT count(*) FROM system.outbox_messages WHERE type = 'sync.entity_changed.v1' AND payload->>'id' = '{laura.PartyId}' AND payload->>'redacted' = 'true'"))
             .ShouldBeGreaterThan(0);
+
+        // Solo se suprimen los datos del titular: los demás campos del cambio se conservan.
+        (await shop.Catalog.ScalarAsync<long>(
+                $"SELECT count(*) FROM system.outbox_messages WHERE payload->>'id' = '{laura.PartyId}' AND payload->'changes'->>'person_type' = '(suprimido)'"))
+            .ShouldBe(0);
+        (await shop.Catalog.ScalarAsync<long>(
+                $"SELECT count(*) FROM system.outbox_messages WHERE payload->>'id' = '{laura.PartyId}' AND payload->>'redacted' = 'true' AND payload->'changes' ? 'person_type'"))
+            .ShouldBeGreaterThan(0);
         (await shop.Catalog.ScalarAsync<string>("SELECT severity FROM audit.audit_log WHERE action = 'CUSTOMER_ANONYMIZED'")).ShouldBe("WARNING");
     }
 }
