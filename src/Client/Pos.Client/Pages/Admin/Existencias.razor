@@ -1,11 +1,12 @@
 @page "/admin/existencias"
 @inject ApiClient Api
+@inject NavigationManager Navigation
 
 <PageTitle>Existencias · BusinessPost</PageTitle>
 
 <Pagina Titulo="Existencias" Cargando="_loading" Error="@_error">
     <MudStack Row="true" Class="mb-3" AlignItems="AlignItems.Center">
-        <MudTextField T="string" @bind-Value="_search" Label="Buscar producto" Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => CargarAsync())" />
+        <MudTextField T="string" @bind-Value="_search" Label="Buscar producto" Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => FiltrarAsync(_below))" />
         <MudCheckBox T="bool" Value="_below" ValueChanged="@(v => FiltrarAsync(v))" Label="Solo bajo el mínimo" />
     </MudStack>
     <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
@@ -39,11 +40,23 @@
     private string? _search, _error;
     private bool _below, _loading = true;
 
-    protected override Task OnInitializedAsync() => CargarAsync();
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "bajo")]
+    public string? Bajo { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        _search = Q;
+        _below = string.Equals(Bajo, "true", StringComparison.OrdinalIgnoreCase);
+        return CargarAsync();
+    }
 
     private async Task FiltrarAsync(bool below)
     {
         _below = below;
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["q"] = _search, ["bajo"] = _below });
         await CargarAsync();
     }
 

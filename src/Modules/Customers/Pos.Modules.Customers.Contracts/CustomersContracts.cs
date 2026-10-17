@@ -85,7 +85,11 @@ public sealed record CustomerDto(
     IReadOnlyList<string> MarketingChannels,
     int? ConsentPolicyVersion,
     DateTimeOffset? AnonymizedAt,
-    bool MissingInvoiceEmail);
+    bool MissingInvoiceEmail,
+    string? LegalName = null,
+    string? FirstNames = null,
+    string? LastNames = null,
+    string? TradeName = null);
 
 /// <summary>Resultado de la búsqueda de la caja. <c>HasCustomerRole</c> = false: tercero sin rol (p. ej. un proveedor).</summary>
 public sealed record CustomerLookupDto(

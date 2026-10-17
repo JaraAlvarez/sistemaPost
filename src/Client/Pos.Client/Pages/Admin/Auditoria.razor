@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Auditoría · BusinessPost</PageTitle>
 
@@ -24,7 +25,7 @@
             </MudAlert>
         }
         <MudStack Row="true" Class="mb-3">
-            <MudTextField T="string" @bind-Value="_q" Label="Buscar (acción, usuario, texto)" Immediate="true" DebounceInterval="400" OnDebounceIntervalElapsed="@(_ => CargarAsync())" />
+            <MudTextField T="string" @bind-Value="_q" Label="Buscar (acción, usuario, texto)" Immediate="true" DebounceInterval="400" OnDebounceIntervalElapsed="@(_ => FiltrarAsync(_severity))" />
             <MudSelect T="string" Value="_severity" ValueChanged="@(v => FiltrarAsync(v))" Label="Severidad" Clearable="true">
                 <MudSelectItem T="string" Value="@("INFO")">Información</MudSelectItem>
                 <MudSelectItem T="string" Value="@("WARNING")">Advertencia</MudSelectItem>
@@ -56,11 +57,25 @@
     private bool _loading = true, _busy;
     private string? _error, _q, _severity;
 
-    protected override Task OnInitializedAsync() => CargarAsync();
+    private static readonly string[] Severidades = ["INFO", "WARNING", "CRITICAL"];
 
-    private async Task FiltrarAsync(string severity)
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "severidad")]
+    public string? Severidad { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        _q = Q;
+        _severity = Severidad is { } severidad && Severidades.Contains(severidad, StringComparer.Ordinal) ? severidad : null;
+        return CargarAsync();
+    }
+
+    private async Task FiltrarAsync(string? severity)
     {
         _severity = severity;
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["q"] = _q, ["severidad"] = _severity });
         await CargarAsync();
     }
 

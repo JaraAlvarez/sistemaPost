@@ -15,7 +15,7 @@
     <ChildContent>
         <MudStack Row="true" Class="mb-3" AlignItems="AlignItems.Center">
             <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, código o identificación" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                          Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => CargarAsync())" />
+                          Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => FiltrarAsync(_inactivos))" />
             <MudCheckBox T="bool" Value="_inactivos" ValueChanged="@(v => FiltrarAsync(v))" Label="Incluir inactivos" />
         </MudStack>
         <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowStyle="cursor:pointer"
@@ -44,7 +44,18 @@
     private string? _search, _error;
     private bool _loading = true, _inactivos;
 
-    protected override Task OnInitializedAsync() => CargarAsync();
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "inactivos")]
+    public string? Inactivos { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        _search = Q;
+        _inactivos = string.Equals(Inactivos, "true", StringComparison.OrdinalIgnoreCase);
+        return CargarAsync();
+    }
 
     private static string Estado(string status) => status switch
     {
@@ -59,6 +70,7 @@
     private async Task FiltrarAsync(bool inactivos)
     {
         _inactivos = inactivos;
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["q"] = _search, ["inactivos"] = _inactivos });
         await CargarAsync();
     }
 

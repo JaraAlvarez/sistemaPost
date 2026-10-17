@@ -15,7 +15,7 @@
     </Acciones>
     <ChildContent>
         <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                      Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarAsync())" Class="mb-3" />
+                      Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => FiltrarAsync())" Class="mb-3" />
         <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowStyle="cursor:pointer"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> fila) => Abrir(fila.Item))">
             <HeaderContent>
@@ -70,7 +70,20 @@
     private bool _loading = true, _busy;
     private JsonElement _precioDe;
 
-    protected override Task OnInitializedAsync() => BuscarAsync();
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        _search = Q;
+        return BuscarAsync();
+    }
+
+    private Task FiltrarAsync()
+    {
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["q"] = _search });
+        return BuscarAsync();
+    }
 
     private async Task BuscarAsync()
     {

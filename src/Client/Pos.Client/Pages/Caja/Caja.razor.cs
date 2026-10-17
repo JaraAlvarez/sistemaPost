@@ -27,6 +27,7 @@ public sealed partial class Caja
         Descuento,
         CancelarVenta,
         Ayuda,
+        Consulta,
     }
 
     /// <summary>Medios que asigna el sistema (crédito de un cambio, cupo del cliente, puntos): no se eligen en el cobro.</summary>
@@ -82,6 +83,13 @@ public sealed partial class Caja
     private string? _customerSearch, _customerError;
     private List<JsonElement> _customers = [];
     private bool _descuentoVenta;
+    private MudTextField<string>? _consultaCampo;
+    private string? _consulta, _consultaError;
+    private List<JsonElement> _consultaLista = [];
+    private int _consultaSel = -1;
+    private CancellationTokenSource? _consultaCts;
+    private ScanResult? _consultado;
+    private decimal? _consultaExistencias;
     private bool _descuentoPorcentaje = true;
     private decimal _descuentoValor;
     private string? _descuentoMotivo;
@@ -204,7 +212,7 @@ public sealed partial class Caja
     [JSInvokable]
     public async Task OnKey(string key)
     {
-        if (_session is null && key is not "Escape" and not "F1")
+        if (_session is null && key is not "Escape" and not "F1" and not "F5")
         {
             return;
         }
@@ -216,6 +224,9 @@ public sealed partial class Caja
                 break;
             case "F1":
                 _panel = _panel == Panel.Ayuda ? Panel.None : _panel == Panel.None ? Panel.Ayuda : _panel;
+                break;
+            case "F5" when _panel is Panel.None or Panel.Consulta:
+                AbrirConsulta();
                 break;
             case "F2" when _panel == Panel.None:
                 await FocusScannerAsync();
@@ -569,6 +580,144 @@ public sealed partial class Caja
             _selected = null;
             Snackbar.Add("Venta cancelada.", Severity.Info);
         });
+    }
+
+    // ------------------------------------------------------------------------------------------ Consultar precio (F5)
+
+    /// <summary>
+    /// Consulta de precio sin vender (para inventariar o revisar cambios de precio): el mismo resultado que daría el lector en la venta
+    /// (precio de la sucursal, presentación, báscula), sin tocar la venta en curso.
+    /// </summary>
+    private void AbrirConsulta()
+    {
+        _consulta = null;
+        _consultaError = null;
+        _consultaLista = [];
+        _consultaSel = -1;
+        _consultado = null;
+        _consultaExistencias = null;
+        _panel = Panel.Consulta;
+    }
+
+    private async Task ConsultaCambioAsync(string? value)
+    {
+        _consulta = value;
+        _consultaCts?.Cancel();
+        var text = (value ?? string.Empty).Trim();
+        if (text.Length < 2 || !text.Any(char.IsLetter))
+        {
+            _consultaLista = [];
+            _consultaSel = -1;
+            return;
+        }
+
+        var cts = _consultaCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            var encontrados = await BuscarProductosAsync(text);
+            if (!cts.IsCancellationRequested)
+            {
+                _consultaLista = encontrados;
+                _consultaSel = encontrados.Count > 0 ? 0 : -1;
+                StateHasChanged();
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Se siguió escribiendo.
+        }
+    }
+
+    private async Task ConsultaTeclaAsync(KeyboardEventArgs e)
+    {
+        if (_consultaLista.Count > 0 && e.Key is "ArrowUp" or "ArrowDown")
+        {
+            _consultaSel = Math.Clamp(_consultaSel + (e.Key == "ArrowUp" ? -1 : 1), 0, _consultaLista.Count - 1);
+            return;
+        }
+
+        if (e.Key != "Enter" || string.IsNullOrWhiteSpace(_consulta))
+        {
+            return;
+        }
+
+        if (_consultaLista.Count > 0 && _consultaSel >= 0)
+        {
+            await ConsultarProductoAsync(_consultaLista[_consultaSel]);
+            return;
+        }
+
+        await ConsultarCodigoAsync(_consulta.Trim());
+    }
+
+    private Task ConsultarProductoAsync(JsonElement product) => ConsultarCodigoAsync(product.Str("sku"));
+
+    /// <summary>"IVA 19 %", "INC 8 %"…: el código del impuesto sin la tarifa pegada (IVA19 → IVA) y la tarifa vigente.</summary>
+    private static string NombreImpuesto(ScanTax tax)
+    {
+        var nombre = new string(tax.Code.TakeWhile(char.IsLetter).ToArray()) is { Length: > 0 } letras ? letras : tax.Code;
+        return tax.Rate is { } rate ? $"{nombre} {rate.ToString("0.##", Format.Colombia)} %" : nombre;
+    }
+
+    private async Task ConsultarCodigoAsync(string code)
+    {
+        _consultaCts?.Cancel();
+        _consultaLista = [];
+        _consultaSel = -1;
+        _consultaError = null;
+        _consultaExistencias = null;
+        try
+        {
+            _consultado = await Api.GetAsync<ScanResult>($"api/v1/catalog/scan/{Uri.EscapeDataString(code)}?branchId={Session.Me!.BranchId}");
+            _consultaExistencias = await ExistenciasAsync(_consultado.ProductId);
+        }
+        catch (ApiException ex) when (ex.Status == HttpStatusCode.NotFound && code.Any(char.IsLetter))
+        {
+            // No es un código: se busca por nombre y se muestra la lista.
+            _consultado = null;
+            _consultaLista = await BuscarProductosAsync(code);
+            _consultaSel = _consultaLista.Count > 0 ? 0 : -1;
+            _consultaError = _consultaLista.Count == 0 ? $"No encontramos productos con \"{code}\"." : null;
+            return;
+        }
+        catch (ApiException ex)
+        {
+            _consultado = null;
+            _consultaError = ex.Status == HttpStatusCode.NotFound ? $"El código {code} no corresponde a ningún producto." : ex.Texto;
+        }
+        catch (HttpRequestException)
+        {
+            _offline = true;
+        }
+
+        // Listo para el siguiente: el campo queda vacío y con el foco (consultas seguidas con el lector).
+        _consulta = string.Empty;
+        StateHasChanged();
+        await Task.Delay(1);
+        if (_consultaCampo is not null)
+        {
+            await _consultaCampo.FocusAsync();
+        }
+    }
+
+    /// <summary>Existencias del producto en la sucursal, si el usuario puede verlas (si no, no se muestran).</summary>
+    private async Task<decimal?> ExistenciasAsync(Guid productId)
+    {
+        if (!Session.Has("inventory.stock.view"))
+        {
+            return null;
+        }
+
+        try
+        {
+            var stock = await Api.GetAsync<JsonElement>($"api/v1/inventory/stock?productId={productId}");
+            return stock.Items().Sum(r => r.Dec("quantity"));
+        }
+        catch (ApiException)
+        {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------------------------------ Cliente y descuentos

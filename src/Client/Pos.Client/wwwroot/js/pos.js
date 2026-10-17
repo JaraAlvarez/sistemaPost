@@ -30,9 +30,9 @@ window.pos = {
     // Con scannerId, el campo del escáner recupera el foco al tocar fuera de un campo y al teclear sin foco (el lector no pierde lecturas).
     registerKeys: function (dotnet, scannerId) {
         window.pos.unregisterKeys();
-        const keys = ["F1", "F2", "F3", "F4", "F6", "F7", "F8", "F9", "F10", "Escape", "Delete"];
+        const keys = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "Escape", "Delete"];
         window.pos._keys = function (e) {
-            if (e.key === "F5" && !e.ctrlKey) { e.preventDefault(); return; }
+            if (e.key === "F5" && e.ctrlKey) { return; }
             if (keys.includes(e.key)) {
                 e.preventDefault();
                 dotnet.invokeMethodAsync("OnKey", e.key);

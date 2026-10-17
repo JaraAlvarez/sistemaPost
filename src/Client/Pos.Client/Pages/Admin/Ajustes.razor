@@ -106,8 +106,18 @@
 
     private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
 
+    private static readonly string[] Estados = ["DRAFT", "PENDING_APPROVAL", "POSTED", "CANCELLED"];
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoQuery { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
+        if (EstadoQuery is { } estado && Estados.Contains(estado, StringComparer.Ordinal))
+        {
+            _estado = estado;
+        }
+
         await CargarBodegasAsync();
         await CargarAsync();
     }
@@ -148,6 +158,7 @@
     private async Task FiltrarAsync(string? estado)
     {
         _estado = estado ?? "";
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["estado"] = _estado });
         await CargarAsync();
     }
 

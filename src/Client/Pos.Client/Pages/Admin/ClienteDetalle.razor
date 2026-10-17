@@ -399,22 +399,12 @@
             _taxRegime = Nulo(customer.Str("taxRegime"));
             _responsibilities = customer.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()).ToList();
             _alwaysInvoice = customer.Bool("alwaysRequestsInvoice");
-            _firstNames = _lastNames = _legalName = _tradeName = null;
-            _namesUnknown = true;
-            if (Session.Has("parties.party.view"))
-            {
-                var party = await Api.GetAsync<JsonElement>($"api/v1/parties/{partyId}");
-                _firstNames = Nulo(party.Str("firstNames"));
-                _lastNames = Nulo(party.Str("lastNames"));
-                _legalName = Nulo(party.Str("legalName"));
-                _tradeName = Nulo(party.Str("tradeName"));
-                _namesUnknown = false;
-            }
-            else if (_personType == "LEGAL")
-            {
-                _legalName = customer.Str("displayName");
-                _namesUnknown = false;
-            }
+            // El cliente trae nombres, apellidos y razón social por separado (no hay que volver a escribirlos al corregir).
+            _firstNames = Nulo(customer.Str("firstNames"));
+            _lastNames = Nulo(customer.Str("lastNames"));
+            _legalName = Nulo(customer.Str("legalName")) ?? (_personType == "LEGAL" ? customer.Str("displayName") : null);
+            _tradeName = Nulo(customer.Str("tradeName"));
+            _namesUnknown = false;
 
             _editando = true;
         }

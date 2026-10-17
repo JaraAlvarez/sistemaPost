@@ -19,7 +19,7 @@
         }
     </Acciones>
     <ChildContent>
-        <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Class="mb-2">
+        <MudTabs ActivePanelIndex="_tab" ActivePanelIndexChanged="CambiarPestana" Elevation="0" Class="mb-2">
             <MudTabPanel Text="Facturas de compra">
                 <MudSelect T="string" Value="_estadoCompras" ValueChanged="@(v => FiltrarComprasAsync(v))" Label="Estado" Class="my-3" Style="max-width:260px">
                     <MudSelectItem T="string" Value="@("")">Todas</MudSelectItem>
@@ -121,9 +121,28 @@
     [SupplyParameterFromQuery(Name = "tab")]
     public string? Pestana { get; set; }
 
+    private static readonly string[] EstadosCompra = ["DRAFT", "POSTED", "VOIDED"];
+    private static readonly string[] EstadosOrden = ["DRAFT", "APPROVED", "SENT", "PARTIALLY_RECEIVED", "RECEIVED", "CLOSED", "CANCELLED"];
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoCompraQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "estadoOrden")]
+    public string? EstadoOrdenQuery { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
         _tab = Pestana == "ordenes" ? 1 : 0;
+        if (EstadoCompraQuery is { } estadoCompra && EstadosCompra.Contains(estadoCompra, StringComparer.Ordinal))
+        {
+            _estadoCompras = estadoCompra;
+        }
+
+        if (EstadoOrdenQuery is { } estadoOrden && EstadosOrden.Contains(estadoOrden, StringComparer.Ordinal))
+        {
+            _estadoOrdenes = estadoOrden;
+        }
+
         _loading = true;
         try
         {
@@ -167,15 +186,30 @@
 
     private void VerOrden(JsonElement order) => Navigation.NavigateTo($"/admin/compras/ordenes/{order.GetProperty("id").GetGuid()}");
 
+    private void ActualizarFiltros() => Filtros.Actualizar(Navigation, new Dictionary<string, object?>
+    {
+        ["tab"] = _tab == 1 ? "ordenes" : null,
+        ["estado"] = _estadoCompras,
+        ["estadoOrden"] = _estadoOrdenes,
+    });
+
+    private void CambiarPestana(int tab)
+    {
+        _tab = tab;
+        ActualizarFiltros();
+    }
+
     private async Task FiltrarComprasAsync(string status)
     {
         _estadoCompras = status;
+        ActualizarFiltros();
         await RecargarAsync(CargarComprasAsync);
     }
 
     private async Task FiltrarOrdenesAsync(string status)
     {
         _estadoOrdenes = status;
+        ActualizarFiltros();
         await RecargarAsync(CargarOrdenesAsync);
     }
 

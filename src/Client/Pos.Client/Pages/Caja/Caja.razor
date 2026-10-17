@@ -472,6 +472,7 @@ else
             <span><kbd>↑</kbd><kbd>↓</kbd> elegir línea</span>
             <span><kbd>3</kbd>*código varias unidades</span>
             <span><kbd>Esc</kbd> volver</span>
+            <span><kbd>F5</kbd> consultar precio</span>
             <span><kbd>F1</kbd> todos los atajos</span>
         </footer>
         }
@@ -558,6 +559,69 @@ else
         </div>
     }
 
+    @* ---------------------------------------------------------------- Consultar precio (F5) *@
+    @if (_panel == Panel.Consulta)
+    {
+        <div class="panel-fondo">
+            <div class="panel" style="width:min(640px, 96vw)" role="dialog" aria-modal="true" aria-labelledby="t-consulta">
+                <h2 id="t-consulta">Consultar precio</h2>
+                <MudText Typo="Typo.body2" Class="mb-2">Escanee el código de barras o escriba el nombre o el código interno. No se agrega a la venta; puede consultar uno tras otro.</MudText>
+                <div class="escaner-campo">
+                    <MudTextField @ref="_consultaCampo" T="string" Value="_consulta" ValueChanged="ConsultaCambioAsync" OnKeyDown="ConsultaTeclaAsync"
+                                  Label="Código de barras, nombre o código interno" Variant="Variant.Outlined" Immediate="true" AutoFocus="true"
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.QrCodeScanner" autocomplete="off" spellcheck="false" />
+                    @if (_consultaLista.Count > 0)
+                    {
+                        <div class="sugerencias" role="listbox" aria-label="Productos que coinciden">
+                            @for (var i = 0; i < _consultaLista.Count; i++)
+                            {
+                                var product = _consultaLista[i];
+                                var index = i;
+                                <button type="button" role="option" aria-selected="@(index == _consultaSel)" class="@(index == _consultaSel ? "activa" : null)"
+                                        @onmousedown:preventDefault="true" @onclick="@(() => ConsultarProductoAsync(product))">
+                                    <span><b>@product.Str("name")</b><small>@product.Str("sku") @(product.Str("primaryBarcode") is { Length: > 0 } barcode ? $"· {barcode}" : null)</small></span>
+                                    @if (product.Str("price").Length > 0)
+                                    {
+                                        <span class="precio">@Format.Money(product.Dec("price"))</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (_consultaError is not null)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">@_consultaError</MudAlert>
+                }
+                @if (_consultado is { } p)
+                {
+                    <div class="consulta-resultado" aria-live="polite">
+                        <div class="consulta-nombre">@p.Name</div>
+                        <div class="consulta-codigos">
+                            Código interno <b>@p.Sku</b>@(p.PackagingName is { } pres ? $" · {pres} (× {Format.Quantity(p.PackagingFactor)})" : null)
+                        </div>
+                        <div class="consulta-precio">
+                            @(p.UnitPrice is { } precio ? Format.Money(precio) : "Sin precio")
+                            <small>@(p.SaleMode is "WEIGHT" or "Weight" ? $"por {p.BaseUnitCode.ToLowerInvariant()}" : p.PackagingName is null ? "por unidad" : "por presentación")</small>
+                        </div>
+                        <div class="consulta-detalle">
+                            <span>@(p.PriceIncludesTax ? "IVA incluido" : "Más impuestos")@(p.Taxes.Count > 0 ? ": " + string.Join(", ", p.Taxes.Select(NombreImpuesto)) : null)</span>
+                            @if (_consultaExistencias is { } existencias)
+                            {
+                                <span>Existencias: <b>@Format.Quantity(existencias)</b> @p.BaseUnitCode.ToLowerInvariant()</span>
+                            }
+                        </div>
+                        @if (!p.IsSellable)
+                        {
+                            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">No se puede vender: @string.Join(" ", p.NotSellableReasons)</MudAlert>
+                        }
+                    </div>
+                }
+                <div class="acciones"><MudButton OnClick="CerrarPanel">Cerrar <kbd class="ml-2">Esc</kbd></MudButton></div>
+            </div>
+        </div>
+    }
+
     @* ---------------------------------------------------------------- Ayuda (F1) *@
     @if (_panel == Panel.Ayuda)
     {
@@ -571,6 +635,7 @@ else
                     <div><kbd>F2</kbd>Volver al buscador (código o nombre)</div>
                     <div><kbd>F3</kbd>Cliente de la venta</div>
                     <div><kbd>F4</kbd>Cambiar cantidad</div>
+                    <div><kbd>F5</kbd>Consultar precio (sin vender)</div>
                     <div><kbd>F6</kbd>Descuento</div>
                     <div><kbd>F7</kbd>Cancelar venta</div>
                     <div><kbd>F8</kbd>Suspender venta</div>

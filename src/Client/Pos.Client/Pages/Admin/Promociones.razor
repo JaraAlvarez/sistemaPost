@@ -50,7 +50,20 @@
     private string? _error;
     private bool _loading = true;
 
-    protected override Task OnInitializedAsync() => CargarAsync();
+    private static readonly string[] Estados = ["Draft", "Active", "Paused", "Ended"];
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoQuery { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        if (EstadoQuery is { } estado && Estados.Contains(estado, StringComparer.Ordinal))
+        {
+            _statusFilter = estado;
+        }
+
+        return CargarAsync();
+    }
 
     private async Task CargarAsync()
     {
@@ -72,6 +85,7 @@
     private Task FiltrarAsync(string status)
     {
         _statusFilter = status;
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["estado"] = _statusFilter });
         return CargarAsync();
     }
 

@@ -99,6 +99,11 @@ public sealed class SessionState
 
         try
         {
+            // La sesión es del equipo que la abrió (el servidor lo exige): al recargar, la credencial del equipo emparejado debe estar
+            // cargada antes de la primera petición, no solo en la pantalla de ingreso.
+            var device = local.Invoke<string?>("localStorage.getItem", DeviceKey);
+            Device = string.IsNullOrEmpty(device) ? null : JsonSerializer.Deserialize<DeviceCredential>(device, ApiClient.Json);
+
             var json = local.Invoke<string?>("sessionStorage.getItem", SessionKey);
             if (!string.IsNullOrEmpty(json) && JsonSerializer.Deserialize<Guardada>(json, ApiClient.Json) is { } guardada)
             {

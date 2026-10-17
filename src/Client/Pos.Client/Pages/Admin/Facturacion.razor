@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Facturación electrónica · BusinessPost</PageTitle>
 
@@ -21,7 +22,7 @@
                 Hay @_alerts.Dec("count").ToString("0") alerta(s) de facturación electrónica. Revise la pestaña «Alertas y conciliación».
             </MudAlert>
         }
-        <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Outlined="true" TabPanelsClass="pa-3">
+        <MudTabs ActivePanelIndex="_tab" ActivePanelIndexChanged="CambiarPestana" Elevation="0" Outlined="true" TabPanelsClass="pa-3">
             @if (PuedeConfigurar)
             {
                 <MudTabPanel Text="Configuración">
@@ -176,8 +177,8 @@
                                 <MudSelectItem T="string" Value="@codigo">@nombre</MudSelectItem>
                             }
                         </MudSelect>
-                        <MudTextField @bind-Value="_fTexto" Label="Número, número fiscal o identificación" Immediate="true" Style="max-width: 280px" OnKeyUp="@(e => e.Key == "Enter" ? BuscarAsync() : Task.CompletedTask)" />
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="BuscarAsync">Consultar</MudButton>
+                        <MudTextField @bind-Value="_fTexto" Label="Número, número fiscal o identificación" Immediate="true" Style="max-width: 280px" OnKeyUp="@(e => e.Key == "Enter" ? FiltrarAsync() : Task.CompletedTask)" />
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="FiltrarAsync">Consultar</MudButton>
                     </MudStack>
                     <MudTable RowsPerPage="25" Items="_documents" Dense="true" Hover="true" Striped="true">
                         <HeaderContent>
@@ -215,7 +216,7 @@
                     <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3">
                         <MudDatePicker @bind-Date="_cDesde" Label="Desde" DateFormat="dd/MM/yyyy" Style="max-width: 160px" />
                         <MudDatePicker @bind-Date="_cHasta" Label="Hasta" DateFormat="dd/MM/yyyy" Style="max-width: 160px" />
-                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="ConciliarAsync">Consultar</MudButton>
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="FiltrarConciliacionAsync">Consultar</MudButton>
                         @if (Session.Has("reporting.taxes.view"))
                         {
                             <MudLink Href="/admin/reportes">Reporte «Conciliación de facturación electrónica» (Excel, CSV y PDF)</MudLink>
@@ -418,8 +419,106 @@
 
     private bool PuedeGestionar => Session.Has("billing.document.manage");
 
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Pestana { get; set; }
+
+    [SupplyParameterFromQuery(Name = "desde")]
+    public string? Desde { get; set; }
+
+    [SupplyParameterFromQuery(Name = "hasta")]
+    public string? Hasta { get; set; }
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tipo")]
+    public string? TipoQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "origen")]
+    public string? OrigenQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "cdesde")]
+    public string? ConciliacionDesde { get; set; }
+
+    [SupplyParameterFromQuery(Name = "chasta")]
+    public string? ConciliacionHasta { get; set; }
+
+    /// <summary>Nombres de las pestañas visibles en orden (la de configuración solo aparece con su permiso).</summary>
+    private List<string> Pestanas()
+    {
+        var tabs = new List<string>();
+        if (PuedeConfigurar)
+        {
+            tabs.Add("configuracion");
+        }
+
+        if (PuedeVer)
+        {
+            tabs.AddRange(["rangos", "documentos", "alertas"]);
+        }
+
+        return tabs;
+    }
+
+    private static string? Codigo((string Code, string Name)[] opciones, string? valor) =>
+        opciones.Any(o => string.Equals(o.Code, valor, StringComparison.Ordinal)) ? valor : null;
+
+    private void LeerFiltros()
+    {
+        var tab = Pestanas().IndexOf(Pestana ?? "");
+        _tab = tab < 0 ? 0 : tab;
+        // Sin fechas en la dirección se conserva el rango por omisión (últimos 7 días).
+        _desde = Filtros.Fecha(Desde) ?? _desde;
+        _hasta = Filtros.Fecha(Hasta) ?? _hasta;
+        _fEstado = Codigo(Estados, EstadoQuery);
+        _fTipo = Codigo(Tipos, TipoQuery);
+        _fOrigen = Codigo(Origenes, OrigenQuery);
+        _fTexto = Q;
+        _cDesde = Filtros.Fecha(ConciliacionDesde) ?? _cDesde;
+        _cHasta = Filtros.Fecha(ConciliacionHasta) ?? _cHasta;
+    }
+
+    private void ActualizarFiltros()
+    {
+        var tabs = Pestanas();
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?>
+        {
+            ["tab"] = _tab > 0 && _tab < tabs.Count ? tabs[_tab] : null,
+            ["desde"] = _desde,
+            ["hasta"] = _hasta,
+            ["estado"] = _fEstado,
+            ["tipo"] = _fTipo,
+            ["origen"] = _fOrigen,
+            ["q"] = _fTexto,
+            ["cdesde"] = _cDesde,
+            ["chasta"] = _cHasta,
+        });
+    }
+
+    private void CambiarPestana(int tab)
+    {
+        _tab = tab;
+        ActualizarFiltros();
+    }
+
+    private Task FiltrarAsync()
+    {
+        ActualizarFiltros();
+        return BuscarAsync();
+    }
+
+    private Task FiltrarConciliacionAsync()
+    {
+        ActualizarFiltros();
+        return ConciliarAsync();
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        LeerFiltros();
         if (!PuedeConfigurar && !PuedeVer)
         {
             _error = "Su usuario no tiene permiso para la facturación electrónica.";
