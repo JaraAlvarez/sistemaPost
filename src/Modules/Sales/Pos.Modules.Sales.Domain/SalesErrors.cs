@@ -27,6 +27,36 @@ public static class SalesErrors
     public static readonly Error InvalidQuantity = Error.Validation(
         "SALES.INVALID_QUANTITY", "Cantidad inválida: mayor que cero y entera si el producto no se vende por fracciones (RN-SAL-03).");
 
+    public static readonly Error WeighedLineQuantity = Error.BusinessRule(
+        "SALES.WEIGHED_LINE_QUANTITY", "La cantidad de un producto pesado no se cambia: elimine la línea y vuelva a pesarlo.");
+
+    public static readonly Error ScaleReadingRequired = Error.Validation(
+        "SALES.SCALE_READING_REQUIRED",
+        "El peso de la báscula debe llegar firmado por el agente de esta caja. Si la báscula es nueva o se cambió, vincúlela en el computador " +
+        "de la caja (Configuración → Cajas e impresoras → Báscula → Guardar).");
+
+    public static readonly Error ScaleReadingReused = Error.Conflict(
+        "SALES.SCALE_READING_REUSED", "Esa lectura de la báscula ya se usó en otra línea: vuelva a registrar el producto para pesarlo de nuevo.");
+
+    public static readonly Error ScaleReadingStale = Error.BusinessRule(
+        "SALES.SCALE_READING_STALE",
+        "La lectura de la báscula está fuera de orden (es anterior a la última pesada o de antes de reiniciar el agente): vuelva a registrar el producto.");
+
+    public static readonly Error ScaleBootRegressed = Error.BusinessRule(
+        "SALES.SCALE_BOOT_REGRESSED",
+        "El agente de la báscula volvió a un arranque anterior (se reinstaló o se restauró el equipo): vuelva a vincular la báscula (F1 → Vincular báscula).");
+
+    // BQ8: el servidor no puede distinguir un reloj desfasado de una lectura que se guardó más de 5 minutos: mensaje neutro con las dos causas.
+    public static readonly Error ScaleClockSkew = Error.BusinessRule(
+        "SALES.SCALE_CLOCK_SKEW",
+        "La hora de la lectura de la báscula difiere en más de 5 minutos de la del servidor: vuelva a registrar el producto. Si se repite, revise la fecha y hora del computador de la caja.");
+
+    public static readonly Error ScaleConcurrent = Error.Conflict(
+        "SALES.SCALE_CONCURRENT", "Otra pesada de esta caja se registró al mismo tiempo: vuelva a registrar el producto.");
+
+    public static readonly Error ScaleNotEmptied = Error.BusinessRule(
+        "SALES.SCALE_NOT_EMPTIED", "Retire el producto de la báscula: después de cada pesada la báscula debe quedar vacía antes de pesar el siguiente.");
+
     public static readonly Error ProductNotSellable = Error.BusinessRule("SALES.PRODUCT_NOT_SELLABLE", "El producto no se puede vender (RN-SAL-02).");
 
     public static readonly Error InsufficientStock = Error.BusinessRule(

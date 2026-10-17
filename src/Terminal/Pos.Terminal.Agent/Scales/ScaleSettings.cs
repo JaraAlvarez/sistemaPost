@@ -43,6 +43,12 @@ public sealed record ScaleSettings
     /// <summary>Decimales implícitos cuando el peso llega sin punto (0 a 4; por defecto 3 = gramos).</summary>
     public int? Decimals { get; init; }
 
+    /// <summary>
+    /// Peso mínimo en gramos (banda de cero, 0 a 1000; por defecto <see cref="ScaleSettingsResolver.DefaultMinWeightGrams"/> ⚙️): por
+    /// debajo de este peso la báscula cuenta como vacía (la deriva de 0,002 kg no se cobra) y la tara manual se quita sola.
+    /// </summary>
+    public int? MinWeightGrams { get; init; }
+
     public string? Brand { get; init; }
 
     public string? Model { get; init; }
@@ -65,7 +71,8 @@ public sealed record ScaleTarget(
     int TimeoutMs,
     int ImpliedDecimals,
     string? Brand,
-    string? Model)
+    string? Model,
+    decimal ZeroBandKg = ScaleSettingsResolver.DefaultMinWeightGrams / 1000m)
 {
     /// <summary>Descripción legible: "Toledo 8217 · COM3 9600 7E1".</summary>
     public string Description => Simulated
@@ -77,6 +84,9 @@ public sealed record ScaleTarget(
 public static partial class ScaleSettingsResolver
 {
     public static readonly int[] BaudRates = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
+
+    /// <summary>Peso mínimo por defecto (20 g ⚙️): por debajo, la báscula está "vacía".</summary>
+    public const int DefaultMinWeightGrams = 20;
 
     public static ScaleTarget? TryResolve(ScaleSettings? settings, bool simulatorAllowed, out string error)
     {
@@ -140,6 +150,13 @@ public static partial class ScaleSettingsResolver
             return null;
         }
 
+        var minWeight = settings.MinWeightGrams ?? DefaultMinWeightGrams;
+        if (minWeight is < 0 or > 1000)
+        {
+            error = "El peso mínimo va de 0 a 1000 g.";
+            return null;
+        }
+
         var command = settings.RequestCommand is null ? defaults.RequestCommand ?? string.Empty : settings.RequestCommand;
         var requestBytes = Unescape(command);
         if (requestBytes is null || requestBytes.Length > 16 || (mode == ScaleReadMode.Request && requestBytes.Length == 0))
@@ -151,7 +168,7 @@ public static partial class ScaleSettingsResolver
         string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim()[..Math.Min(value.Trim().Length, 60)];
         return new ScaleTarget(
             simulated ? ScaleDrivers.SimulatedCode : driver.Code, simulated, simulated ? "SIMULADA" : port, baud, dataBits, parity.Value, stopBits, mode.Value,
-            requestBytes, timeout, decimals, Text(settings.Brand), Text(settings.Model));
+            requestBytes, timeout, decimals, Text(settings.Brand), Text(settings.Model), minWeight / 1000m);
     }
 
     /// <summary>"W", "\x05", "W\r"… → bytes. <c>null</c> si tiene un escape inválido o caracteres fuera de ASCII.</summary>

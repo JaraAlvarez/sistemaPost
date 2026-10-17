@@ -14,6 +14,7 @@ public static class OrganizationInfrastructureRegistration
         services.AddScoped<Application.Devices.IDeviceStore, DeviceStore>();
         services.AddSingleton<Contracts.IDeviceAuthenticator, DeviceAuthenticator>();
         services.AddSingleton<Contracts.ITerminalDirectory, TerminalDirectory>();
+        services.AddSingleton<Contracts.ITerminalScaleKeys, TerminalScaleKeys>();
         services.AddSingleton<Contracts.IWarehouseDirectory, WarehouseDirectory>();
     }
 }

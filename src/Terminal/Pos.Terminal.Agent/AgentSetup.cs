@@ -38,7 +38,9 @@ public static class AgentSetup
         builder.Services.AddSingleton<PrintService>();
         builder.Services.AddSingleton<SimulatedScale>();
         builder.Services.AddSingleton<IScaleConnectionFactory, ScaleConnectionFactory>();
+        builder.Services.AddSingleton<ScaleSigner>();
         builder.Services.AddSingleton<ScaleService>();
+        builder.Services.AddHostedService<ScaleEmptyMonitor>();
         return builder;
     }
 

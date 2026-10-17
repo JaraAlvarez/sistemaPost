@@ -12,6 +12,7 @@ public static class OrganizationPermissions
     public const string WarehouseManage = "organization.warehouse.manage";
     public const string TerminalManage = "organization.terminal.manage";
     public const string DeviceManage = "organization.device.manage";
+    public const string ScaleLink = "organization.scale.link";
 
     public static IEnumerable<PermissionDefinition> All =>
     [
@@ -22,6 +23,7 @@ public static class OrganizationPermissions
         new(WarehouseManage, "Crear, modificar e inactivar bodegas", isSensitive: true),
         new(TerminalManage, "Crear, modificar e inactivar cajas", isSensitive: true),
         new(DeviceManage, "Generar códigos de emparejamiento y revocar equipos", isSensitive: true),
+        new(ScaleLink, "Vincular la báscula de la caja con su agente, desde esa caja (admite autorización de supervisor)", isSensitive: true),
     ];
 }
 

@@ -81,11 +81,28 @@ public sealed class BillingModule : IModule
         billing.MapPut("/settings", async (UpdateBillingSettingsCommand command, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(command, ct)).ToHttpResult())
             .RequirePermission(BillingPermissions.SettingsManage)
-            .WithSummary("Cambia el modo (OFF, ON_REQUEST, EVERY_SALE) y el ambiente (SANDBOX, PRODUCTION); encender exige credenciales");
+            .WithSummary("Cambia el modo (OFF, ON_REQUEST, EVERY_SALE) y el ambiente (SANDBOX, PRODUCTION); encender exige credenciales verificadas");
         billing.MapPut("/settings/credentials", async (SetProviderCredentialsCommand command, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(command, ct)).ToHttpResult())
             .RequirePermission(BillingPermissions.SettingsManage)
-            .WithSummary("Guarda las credenciales del proveedor cifradas con DPAPI (no se devuelven ni se registran)");
+            .WithSummary("Guarda las credenciales del proveedor cifradas con DPAPI (no se devuelven ni se registran); la facturación queda apagada hasta verificarlas");
+        billing.MapPost("/settings/verify", async (IDispatcher d, CancellationToken ct) => (await d.Send(new VerifyBillingConnectionCommand(), ct)).ToHttpResult())
+            .RequirePermission(BillingPermissions.SettingsManage)
+            .WithSummary("Verifica las credenciales y el ambiente vigentes contra el proveedor (Factus: token; no emite nada). Máximo una vez cada 10 s");
+        billing.MapPost("/settings/verify-candidate", async (VerifyCandidateCredentialsCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(BillingPermissions.SettingsManage)
+            .WithSummary("Prueba llaves candidatas contra el proveedor SIN guardarlas ni devolverlas");
+        billing.MapPost("/settings/credentials/rotate", async (RotateProviderCredentialsCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(BillingPermissions.SettingsManage)
+            .WithSummary("Cambiar llaves: prueba las nuevas y solo si pasan las guarda sin apagar la facturación; si fallan no cambia nada");
+        billing.MapPost("/backlog/send", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ReleaseFiscalBacklogCommand(), ct)).ToHttpResult())
+            .RequirePermission(BillingPermissions.SettingsManage)
+            .WithSummary("Enviar ahora los documentos electrónicos de antes de conectar el proveedor (retenidos)");
+        billing.MapPost("/backlog/discard", async (IDispatcher d, CancellationToken ct) => (await d.Send(new DiscardFiscalBacklogCommand(), ct)).ToHttpResult())
+            .RequirePermission(BillingPermissions.SettingsManage)
+            .WithSummary("No enviar los documentos electrónicos de antes de conectar el proveedor: quedan NOT_SENT y no se reintentan");
 
         billing.MapGet("/ranges", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListFiscalRangesQuery(), ct)).ToHttpResult())
             .RequirePermission(BillingPermissions.DocumentView)

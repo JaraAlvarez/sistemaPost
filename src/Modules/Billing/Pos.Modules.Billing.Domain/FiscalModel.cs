@@ -158,7 +158,15 @@ public sealed record FiscalHeader(
     FiscalParty Issuer,
     FiscalEstablishment Establishment,
     string? Notes,
-    bool Resubmission);
+    bool Resubmission,
+    DateOnly? SubmittedOn = null)
+{
+    /// <summary>
+    /// Fecha con que el proveedor emite de verdad (N8): Factus no recibe fecha de emisión y usa la del envío. Los plazos (vencimiento del
+    /// crédito) se cuentan desde ella; si no se conoce, desde la fecha del negocio.
+    /// </summary>
+    public DateOnly EffectiveIssueDate => SubmittedOn ?? IssueDate;
+}
 
 /// <summary>Factura electrónica de venta (cliente identificado o consumidor final).</summary>
 public sealed record FiscalInvoiceDraft(

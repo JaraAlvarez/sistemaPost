@@ -229,6 +229,12 @@
                 <SistecreditoTarjeta Cambio="CargarMediosAsync" />
             }
         </MudTabPanel>
+        @if (Session.Has("backup.backup.view"))
+        {
+            <MudTabPanel Text="Backups">
+                <DestinoBackups />
+            </MudTabPanel>
+        }
         @if (Session.Has("settings.setting.view"))
         {
             <MudTabPanel Text="Parámetros">

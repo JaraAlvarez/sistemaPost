@@ -27,7 +27,8 @@ public sealed record AgentStatusDto(
     IReadOnlyList<string> Connections,
     string FileOutputDirectory,
     IReadOnlyList<string> SerialPorts,
-    PrintOutcome? LastJob);
+    PrintOutcome? LastJob,
+    string? ScaleSigningProblem = null);
 
 /// <summary>
 /// API local del agente (solo <c>localhost</c>): <c>POST /print</c>, <c>POST /drawer/open</c>, <c>GET /status</c>,
@@ -73,7 +74,7 @@ public static class AgentEndpoints
             statusCode: (int)status,
             extensions: new Dictionary<string, object?> { ["code"] = code });
 
-    private static Ok<AgentStatusDto> Status(PrintService printing, IOptions<AgentOptions> options)
+    private static Ok<AgentStatusDto> Status(PrintService printing, Scales.ScaleSigner signer, IOptions<AgentOptions> options)
     {
         string[] serialPorts;
         try
@@ -88,7 +89,7 @@ public static class AgentEndpoints
         string[] connections = OperatingSystem.IsWindows() ? ["FILE", "NETWORK", "WINDOWS_SPOOLER", "SERIAL"] : ["FILE", "NETWORK", "SERIAL"];
         return TypedResults.Ok(new AgentStatusDto(
             AgentInfo.ServiceName, AgentInfo.Version, Environment.MachineName, StartedAt, options.Value.Port, connections,
-            options.Value.ResolveFileOutputDirectory(), serialPorts, printing.LastJob));
+            options.Value.ResolveFileOutputDirectory(), serialPorts, printing.LastJob, signer.SigningProblem));
     }
 
     private static async Task<IResult> PrintAsync(HttpContext http, PrintService printing, IOptions<AgentOptions> options, CancellationToken ct)

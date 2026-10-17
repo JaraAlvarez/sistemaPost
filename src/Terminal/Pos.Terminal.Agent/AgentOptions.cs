@@ -45,6 +45,9 @@ public sealed class AgentOptions
     /// </summary>
     public bool EnableScaleSimulator { get; set; }
 
+    /// <summary>"Probar báscula": una prueba sin lecturas durante este tiempo se cierra sola (libera el puerto).</summary>
+    public TimeSpan ScaleTestIdleTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
     public string ResolveScaleConfigFile() =>
         string.IsNullOrWhiteSpace(ScaleConfigFile)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), AgentInfo.ProductName, "agent", "scale.json")

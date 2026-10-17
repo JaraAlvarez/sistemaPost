@@ -102,6 +102,15 @@ public class FactusMappingTests
         ]);
         payments.ShouldAllBe(p => p.DueDate == null);
 
+        // N8: el vencimiento del crédito se cuenta desde la fecha real de emisión (la del envío), conservando los días de plazo.
+        var late = draft with
+        {
+            Header = draft.Header with { SubmittedOn = draft.Header.IssueDate.AddDays(5) },
+            Payments = [new FiscalPayment("FIADO", "CUSTOMER_CREDIT", null, draft.Totals.Total, null)],
+        };
+        FactusDraftMapper.ToBill(late).PaymentDetails.Single(p => p.PaymentForm == "2").DueDate
+            .ShouldBe(draft.Header.IssueDate.AddDays(35).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+
         // Crédito (fiado): forma 2 con vencimiento; sin medios: uno "otro" por el total.
         var credit = FactusDraftMapper.Payment(new FiscalPayment("FIADO", "CUSTOMER_CREDIT", null, 5_000m, null), new DateOnly(2026, 9, 30));
         (credit.PaymentForm, credit.PaymentMethodCode, credit.DueDate).ShouldBe(("2", "1", "2026-10-30"));

@@ -227,3 +227,144 @@ tipo, sin tipo, tipo inválido, encender/apagar con auditoría y permisos, cambi
 
 **Pendiente:** tallas y colores (fase de variantes); palabras propias por tipo ("prenda") cuando exista esa fase; la estadística por
 tipo en el tablero del portal (hoy: filtro con conteo en Empresas).
+
+## Correcciones de la báscula (revisión de código) — 2026-10-17
+
+Rama `fix-bascula`; migraciones POS **V2026.10.045** (`sales.sale_lines`: `scale_gross_kg`, `weighed_at`) y **V2026.10.046**
+(`org.terminal_scales.min_weight_grams`), numeradas para no chocar con la 044 de la corrección de Sistecrédito.
+
+| Hallazgo | Corrección |
+|---|---|
+| A2 · Se cobraba el peso del producto anterior | Después de agregar una línea pesada, la siguiente pesada solo vale si la báscula **quedó vacía** o marca un peso estable **distinto** del último en más de **±5 g ⚙️**. Si no, la caja muestra **"Retire el producto anterior de la báscula"** y espera (como con el peso inestable; se rinde a los segundos de "Espera producto"). El estado vive por caja y pasa de una venta a otra (`ScaleRepeatGuard`); tras cada pesada la caja vigila en segundo plano (hasta 2 min) cuándo se vacía la báscula. El **servidor** guarda el peso bruto en la línea y rechaza (`SALES.SCALE_WEIGHT_REPEATED`) el mismo peso bruto (±5 g) que la última línea de báscula activa de la venta dentro de 2 min ⚙️ si la caja no informa que la báscula quedó vacía. Una línea eliminada no cuenta (se elimina para volver a pesar). |
+| M6 · Sin peso mínimo | **Peso mínimo (banda de cero)** por caja, por defecto **20 g ⚙️** (0 a 1000 g; Configuración → Cajas → Báscula → "Peso mínimo (g)"): por debajo la báscula cuenta como **vacía** (la deriva de 0,002 kg no se cobra) y un negativo dentro de la banda también es "vacía". |
+| M7 · Doble tara y tara del agente eterna | **Una sola regla**: el agente entrega `GrossKg` (lo que marca la báscula), `TareKg` (tara manual, tecla Ins) y `WeightKg = GrossKg − TareKg`, más `ScaleNet` (la báscula ya taró). La tara manual **solo vale para la siguiente pesada**: la caja la quita al agregar la línea, el agente la quita sola cuando la báscula queda vacía (y quieta) y nunca pasa de una configuración a otra. La **tara del producto** la descuenta el servidor **una vez** y solo si no hubo otra tara: `neto = WeightKg − (TareKg = 0 y no ScaleNet ? taraProducto : 0)`. El peso digitado es el neto (sin tara). |
+| M8 · "Probar báscula" cambiaba la báscula en uso | La prueba es una **sesión aparte** en el agente (`POST /scale/test` abre y lee, `GET /scale/test`, `POST /scale/test/tare`, `POST /scale/test/stop`; se cierra sola al minuto sin lecturas): su propia configuración, conexión y tara; la báscula en uso y su tara no cambian. Si comparten el puerto COM, cada lectura cierra el de la otra y lo reabre. En Configuración → Cajas el botón **solo se habilita en el computador de esa caja** (aviso claro en las demás; se puede guardar desde cualquiera). |
+| M9 · Peso arbitrario sin permiso | Con `weightKg` el **origen es obligatorio** (`SALES.WEIGHT_SOURCE_REQUIRED`; ya no se supone SCALE). SCALE exige la **lectura del agente** (`scale`: bruto, tara, neto de báscula, estable, hora de lectura): sin ella `SALES.SCALE_READING_REQUIRED`, inestable `SALES.SCALE_WEIGHT_UNSTABLE`, bruto − tara ≠ peso `SALES.INVALID_SCALE_READING`. MANUAL sigue solo por `/lines/manual-weight` (permiso `sales.weight.manual` o supervisor, auditado `SALE_MANUAL_WEIGHT`). La hora de lectura no se compara con el reloj del servidor (los equipos pueden tener la hora corrida); la repetición la cubre A2. |
+| M10 · Línea pesada editable | La cantidad de una línea pesada (báscula, etiqueta o digitada) **no se edita** (`SALES.WEIGHED_LINE_QUANTITY`): se elimina y se vuelve a pesar. F4 en la caja lo explica. |
+| B6 · Desbordamiento | Un peso fuera de rango (más de 99.999 kg) es una **trama con error** (`ERROR`, sin peso), nunca un 500; también se atrapa `OverflowException` y el flujo SSE sigue. |
+| B7 · Toledo continuo con trama cortada | En modo continuo el lector se **sincroniza con STX** (también con el bit de paridad) y descarta las tramas sin inicio ("0.700" de "10.700"). |
+| B8 · CAS pegaba identificador y lámparas | CAS se lee **por posición**: tras `EE,PP,` vienen identificador (1 byte), lámparas (1 byte), coma opcional y el peso en 8 bytes; el campo de peso se valida entero (signo, relleno, dígitos y punto). La variante corta (`ST,GS,+0000.700kg`) sigue; el "último número" queda solo en el driver genérico. |
+
+**Pruebas:** agente 131/131 · Sales 84/84 · SharedKernel 110/110 · Catalog 42/42 · Organization 57/57 · ArchitectureTests 23/23 ·
+Database.Tests 80/80 · integración `Phase7C` 11/11 y `ScaleSalesTests` 1/1.
+
+## Segunda revisión de la báscula — 2026-10-17
+
+Rama `fix-bascula`; migraciones POS **V2026.10.048** (`org.terminal_scales`: clave pública de la báscula) y **V2026.10.049**
+(`sales.scale_interlocks`, `sales.scale_readings`). Reemplaza la regla "peso distinto ±5 g" de la primera revisión (A2) y la
+"lectura del agente sin firma" (M9).
+
+| Decisión / hallazgo | Cómo quedó |
+|---|---|
+| **D1 · Retorno a cero** | Después de agregar una línea pesada, la siguiente exige que la báscula haya quedado **vacía** (cualquier lectura con \|peso\| ≤ peso mínimo ⚙️, estable o no). Ya no vale "otro peso" (el tomate encima de la carne). La caja muestra **"Retire el producto de la báscula"** y espera como con el peso inestable. El agente anota la última vez que vio la báscula vacía y, después de cada pesada aceptada (`POST /scale/accepted`), un **vigilante** (`ScaleEmptyMonitor`) la lee cada 250 ms hasta verla vacía: un paso rápido por cero cuenta aunque la pantalla no esté leyendo. |
+| **D2 · Tara manual** | La tara de la tecla Ins **solo** se quita al agregar la línea o al cancelar con Esc (ya no al quedar vacía la báscula). La tara por producto sigue igual. |
+| **D3 · Lecturas firmadas** | Al **Guardar** la báscula en el computador de la caja, el agente crea una clave **ECDSA P-256** (`POST /scale/pairing`): la privada queda en el agente protegida con **DPAPI de la máquina** (`scale-signing.json`) y la pública se registra en el servidor (`PUT /organization/terminals/{id}/scale/reading-key`, permiso de cajas, auditado). Volver a guardar **rota** la clave. Cada lectura de la báscula en uso lleva un texto canónico firmado (`BP-SCALE-1\|caja\|lectura\|hora\|bruto\|tara\|neto\|estable\|neto-báscula\|estado\|vacía-ms\|vacía-desde-la-aceptada`). El servidor verifica la firma con la clave de la caja, que la lectura sea de esa caja, que no se haya usado (`sales.scale_readings`, clave primaria = id de la lectura) y que no sea más de 30 s ⚙️ anterior a la última aceptada **según el reloj del agente** (nunca contra el reloj del servidor). El **retorno a cero vive en el servidor por caja** (`sales.scale_interlocks`): la siguiente pesada exige `vacía-ms` posterior a la última lectura aceptada; recargar la página (F5) o empezar otra venta no lo salta. El peso, la tara y la estabilidad se toman de la lectura firmada, no del cliente. Sin firma válida: `SALES.SCALE_READING_REQUIRED`; repetida: `SALES.SCALE_READING_REUSED`; vieja: `SALES.SCALE_READING_STALE`; sin vaciar: `SALES.SCALE_NOT_EMPTIED`. El peso digitado no cambia (permiso + auditoría). Cada línea de báscula guarda la lectura cruda y su firma (auditoría). |
+| ¿Por qué ECDSA y no HMAC? | El agente no habla con el servidor: todo pasa por el navegador de la caja. Con HMAC el secreto tendría que viajar por el navegador al vincular y guardarse en el servidor (protegido con DPAPI); con una firma asimétrica solo viaja la clave **pública**, el servidor no guarda ningún secreto y una copia de la base de datos no permite firmar pesos. El resto (nonce, hora del agente, estado del retorno a cero en el servidor) es lo pedido. |
+| BN1 · Eliminar y volver a pesar | Eliminar la línea de la **última** pesada libera el retorno a cero en el servidor y en el agente (`POST /scale/accepted { release }`). |
+| BN3 · Prueba y venta en la misma COM | Con la misma COM y los mismos parámetros, la prueba lee por la conexión de la báscula en uso (no cierra ni reabre el puerto). Con otros parámetros la prueba toma el puerto y la venta responde `SCALE.IN_TEST` ("detenga la prueba"). Abrir el puerto reintenta una vez si Windows aún no lo liberó. |
+| BN4 · Prueba sin cerrar | Un temporizador cierra la prueba a los 60 s ⚙️ sin lecturas (`Agent:ScaleTestIdleTimeout`), aunque nadie vuelva a llamar al agente. |
+| BN6 · "Última línea" | Ya no se busca en las líneas de la venta: el estado del retorno a cero es por caja en el servidor. |
+| BN7 · Toledo continuo con velocidad o paridad equivocadas | Los bytes recibidos sin ninguna trama válida (sin STX o sin fin de línea) cuentan: "La báscula respondió, pero no en el formato … revise el protocolo, la velocidad y la paridad". |
+| BN10 · Pantalla vieja en el navegador | La interfaz envía `X-Pos-Client-Build: 2`. Un peso de báscula sin esa cabecera recibe `CLIENT.OUTDATED` ("La pantalla de la caja está desactualizada: recárguela (Ctrl+F5)"); la interfaz nueva que reciba ese código se recarga sola. |
+
+**Notas para la versión (al publicar):** después de actualizar, **en cada caja con báscula** un administrador debe abrir
+Configuración → Cajas e impresoras → Báscula **en el computador de esa caja** y pulsar **Guardar** (vincula la báscula); hasta entonces
+la caja avisa "la báscula no está vinculada" y solo se puede digitar el peso (con permiso). Si una caja tiene la pantalla de venta
+abierta desde antes de la actualización, debe recargarla (Ctrl+F5).
+
+**Pruebas:** agente 142/142 · Sales 88/88 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · ArchitectureTests 23/23 ·
+Database.Tests 80/80 · integración `Phase7C` 12/12 y `Phase7` 9/9.
+
+## Tercera revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.050** (orden de las lecturas por arranque y secuencia; limpieza de lecturas). Formato firmado `BP-SCALE-2`.
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BB1 · Vacía por el neto | "Vacía" es el **bruto** dentro de la banda de cero (\|bruto\| ≤ peso mínimo, también con deriva negativa). Con tara manual (Ins) o la tara física de la báscula (trama neta `N`/`NT`) el neto en cero **no** cuenta; si la trama no trae el bruto real, no se marca vacía. |
+| BB2 · Quién vincula | El agente no tiene una credencial que el servidor pueda verificar (la del equipo vive en el navegador de la caja), así que se aplicó la opción (b): `PUT …/scale/reading-key` solo se acepta desde una **sesión de caja de esa misma caja** (su equipo emparejado o el propio servidor en Caja Única), con el permiso nuevo `organization.scale.link` o la **autorización de un supervisor** (código y PIN; el POS no maneja TOTP, así que no aplica). Un administrador desde otro equipo o con un token robado de la administración recibe `ORGANIZATION.SCALE_LINK_TERMINAL`. Queda en la auditoría (`SCALE_KEY_LINKED`, con quién autorizó) y el **Tablero** muestra "La clave de la báscula de la caja X cambió" durante 7 días. Se vincula en la caja: **F1 → Vincular báscula**. |
+| BB3 · Clave del agente | La clave privada se cifra con DPAPI de la **cuenta del agente** (SYSTEM en el servicio), sin entropía fija, y el archivo tiene permisos solo para SYSTEM, Administradores y esa cuenta (sin herencia). |
+| BB4 · Reloj | El servidor exige \|hora de la lectura − hora del servidor\| ≤ **5 min ⚙️** (`sales.scale_reading_max_skew_seconds`) y rechaza lecturas del futuro. El orden entre lecturas usa el **arranque y la secuencia** del agente, nunca la hora: un salto del reloj no deja la caja trabada. Si el agente se reinicia, basta con ver la báscula vacía desde que arrancó. El agente usa el reloj monótono para sus esperas. |
+| BB5 · Reiniciar báscula | **F1 → Reiniciar báscula** (o el botón en el aviso "Retire el producto"): permiso nuevo `sales.scale.reset` o supervisor, auditado `SALE_SCALE_RESET`; libera el retorno a cero en el servidor y luego en el agente. |
+| BN1 · Coherencia | Al eliminar una pesada, la caja consulta al servidor (`GET /sales/scale/interlock`) y solo libera el agente si el servidor liberó (si la última pesada fue otra, en otra venta, los dos siguen esperando). |
+| BB6 · Vincular en el agente | Además de la protección de todo el agente (equipo y Host locales, orígenes permitidos), `POST /scale/pairing` exige el `Origin` de la interfaz de la caja. |
+| BB7 · Simulador | Las lecturas de la báscula simulada nunca se firman. |
+| BB8 · Vigilante | Después de una pesada aceptada el vigilante lee hasta 10 min ⚙️; además vigila 15 s después de cualquier lectura con peso, así que cambiar A por B antes de que la caja confirme la línea no deja el aviso "Retire el producto" sin motivo. |
+| BB9 · Doble envío | La misma lectura enviada dos veces a la vez: la segunda recibe 409 (`SALES.SCALE_READING_REUSED` o `SALES.SCALE_CONCURRENT`), nunca 500. |
+| BB10 · Limpieza | Las lecturas firmadas se guardan 90 días: al pesar, una vez al día por caja, se borran las más viejas (no hay una tarea de mantenimiento general en el servidor de la tienda). |
+| BN8 · Tara | Queda aceptado y documentado: la tara manual se quita al agregar la línea, con Esc y con Ins sobre la báscula vacía. |
+| Caja · F10 | `NuevoSistecredito` desechaba el `CancellationTokenSource` de la pesada sin dejarlo en nulo: el siguiente `Cancel()` fallaba (F10 dejaba de abrir el cobro y volver a pesar mostraba "Ocurrió un error inesperado"). Ahora solo se cancela y queda en nulo. A 1366×768 el botón «Confirmar cobro» queda fijo abajo de la columna de cobro (que se desplaza). |
+
+**Pruebas:** agente 147/147 · Sales 89/89 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · Identity 33/33 ·
+ArchitectureTests 23/23 · Database.Tests 80/80 · integración `Phase7C` 13/13, `Phase7` 9/9 y `Phase3` 24/24.
+
+## Cuarta revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.051** (arranques retirados del agente; invalida las claves de báscula registradas antes).
+
+> **Aviso para la caja y el manual (BK4):** **No use la tecla de tara de la báscula; use Ins en la caja.** Con la tara puesta en la
+> báscula, muchas básculas (la genérica y algunas Toledo o CAS) envían el peso neto sin avisarlo y la caja puede creer que la báscula
+> quedó vacía. Si la báscula sí lo avisa (Toledo `N`, CAS `NT`, genérica `NET`/`N.W.`/`NT`), la caja muestra "Quite la tara de la
+> báscula (tecla de tara) para continuar". El aviso también sale en Configuración → Cajas e impresoras → Báscula.
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BK1 · Vincular sin dejar la caja sin pesar | Primero el permiso o la autorización del supervisor (sin el permiso, la caja hace una consulta sin clave para que el servidor pida el supervisor antes de tocar el agente). Luego el agente prepara una clave **pendiente** (`POST /scale/pairing`, solo en memoria; la vigente sigue firmando), la caja la registra en el servidor y solo si el servidor la aceptó la activa (`POST /scale/pairing/commit`). Si el registro falla o se cancela, la pendiente se descarta (con otro intento o al reiniciar el agente) y la caja sigue pesando con la clave vigente. |
+| BK2 · Arranques anteriores | El servidor guarda por caja los últimos 20 arranques del agente reemplazados por uno posterior (`retired_boot_ids`): una lectura de un arranque retirado nunca vale (`SALES.SCALE_READING_STALE`). Se descartó "rechazar si la hora es anterior": un salto del reloj podría trabar la caja. Límite: un arranque que nunca tuvo una pesada aceptada no queda retirado (sus lecturas igual exigen la ventana de 5 min, el retorno a cero y el nonce). |
+| BK3 · Claves viejas | El agente borra al arrancar la clave del formato anterior (`dpapi:` con entropía fija). La migración 051 invalida las claves registradas antes: cada caja vuelve a vincular con F1 → Vincular báscula; la caja avisa "Báscula no vinculada: vincule con F1" y el Tablero muestra "La báscula de la caja X no está vinculada". La clave va en la carpeta `agent\keys` con permisos solo para SYSTEM, Administradores y la cuenta del agente (BK5); el `.tmp` se borra antes de crearlo. |
+| BK4 · Tara física | Aviso en la configuración y aquí; la báscula genérica reconoce `NET`, `N.W.` y `NT` como peso neto. |
+| BB1 · Mensaje | Con la trama neta, el aviso dice "Quite la tara de la báscula (tecla de tara) para continuar". |
+| BB4 · Mensajes | `SALES.SCALE_CLOCK_SKEW`: "El reloj de la caja está desfasado (más de 5 minutos frente al servidor): revise la fecha y hora del computador de la caja". `SALES.SCALE_READING_STALE`: lectura fuera de orden. |
+| BB5 · Auditoría | "Reiniciar báscula" muestra el código de la caja. |
+| BK6/BK7 · Tablero | La lista de básculas se arma con dos consultas (sin una por caja) y, si falla, el Tablero se muestra igual. |
+| Caja · CTS | La pesada se detiene con `Cancel` y luego `Dispose`; el bucle revisa la cancelación antes de usar el token. |
+| BB2(b) · Riesgo residual aceptado | La clave pública viaja por la interfaz de la caja (JavaScript) entre el agente y el servidor. Alguien con acceso a esa pantalla podría registrar otra clave, pero solo con una sesión de caja de esa misma caja y la autorización de un supervisor presente; queda auditado y a la vista en el Tablero. |
+
+**Pruebas:** agente 150/150 · Sales 90/90 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · Identity 33/33 · ArchitectureTests 23/23 · Database.Tests 80/80 · integración `Phase7` 9/9, `Phase3` 24/24 y `Phase7C` 14/14 (incluye vincular desde el equipo de otra caja en Multicaja,
+arranque retirado, clave vigente tras un intento fallido y alerta de báscula sin vincular).
+
+## Quinta revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.052** (número de arranque del agente). Formato firmado **`BP-SCALE-3`** (las claves ya se invalidaron en la V051,
+así que toda caja vincula de nuevo con un agente que firma este formato; las lecturas `BP-SCALE-2` no se aceptan).
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BQ1 · Licencia restringida | `SetTerminalScaleKeyCommand` (vincular) y `ResetScaleInterlockCommand` (reiniciar) se permiten con la licencia restringida: una tienda puede volver a vincular la báscula después de actualizar. |
+| BQ2 · Pendiente en disco | La clave pendiente se guarda en `agent\keys\scale-signing.pending.json` (misma ACL): la confirmación vale aunque el agente se haya reiniciado. Si la confirmación falla, la caja repite una vez preparar → registrar → confirmar (si la autorización del supervisor ya se usó, el servidor la pide de nuevo). |
+| BQ3 · Número de arranque | El agente guarda en `keys` un número de arranque que sube en cada arranque y lo firma en cada lectura. El servidor guarda el más alto aceptado por caja (`last_boot_counter`) y rechaza uno menor: un arranque anterior nunca vale, aunque no haya tenido pesadas aceptadas. |
+| BQ4 · Cobro abierto | Con el cobro (u otro panel) abierto no se empieza a pesar: "Producto se vende por báscula: cierre el cobro (Esc) antes de pesarlo". |
+| BQ5 · Carreras | Preparar y confirmar van bajo el mismo candado; una confirmación de una pendiente reemplazada o ya confirmada, o con el agente cerrándose, responde 409 (`SCALE.PAIRING_NOT_PENDING`), no 500. |
+| BQ6 · Cancelar | Los botones Cancelar (pesar y peso digitado) y "Reiniciar báscula" pasan por `CancelarPesaje` (quitan la tara manual de la pesada). |
+| BQ7 · Eliminar una pesada | Si la consulta al servidor falla (también sin red), la caja informa que la línea se eliminó y deja el agente como está; si responde, informa si ya se puede volver a pesar. |
+| BQ8 · Hora | El servidor no puede distinguir un reloj desfasado de una lectura guardada más de 5 minutos: el mensaje nombra las dos causas ("vuelva a registrar el producto; si se repite, revise la fecha y hora del computador de la caja"). |
+| BQ9 · Agente viejo | Si el agente no tiene la confirmación (404), la caja dice "Actualice el programa de la caja". |
+| BQ10 · Función apagada | Con "Báscula y PLU" apagada, el Tablero no avisa "báscula no vinculada". |
+| BK3 · Permisos | Al arrancar, el agente repara los permisos de la carpeta `keys` y de sus archivos. |
+| BK4 · Neto | La báscula genérica también reconoce "PESO NETO" y "NT" pegado al número. |
+
+**Pruebas:** agente 163/163 · Sales 118/118 · Cash 71/71 · SharedKernel 103/103 · Catalog 117/117 · Organization 58/58 ·
+Identity 33/33 · Printing 59/59 · ArchitectureTests 23/23 · Database.Tests 81/81 · integración `Phase7C` 14/14, `Phase7` 9/9,
+`Phase7B` 24/24, `Phase3` 24/24 y `Labels` 3/3.
+
+## Sexta revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.053** (`sales.scale_interlocks.last_key_id`).
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BS1 · Contador que vuelve a 1 | El orden de los arranques (número, secuencia y arranques retirados) vale solo para la clave con la que se aceptó la última lectura (`last_key_id`). Al volver a vincular (otra clave) se empieza de cero: reinstalar el agente, cambiar el computador o restaurar una imagen nunca deja la caja trabada. Un número de arranque menor con la misma clave da `SALES.SCALE_BOOT_REGRESSED`: "vuelva a vincular la báscula (F1 → Vincular báscula)". En el agente, si hay una clave pero falta el número de arranque (o no se puede leer), no firma con 1: pide volver a vincular. "Reiniciar báscula" no toca el número de arranque: lo resuelve volver a vincular. |
+| BS2 · Confirmación | Si la confirmación falla, la caja reintenta SOLO la confirmación con la misma clave (4 intentos con pausas), sin volver a preparar ni registrar. Si se agotan: "El servidor ya tiene la clave nueva; reinicie el programa de la caja y pulse F1 → Completar vinculación". **Completar vinculación** aparece en F1 cuando la clave pendiente del agente (`GET /scale/pairing/pending`) es la misma que tiene registrada el servidor (`GET /organization/terminals/{id}/scale` → `readingKeyId`); solo confirma, sin supervisor ni otro registro. |
+| BS3 · No se puede guardar el número | El agente no firma y lo informa en `GET /status` (`scaleSigningProblem`), en `GET /scale/status` y en cada lectura; la caja muestra ese mensaje en lugar de "no vinculada". |
+| BS4 | Las claves y el número de arranque se escriben con la carpeta `keys` asegurada (permisos restringidos), no con `Directory.CreateDirectory`. |
+| BS5 | La báscula genérica reconoce también "NETO" y "NET" pegado al número. |
+| BS6 | El aviso al registrar un producto de báscula con un panel abierto dice cuál cerrar (cobro, cliente, suspendidas, consulta, pesada en curso). |
+| BQ5 | Si activar la clave pendiente falla, la clave en memoria se libera. |
+
+**Pruebas:** agente 168/168 · Sales 119/119 · integración `Phase7C` 15/15 (incluye reinstalar el agente → volver a vincular → pesar).
+
+**Ronda 7 (antes de unir):** al cambiar la clave solo se olvidan el número de arranque más alto y los arranques retirados; el último
+arranque y su secuencia se conservan, así volver a vincular el mismo agente no salta el retorno a cero (y un agente reinstalado puede
+pesar después de vaciar la báscula). Un estado sin clave guardada pero con número de arranque también cuenta como cambio de clave. Si
+la confirmación de la vinculación falla, la caja pregunta al agente: si la clave ya está activa lo da por hecho; si otra vinculación
+reemplazó la pendiente, avisa sin reintentar. Pruebas: Sales 121/121 · `Phase7C` 16/16.

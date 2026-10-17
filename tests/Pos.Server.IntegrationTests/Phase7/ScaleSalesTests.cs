@@ -13,6 +13,7 @@ namespace Pos.Server.IntegrationTests.Phase7;
 /// </summary>
 public class ScaleSalesTests
 {
+
     [Fact]
     public async Task Bascula_de_la_caja_y_venta_con_peso_leido_y_digitado()
     {
@@ -32,22 +33,29 @@ public class ScaleSalesTests
         await RawAsync(shop.Cashier, HttpMethod.Put, $"/api/v1/organization/terminals/{terminal.Id}/scale", new { enabled = true, driver = "CAS", port = "COM4" })
             .ShouldFailWithAsync(HttpStatusCode.Forbidden, "AUTH.PERMISSION_DENIED");
 
+        // Se vincula con el agente de la caja (aquí, un doble que firma igual) y la caja envía la versión actual de la interfaz.
+        using var agent = new Phase7C.ScaleAgentDouble(terminal.Id);
+        await agent.RegisterKeyAsync(shop);
+        Phase7C.ScaleAgentDouble.UseCurrentClient(shop.Cashier);
+
         // El tomate se vende por báscula con bolsa de 20 g.
         await shop.Catalog.ExecuteAsync($"UPDATE catalog.products SET tare_grams = 20 WHERE id = '{shop.Tomato}'");
         await shop.OpenSessionAsync();
         var sale = await shop.StartAsync();
 
         // La báscula marca 0,720 kg: se registran 0,700 kg (menos la bolsa); otra pesada va en otra línea.
-        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.720m, weightSource = "SCALE" });
-        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.520m, weightSource = "SCALE" });
+        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.720m, weightSource = "SCALE", scale = agent.Read(0.720m).Body });
+        agent.Empty();
+        sale = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.520m, weightSource = "SCALE", scale = agent.Read(0.520m).Body });
         var weighed = sale.Lines.Where(l => l.ProductId == shop.Tomato).ToList();
         weighed.Select(l => l.Quantity).ShouldBe([0.700m, 0.500m]);
         weighed.ShouldAllBe(l => l.Source == "SCALE_LIVE" && l.WeightSource == WeightSources.Scale);
 
         // Rechazos: menos que la tara, producto que no es de peso y peso digitado por la ruta normal.
-        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.015m, weightSource = "SCALE" })
+        agent.Empty();
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 0.015m, weightSource = "SCALE", scale = agent.Read(0.015m).Body })
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.WEIGHT_TOO_LOW");
-        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "ARROZ-500", weightKg = 1m, weightSource = "SCALE" })
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "ARROZ-500", weightKg = 1m, weightSource = "SCALE", scale = agent.Read(1m).Body })
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.NOT_WEIGHABLE");
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/lines", new { code = "TOMATE", weightKg = 1m, weightSource = "MANUAL" })
             .ShouldFailWithAsync(HttpStatusCode.Forbidden, "SALES.MANUAL_WEIGHT_ROUTE");
