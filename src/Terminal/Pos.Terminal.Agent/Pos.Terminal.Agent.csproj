@@ -23,4 +23,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Pos.Terminal.Agent.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Modo precalentar (D17C-02): el actualizador lo corre al descomprimir una versión para que el antivirus revise los archivos antes del cambio. -->
+    <Compile Include="..\..\Shared\Precalentamiento\Precalentamiento.cs" Link="Precalentamiento.cs" />
+  </ItemGroup>
 </Project>

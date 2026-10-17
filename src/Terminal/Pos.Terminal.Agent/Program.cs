@@ -1,6 +1,11 @@
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Pos.Terminal.Agent;
 
+if (Pos.Shared.Precalentamiento.Pedido(args))
+{
+    Environment.Exit(Pos.Shared.Precalentamiento.Ejecutar());
+}
+
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args,

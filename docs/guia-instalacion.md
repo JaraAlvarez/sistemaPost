@@ -88,6 +88,9 @@ da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a 
 - **Solución:** firmar los ejecutables con un certificado de firma de código (Authenticode, OV o EV) a nombre de la empresa:
   `build-installer.ps1 … -CodeSigningThumbprint <huella>` firma los `Pos.*.exe`, `Pos.*.dll`, el actualizador y el instalador con sello de
   tiempo. Un certificado EV además evita el aviso de SmartScreen al instalar.
+- **Precalentamiento (automático):** al descomprimir una versión nueva, el actualizador corre sus programas con `--precalentar` (cargan sus
+  archivos y terminan, sin abrir puertos ni tocar la base de datos) mientras la tienda sigue vendiendo con la versión anterior. En pruebas:
+  precalentar tomó 44 s y el arranque real después del cambio, **4 s** (sin precalentar: 4 min 23 s).
 - **Mientras no haya certificado:** después de instalar o actualizar, espere unos minutos al primer arranque y no reinicie el servicio a
   mano; el instalador ya configura reinicios automáticos si falla.
 - **En desarrollo:** para evitar la espera después de cada compilación, arranque el servidor con
