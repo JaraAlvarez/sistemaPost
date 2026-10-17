@@ -50,7 +50,7 @@
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Emisión</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">Saldo</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd Class="celda-texto">@context.SupplierName</MudTd>
                         <MudTd>@context.DocumentNumber</MudTd>
                         <MudTd>@Dia(context.IssueDate)</MudTd>
                         <MudTd>@Dia(context.DueDate)</MudTd>
@@ -76,7 +76,7 @@
                         <MudTh Class="num">Más de 90</MudTh><MudTh Class="num">Total</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.SupplierCode · @context.SupplierName</MudTd>
+                        <MudTd Class="celda-texto">@context.SupplierCode · @context.SupplierName</MudTd>
                         <MudTd Class="num">@Format.Money(context.Current)</MudTd>
                         <MudTd Class="num">@Format.Money(context.Days1To30)</MudTd>
                         <MudTd Class="num">@Format.Money(context.Days31To60)</MudTd>
@@ -104,7 +104,7 @@
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Venció</MudTh><MudTh Class="num">Días vencida</MudTh><MudTh Class="num">Saldo</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd Class="celda-texto">@context.SupplierName</MudTd>
                         <MudTd>@context.DocumentNumber</MudTd>
                         <MudTd>@Dia(context.DueDate)</MudTd>
                         <MudTd Class="num">@context.DaysOverdue</MudTd>
@@ -119,7 +119,7 @@
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Saldo</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd Class="celda-texto">@context.SupplierName</MudTd>
                         <MudTd>@context.DocumentNumber</MudTd>
                         <MudTd>@Dia(context.DueDate)</MudTd>
                         <MudTd Class="num">@Format.Money(context.Balance)</MudTd>
@@ -135,7 +135,7 @@
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd>@context.Number</MudTd>
-                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd Class="celda-texto">@context.SupplierName</MudTd>
                         <MudTd>@Dia(context.Date)</MudTd>
                         <MudTd>@context.Reference</MudTd>
                         <MudTd Class="num">@Format.Money(context.Total)</MudTd>

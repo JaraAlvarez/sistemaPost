@@ -201,7 +201,13 @@
                     <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Código DIAN</MudTh><MudTh>Pide referencia</MudTh><MudTh Class="num">Orden</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.Code@(context.IsSystem ? " (sistema)" : "")</MudTd>
+                    <MudTd>
+                        @context.Code
+                        @if (context.IsSystem)
+                        {
+                            <MudText Typo="Typo.caption" Class="d-block mud-text-secondary">Del sistema</MudText>
+                        }
+                    </MudTd>
                     <MudTd>@context.Name</MudTd>
                     <MudTd>@TipoMedio(context.Kind)</MudTd>
                     <MudTd>@context.DianCode</MudTd>

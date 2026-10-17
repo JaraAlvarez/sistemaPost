@@ -65,7 +65,7 @@
                     </MudItem>
                     <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_factura" Label="Número de la factura del proveedor" Immediate="true" /></MudItem>
                     <MudItem xs="12" sm="6" md="4"><MudDatePicker @bind-Date="_fecha" Label="Fecha de la factura" DateFormat="dd/MM/yyyy" /></MudItem>
-                    <MudItem xs="12" sm="6" md="4"><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura (se compara al confirmar la compra)" Min="0" /></MudItem>
+                    <MudItem xs="12" sm="6" md="4"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura" HelperText="Se compara con el calculado al confirmar la compra" Min="0" /></MudItem>
                     <MudItem xs="12" sm="6" md="4">
                         <MudSelect T="string" @bind-Value="_modo" Label="Forma de pago">
                             <MudSelectItem T="string" Value="@("Credit")">A crédito (plazo del proveedor)</MudSelectItem>
@@ -110,7 +110,7 @@
                         @foreach (var line in compra.Lines)
                         {
                             <tr>
-                                <td>@line.Sku · @line.ProductName</td>
+                                <td class="celda-texto">@line.Sku · @line.ProductName</td>
                                 <td class="num">@Format.Quantity(line.Quantity)@(line.Factor != 1 ? $" × {Format.Quantity(line.Factor)}" : "")</td>
                                 <td class="num">@Format.Money(line.UnitCost)</td>
                                 <td class="num">@Format.Money(line.DiscountAmount)</td>
@@ -129,7 +129,7 @@
                     {
                         <MudPaper Outlined="true" Class="pa-4">
                             <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Total de la factura del proveedor</MudText>
-                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al confirmar la compraizar)" Min="0" />
+                            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al confirmar la compra)" Min="0" />
                         </MudPaper>
                     }
                     else if (EnumText.Same(compra.Status, "VOIDED"))
