@@ -168,7 +168,12 @@ internal sealed class PortalAuthenticationHandler(IOptionsMonitor<PortalAuthenti
     {
         if (Options.Channel == SessionChannel.Portal)
         {
-            Response.Redirect(Request.PathBase + DeniedPath);
+            // El cliente (Fase 16) no tiene tablero: su inicio son los datos de sus tiendas (p. ej. al volver de cambiar la
+            // contraseña temporal, que lleva a "/").
+            var isHome = !Request.Path.HasValue || Request.Path == "/";
+            var customerHome = isHome && !Context.User.HasPortalPermission(CloudPermissions.DashboardView)
+                && Context.User.HasPortalPermission(CloudPermissions.SyncDataView);
+            Response.Redirect(Request.PathBase + (customerHome ? "/tiendas" : DeniedPath));
             return;
         }
 

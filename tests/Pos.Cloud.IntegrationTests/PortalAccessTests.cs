@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Pos.Cloud.Abstractions;
 using Pos.Cloud.Licensing.Application;
 using Pos.Cloud.PortalIdentity.Application;
 
@@ -182,6 +183,35 @@ public class PortalAccessTests(CloudFixture cloud) : IClassFixture<CloudFixture>
         var cookie = response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("__Host-pos-portal=", StringComparison.Ordinal));
         cookie.ShouldContain("path=/;", Case.Insensitive);
         cookie.ShouldContain("secure", Case.Insensitive);
+    }
+
+    [Fact]
+    public async Task El_cliente_que_abre_el_inicio_va_a_los_datos_de_sus_tiendas_y_no_a_sin_acceso()
+    {
+        // Al cambiar la contraseña temporal el portal lleva a "/" (el tablero, que el cliente no tiene): antes caía en /sin-acceso.
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var (_, user) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, PortalRoles.Customer, customer.AccountId);
+        using var browser = cloud.Factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://licencias.test/"), AllowAutoRedirect = false, HandleCookies = true,
+        });
+
+        var login = new Uri("/cuenta/ingresar?returnUrl=%2F", UriKind.Relative);
+        var page = await browser.GetStringAsync(login, Ct);
+        using var afterPassword = await BrowserForms.PostFormAsync(browser, login, page,
+            new() { ["Input.Email"] = user.Email, ["Input.Password"] = user.Password });
+        afterPassword.StatusCode.ShouldBe(HttpStatusCode.Redirect, await afterPassword.Content.ReadAsStringAsync(Ct));
+        var next = afterPassword.Headers.Location!;
+        if (next.ToString().Contains("segundo-factor", StringComparison.Ordinal))
+        {
+            page = await browser.GetStringAsync(next, Ct);
+            using var afterCode = await BrowserForms.PostFormAsync(browser, next, page, new() { ["Input.Code"] = user.NextCode() });
+            afterCode.StatusCode.ShouldBe(HttpStatusCode.Redirect, await afterCode.Content.ReadAsStringAsync(Ct));
+        }
+
+        using var response = await browser.GetAsync(new Uri("/", UriKind.Relative), Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        response.Headers.Location!.ToString().ShouldEndWith("/tiendas");
     }
 
     private sealed record MeResponse(PortalMeDto Me, IReadOnlyList<PortalSessionInfoDto> Sessions);
