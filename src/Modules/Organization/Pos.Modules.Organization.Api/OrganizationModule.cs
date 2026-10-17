@@ -12,6 +12,7 @@ using Pos.Application.Abstractions.Settings;
 using Pos.Infrastructure;
 using Pos.Infrastructure.Persistence;
 using Pos.Modules.Organization.Application;
+using Pos.Modules.Organization.Application.Business;
 using Pos.Modules.Organization.Application.Devices;
 using Pos.Modules.Organization.Application.Settings;
 using Pos.Modules.Organization.Application.Setup;
@@ -31,6 +32,7 @@ public sealed class OrganizationModule : IModule
         services.AddRequestHandlersFrom(typeof(IOrganizationStore).Assembly);
         OrganizationInfrastructureRegistration.Register(services);
         services.AddScoped<IOrganizationQueries, OrganizationQueries>();
+        services.AddScoped<IBusinessFeatures, BusinessFeaturesReader>();
         services.AddSingleton<ISettingDefinitionProvider, GeneralSettingsProvider>();
         services.AddSingleton<IPermissionCatalogProvider, OrganizationPermissionCatalog>();
         services.AddScoped<ICompanyInitializer, DocumentSeriesInitializer>();
@@ -93,6 +95,22 @@ public sealed class OrganizationModule : IModule
         group.MapPut("/company", async (CompanyInput company, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new UpdateCompanyCommand(company), ct)).ToHttpResult())
             .RequirePermission(OrganizationPermissions.CompanyManage);
+
+        // Fase 7-C parte A: tipo de negocio y funciones activables. Se leen con /auth/me (cualquier sesión); se cambian con el permiso
+        // de los datos de la empresa.
+        group.MapGet("/business-features", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetBusinessFeaturesQuery(), ct)).ToHttpResult())
+            .RequireAuthenticatedUser()
+            .WithSummary("Tipo de negocio y funciones encendidas de la empresa");
+
+        group.MapPut("/business-features", async (SetBusinessFeaturesRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new SetBusinessFeaturesCommand(r.EnabledFeatures), ct)).ToHttpResult())
+            .RequirePermission(OrganizationPermissions.CompanyManage)
+            .WithSummary("Enciende exactamente estas funciones; apagar una solo la oculta (los datos se conservan)");
+
+        group.MapPut("/business-profile", async (ChangeBusinessProfileRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ChangeBusinessProfileCommand(r.Profile), ct)).ToHttpResult())
+            .RequirePermission(OrganizationPermissions.CompanyManage)
+            .WithSummary("Cambia el tipo de negocio y deja los interruptores en los valores de ese tipo");
 
         group.MapGet("/branches", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListBranchesQuery(), ct)).ToHttpResult())
             .RequirePermission(OrganizationPermissions.BranchView);

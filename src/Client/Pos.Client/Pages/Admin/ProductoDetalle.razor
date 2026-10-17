@@ -84,11 +84,15 @@
                         <MudItem xs="12">
                             <MudTextField @bind-Value="_description" Label="Descripción (opcional)" Immediate="true" Lines="2" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>
-                        <MudItem xs="12" sm="4">
-                            <MudTextField @bind-Value="_plu" Label="@(PluObligatorio ? "PLU de báscula" : "PLU de báscula (opcional)")" Immediate="true" ReadOnly="@(!PuedeEditar)"
-                                          Required="@PluObligatorio" RequiredError="Un producto de báscula necesita su PLU."
-                                          HelperText="@(PluObligatorio ? "Obligatorio: es el número que la báscula imprime en la etiqueta (1 a 6 dígitos)" : "Hasta 6 dígitos")" />
-                        </MudItem>
+                        @if (VerBascula)
+                        {
+                            <MudItem xs="12" sm="4">
+                                <MudTextField @bind-Value="_plu" Label="@(PluObligatorio ? "PLU de báscula" : "PLU de báscula (opcional)")" Immediate="true" ReadOnly="@(!PuedeEditar)"
+                                              Required="@PluObligatorio" RequiredError="Un producto de báscula necesita su PLU."
+                                              HelperText="@(PluObligatorio ? "Obligatorio: es el número que la báscula imprime en la etiqueta (1 a 6 dígitos)" : "Hasta 6 dígitos")" />
+                                <FuncionApagada Funcion="@BusinessCatalog.Scale" Compacto="true" />
+                            </MudItem>
+                        }
                         <MudItem xs="6" sm="4">
                             <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>
@@ -101,23 +105,29 @@
                             </MudSelect>
                         </MudItem>
                         <MudItem xs="12" sm="6">
-                            @if (ModoVenta == "Weight")
+                            @if (ModoVenta == "Weight" && VerBascula)
                             {
                                 <MudCheckBox T="bool" @bind-Value="_scale" Label="Se vende por báscula (la caja lee el peso al registrarlo)" ReadOnly="@(!PuedeEditar)" />
                                 <MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_tare" Label="Tara (g)" Min="0" Max="5000" ReadOnly="@(!PuedeEditar)"
                                                  HelperText="Peso de la bolsa o bandeja que se descuenta solo al pesar (0 = sin tara)" Class="mb-2" />
                             }
-                            @if (ModoVenta == "Unit")
+                            @if (ModoVenta == "Unit" && VerFraccion)
                             {
-                                <MudCheckBox T="bool" @bind-Value="_decimal" Label="Permite cantidades con decimales" ReadOnly="@(!PuedeEditar)" />
+                                <MudCheckBox T="bool" @bind-Value="_decimal" Label="Permite cantidades con decimales (venta por metro o fracción)" ReadOnly="@(!PuedeEditar)" />
+                                <FuncionApagada Funcion="@BusinessCatalog.FractionalSale" Compacto="true" />
                             }
-                            <MudCheckBox T="bool" @bind-Value="_openPrice" Label="Permite precio abierto en la caja" ReadOnly="@(!PuedeEditar)" />
+                            @if (VerPrecioAbierto)
+                            {
+                                <MudCheckBox T="bool" @bind-Value="_openPrice" Label="Permite precio abierto en la caja" ReadOnly="@(!PuedeEditar)" />
+                                <FuncionApagada Funcion="@BusinessCatalog.OpenPrice" Compacto="true" />
+                            }
                         </MudItem>
                         <MudItem xs="12" sm="6">
-                            @if (_productType == "Stockable")
+                            @if (_productType == "Stockable" && VerLotes)
                             {
                                 <MudCheckBox T="bool" @bind-Value="_lots" Label="Maneja lotes" ReadOnly="@(!PuedeEditar)" />
                                 <MudCheckBox T="bool" @bind-Value="_expiry" Label="Maneja fecha de vencimiento (requiere lotes)" ReadOnly="@(!PuedeEditar)" />
+                                <FuncionApagada Funcion="@BusinessCatalog.LotsExpiry" Compacto="true" />
                             }
                         </MudItem>
                         @if (!EsExistente)
@@ -464,6 +474,17 @@
 
     private bool FormularioValido => !string.IsNullOrWhiteSpace(_name) && _category is not null && !string.IsNullOrWhiteSpace(_unit)
                                      && !(PluObligatorio && string.IsNullOrWhiteSpace(_plu));
+
+    // Fase 7-C parte A: los campos de una función apagada se ocultan, salvo que el producto ya tenga datos de esa función (entonces se
+    // muestran con el aviso "Esta función está apagada; los datos se conservan"). Al guardar, los valores ocultos se envían sin cambios.
+    private bool VerBascula => Session.Feature(BusinessCatalog.Scale)
+                               || _producto is { } p && (p.IsSoldByScale || p.PluCode is { Length: > 0 } || p.TareGrams > 0);
+
+    private bool VerLotes => Session.Feature(BusinessCatalog.LotsExpiry) || _producto is { TracksLots: true } or { TracksExpiry: true };
+
+    private bool VerFraccion => Session.Feature(BusinessCatalog.FractionalSale) || _producto is { AllowsDecimalQuantity: true } p && EnumText.Same(p.SaleMode, "UNIT");
+
+    private bool VerPrecioAbierto => Session.Feature(BusinessCatalog.OpenPrice) || _producto is { AllowsOpenPrice: true };
 
     /// <summary>Fase 7-C: el PLU solo hace falta para las etiquetas de la báscula etiquetadora; ya no es obligatorio.</summary>
     private bool PluObligatorio => false;

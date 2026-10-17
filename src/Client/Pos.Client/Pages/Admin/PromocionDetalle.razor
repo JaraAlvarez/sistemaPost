@@ -10,7 +10,7 @@
 
 <PageTitle>@Titulo · BusinessPost</PageTitle>
 
-<Pagina Titulo="@Titulo" Miga="@Miga" Subtitulo="@Subtitulo" Cargando="_loading" Error="@_error">
+<Pagina Funcion="PROMOTIONS" Titulo="@Titulo" Miga="@Miga" Subtitulo="@Subtitulo" Cargando="_loading" Error="@_error">
     <Acciones>
         @if (Id is not null && _promo is not null && Session.Has("promotions.promotion.manage"))
         {

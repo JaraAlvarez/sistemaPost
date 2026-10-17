@@ -14,6 +14,7 @@ using Pos.Modules.Catalog.Application;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Catalog.Domain;
 using Pos.Modules.Catalog.Infrastructure;
+using Pos.Modules.Organization.Contracts;
 using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Catalog.Api;
@@ -32,6 +33,7 @@ public sealed class CatalogModule : IModule
         services.AddScoped<PriceService>();
         services.AddScoped<CatalogImportService>();
         services.AddScoped<ICompanyInitializer, CatalogInitializer>();
+        services.AddScoped<IBusinessStarterData, CatalogStarterData>();
         services.AddSingleton<ISettingDefinitionProvider, CatalogSettingsProvider>();
         services.AddSingleton<IPermissionCatalogProvider, CatalogPermissionCatalog>();
     }

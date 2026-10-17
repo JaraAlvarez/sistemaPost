@@ -57,7 +57,14 @@ El instalador de BusinessPost es una ventana con la marca que lo guía paso a pa
      activo el **código de verificación** (doble factor), el instalador se lo pide: escriba los 6 números de su aplicación.
      Si siempre entra al portal con Google y no recuerda su contraseña, en el portal vaya a **Mi cuenta → Cambiar contraseña**.
    - **En prueba de 30 días:** escriba su nombre, su correo y una contraseña de mínimo 10 caracteres (dos veces).
-8. **Tu negocio:** con la clave, la razón social y el NIT ya vienen llenos. Complete el **nombre comercial** (el de su aviso), el
+8. **Tu negocio — "¿Qué tipo de negocio tienes?":** elija la tarjeta que se parece a su negocio: **Supermercado o minimercado**,
+   **Fruver o carnicería**, **Droguería**, **Ropa, calzado o deportes**, **Ferretería, papelería o miscelánea** u **Otro tipo de
+   negocio**. Con eso BusinessPost deja encendidas las funciones que su negocio usa (por ejemplo, la báscula en un fruver, los lotes y
+   vencimientos en una droguería, la venta por metro en una ferretería) y crea unas pocas categorías de ejemplo. **No cambia su plan
+   ni su precio**: todas las funciones vienen en Caja Única y en Multicaja. Puede cambiarlo cuando quiera en **Configuración →
+   Funciones del negocio**. Pulse **Continuar**.
+
+   Luego, con la clave, la razón social y el NIT ya vienen llenos. Complete el **nombre comercial** (el de su aviso), el
    **tipo de persona**, si es **responsable de IVA**, el **municipio** (escriba y elíjalo de la lista), la **dirección**, el
    teléfono y el correo del negocio. El **dígito de verificación del NIT se calcula solo**. Pulse **Instalar BusinessPost**.
 9. **Instalación:** espere. La lista muestra cada paso de verdad: copiando los programas, revisando los archivos con Windows
@@ -92,7 +99,8 @@ de propietario, la licencia y el código de recuperación quedan listos durante 
 desde la administración.
 
 Solo si instaló con el **instalador clásico** (equipos sin WebView2), al terminar se abre en el navegador la **Configuración
-inicial**: complete la empresa, la sucursal, la caja y el propietario; luego la licencia (o **Seguir en demostración**) y, por
+inicial**: elija **qué tipo de negocio tiene** (las mismas seis opciones del paso 8), complete la empresa, la sucursal, la caja y el
+propietario; luego la licencia (o **Seguir en demostración**) y, por
 último, genere el **código de recuperación**, guárdelo fuera del local y confírmelo.
 
 ### Su usuario de propietario

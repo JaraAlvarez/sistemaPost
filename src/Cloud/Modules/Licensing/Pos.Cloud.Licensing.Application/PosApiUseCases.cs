@@ -224,6 +224,8 @@ internal sealed class ActivateLicenseHandler(
                 cancellationToken);
         }
 
+        // Fase 7-C parte A: tipo de negocio que informa la tienda (opcional).
+        organization.ReportBusinessProfile(request.BusinessProfile);
         return tokens.Issue(organization, subscription, license, installation, installation.ActiveDevice!, request.AppVersion);
     }
 }
@@ -313,6 +315,7 @@ internal sealed class CheckinHandler(
         var subscription = (await store.GetSubscriptionAsync(license.SubscriptionId, cancellationToken))!;
         subscription.Refresh(new ChangeContext(SystemActor.Id, now, ids));
         installation.RecordCheckin(request.AppVersion, request.ActiveTerminals, command.IpAddress, now);
+        organization.ReportBusinessProfile(request.BusinessProfile);
         var response = tokens.Issue(organization, subscription, license, installation, installation.ActiveDevice!, request.AppVersion);
         if (await paymentLinks.ForCheckinAsync(subscription, command.BaseUrl, cancellationToken) is { } paymentUrl)
         {

@@ -34,7 +34,7 @@ else
                 <StatusChip Text="Sin suscripción" Color="Color.Default" />
             }
             <MudText Typo="Typo.body2" Class="texto-secundario">
-                NIT @org.Nit · @(org.City ?? "sin ciudad") · cliente <MudLink Href="@($"clientes/{org.AccountId}")" Typo="Typo.body2">@org.AccountName</MudLink>
+                NIT @org.Nit · @(org.City ?? "sin ciudad") · Tipo de negocio: @BusinessProfileCodes.Name(org.BusinessProfile) · cliente <MudLink Href="@($"clientes/{org.AccountId}")" Typo="Typo.body2">@org.AccountName</MudLink>
             </MudText>
         </MudStack>
     </PageHeader>

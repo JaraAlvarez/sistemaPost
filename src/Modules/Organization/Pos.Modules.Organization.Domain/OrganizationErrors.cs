@@ -11,6 +11,14 @@ public static class OrganizationErrors
     public static readonly Error CompanyNotFound =
         Error.NotFound("ORGANIZATION.COMPANY_NOT_FOUND", "La empresa no existe o el asistente inicial no se ha completado.");
 
+    public static readonly Error InvalidBusinessProfile = Error.Validation(
+        "ORGANIZATION.INVALID_BUSINESS_PROFILE",
+        "Tipo de negocio desconocido. Use SUPERMARKET, FRESH_MARKET, PHARMACY, APPAREL, HARDWARE u OTHER.");
+
+    public static readonly Error InvalidBusinessFeature = Error.Validation(
+        "ORGANIZATION.INVALID_BUSINESS_FEATURE",
+        "Función del negocio desconocida. Use SCALE, LOTS_EXPIRY, VARIANTS, FRACTIONAL_SALE, OPEN_PRICE, PROMOTIONS o PURCHASING.");
+
     public static readonly Error CompanyAlreadyExists =
         Error.Conflict("ORGANIZATION.COMPANY_ALREADY_EXISTS", "Ya existe una empresa con esa identificación.");
 

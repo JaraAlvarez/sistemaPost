@@ -165,6 +165,7 @@ INSERT INTO audit.action_types (code, module, name, default_severity) VALUES
     ('BRANCH_CREATED', 'organization', 'Sucursal · creado', 'INFO'),
     ('BRANCH_DELETED', 'organization', 'Sucursal · eliminado', 'WARNING'),
     ('BRANCH_UPDATED', 'organization', 'Sucursal · modificado', 'INFO'),
+    ('BUSINESS_FEATURES_CHANGED', 'organization', 'Tipo de negocio o funciones del negocio cambiados', 'WARNING'),
     ('COMPANY_CREATED', 'organization', 'Empresa · creado', 'INFO'),
     ('COMPANY_DELETED', 'organization', 'Empresa · eliminado', 'WARNING'),
     ('COMPANY_UPDATED', 'organization', 'Empresa · modificado', 'INFO'),

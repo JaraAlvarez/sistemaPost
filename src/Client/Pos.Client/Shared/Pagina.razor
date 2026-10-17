@@ -62,6 +62,11 @@
     </MudAlert>
 }
 
+@if (Funcion is not null)
+{
+    <FuncionApagada Funcion="@Funcion" />
+}
+
 @if (Cargando && !_cargoUnaVez && Error is null)
 {
     <Esqueleto />
@@ -95,6 +100,10 @@ else
 
     [Parameter]
     public RenderFragment? Acciones { get; set; }
+
+    /// <summary>Función del negocio de la pantalla (Fase 7-C parte A): si está apagada se muestra el aviso "los datos se conservan".</summary>
+    [Parameter]
+    public string? Funcion { get; set; }
 
     [Parameter]
     public RenderFragment? ChildContent { get; set; }

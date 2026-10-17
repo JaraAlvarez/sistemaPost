@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Pos.Installer.Setup.Logica;
 using Pos.Licensing.Contracts;
 
 namespace Pos.Installer.Setup.Servicios;
@@ -95,7 +96,10 @@ public sealed class NubeLicencias(Uri? servidor)
     };
 }
 
-/// <summary>Datos del negocio que configura el instalador (cuerpo del asistente inicial del servidor local).</summary>
+/// <summary>
+/// Datos del negocio que configura el instalador (cuerpo del asistente inicial del servidor local). <c>TipoNegocio</c> (Fase 7-C parte A):
+/// SUPERMARKET, FRESH_MARKET, PHARMACY, APPAREL, HARDWARE u OTHER.
+/// </summary>
 public sealed record DatosNegocio(
     string RazonSocial,
     string NombreComercial,
@@ -107,7 +111,8 @@ public sealed record DatosNegocio(
     string Municipio,
     string Direccion,
     string? Telefono,
-    string? Correo);
+    string? Correo,
+    string? TipoNegocio = null);
 
 /// <summary>Propietario: con la cuenta del portal (<c>Enlace</c> firmado por la nube) o local (prueba de 30 días).</summary>
 public sealed record DatosPropietario(string Usuario, string Nombre, string Contrasena, string? Enlace);
@@ -188,6 +193,7 @@ public sealed class ServidorLocal : IDisposable
                 portalLinkToken = propietario.Enlace,
             },
             terminal = new { code = "C01", name = "Caja 1" },
+            businessProfile = TiposNegocio.Normalizar(negocio.TipoNegocio),
         };
         return EnviarAsync<JsonElement>(HttpMethod.Post, "api/v1/setup", cuerpo, cancellationToken);
     }

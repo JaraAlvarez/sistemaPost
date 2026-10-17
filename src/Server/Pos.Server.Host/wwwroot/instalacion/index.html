@@ -29,6 +29,11 @@ a.button { display:inline-block; padding:11px 22px; border-radius:6px; backgroun
 .code { font:600 22px/1.3 ui-monospace,Consolas,monospace; letter-spacing:.06em; padding:14px; border:2px dashed var(--accent); border-radius:8px; text-align:center; margin:12px 0; word-break:break-all; }
 .hidden { display:none !important; }
 .ok { color:var(--ok); font-weight:600; }
+.tipos { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-bottom:16px; }
+.tipo { display:flex; gap:10px; align-items:flex-start; border:1px solid var(--line); border-radius:8px; padding:10px 12px; cursor:pointer; color:var(--text); font-size:14px; margin:0; }
+.tipo input { width:auto; margin:3px 0 0; }
+.tipo small { display:block; color:var(--muted); font-size:12px; }
+.tipo:has(input:checked) { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
 </style>
 </head>
 <body>
@@ -43,6 +48,18 @@ a.button { display:inline-block; padding:11px 22px; border-radius:6px; backgroun
   <section id="empresa" class="card hidden">
     <h2>Empresa, sucursal y propietario</h2>
     <form id="form-empresa">
+      <h2>¿Qué tipo de negocio tiene?</h2>
+      <p class="hint">Con esto dejamos listas las funciones que su negocio usa (báscula, lotes, venta por metro…). Puede cambiarlo después en
+        Configuración → Funciones del negocio; no es un plan de precios.</p>
+      <div class="tipos" id="tipos">
+        <label class="tipo"><input type="radio" name="businessProfile" value="SUPERMARKET" checked><span>Supermercado / minimercado<small>Báscula, lotes y vencimientos, promociones y compras.</small></span></label>
+        <label class="tipo"><input type="radio" name="businessProfile" value="FRESH_MARKET"><span>Fruver / carnicería<small>Báscula conectada y de etiqueta, kilo o libra, tara.</small></span></label>
+        <label class="tipo"><input type="radio" name="businessProfile" value="PHARMACY"><span>Droguería<small>Lotes y fechas de vencimiento.</small></span></label>
+        <label class="tipo"><input type="radio" name="businessProfile" value="APPAREL"><span>Ropa / calzado / deportes<small>Tallas y colores (en una próxima versión).</small></span></label>
+        <label class="tipo"><input type="radio" name="businessProfile" value="HARDWARE"><span>Ferretería / papelería / miscelánea<small>Venta por metro o fracción y precio abierto.</small></span></label>
+        <label class="tipo"><input type="radio" name="businessProfile" value="OTHER"><span>Otro<small>Lo básico: ventas, inventario, compras y promociones.</small></span></label>
+      </div>
+      <h2>Datos de la empresa</h2>
       <div class="grid">
         <label>Razón social<input name="legalName" required maxlength="200"></label>
         <label>Nombre comercial<input name="tradeName" required maxlength="200"></label>
@@ -181,6 +198,7 @@ $("form-empresa").addEventListener("submit", async (e) => {
       branch: { code: f.branchCode, name: f.branchName, municipalityCode: code, address: f.address, phone: f.phone || null },
       owner: { username: f.username, displayName: f.displayName, password: f.password, email: f.email || null, posCode: f.posCode || null, pin: f.pin || null },
       terminal: { code: f.terminalCode, name: f.terminalName },
+      businessProfile: f.businessProfile || "SUPERMARKET",
     });
     await login(f.username, f.password);
     show("licencia");

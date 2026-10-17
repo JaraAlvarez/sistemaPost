@@ -109,6 +109,9 @@ public sealed record OwnerLinkResponse(string Token, string Email, string Displa
 /// <param name="BranchName">Nombre de la sucursal declarado en el POS.</param>
 /// <param name="DeviceName">Nombre del equipo.</param>
 /// <param name="OperatingSystem">Sistema operativo del equipo.</param>
+/// <param name="BusinessProfile">
+/// Tipo de negocio de la tienda (Fase 7-C parte A): <see cref="BusinessProfileCodes"/>. Opcional: los POS anteriores no lo envían.
+/// </param>
 public sealed record ActivationRequest(
     string LicenseKey,
     Guid InstallationId,
@@ -118,7 +121,8 @@ public sealed record ActivationRequest(
     string OrganizationNit,
     string? BranchName = null,
     string? DeviceName = null,
-    string? OperatingSystem = null);
+    string? OperatingSystem = null,
+    string? BusinessProfile = null);
 
 /// <summary>Check-in diario: el token vigente (aunque haya vencido) autentica la instalación junto con la huella actual.</summary>
 /// <param name="Token">Último token recibido.</param>
@@ -127,8 +131,53 @@ public sealed record ActivationRequest(
 /// <param name="ActiveTerminals">Cajas activas en la tienda (detección de abuso; sin límite por edición).</param>
 /// <param name="ReportedClock">Reloj del equipo (detección de relojes atrasados).</param>
 /// <param name="AuditSeal">Último sello de la auditoría del POS (ancla externa, ADR-0048). Opcional: los POS anteriores a 12-B no lo envían.</param>
+/// <param name="BusinessProfile">
+/// Tipo de negocio de la tienda (Fase 7-C parte A): <see cref="BusinessProfileCodes"/>. Opcional: los POS anteriores no lo envían y la nube
+/// conserva el último conocido.
+/// </param>
 public sealed record CheckinRequest(
-    string Token, string Fingerprint, string AppVersion, int ActiveTerminals, DateTimeOffset ReportedClock, CheckinAuditSeal? AuditSeal = null);
+    string Token,
+    string Fingerprint,
+    string AppVersion,
+    int ActiveTerminals,
+    DateTimeOffset ReportedClock,
+    CheckinAuditSeal? AuditSeal = null,
+    string? BusinessProfile = null);
+
+/// <summary>
+/// Tipos de negocio que la tienda informa a la nube (Fase 7-C parte A; los mismos códigos de <c>org.companies.business_profile</c>). La
+/// nube los muestra en el portal ("Tipo de negocio") y filtra por ellos. Un código desconocido se ignora (no rechaza el check-in).
+/// </summary>
+public static class BusinessProfileCodes
+{
+    public const string Supermarket = "SUPERMARKET";
+    public const string FreshMarket = "FRESH_MARKET";
+    public const string Pharmacy = "PHARMACY";
+    public const string Apparel = "APPAREL";
+    public const string Hardware = "HARDWARE";
+    public const string Other = "OTHER";
+
+    public static IReadOnlyList<string> All { get; } = [Supermarket, FreshMarket, Pharmacy, Apparel, Hardware, Other];
+
+    /// <summary>Código normalizado (mayúsculas) si es conocido; si no, <c>null</c>.</summary>
+    public static string? Normalize(string? code)
+    {
+        var upper = code?.Trim().ToUpperInvariant();
+        return upper is not null && All.Contains(upper, StringComparer.Ordinal) ? upper : null;
+    }
+
+    /// <summary>Nombre para el portal.</summary>
+    public static string Name(string? code) => Normalize(code) switch
+    {
+        Supermarket => "Supermercado / minimercado",
+        FreshMarket => "Fruver / carnicería",
+        Pharmacy => "Droguería",
+        Apparel => "Ropa / calzado / deportes",
+        Hardware => "Ferretería / papelería / miscelánea",
+        Other => "Otro",
+        _ => "Sin informar",
+    };
+}
 
 /// <summary>
 /// Sello de la bitácora de auditoría del POS (docs/fases/fase-12b-propuesta.md §8): si alguien reescribe la auditoría de la tienda, el

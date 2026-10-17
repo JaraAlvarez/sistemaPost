@@ -23,7 +23,8 @@ public sealed record MeInfo(
     int OpenIntegrityIncidents,
     int BackupAlerts,
     LicenseSummary? License,
-    int SistecreditoReviews = 0);
+    int SistecreditoReviews = 0,
+    Pos.Modules.Organization.Contracts.BusinessFeaturesDto? Business = null);
 
 public sealed record LoginResult(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeInfo User);
 

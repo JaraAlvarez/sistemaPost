@@ -94,6 +94,7 @@ public static class AuditActions
         new("UPDATE_FAILED", "system", "Actualización fallida", "CRITICAL"),
         new("UPDATE_INSTALL_REQUESTED", "system", "Instalación inmediata de una actualización solicitada", "WARNING"),
         new("UPDATE_ROLLED_BACK", "system", "Actualización revertida a la versión anterior", "CRITICAL"),
+        new("BUSINESS_FEATURES_CHANGED", "organization", "Tipo de negocio o funciones del negocio cambiados", "WARNING"),
         new("DEVICE_PAIRING_CODE_CREATED", "organization", "Código de emparejamiento creado", "INFO"),
         new("DEVICE_PAIRING_FAILED", "organization", "Emparejamiento de equipo fallido", "WARNING"),
         new("SETUP_COMPLETED", "organization", "Configuración inicial completada", "WARNING"),

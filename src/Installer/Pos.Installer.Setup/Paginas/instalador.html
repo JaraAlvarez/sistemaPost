@@ -102,6 +102,21 @@
       <div class="pie"><button class="btn btn-sec" data-ir="licencia">Atrás</button><button class="btn btn-primario" id="btnCuenta">Continuar</button></div>
     </section>
 
+    <!-- 5a. Tipo de negocio (Fase 7-C parte A) -->
+    <section class="pantalla" data-s="tipo">
+      <h1>¿Qué tipo de negocio tienes?</h1>
+      <p class="lead">Dejamos listas las funciones que tu negocio usa. Puedes cambiarlo cuando quieras en Configuración → Funciones del negocio; no cambia tu plan ni tu precio.</p>
+      <div class="tipos" id="tipos" role="radiogroup" aria-label="Tipo de negocio">
+        <div class="tipo-negocio sel" data-tipo="SUPERMARKET" role="radio" tabindex="0" aria-checked="true"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><path d="M6 10h5l4 18h18l4-12H14" fill="none" stroke="#5B3DF5" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="34" r="3" fill="#5B3DF5"/><circle cx="31" cy="34" r="3" fill="#2DD4BF"/></svg><h3>Supermercado o minimercado</h3><p>Báscula, lotes y vencimientos, promociones y compras.</p></div>
+        <div class="tipo-negocio" data-tipo="FRESH_MARKET" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><circle cx="18" cy="25" r="10" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2"/><path d="M18 15c0-5 4-8 9-8-1 5-4 8-9 8z" fill="#2DD4BF"/><rect x="26" y="26" width="13" height="9" rx="2" fill="none" stroke="#5B3DF5" stroke-width="2.2"/></svg><h3>Fruver o carnicería</h3><p>Báscula conectada y de etiqueta, kilo o libra, tara.</p></div>
+        <div class="tipo-negocio" data-tipo="PHARMACY" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><rect x="8" y="8" width="28" height="28" rx="8" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2"/><path d="M22 14v16M14 22h16" stroke="#2DD4BF" stroke-width="4" stroke-linecap="round"/></svg><h3>Droguería</h3><p>Lotes y fechas de vencimiento en cada producto.</p></div>
+        <div class="tipo-negocio" data-tipo="APPAREL" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><path d="M16 7l-9 6 4 7 4-2v18h14V18l4 2 4-7-9-6c-1 3-3 5-6 5s-5-2-6-5z" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2" stroke-linejoin="round"/><circle cx="22" cy="24" r="2.5" fill="#2DD4BF"/></svg><h3>Ropa, calzado o deportes</h3><p>Tallas y colores (en una próxima versión) y cambios.</p></div>
+        <div class="tipo-negocio" data-tipo="HARDWARE" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><path d="M10 34l14-14" stroke="#5B3DF5" stroke-width="4" stroke-linecap="round"/><path d="M24 20a7 7 0 1 0 6-11l-4 4-3-1-1-3 4-4a7 7 0 0 0-2 15z" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><rect x="28" y="28" width="10" height="8" rx="2" fill="#2DD4BF"/></svg><h3>Ferretería, papelería o miscelánea</h3><p>Venta por metro o fracción y precio abierto.</p></div>
+        <div class="tipo-negocio" data-tipo="OTHER" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><rect x="7" y="16" width="30" height="20" rx="4" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2"/><path d="M7 16l4-8h22l4 8" fill="none" stroke="#5B3DF5" stroke-width="2.2" stroke-linejoin="round"/><rect x="18" y="25" width="8" height="11" fill="#2DD4BF"/></svg><h3>Otro tipo de negocio</h3><p>Lo básico: ventas, inventario, compras y promociones.</p></div>
+      </div>
+      <div class="pie"><button class="btn btn-sec" data-ir="cuenta">Atrás</button><button class="btn btn-primario" id="btnTipo">Continuar</button></div>
+    </section>
+
     <!-- 5. Tu negocio -->
     <section class="pantalla" data-s="negocio">
       <h1>Tu negocio</h1>
@@ -118,7 +133,7 @@
         <div class="campo ancho"><label for="correoNegocio">Correo del negocio (para la factura electrónica)</label><input id="correoNegocio" type="email" maxlength="120"></div>
       </div>
       <div class="aviso error oculto" id="errorNegocio"></div>
-      <div class="pie"><button class="btn btn-sec" data-ir="cuenta">Atrás</button><button class="btn btn-primario" id="btnInstalar">Instalar BusinessPost</button></div>
+      <div class="pie"><button class="btn btn-sec" data-ir="tipo">Atrás</button><button class="btn btn-primario" id="btnInstalar">Instalar BusinessPost</button></div>
     </section>
 
     <!-- 6. Instalación -->

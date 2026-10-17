@@ -25,7 +25,7 @@ clientes, sin poner en riesgo la operación de la tienda.
 1. Instale el servidor (o Todo en uno) y complete el asistente: empresa, propietario, **clave de licencia** y **código de recuperación**
    (imprímalo; el dueño lo guarda fuera del local).
 2. **Administración → Configuración:** revise la empresa, la sucursal, la bodega principal, los medios de pago (datáfono, transferencias)
-   y los parámetros.
+   y los parámetros. En **Funciones del negocio** confirme el tipo de negocio y deje encendido solo lo que la tienda usa (sección 11).
 3. **Administración → Cajas e impresoras:** cree cada caja, configure su impresora de tiquetes y empareje cada equipo con su código.
    Imprima un tiquete de prueba desde la caja.
 4. **Inventario → Importar desde Excel:** cargue los productos y precios con la plantilla (revise la vista previa: ninguna fila con
@@ -172,3 +172,30 @@ botón "Pesar". Las etiquetas de la báscula etiquetadora (código que empieza p
 
 **Si no lee**: revise que la báscula esté encendida, el cable, el número de puerto, que ningún otro programa use el puerto y que la
 velocidad, bits y paridad coincidan con el menú de la báscula ("respondió, pero no en el formato…" = protocolo o velocidad distintos).
+
+## 11. Funciones del negocio
+
+En **Administración → Configuración → Funciones del negocio** el dueño ve el **tipo de negocio** que eligió al instalar y un
+interruptor por cada función. El tipo de negocio **no es un plan de precios**: todas las funciones vienen en Caja Única y en Multicaja;
+solo ordena los menús y los formularios para que su negocio vea lo que usa.
+
+| Función | Qué hace | Si se apaga |
+|---|---|---|
+| Báscula y PLU | Lee el peso de la báscula en la caja; PLU, tara y etiquetas de báscula en el producto | La caja no lee la báscula; el producto no muestra PLU ni tara; el botón Báscula de Cajas e impresoras desaparece |
+| Lotes y vencimientos | Lote y fecha de vencimiento en los productos que lo necesitan | El producto no muestra "Maneja lotes" ni "Maneja fecha de vencimiento" |
+| Venta por metro o fracción | Cantidades con decimales en productos que van por unidad (1,5 m de cable) | El producto no muestra "Permite cantidades con decimales" (los productos por peso o volumen siguen con decimales) |
+| Precio abierto | El cajero escribe el precio al vender | El producto no muestra "Permite precio abierto" |
+| Promociones | Descuentos y ofertas automáticas | "Promociones" sale del menú. Las promociones activas **siguen aplicándose**: desactívelas antes si no las quiere |
+| Compras y proveedores | Compras, proveedores y cuentas por pagar | "Compras", "Proveedores" y "Cuentas por pagar" salen del menú |
+| Tallas y colores | Un producto en varias tallas y colores | Aún no existe: aparece deshabilitada, "Disponible en una próxima versión" |
+
+- **Apagar una función nunca borra datos.** Si un producto ya tiene datos de una función apagada (por ejemplo, un PLU), el campo se
+  sigue viendo con el aviso *"Esta función está apagada; los datos se conservan"*. Las pantallas de compras y promociones se pueden
+  abrir desde el enlace "Ver las compras guardadas" / "Ver las promociones guardadas" del interruptor.
+- **Cambiar el tipo de negocio** pide confirmación y deja los interruptores en los valores recomendados de ese tipo; después se puede
+  ajustar cada uno.
+- Lo cambia quien tiene el permiso **"Modificar los datos de la empresa"** (el propietario lo tiene). Cada cambio queda en la
+  **Auditoría** ("Tipo de negocio o funciones del negocio cambiados") con lo que se encendió y lo que se apagó.
+- Los menús se ajustan enseguida para quien hizo el cambio; los demás usuarios lo ven al abrir el Tablero o al volver a ingresar. La
+  caja deja de leer (o vuelve a leer) la báscula la próxima vez que se abre la pantalla de venta.
+- El portal de BusinessPost muestra el tipo de negocio de cada empresa (lo envía la tienda en su verificación diaria de la licencia).

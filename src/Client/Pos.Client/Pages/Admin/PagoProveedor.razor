@@ -8,7 +8,7 @@
 
 <PageTitle>Registrar pago a proveedor · BusinessPost</PageTitle>
 
-<Pagina Titulo="Registrar pago a proveedor" Miga="Registrar pago" Cargando="_loading" Error="@_error">
+<Pagina Funcion="PURCHASING" Titulo="Registrar pago a proveedor" Miga="Registrar pago" Cargando="_loading" Error="@_error">
     <Acciones>
         <MudButton Variant="Variant.Text" Href="@Lista">Cancelar</MudButton>
         @if (Session.Has("purchasing.payable.pay"))

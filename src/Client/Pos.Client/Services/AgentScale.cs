@@ -35,8 +35,11 @@ public sealed class AgentScale(ApiClient api)
     /// <summary>Báscula de la caja guardada en el servidor (null si no se pudo leer).</summary>
     public TerminalScaleDto? Config { get; private set; }
 
-    /// <summary>La caja tiene una báscula configurada y activa.</summary>
-    public bool Enabled => Config is { Configured: true, Enabled: true };
+    /// <summary>
+    /// La caja tiene una báscula configurada y activa, y la función "Báscula y PLU" está encendida (Fase 7-C parte A): apagada, la caja no lee
+    /// la báscula (la configuración se conserva).
+    /// </summary>
+    public bool Enabled => Config is { Configured: true, Enabled: true, FeatureEnabled: true };
 
     /// <summary>Lee la báscula de la caja en el servidor y se la entrega al agente. Devuelve un aviso si el agente no la aceptó.</summary>
     public async Task<string?> LoadAsync(Guid terminalId)
@@ -51,7 +54,7 @@ public sealed class AgentScale(ApiClient api)
             return null;
         }
 
-        return Config is { Configured: true } config ? await PushAsync(config) : null;
+        return Config is { Configured: true, FeatureEnabled: true } config ? await PushAsync(config) : null;
     }
 
     /// <summary>Entrega la configuración al agente (<c>PUT /scale/config</c>); el agente la guarda en el equipo.</summary>
