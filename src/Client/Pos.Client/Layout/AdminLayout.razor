@@ -11,7 +11,7 @@
 
 @if (!Session.IsSignedIn)
 {
-    <Redirigir A="/ingresar" />
+    <Redirigir A="@Ingresar" />
 }
 else if (Session.IsTerminal)
 {
@@ -208,10 +208,14 @@ else
 
     private void CambioDeRuta(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
 
+    /// <summary>Al ingresar de nuevo se vuelve a la página donde estaba (sesión vencida, recarga en otra pestaña…).</summary>
+    private string Ingresar => "/ingresar?volver=" + Uri.EscapeDataString("/" + Navigation.ToBaseRelativePath(Navigation.Uri));
+
     private void OnUnauthorized()
     {
+        var destino = Ingresar;
         Session.SignOut();
-        Navigation.NavigateTo("/ingresar");
+        Navigation.NavigateTo(destino);
     }
 
     private async Task SalirAsync()
