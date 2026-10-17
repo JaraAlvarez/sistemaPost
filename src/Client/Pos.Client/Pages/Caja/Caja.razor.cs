@@ -1559,20 +1559,51 @@ public sealed partial class Caja
         var volverA = _panel is Panel.Cobro or Panel.Suspendidas ? _panel : Panel.None;
         await RunAsync(async grant =>
         {
-            // Con varios créditos, «solo los necesarios» libera los más grandes hasta que lo aprobado quepa en la venta.
+            // Con varios créditos, «solo los necesarios» libera el más chico que alcance (o la combinación con menos reversos).
+            var antes = await CreditosUsablesAsync(saleId);
             await Api.PostAsync<Sale>($"api/v1/sales/{saleId}/sistecredito/release", new { transactionId, onlyNeeded = soloLosNecesarios }, grant);
-            _payments.RemoveAll(p => transactionId is null || p.Reference == transactionId);
-            if (_sale?.Id == saleId)
+            var despuesDeLiberar = await CreditosUsablesAsync(saleId);
+
+            // Solo se quitan los pagos que el servidor de verdad liberó (si no liberó nada, la caja no cambia).
+            var liberados = antes is null || despuesDeLiberar is null
+                ? (transactionId is null ? [] : new HashSet<string>(StringComparer.Ordinal) { transactionId })
+                : antes.Except(despuesDeLiberar, StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
+            if (liberados.Count == 0)
             {
-                _amount = Math.Max(0, _sale.AmountDue - Pagado);
+                Snackbar.Add("No había créditos de Sistecrédito por liberar en esta venta.", Severity.Info);
+            }
+            else
+            {
+                _payments.RemoveAll(p => p.Reference is not null && liberados.Contains(p.Reference));
+                if (_sale?.Id == saleId)
+                {
+                    _amount = Math.Max(0, _sale.AmountDue - Pagado);
+                }
+
+                Snackbar.Add("Crédito de Sistecrédito no usado: quedó en revisión para que la administración lo reverse. Cobre con otro medio.", Severity.Info);
             }
 
-            Snackbar.Add("Crédito de Sistecrédito no usado: quedó en revisión para que la administración lo reverse. Cobre con otro medio.", Severity.Info);
             if (despues is not null)
             {
                 await despues();
             }
         }, volverA);
+    }
+
+    /// <summary>Transacciones de los créditos de Sistecrédito usables de la venta; <c>null</c> si no se pudo consultar.</summary>
+    private async Task<HashSet<string>?> CreditosUsablesAsync(Guid saleId)
+    {
+        try
+        {
+            return (await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{saleId}/open"))
+                .Where(c => c.Usable && c.TransactionId is not null)
+                .Select(c => c.TransactionId!)
+                .ToHashSet(StringComparer.Ordinal);
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Créditos de Sistecrédito aprobados de cada venta suspendida (para ofrecer «No usar este crédito» en la lista).</summary>

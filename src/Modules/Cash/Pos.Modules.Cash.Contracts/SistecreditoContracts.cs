@@ -28,7 +28,8 @@ public sealed record SistecreditoVerificationDto(bool Ok, string Message, string
 /// <summary>
 /// Un cobro con Sistecrédito. <c>Status</c>: PENDING, APPROVED, REJECTED, EXPIRED, CANCELLED o REVIEW_REQUIRED. El documento va
 /// enmascarado (solo los últimos 4). <c>Warning</c>: aviso temporal (p. ej. sin conexión con Sistecrédito; se sigue intentando).
-/// <c>Usable</c>: aprobado y sin usar (aunque esté en REVIEW_REQUIRED): la caja lo agrega como pago de su venta.
+/// <c>Usable</c>: aprobado y sin usar (aunque esté en REVIEW_REQUIRED): la caja lo agrega como pago de su venta. <c>ReviewUpdate</c>:
+/// novedad posterior de un cobro que ya estaba en revisión (el motivo con que entró sigue en <c>Message</c>).
 /// </summary>
 public sealed record SistecreditoPaymentDto(
     Guid Id,
@@ -50,7 +51,8 @@ public sealed record SistecreditoPaymentDto(
     DateTimeOffset? ReviewRequiredAt,
     DateTimeOffset? ReviewedAt,
     string? ReviewNote,
-    bool Usable = false);
+    bool Usable = false,
+    string? ReviewUpdate = null);
 
 /// <summary>
 /// Sistecrédito visto por ventas (D7B-05): al completar una venta pagada con Sistecrédito, el pago debe corresponder a un cobro APROBADO

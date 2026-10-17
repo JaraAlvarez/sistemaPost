@@ -139,8 +139,9 @@ public interface ISistecreditoStore
     Task<int> CountPendingReviewsAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Cobros de una caja que pasaron a "Requiere revisión" entre dos momentos (para el cierre, el detalle de la jornada y el reporte X/Z):
-    /// liberados con «No usar este crédito», aprobados tarde, aprobados después de completar con otro medio, de ventas anuladas…
+    /// Cobros de una caja en "Requiere revisión" que entraron en revisión o se iniciaron entre dos momentos (para el cierre, el detalle de
+    /// la jornada y el reporte X/Z): liberados con «No usar este crédito», aprobados tarde, aprobados después de completar con otro medio, de
+    /// ventas anuladas… Un aprobado tarde después del cierre sale en su jornada y también en la que estaba abierta: nunca queda huérfano.
     /// </summary>
     Task<IReadOnlyList<SistecreditoAttempt>> ListToReviewAsync(Guid posTerminalId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken);
 }
@@ -192,7 +193,7 @@ public static class SistecreditoMapping
     public static SistecreditoPaymentDto ToDto(this SistecreditoAttempt a, string? warning = null) => new(
         a.Id, a.SaleId, a.Amount, a.DocumentType, a.MaskedDocument, a.Environment.UpperSnake(), a.TransactionId, a.Status.UpperSnake(), a.ProviderStatus,
         a.RedirectUrl, a.Installments, a.Message, warning, a.StartedAt, a.ApprovedAt, a.CompletedSaleId, a.ReviewRequiredAt, a.ReviewedAt, a.ReviewNote,
-        a.IsUsable);
+        a.IsUsable, a.ReviewUpdate);
 
     public static SistecreditoEnvironment? ParseEnvironment(string? value) => EnumText.Normalize(value) switch
     {
@@ -915,20 +916,16 @@ public sealed class SistecreditoPaymentsService(
                 return attempts.Any(a => a.ReleasedAt is not null) ? Result.Success() : SistecreditoErrors.NotApproved;
             }
 
-            // Solo los necesarios: se liberan los más grandes hasta que lo aprobado quepa en lo que falta por pagar.
+            // Solo los necesarios: el crédito más chico que cubra el exceso o, si ninguno alcanza solo, la combinación con menos reversos y
+            // menor valor liberado (SistecreditoProtocol.ChooseToRelease).
             if (keepUpTo is { } limit)
             {
-                var kept = usable.Sum(a => a.Amount);
-                usable = usable.TakeWhile(a =>
+                var chosen = SistecreditoProtocol.ChooseToRelease([.. usable.Select(a => a.Amount)], limit);
+                usable = [.. chosen.Select(i => usable[i])];
+                if (usable.Count == 0)
                 {
-                    if (kept <= limit)
-                    {
-                        return false;
-                    }
-
-                    kept -= a.Amount;
-                    return true;
-                }).ToList();
+                    return Result.Success(); // lo aprobado ya cabe: no hay nada que liberar
+                }
             }
 
             foreach (var each in usable)

@@ -453,9 +453,9 @@ internal sealed class CompleteSaleHandler(
             if (allocation.Error.Code == SalesErrors.NonCashOverpayment.Code && tenders.Value.Where(t => t.Kind == "SISTECREDITO").Sum(t => t.Amount) is > 0m and var creditPaid)
             {
                 return Error.BusinessRule(
-                    "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL",
-                    $"Sistecrédito ({creditPaid:N0}) más los otros medios sin cambio superan la venta ({sale.Total:N2}): baje el valor del otro medio a "
-                    + $"{Math.Max(0m, sale.Total - creditPaid):N2} o, si el cliente no va a usar el crédito, use «No usar este crédito» (con autorización de supervisor).");
+                    "SALES.NON_CASH_EXCEEDS_TOTAL_WITH_CREDIT",
+                    $"Sistecrédito ({creditPaid:N0}) más los otros medios que no dan cambio superan la venta ({sale.Total:N2}): baje el otro medio a "
+                    + $"${Math.Max(0m, sale.Total - creditPaid):N0}. Si el cliente no va a usar el crédito, use «No usar este crédito» (con autorización de supervisor).");
             }
 
             return allocation.Error;

@@ -60,6 +60,67 @@ public static class SistecreditoProtocol
     public static bool IsFailed(string? providerStatus) => providerStatus is not null && FailedStatuses.Contains(providerStatus);
 
     /// <summary>
+    /// Qué créditos liberar («No usar este crédito», solo los necesarios) para que lo aprobado que queda no supere <paramref name="keepUpTo"/>:
+    /// si con uno alcanza, el más chico que cubra el exceso; si no, la combinación con menos créditos y, entre esas, la de menor valor
+    /// liberado (son pocos créditos por venta). Devuelve las posiciones en <paramref name="amounts"/>.
+    /// </summary>
+    public static IReadOnlyList<int> ChooseToRelease(IReadOnlyList<decimal> amounts, decimal keepUpTo)
+    {
+        ArgumentNullException.ThrowIfNull(amounts);
+        var excess = amounts.Sum() - keepUpTo;
+        if (excess <= 0m)
+        {
+            return [];
+        }
+
+        var single = Enumerable.Range(0, amounts.Count).Where(i => amounts[i] >= excess).OrderBy(i => amounts[i]).ThenBy(i => i).ToList();
+        if (single.Count > 0)
+        {
+            return [single[0]];
+        }
+
+        if (amounts.Count > 16)
+        {
+            // Nunca pasa en la caja (un puñado de créditos por venta): por si acaso, los más grandes primero.
+            var chosen = new List<int>();
+            var freed = 0m;
+            foreach (var i in Enumerable.Range(0, amounts.Count).OrderByDescending(i => amounts[i]))
+            {
+                chosen.Add(i);
+                freed += amounts[i];
+                if (freed >= excess)
+                {
+                    break;
+                }
+            }
+
+            return chosen;
+        }
+
+        var best = (Mask: 0, Count: int.MaxValue, Sum: decimal.MaxValue);
+        for (var mask = 1; mask < 1 << amounts.Count; mask++)
+        {
+            var count = 0;
+            var sum = 0m;
+            for (var i = 0; i < amounts.Count; i++)
+            {
+                if ((mask & (1 << i)) != 0)
+                {
+                    count++;
+                    sum += amounts[i];
+                }
+            }
+
+            if (sum >= excess && (count < best.Count || (count == best.Count && sum < best.Sum)))
+            {
+                best = (mask, count, sum);
+            }
+        }
+
+        return [.. Enumerable.Range(0, amounts.Count).Where(i => (best.Mask & (1 << i)) != 0)];
+    }
+
+    /// <summary>
     /// Cada cuánto se vuelve a consultar un cobro que terminó sin aprobar (por si el cliente aprueba después), según el tiempo desde que
     /// terminó: cada 5 min los primeros 20 min, cada 15 min hasta la 1 h 15, cada hora hasta las 4 h y luego cada 3 h (hasta 24 h).
     /// </summary>
@@ -225,6 +286,9 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
 
     public string? ReviewNote { get; private set; }
 
+    /// <summary>Novedad posterior de un cobro que ya estaba en revisión (el motivo con que entró se conserva en <see cref="Message"/>).</summary>
+    public string? ReviewUpdate { get; private set; }
+
     /// <summary>Con autorización de supervisor, este crédito aprobado NO se usa en la venta ("No usar este crédito"): queda en revisión.</summary>
     public DateTimeOffset? ReleasedAt { get; private set; }
 
@@ -369,11 +433,18 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
     }
 
     /// <summary>Se consultó (o se intentó consultar) a Sistecrédito: la revisión automática le da turno al que lleva más tiempo sin mirar.</summary>
+    /// <remarks>
+    /// Un cobro que terminó sin aprobar (rechazado, cancelado o vencido) no se vuelve a consultar antes de la espera creciente de
+    /// <see cref="SistecreditoProtocol.FailedRecheckGap"/> (se guarda en <see cref="NextCheckAt"/> y la revisión automática filtra en la base
+    /// de datos); los demás pueden consultarse en la próxima vuelta.
+    /// </remarks>
     public void Checked(DateTimeOffset now)
     {
         LastCheckedAt = now;
         CheckFailures = 0;
-        NextCheckAt = null;
+        NextCheckAt = Status is SistecreditoAttemptStatus.Cancelled or SistecreditoAttemptStatus.Rejected or SistecreditoAttemptStatus.Expired
+            ? now + SistecreditoProtocol.FailedRecheckGap(now - (FinishedAt ?? StartedAt))
+            : null;
     }
 
     /// <summary>La revisión automática no pudo guardar este cobro: espera 2, 4, 8… minutos (máximo 60) antes de volver a intentarlo.</summary>
@@ -518,19 +589,28 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
             return false;
         }
 
-        Status = SistecreditoAttemptStatus.ReviewRequired;
-        ReviewRequiredAt = now;
-        Message = "Venta anulada: reverse el pago en el portal de Sistecrédito";
+        RequireReview("Venta anulada: reverse el pago en el portal de Sistecrédito", now);
         return true;
     }
 
     /// <summary>Aprobado sin venta: la administración debe completar la venta o reversar el pago en el portal de Sistecrédito.</summary>
+    /// <remarks>
+    /// Si ya estaba en revisión, se conservan la hora y el motivo con que entró (son los que ven el cierre de su jornada y la
+    /// administración); lo nuevo queda aparte en <see cref="ReviewUpdate"/>.
+    /// </remarks>
     public void RequireReview(string reason, DateTimeOffset now)
     {
+        if (Status == SistecreditoAttemptStatus.ReviewRequired && ReviewRequiredAt is not null)
+        {
+            ReviewUpdate = Trim(reason);
+            return;
+        }
+
         Status = SistecreditoAttemptStatus.ReviewRequired;
         ReviewRequiredAt = now;
         FinishedAt ??= now;
-        Message = reason;
+        Message = Trim(reason);
+        ReviewUpdate = null;
     }
 
     /// <summary>La administración revisó el caso (p. ej. reversó el pago en el portal de Sistecrédito) y deja la nota.</summary>
