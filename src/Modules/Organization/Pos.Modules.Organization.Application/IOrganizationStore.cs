@@ -24,6 +24,9 @@ public interface IOrganizationStore
 
     Task<TerminalScale?> GetTerminalScaleAsync(Guid posTerminalId, CancellationToken cancellationToken);
 
+    /// <summary>Todas las básculas configuradas (una consulta).</summary>
+    Task<IReadOnlyList<TerminalScale>> ListTerminalScalesAsync(CancellationToken cancellationToken);
+
     Task<Company?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
 
     Task<bool> CompanyExistsAsync(string identificationType, string identificationNumber, CancellationToken cancellationToken);

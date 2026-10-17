@@ -11,6 +11,15 @@ public interface IDeviceAuthenticator
     Task<AuthenticatedDevice?> AuthenticateAsync(Guid deviceId, string secret, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Clave pública vigente con la que el agente de una caja firma las lecturas de la báscula (D3).</summary>
+public sealed record ScaleReadingKey(Guid KeyId, string PublicKey);
+
+/// <summary>Claves de las básculas de las cajas, para que Ventas verifique las lecturas firmadas.</summary>
+public interface ITerminalScaleKeys
+{
+    Task<ScaleReadingKey?> GetAsync(Guid posTerminalId, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Datos de una caja para abrir una sesión en ella.</summary>
 /// <summary>Caja vista por otros módulos. <c>WarehouseId</c>: bodega de la que vende (Fase 7).</summary>
 public sealed record TerminalInfo(Guid Id, Guid CompanyId, Guid BranchId, string Code, bool IsActive, Guid WarehouseId);

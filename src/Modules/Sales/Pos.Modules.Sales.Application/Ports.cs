@@ -26,6 +26,19 @@ public interface ISalesStore
     Task<CustomerReturn?> GetReturnAsync(Guid id, CancellationToken cancellationToken);
 
     Task<bool> HasDraftReturnAsync(Guid originalSaleId, CancellationToken cancellationToken);
+
+    /// <summary>Retorno a cero de la báscula de la caja (D1/D3); nulo si la caja nunca ha pesado.</summary>
+    Task<ScaleInterlock?> GetScaleInterlockAsync(Guid posTerminalId, CancellationToken cancellationToken);
+
+    void Add(ScaleInterlock interlock);
+
+    void Add(ScaleReadingRecord reading);
+
+    /// <summary>La lectura firmada ya se usó en una línea (nonce).</summary>
+    Task<bool> ScaleReadingUsedAsync(Guid readingId, CancellationToken cancellationToken);
+
+    /// <summary>BB10: borra las lecturas de la caja registradas antes de <paramref name="before"/>.</summary>
+    Task PurgeScaleReadingsAsync(Guid posTerminalId, DateTimeOffset before, CancellationToken cancellationToken);
 }
 
 /// <summary>Encabezado del tiquete: empresa, sucursal, caja y cajero.</summary>
@@ -79,7 +92,17 @@ public static class SalesSettings
         "Total a partir del cual una venta a Consumidor final exige identificar al cliente (0 = sin tope).",
         v => v >= 0m ? null : "Debe ser mayor o igual a cero.");
 
-    public static IEnumerable<SettingDefinition> All => [CashRoundingIncrement, MergeSameProduct, MaxHeldPerTerminal, ExchangeDays, AnonymousSaleLimit];
+    /// <summary>
+    /// Báscula (Fase 7-C, BB4): diferencia máxima, en segundos, entre la hora de una lectura firmada (reloj del agente) y la del servidor.
+    /// Más vieja o del futuro se rechaza ("revise la hora del computador de la caja").
+    /// </summary>
+    public static readonly SettingDefinition<int> ScaleReadingMaxSkewSeconds = new(
+        "sales.scale_reading_max_skew_seconds", 300, SettingScope.Company | SettingScope.Branch | SettingScope.Terminal,
+        "Diferencia máxima (segundos) entre la hora de la lectura de la báscula en la caja y la hora del servidor.",
+        v => v is >= 30 and <= 3600 ? null : "Entre 30 y 3600.");
+
+    public static IEnumerable<SettingDefinition> All =>
+        [CashRoundingIncrement, MergeSameProduct, MaxHeldPerTerminal, ExchangeDays, AnonymousSaleLimit, ScaleReadingMaxSkewSeconds];
 }
 
 public sealed class SalesSettingsProvider : ISettingDefinitionProvider

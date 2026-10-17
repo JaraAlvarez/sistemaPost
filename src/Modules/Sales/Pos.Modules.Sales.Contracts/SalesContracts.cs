@@ -20,6 +20,7 @@ public static class SalesPermissions
     public const string WarrantyRefund = "sales.refund.warranty";
     public const string SaleReprint = "sales.sale.reprint";
     public const string SaleView = "sales.sale.view";
+    public const string ScaleReset = "sales.scale.reset";
 
     public static IEnumerable<PermissionDefinition> All =>
     [
@@ -35,6 +36,7 @@ public static class SalesPermissions
         new(WarrantyRefund, "Reintegrar dinero por garantía (excepción legal, solo el propietario)", isSensitive: true),
         new(SaleReprint, "Reimprimir el tiquete de una venta (marcado COPIA)", isSensitive: false),
         new(SaleView, "Consultar ventas, cambios y reportes de ventas", isSensitive: false),
+        new(ScaleReset, "Reiniciar la báscula de la caja: libera la espera de «retire el producto» (admite autorización de supervisor)", isSensitive: true),
     ];
 }
 
@@ -71,6 +73,30 @@ public sealed record SaleLineDto(
     Guid? PriceListId = null,
     string PriceSource = "DEFAULT",
     string? WeightSource = null);
+
+/// <summary>
+/// Lectura firmada por el agente de la caja que acompaña una línea con <c>WeightSource</c> SCALE (Fase 7-C, D3): <c>Payload</c> es el
+/// texto canónico (<see cref="Pos.SharedKernel.Measurement.ScaleReadingPayload"/>) y <c>Signature</c> su firma ECDSA P-256 en Base64.
+/// La interfaz la reenvía tal como la entregó el agente; el servidor toma el peso, la tara y el retorno a cero de ahí, nunca del cliente.
+/// </summary>
+public sealed record ScaleReadingInfo(string Payload, string Signature);
+
+/// <summary>Retorno a cero de la báscula de la caja en el servidor: <c>AwaitingEmpty</c> = la siguiente pesada exige retirar el producto.</summary>
+public sealed record ScaleInterlockDto(bool AwaitingEmpty);
+
+/// <summary>
+/// Versión mínima de la interfaz de caja que el servidor acepta para pesar (Fase 7-C, BN10): la interfaz envía la cabecera
+/// <see cref="Header"/>; una pantalla vieja guardada en el navegador no la envía y recibe <c>CLIENT.OUTDATED</c> ("recargue la página").
+/// </summary>
+public static class PosClientBuild
+{
+    public const string Header = "X-Pos-Client-Build";
+
+    /// <summary>Primera versión que envía las lecturas firmadas de la báscula.</summary>
+    public const int SignedScaleReadings = 2;
+
+    public const string OutdatedCode = "CLIENT.OUTDATED";
+}
 
 /// <summary>
 /// De dónde salió el peso de una línea (Fase 7-C): SCALE (báscula conectada a la caja), LABEL (etiqueta de la báscula etiquetadora) o
