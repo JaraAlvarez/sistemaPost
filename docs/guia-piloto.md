@@ -250,3 +250,49 @@ todo rol creado por la empresa que podía hacer ajustes de inventario también l
 - Si hay más de 5.000 productos para pedir, se muestran los primeros 5.000 con un aviso: filtre por categoría o proveedor. Después, en Compras → Órdenes, revise, apruebe y envíe cada una como siempre.
 - Todo queda en la **Auditoría**: cada cambio de mínimo y máximo ("Mínimo y máximo · creado/modificado"), cada importación
   ("Mínimos y máximos importados de Excel"), los mínimos calculados guardados y las órdenes creadas desde el pedido sugerido.
+## 13. Etiquetas de góndola
+
+En **Inventario → Etiquetas** se imprimen las etiquetas de precio de la góndola (habladores) y los adhesivos con código de barras. Lo
+puede usar quien consulta productos; generar códigos internos exige poder modificar productos.
+
+**1. Arme la lista** (se pueden combinar varias formas; si un producto ya estaba, se toma la cantidad nueva):
+- **Buscar productos** uno por uno (nombre, SKU o código).
+- **Una categoría**: todos sus productos activos, incluidas las subcategorías.
+- **Cambios de precio desde una fecha**: los productos cuyo precio nuevo ya rige y empezó desde ese día (para cambiar las etiquetas
+  después de subir o bajar precios).
+- **Productos de una compra** (si Compras está encendida y tiene el permiso de consultar compras): escriba el **número interno** de la
+  compra de esta sucursal (no el de la factura del proveedor, que se repite entre proveedores). La cantidad de cada producto es lo que
+  llegó en unidades (2 cajas × 12 = 24 etiquetas). Lo que se vende por peso lleva una sola. También está el botón **Imprimir etiquetas**
+  en la compra confirmada.
+- **Productos sin código de barras**.
+
+Los productos **descontinuados** no salen (se avisa cuántos se omitieron); los **inactivos** salen marcados para que decida. Si la empresa
+tiene varias sucursales, elija arriba la **sucursal**: los precios y las promociones dependen de ella (solo las sucursales en las que su
+usuario puede consultar productos). La lista de precios general siempre admite promociones, como en la caja.
+
+**2. Revise**: precio al público, calculado **igual que en la caja** (con IVA e impuestos fijos como la bolsa o el IBUA, también si la lista
+de precios no incluye impuestos; los centavos se suben al peso para que la góndola nunca diga menos de lo que se cobra); oferta vigente
+hoy en la sucursal (precio especial o porcentaje con el precio normal tachado y "hasta dd/mm" si la promoción tiene fecha final;
+"Lleve 3 pague 2" o "Desde 3 und" como texto); precio por kilo o por litro cuando el producto tiene contenido neto (500 g, 750 ml) y la
+cantidad de copias (0 = no se imprime). Las promociones que solo rigen ciertos días u horas **no** se imprimen en la góndola.
+
+Si un producto **no tiene código de barras**, la etiqueta lleva el SKU (la caja también lo lee). Con el botón **Generar código interno**
+el sistema le crea un código EAN-13 que empieza por 29 (si ese número ya lo tiene otro producto, toma el siguiente); pide confirmación,
+queda guardado en el producto y en la **Auditoría** ("Códigos internos generados para etiquetas"). Si algún producto no se pudo (ya tenía
+código, está descontinuado), se informa sin detener los demás.
+
+**3. Imprima**:
+- **Hoja A4 · 24 etiquetas (66 × 35 mm)** u **Hoja A4 · 14 etiquetas grandes (100 × 40 mm)**: imprima al **100 %** (sin "ajustar a la
+  página") en papel adhesivo o normal y recorte por las líneas grises.
+- **Adhesivo 40 × 25 mm** o **50 × 30 mm**: el PDF viene al tamaño exacto del rollo, una etiqueta por página. En la impresora de
+  etiquetas (Zebra, Xprinter, TSC…) elija ese tamaño de papel en Windows y la opción de etiquetas con separación (gap).
+- **Imprimir en la impresora de tiquetes** (solo en un computador de caja): nombre, precio y código de barras CODE128 una tras otra en
+  el papel de 80 mm, para recortar a mano. Sirve para salir del paso; para la góndola es mejor el PDF.
+
+Las barras nunca se imprimen más delgadas de 0,25 mm (2 puntos de una impresora de 203 ppp); los EAN buscan su tamaño recomendado
+(0,264 mm) y, si en el adhesivo de 40 × 25 mm no alcanza, la vista previa lo avisa. Un código largo (un SKU de muchas
+letras) usa todo el ancho de la etiqueta; si aun así no cabe, el sistema lo dice: use la hoja de 14 etiquetas o genere el código interno.
+En la impresora de tiquetes los EAN-13 salen como EAN y el ancho de las barras se ajusta al papel (58 mm = 384 puntos; 80 mm = 512); si un código no cabe,
+se imprime su texto.
+
+Máximo 2.000 etiquetas por archivo, 200 en la impresora de tiquetes y 500 copias por producto: si es más, imprima por partes.

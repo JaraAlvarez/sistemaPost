@@ -143,7 +143,7 @@
                                                 <td class="num">@(d.PendingQuantity > 0 ? Format.Quantity(d.PendingQuantity) : "—")</td>
                                                 <td class="num">
                                                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="1">
-                                                        <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="linea.Cantidad" Min="0" HideSpinButtons="true"
+                                                        <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="linea.Cantidad" Min="0" HideSpinButtons="true"
                                                                          Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Cantidad a pedir de {d.ProductName}")" />
                                                         <MudText Typo="Typo.caption">@Presentacion(d)</MudText>
                                                     </MudStack>
@@ -247,9 +247,9 @@
                                             <td class="num">@Format.Quantity(d.SoldQuantity) @d.BaseUnitCode</td>
                                             <td class="num">@Format.Quantity(decimal.Round(d.AverageDailySales, 2))</td>
                                             <td class="num">@(d.CurrentMinQuantity is { } min ? Format.Quantity(min) : "—")</td>
-                                            <td class="num"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="fila.Minimo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Mínimo de {d.ProductName}")" /></td>
+                                            <td class="num"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="fila.Minimo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Mínimo de {d.ProductName}")" /></td>
                                             <td class="num">@(d.CurrentMaxQuantity is { } max ? Format.Quantity(max) : "—")</td>
-                                            <td class="num"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="fila.Maximo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Máximo de {d.ProductName}")" /></td>
+                                            <td class="num"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="fila.Maximo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Máximo de {d.ProductName}")" /></td>
                                         </tr>
                                     }
                                 </tbody>

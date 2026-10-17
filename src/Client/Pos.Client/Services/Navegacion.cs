@@ -37,6 +37,7 @@ public static class Navegacion
         new("Inventario", Icons.Material.Outlined.Inventory2,
         [
             new("Productos y precios", "/admin/productos", Icons.Material.Outlined.Sell, s => s.Has("catalog.product.view")),
+            new("Etiquetas", "/admin/etiquetas", Icons.Material.Outlined.Label, s => s.Has("catalog.product.view")),
             new("Existencias", "/admin/existencias", Icons.Material.Outlined.Warehouse, s => s.Has("inventory.stock.view")),
             new("Reabastecimiento", "/admin/reabastecimiento", Icons.Material.Outlined.AddShoppingCart,
                 s => (s.Has("purchasing.purchase.view") && s.Feature(BusinessCatalog.Purchasing)) || s.Has("inventory.policy.manage")),

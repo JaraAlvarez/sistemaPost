@@ -30,8 +30,19 @@ public sealed record ColumnsLine(string Left, string Right, bool Bold = false) :
 
 public sealed record SeparatorLine(char Character = '-') : TicketElement;
 
-/// <summary>Código de barras CODE128 (p. ej. el número de la venta para buscarla en un cambio).</summary>
-public sealed record BarcodeElement(string Data) : TicketElement;
+/// <summary>
+/// Código de barras (p. ej. el número de la venta para buscarla en un cambio). Sin <c>Symbology</c> va en CODE128 subconjunto B como
+/// siempre; con <c>Symbology</c> (EAN13, EAN8 o CODE128, sin distinguir mayúsculas; otra cualquiera = CODE128) la impresora usa esa simbología, CODE128 numérico va en el subconjunto C y el
+/// ancho de las barras se ajusta al papel (si no cabe, se imprime el texto del código).
+/// </summary>
+public sealed record BarcodeElement(
+    string Data,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Symbology = null) : TicketElement
+{
+    public const string Ean13 = "EAN13";
+    public const string Ean8 = "EAN8";
+    public const string Code128 = "CODE128";
+}
 
 /// <summary>Código QR (p. ej. el de la DIAN cuando el documento sea electrónico).</summary>
 public sealed record QrElement(string Data) : TicketElement;

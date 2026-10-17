@@ -64,6 +64,7 @@ Módulos **transversales** (no son funcionalidades de negocio pero todos los usa
 - Stock mínimo / máximo / punto de pedido por bodega.
 - Importación masiva desde Excel/CSV con validación.
 - Productos relacionados a proveedores.
+- **Etiquetas de góndola y códigos de barras** (`/admin/etiquetas`, API `/api/v1/catalog/labels`): lista por productos, categoría, cambios de precio desde una fecha, compra recibida (cantidad = unidades recibidas, contrato `IPurchaseReceipts` de Purchasing) o productos sin código; precio al público, oferta vigente (contrato `IActivePromotions`) y precio por kilo/litro; PDF con PDFsharp al tamaño exacto (A4 3×8 y 2×7, adhesivos 40×25 y 50×30 mm) con barras EAN-13/EAN-8/CODE128 vectoriales propias (`BarcodeSymbology`, sin bibliotecas nuevas); tiquete neutro para la impresora de la caja; generación auditada del código interno 29 (`PRODUCT_INTERNAL_CODES_GENERATED`). El agente de caja solo imprime ESC/POS (no TSPL/ZPL): los adhesivos térmicos se imprimen desde el PDF con el controlador de Windows.
 
 ### 4. Inventory
 - Saldos por producto/bodega (y por lote si aplica).

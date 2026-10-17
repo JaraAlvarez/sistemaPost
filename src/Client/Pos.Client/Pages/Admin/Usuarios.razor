@@ -21,8 +21,8 @@
             </HeaderContent>
             <RowTemplate>
                 <MudTd>@context.Username</MudTd>
-                <MudTd>@context.DisplayName</MudTd>
-                <MudTd>@string.Join(", ", context.Roles.Select(r => NombreRol(r.RoleCode)))</MudTd>
+                <MudTd Class="celda-texto">@context.DisplayName</MudTd>
+                <MudTd Class="celda-texto">@string.Join(", ", context.Roles.Select(r => NombreRol(r.RoleCode)))</MudTd>
                 <MudTd>@context.PosCode</MudTd>
                 <MudTd>@(Estado(context) == "ACTIVE" ? "Activo" : Estado(context) == "LOCKED" ? "Bloqueado" : "Inactivo")</MudTd>
                 <MudTd>@Format.Date(context.LastLoginAt)</MudTd>

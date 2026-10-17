@@ -55,6 +55,7 @@ public static class AuditActions
         new("SISTECREDITO_REVIEW_RESOLVED", "cash", "Revisión de un cobro con Sistecrédito cerrada", "INFO"),
         new("SISTECREDITO_SETTINGS_CHANGED", "cash", "Configuración o llaves de Sistecrédito cambiadas", "WARNING"),
         new("CATALOG_IMPORT_APPLIED", "catalog", "Importación de catálogo aplicada", "INFO"),
+        new("PRODUCT_INTERNAL_CODES_GENERATED", "catalog", "Códigos internos generados para etiquetas", "INFO"),
         new("PRODUCT_PRICE_CHANGED", "catalog", "Precio de venta cambiado", "INFO"),
         new("PRODUCT_PRICE_SCHEDULED", "catalog", "Precio de venta programado", "INFO"),
         new("CUSTOMER_ANONYMIZED", "customers", "Datos del cliente suprimidos", "WARNING"),

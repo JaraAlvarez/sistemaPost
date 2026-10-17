@@ -85,7 +85,8 @@ public sealed class ActivePromotions(IPromotionStore store, ICatalogSaleItems ca
             p.Id, p.Name, p.Type.Db(),
             [.. p.Items.Select(i => new PromotionTargetDefinition(
                 i.ProductId, i.PackagingId, i.CategoryId is { } c ? subtrees.GetValueOrDefault(c) ?? new HashSet<Guid> { c } : null, i.BrandId, i.Quantity))],
-            p.BuyQuantity, p.PayQuantity, p.Price, p.Percent, p.MinQuantity, p.MaxApplications, p.TicketText))];
+            p.BuyQuantity, p.PayQuantity, p.Price, p.Percent, p.MinQuantity, p.MaxApplications, p.TicketText, p.ValidTo,
+            p.Days != PromotionDays.All || (p.StartTime is not null && p.EndTime is not null)))];
     }
 }
 

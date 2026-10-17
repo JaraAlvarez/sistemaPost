@@ -102,7 +102,7 @@
                                           HelperText="@(EsExistente ? null : "Vacío = se toma la identificación")" />
                         </MudItem>
                         <MudItem xs="6" sm="4"><MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_termDays" Label="Plazo de pago (días)" Min="0" ReadOnly="@(!PuedeEditar)" /></MudItem>
-                        <MudItem xs="6" sm="4"><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_creditLimit" Label="Cupo de crédito (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                        <MudItem xs="6" sm="4"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="_creditLimit" Label="Cupo de crédito (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" /></MudItem>
                         <MudItem xs="12">
                             <MudCheckBox T="bool" @bind-Value="_issuesInvoices" Label="Expide factura electrónica (si no, sus compras requieren documento soporte)" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>

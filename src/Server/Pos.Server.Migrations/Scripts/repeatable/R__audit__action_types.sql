@@ -67,6 +67,7 @@ INSERT INTO audit.action_types (code, module, name, default_severity) VALUES
     ('PRODUCT_BARCODE_UPDATED', 'catalog', 'Código de barras · modificado', 'INFO'),
     ('PRODUCT_CREATED', 'catalog', 'Producto · creado', 'INFO'),
     ('PRODUCT_DELETED', 'catalog', 'Producto · eliminado', 'WARNING'),
+    ('PRODUCT_INTERNAL_CODES_GENERATED', 'catalog', 'Códigos internos generados para etiquetas', 'INFO'),
     ('PRODUCT_PACKAGING_CREATED', 'catalog', 'Presentación · creado', 'INFO'),
     ('PRODUCT_PACKAGING_DELETED', 'catalog', 'Presentación · eliminado', 'WARNING'),
     ('PRODUCT_PACKAGING_UPDATED', 'catalog', 'Presentación · modificado', 'INFO'),

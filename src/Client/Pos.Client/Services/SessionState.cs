@@ -167,6 +167,18 @@ public static class Format
 
     public static string Money(decimal? value) => value is { } v ? Money(v) : "—";
 
+    /// <summary>
+    /// Formato de los campos numéricos editables (<c>MudNumericField Format=…</c>). Sin él, un valor que llega del servidor con escala 4
+    /// se muestra como «500,0000». Sin separador de miles para que lo escrito se lea igual al volver a interpretarlo.
+    /// </summary>
+    public const string CampoDinero = "0.##";
+
+    /// <summary>Cantidades, pesos y factores en campos editables: sin ceros sobrantes y hasta 3 decimales (gramos en kilos).</summary>
+    public const string CampoCantidad = "0.###";
+
+    /// <summary>Porcentajes en campos editables.</summary>
+    public const string CampoPorcentaje = "0.##";
+
     public static string Quantity(decimal value) => value.ToString(decimal.Truncate(value) == value ? "#,##0" : "#,##0.###", Colombia);
 
     public static string Date(DateTimeOffset? value) => value is { } v ? v.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Colombia) : "—";
