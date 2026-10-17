@@ -66,3 +66,13 @@ normal sea **"Ingresar con Google"** (su equipo ya usa cuentas de Google con su 
 - ⚠️ El correo del usuario del portal debe ser exactamente su correo de Google (incluidos Google Workspace y alias `@gmail.com`).
 - ⚠️ Detrás de un proxy, la URI de redirección se arma con el esquema y el host que ve la aplicación: exige
   `Cloud__TrustForwardedHeaders=true` (HTTPS) y, con `Cloud:PathBase`, la URI incluye la ruta (`…/businesspost/signin-google`).
+
+## Adenda (2026-10-17) · TOTP después de Google para autorizar el instalador
+La regla "el ingreso con Google nunca pide el TOTP" se mantiene **para usar el portal**. Pero **autorizar la instalación de BusinessPost**
+desde el portal ("Continuar con Google" del instalador, Fase 13-B §9.5) convierte al usuario en el Propietario del POS: es una acción de
+alto valor y su equivalente con correo y contraseña (`/v1/owner-links`) ya pide el TOTP. Decisión: en la página
+`/cuenta/vincular-instalador` se pide el código TOTP si el usuario **lo tiene activo** o si `Portal:RequireTotp=true`, **sin importar el
+método de la sesión** (contraseña o Google); con `RequireTotp=true` y sin autenticador activado, se pide activarlo en "Mi cuenta". Además se
+exige un ingreso reciente (10 minutos) y que el dueño escriba el código del instalador. `OwnerLinkAuthorizationPolicy` (dominio) concentra la
+regla; `PortalCustomerVerifier.VerifySignedInAsync`/`VerifySignedInTotpAsync` la aplican. Que el ingreso general con Google pida el TOTP a
+quien lo activó queda como decisión futura del propietario (cambiaría el flujo de ADR-0062 para todos los usuarios).

@@ -10,7 +10,10 @@
 
 @* "Continuar con Google" del instalador premium (Fase 13-B, parte E). El instalador abre esta página en el navegador del sistema (Google
    no permite su ingreso dentro de un WebView). El dueño entra al portal como siempre (contraseña o Google, misma sesión y cookie) y
-   aquí autoriza o cancela. Formulario POST con token antifalsificación, renderizado en el servidor y sin scripts. *@
+   aquí autoriza o cancela. Formulario POST con token antifalsificación, renderizado en el servidor y sin scripts.
+   Contra el "phishing" (alguien con la clave crea la solicitud y le envía este enlace al dueño): el dueño ESCRIBE el código que muestra
+   SU instalador (la página no lo muestra), debe haber ingresado hace poco, escribe su TOTP si lo tiene activo (también tras Google) y
+   ve cuándo y desde qué IP se creó la solicitud. *@
 
 <PageTitle>Autorizar la instalación · BusinessPost</PageTitle>
 
@@ -26,13 +29,33 @@
             <p class="auth-lead">
                 ¿Autorizar la instalación de BusinessPost para <strong>@_view.LegalName</strong> (NIT @FormatNit(_view.Nit))?
             </p>
-            <p class="auth-hint">Compare este código con el que muestra el instalador. Si no coincide, o si usted no está instalando BusinessPost en este momento, cancele.</p>
-            <div class="auth-usercode" aria-label="Código de la solicitud">@_view.UserCode</div>
+            <AuthAlert Warning="true">
+                Solo continúe si USTED está instalando BusinessPost en este momento. Si alguien le envió este enlace o le dictó un código por
+                teléfono o mensaje, no lo escriba: pulse Cancelar.
+            </AuthAlert>
+            <p class="auth-hint">Solicitud creada hace @Ago(_view.CreatedAt) desde la dirección @(_view.CreatedIp ?? "desconocida"). Vence en @Minutes(_view.ExpiresAt) minutos.</p>
+            @if (_view.Message is not null)
+            {
+                <AuthAlert>@_view.Message</AuthAlert>
+            }
+
+            <div class="auth-field">
+                <label for="usercode">Código que muestra el instalador</label>
+                <InputText id="usercode" type="text" class="auth-code" @bind-Value="Input.Code" autocomplete="off" maxlength="12" placeholder="XXXX-XXXX" />
+            </div>
+            @if (_view.TotpRequired)
+            {
+                <div class="auth-field">
+                    <label for="totp">Código de 6 dígitos de su aplicación autenticadora</label>
+                    <InputText id="totp" type="text" class="auth-code" @bind-Value="Input.Totp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" />
+                </div>
+            }
+
             <div class="auth-actions">
                 <button type="submit" name="Input.Decision" value="cancelar" class="auth-button auth-button-secondary">Cancelar</button>
                 <button type="submit" name="Input.Decision" value="autorizar" class="auth-button auth-button-primary">Autorizar</button>
             </div>
-            <p class="auth-hint">Entrará a BusinessPost como Propietario con su correo @_email. La solicitud vence en @Minutes(_view.ExpiresAt) minutos.</p>
+            <p class="auth-hint">Entrará a BusinessPost como Propietario con su correo @_email.</p>
         }
     </EditForm>
 }
@@ -45,24 +68,31 @@
         break;
 
     case OwnerLinkRequestPageState.Denied:
-        <AuthAlert>Solicitud cancelada. El instalador no recibe acceso a su cuenta. Si fue un error, en el instalador pulse otra vez "Continuar con Google".</AuthAlert>
+        @* PN3: si se canceló por demasiados códigos incorrectos, el aviso lo dice (y qué hacer). *@
+        <AuthAlert>Solicitud cancelada. @(_view?.Message ?? "El instalador no recibe acceso a su cuenta. Si fue un error, en el instalador pulse otra vez \"Continuar con Google\".")</AuthAlert>
         break;
 
     case OwnerLinkRequestPageState.Expired:
         <AuthAlert>La solicitud venció. En el instalador, pulse otra vez "Continuar con Google" para empezar de nuevo.</AuthAlert>
         break;
 
-    case OwnerLinkRequestPageState.NotOwner:
-        <AuthAlert>Su usuario del portal no es el dueño (Cliente) de la cuenta de esta licencia. Salga e ingrese con el correo del dueño.</AuthAlert>
+    case OwnerLinkRequestPageState.ReauthenticationRequired:
+        <AuthAlert Warning="true">Por seguridad, para autorizar una instalación debe haber ingresado hace pocos minutos. Ingrese de nuevo (con Google o su contraseña) y volverá a esta página.</AuthAlert>
+        <form method="post" action="@PortalLinks.Local("/cuenta/salir")" class="auth-form">
+            <AntiforgeryToken />
+            <input type="hidden" name="returnUrl" value="@CurrentUrl" />
+            <button type="submit" class="auth-button auth-button-primary">Ingresar de nuevo</button>
+        </form>
+        break;
+
+    case OwnerLinkRequestPageState.Unavailable:
+        @* La misma respuesta si la solicitud no existe o si el usuario no es el dueño: no se confirma su existencia ni la empresa. *@
+        <AuthAlert>No encontramos una solicitud del instalador para su usuario. Revise que abrió el enlace completo desde el instalador. Si la licencia es de otra cuenta, salga e ingrese con el correo del dueño.</AuthAlert>
         <form method="post" action="@PortalLinks.Local("/cuenta/salir")" class="auth-form">
             <AntiforgeryToken />
             <input type="hidden" name="returnUrl" value="@CurrentUrl" />
             <button type="submit" class="auth-button auth-button-primary">Salir y entrar con otra cuenta</button>
         </form>
-        break;
-
-    case OwnerLinkRequestPageState.NotFound:
-        <AuthAlert>No encontramos esta solicitud. Revise que abrió el enlace completo desde el instalador o vuelva a empezar allí.</AuthAlert>
         break;
 
     default:
@@ -128,11 +158,11 @@
     {
         if (!Guid.TryParse(RequestId, out var id))
         {
-            _view = new OwnerLinkRequestView(OwnerLinkRequestPageState.NotFound);
+            _view = new OwnerLinkRequestView(OwnerLinkRequestPageState.Unavailable);
             return;
         }
 
-        var result = await Dispatcher.Send(new DecideOwnerLinkRequestCommand(id, approve, HttpContext.Connection.RemoteIpAddress));
+        var result = await Dispatcher.Send(new DecideOwnerLinkRequestCommand(id, approve, HttpContext.Connection.RemoteIpAddress, Input.Code, Input.Totp));
         var error = result.IsFailure ? result.Error : result.Value.Error;
         if (error is not null)
         {
@@ -141,9 +171,18 @@
         }
 
         _view = result.Value.Value;
+        // Los campos no se vuelven a llenar con lo enviado (el código y el TOTP se escriben de nuevo).
+        Input.Code = null;
+        Input.Totp = null;
     }
 
     private int Minutes(DateTimeOffset? expiresAt) => expiresAt is { } at ? Math.Max(1, (int)Math.Ceiling((at - Clock.UtcNow).TotalMinutes)) : 0;
+
+    private string Ago(DateTimeOffset? createdAt)
+    {
+        var minutes = createdAt is { } at ? Math.Max(0, (int)Math.Floor((Clock.UtcNow - at).TotalMinutes)) : 0;
+        return minutes < 1 ? "menos de un minuto" : minutes == 1 ? "1 minuto" : $"{minutes} minutos";
+    }
 
     private static string FormatNit(string? nit)
     {
@@ -161,5 +200,9 @@
     private sealed class DecisionInput
     {
         public string? Decision { get; set; }
+
+        public string? Code { get; set; }
+
+        public string? Totp { get; set; }
     }
 }

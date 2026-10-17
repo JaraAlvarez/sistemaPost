@@ -315,6 +315,63 @@ public class SistecreditoAttemptTests
         attempt.Use(sale, 80_000m, Now.AddMinutes(31)).IsSuccess.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(19, 5)]
+    [InlineData(20, 15)]
+    [InlineData(74, 15)]
+    [InlineData(75, 60)]
+    [InlineData(239, 60)]
+    [InlineData(240, 180)]
+    [InlineData(1_400, 180)]
+    public void Los_terminados_sin_aprobar_se_consultan_con_espera_creciente(int minutesSinceFinished, int gapMinutes) =>
+        SistecreditoProtocol.FailedRecheckGap(TimeSpan.FromMinutes(minutesSinceFinished)).ShouldBe(TimeSpan.FromMinutes(gapMinutes)); // SX1
+
+    [Fact]
+    public void Un_cobro_ya_en_revision_conserva_su_hora_y_su_motivo_y_lo_nuevo_queda_aparte()
+    {
+        // SQ1.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.Release(sale, Guid.NewGuid(), Now.AddMinutes(1)).IsSuccess.ShouldBeTrue();
+        attempt.Apply("Cancelled", null, null, null, Now.AddHours(2)); // reversado en el portal
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.ReviewRequiredAt.ShouldBe(Now.AddMinutes(1));
+        attempt.Message.ShouldBe(SistecreditoAttempt.ReleasedMessage);
+        attempt.ReviewUpdate!.ShouldContain("ya no reporta aprobado");
+    }
+
+    [Fact]
+    public void Un_terminado_sin_aprobar_guarda_cuando_volver_a_consultarlo()
+    {
+        // SQ3: la espera queda en NextCheckAt (la base de datos la filtra).
+        var rejected = Pending(Guid.NewGuid());
+        rejected.Apply("Rejected", null, null, null, Now);
+        rejected.Checked(Now.AddMinutes(1));
+        rejected.NextCheckAt.ShouldBe(Now.AddMinutes(6));
+        rejected.Checked(Now.AddHours(5));
+        rejected.NextCheckAt.ShouldBe(Now.AddHours(8));
+
+        var pending = Pending(Guid.NewGuid());
+        pending.Checked(Now);
+        pending.NextCheckAt.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(80_000, new[] { 50_000, 40_000 }, new[] { 40_000 })] // con uno alcanza: el más chico que cubre el exceso (10.000)
+    [InlineData(4_500, new[] { 4_000, 3_000 }, new[] { 3_000 })]
+    [InlineData(10_000, new[] { 6_000, 5_000, 4_000 }, new[] { 5_000 })] // exceso 5.000 → 5.000 (no 6.000)
+    [InlineData(1_000, new[] { 6_000, 5_000, 4_000 }, new[] { 6_000, 5_000, 4_000 })] // exceso 14.000: ninguno solo; hace falta los tres
+    [InlineData(5_000, new[] { 6_000, 5_000, 4_000, 1_000 }, new[] { 6_000, 5_000 })] // exceso 11.000: dos créditos, la menor suma (11.000)
+    [InlineData(20_000, new[] { 6_000, 5_000 }, new int[0])] // ya cabe: nada
+    public void No_usar_solo_los_necesarios_libera_lo_minimo(int keepUpTo, int[] amounts, int[] expected)
+    {
+        // SX5.
+        var values = amounts.Select(a => (decimal)a).ToList();
+        SistecreditoProtocol.ChooseToRelease(values, keepUpTo).Select(i => (int)values[i]).Order().ShouldBe(expected.Order());
+    }
+
     /// <summary>Fija la cultura mientras dura la prueba (los mensajes formatean valores con la cultura actual).</summary>
     private sealed class CultureScope : IDisposable
     {

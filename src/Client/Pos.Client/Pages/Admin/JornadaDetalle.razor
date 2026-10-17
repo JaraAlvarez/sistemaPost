@@ -114,22 +114,23 @@
                 </MudTabPanel>
                 @if (detalle.SistecreditoNotUsed is { Count: > 0 } noUsados)
                 {
-                    <MudTabPanel Text="@($"Sistecrédito no usado ({noUsados.Count})")">
+                    <MudTabPanel Text="@($"Sistecrédito por revisar ({noUsados.Count})")">
                         <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
-                            Créditos aprobados por Sistecrédito que, con autorización de supervisor, no se usaron en la venta: no son plata de la caja.
-                            Reverse cada uno en el portal de Sistecrédito y ciérrelo en Configuración → Sistecrédito.
+                            Cobros con Sistecrédito de esta jornada que la administración debe revisar (no usados en la venta, aprobados tarde, de
+                            ventas anuladas…): no son plata de la caja. Reverse cada uno en el portal de Sistecrédito y ciérrelo en Configuración → Sistecrédito.
                         </MudAlert>
                         <MudSimpleTable Dense="true" Striped="true">
-                            <thead><tr><th>Hora</th><th>Transacción</th><th>Cliente</th><th class="num">Valor</th><th>Estado</th></tr></thead>
+                            <thead><tr><th>Hora</th><th>Transacción</th><th>Cliente</th><th class="num">Valor</th><th>Motivo</th><th>Estado</th></tr></thead>
                             <tbody>
                                 @foreach (var noUsado in noUsados)
                                 {
                                     <tr>
-                                        <td>@Format.Date(noUsado.ReleasedAt)</td>
+                                        <td>@Format.Date(noUsado.At)</td>
                                         <td>@noUsado.TransactionId</td>
                                         <td>@noUsado.MaskedDocument</td>
                                         <td class="num">@Format.Money(noUsado.Amount)</td>
-                                        <td>@(noUsado.Reviewed ? "Revisado" : "Por reversar en el portal")</td>
+                                        <td>@noUsado.Reason</td>
+                                        <td>@(noUsado.Reviewed ? "Revisado" : "Por revisar en el portal")</td>
                                     </tr>
                                 }
                             </tbody>

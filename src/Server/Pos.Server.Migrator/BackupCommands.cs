@@ -77,6 +77,27 @@ internal static class BackupCommands
         return created.FilePath;
     }
 
+    /// <summary>
+    /// Código de recuperación: <c>--recovery-code-file</c> (el instalador lo deja en un archivo temporal para que el código no quede en
+    /// la línea de comandos ni en su registro; se lee una vez y se BORRA) o, si no, <c>--recovery-code</c> (uso manual).
+    /// </summary>
+    public static string? RecoveryCode(IReadOnlyDictionary<string, string> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.GetValueOrDefault("recovery-code-file") is not { Length: > 0 } file)
+        {
+            return options.GetValueOrDefault("recovery-code");
+        }
+
+        var (code, deleted) = RecoveryCodeFile.ReadAndDelete(file);
+        if (!deleted)
+        {
+            Console.Error.WriteLine("ATENCIÓN: no se pudo borrar el archivo temporal con el código de recuperación; bórrelo a mano.");
+        }
+
+        return code;
+    }
+
     public static async Task<int> VerifyAsync(IReadOnlyDictionary<string, string> options, CancellationToken cancellationToken)
     {
         var file = Required(options, "file");
@@ -89,7 +110,7 @@ internal static class BackupCommands
 
         PrintHeader(header);
         var key = BackupRestoreProcedure.ChooseKey(header, new RestoreRequest(
-            file, options.GetValueOrDefault("recovery-code"), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")), string.Empty, string.Empty,
+            file, RecoveryCode(options), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")), string.Empty, string.Empty,
             string.Empty, string.Empty));
         if (key is null)
         {
@@ -149,7 +170,7 @@ internal static class BackupCommands
         try
         {
             outcome = await new BackupRestoreProcedure(new PgClientTools(options.GetValueOrDefault("pg-bin"))).RunAsync(
-                new RestoreRequest(file, options.GetValueOrDefault("recovery-code"), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")),
+                new RestoreRequest(file, RecoveryCode(options), new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")),
                     superuser, target, ScriptCatalog.Default.LatestVersion ?? string.Empty, work),
                 (admin, database, ct) => DatabaseCreator.CreateDatabaseOnlyAsync(admin, database, ct),
                 async (connection, ct) => await migrator.MigrateAsync(connection, appVersion, ct),
@@ -204,6 +225,70 @@ internal static class BackupCommands
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Vuelta atrás de una actualización fallida (IN4, IL1, IL2): restaura el backup PRE_UPDATE (de este equipo, clave local) en una BD NUEVA
+    /// SIN migrar (queda en el esquema de la versión anterior), le copia los privilegios que tenía la BD activa (los de la versión anterior;
+    /// sin ellos pos_app no puede leer y el servidor responde 503), comprueba sello y conteos contra el encabezado y cambia la BD activa en
+    /// server.json. Revisa antes el espacio libre y tiene un límite de tiempo. No incrementa la vida del nodo: el backup se hizo con el
+    /// servidor detenido, nadie escribió desde entonces. Devuelve el nombre de la BD activa; lanza si algo no cuadra (la configuración no
+    /// se toca).
+    /// </summary>
+    public static async Task<string> RestorePreUpdateAsync(IReadOnlyDictionary<string, string> options, string file, CancellationToken cancellationToken)
+    {
+        var dataRoot = DataRoot(options);
+        var superuser = ConfigSecret(dataRoot, "SuperuserConnectionString")
+            ?? throw new InvalidOperationException("server.json no tiene la conexión del superusuario de PostgreSQL.");
+        var migratorConnection = ConfigSecret(dataRoot, "MigratorConnectionString")
+            ?? throw new InvalidOperationException("server.json no tiene la conexión del rol pos_migrator.");
+        var config = ReadConfig(dataRoot) ?? throw new InvalidOperationException("No se encontró server.json.");
+        var source = new NpgsqlConnectionStringBuilder(migratorConnection).Database
+            ?? throw new InvalidOperationException("La conexión del rol pos_migrator no indica la base de datos.");
+        var target = "pos_rb" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+        var work = Path.Combine(Path.GetTempPath(), "pos-rollback-" + Guid.NewGuid().ToString("N"));
+        Console.WriteLine($"Volviendo a los datos de antes de actualizar: se restaura {file} en la BD '{target}'…");
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(PreUpdateRollback.DefaultTimeout);
+        PreUpdateRestoreOutcome outcome;
+        try
+        {
+            outcome = await new PreUpdateRollback(new PgClientTools(options.GetValueOrDefault("pg-bin"))).RestoreAsync(
+                file, new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")), superuser, source, target, work,
+                Path.Combine(dataRoot, "data"),
+                (admin, database, ct) => DatabaseCreator.CreateDatabaseOnlyAsync(admin, database, ct),
+                limit.Token);
+        }
+        catch (OperationCanceledException) when (limit.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"La restauración del backup previo superó el límite de {PreUpdateRollback.DefaultTimeout.TotalMinutes:0} minutos.");
+        }
+        finally
+        {
+            if (Directory.Exists(work))
+            {
+                Directory.Delete(work, recursive: true);
+            }
+        }
+
+        Console.WriteLine($"Backup previo restaurado en '{target}' ({outcome.PrivilegesCopied} privilegios de la versión anterior copiados).");
+        if (!outcome.IsComplete)
+        {
+            throw new InvalidOperationException(
+                $"El backup restaurado en '{target}' no coincide con su encabezado (sello: {(outcome.SealMatches ? "coincide" : "NO coincide")}, " +
+                $"conteos: {(outcome.CountsMatch ? "iguales" : "DIFERENTES")}); no se cambió la BD activa.");
+        }
+
+        if (!SwitchDatabase(config, target))
+        {
+            throw new InvalidOperationException("server.json no tiene la sección Pos:Database; no se cambió la BD activa.");
+        }
+
+        var path = Path.Combine(dataRoot, "config", "server.json");
+        await File.WriteAllTextAsync(path + ".tmp", config.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), CancellationToken.None);
+        File.Move(path + ".tmp", path, overwrite: true);
+        Console.WriteLine($"server.json ahora apunta a '{target}' (datos de antes de actualizar).");
+        return target;
     }
 
     private static bool SwitchDatabase(JsonNode config, string database)

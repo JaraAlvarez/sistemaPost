@@ -131,7 +131,24 @@ public sealed class PgClientTools(string? binPath) : IPgTools
 
         var stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Límite de tiempo o cancelación (IN4): el proceso no sigue solo en segundo plano.
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // Ya terminó.
+            }
+
+            throw;
+        }
         if (process.ExitCode != 0)
         {
             throw new InvalidOperationException($"{tool} terminó con código {process.ExitCode}: {(await stderr).Trim()}");
