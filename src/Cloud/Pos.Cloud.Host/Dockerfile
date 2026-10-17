@@ -17,6 +17,8 @@ COPY src/BuildingBlocks/ src/BuildingBlocks/
 COPY src/Shared/ src/Shared/
 COPY src/Server/Pos.Server.Migrations/ src/Server/Pos.Server.Migrations/
 COPY src/Cloud/ src/Cloud/
+# Manual de instalación: se incrusta en el host para la página Descargas → Manual (Fase 13-B).
+COPY docs/manual-instalacion.md docs/manual-instalacion.md
 
 RUN dotnet restore src/Cloud/Pos.Cloud.Host/Pos.Cloud.Host.csproj
 RUN dotnet publish src/Cloud/Pos.Cloud.Host/Pos.Cloud.Host.csproj \

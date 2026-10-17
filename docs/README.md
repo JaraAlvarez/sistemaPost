@@ -38,7 +38,7 @@
 | 12-B · Licencia dentro del POS | [propuesta](fases/fase-12b-propuesta.md) · [informe](fases/fase-12b-informe.md) | Implementada — pendiente de tu validación |
 | 12-C · Pago en línea de las suscripciones (Wompi) | [propuesta](fases/fase-12c-propuesta.md) · [informe](fases/fase-12c-informe.md) | Implementada (apagada hasta configurar Wompi) — pendiente de tu prueba en el sandbox |
 | 13 · Instalador y actualizaciones | [propuesta](fases/fase-13-propuesta.md) · [informe](fases/fase-13-informe.md) · [guía de instalación](guia-instalacion.md) | Implementada — pendiente de tu validación (compilar el instalador) |
-| 13-B · Instalador con marca, arranque confiable y descargas en el portal | [propuesta](fases/fase-13b-propuesta.md) | Propuesta — pendiente de tu aprobación |
+| 13-B · Instalador premium, ventana propia, descargas y cuenta del portal | [propuesta e informe](fases/fase-13b-propuesta.md) | Implementada — pendiente de tu prueba de instalación |
 | 14 · Endurecimiento y pruebas | [propuesta](fases/fase-14-propuesta.md) · [informe](fases/fase-14-informe.md) · [seguridad](seguridad-revision.md) | Herramientas implementadas — corridas largas pendientes (tú) |
 | 15 · Interfaz: caja y backoffice | [propuesta](fases/fase-15-propuesta.md) · [informe](fases/fase-15-informe.md) | Implementada — pendiente de tu validación |
 | 16 · Sincronización con la nube y portal del cliente | [propuesta](fases/fase-16-propuesta.md) · [informe](fases/fase-16-informe.md) | Implementada — pendiente de tu validación |

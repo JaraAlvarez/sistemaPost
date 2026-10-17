@@ -22,6 +22,7 @@ label { display:block; margin-bottom:12px; color:var(--muted); font-size:13px; }
 input, select { display:block; width:100%; padding:8px 10px; margin-top:4px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); font:inherit; }
 button { padding:9px 16px; border:0; border-radius:6px; background:var(--accent); color:var(--on); font:inherit; cursor:pointer; }
 button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+a.button { display:inline-block; padding:11px 22px; border-radius:6px; background:var(--accent); color:var(--on); font-weight:600; text-decoration:none; }
 .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
 .hint { color:var(--muted); font-size:13px; }
 .error { background:var(--err-bg); color:var(--err); border-radius:6px; padding:10px 12px; margin:12px 0; }
@@ -111,8 +112,10 @@ button.secondary { background:transparent; color:var(--accent); border:1px solid
   <section id="listo" class="card hidden">
     <h2><span class="ok">✓</span> Todo listo</h2>
     <p>La tienda quedó configurada. Los backups automáticos ya están activos en este equipo.</p>
+    <p><b>Guarde el código de recuperación</b> en un lugar seguro fuera del local: sin él no se pueden abrir los backups en otro equipo.</p>
+    <div class="actions"><a class="button" id="abrir" href="/">Abrir BusinessPost</a></div>
     <p class="hint">Recomendado: conecte un disco externo o configure la nube de backups desde la administración. Para agregar cajas (Multicaja),
-      instale el programa en cada caja con el modo <b>Caja</b> y use el código de emparejamiento que genera la administración.</p>
+      instale el programa en cada caja con la opción <b>"Esta es una caja adicional"</b> y use el código de emparejamiento que genera la administración.</p>
   </section>
 </main>
 <script>

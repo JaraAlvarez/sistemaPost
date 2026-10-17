@@ -2,7 +2,10 @@
 ; Instalador de BusinessPost (Fase 13, docs/fases/fase-13-propuesta.md, ADR-0055 y ADR-0056).
 ; Se compila con tools/scripts/build-installer.ps1 (Inno Setup 6): no lo compile a mano, el script prepara artifacts\package.
 ;
-; Modos: Todo en uno (Caja Única) · Servidor (Multicaja) · Caja (Multicaja).
+; Modos (nombres claros, Fase 13-B §6.2): "Este equipo es la única caja" (Caja Única) · "Este es el equipo principal" (Multicaja;
+;       internamente "servidor") · "Esta es una caja adicional" (Multicaja; internamente "caja").
+; Primer arranque (Fase 13-B, D13B-01 y D13B-02): precalienta los programas (Windows Defender) antes de crear los servicios, muestra el
+;       paso en curso y espera a que BusinessPost responda antes de abrir el navegador.
 ; Deja: C:\Program Files\BusinessPost\app\<versión>\{server,migrator,agent}, app\current (unión NTFS a la versión activa),
 ;       updater\ y pgsql\ (PostgreSQL 18 empaquetado). Datos, backups y configuración en C:\ProgramData\BusinessPost (se CONSERVAN al
 ;       desinstalar salvo que el usuario pida borrarlos, con doble confirmación).
@@ -19,6 +22,10 @@
 #endif
 #ifndef UpdateManifest
   #define UpdateManifest ""
+#endif
+#ifndef OutputName
+  ; El build arma con este paquete el instalador premium (BusinessPost-Setup-<versión>.exe, Fase 13-B D13B-08) y lo llama "Clasico".
+  #define OutputName "BusinessPost-Setup-" + AppVersion
 #endif
 #define Product "BusinessPost"
 #define DataDir "{commonappdata}\BusinessPost"
@@ -42,7 +49,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 OutputDir=..\artifacts\releases
-OutputBaseFilename=BusinessPost-Setup-{#AppVersion}
+OutputBaseFilename={#OutputName}
 UninstallDisplayName=BusinessPost
 SetupLogging=yes
 CloseApplications=no
@@ -56,11 +63,20 @@ Source: "{#PackageDir}\app\{#AppVersion}\migrator\*"; DestDir: "{app}\app\{#AppV
 Source: "{#PackageDir}\app\{#AppVersion}\agent\*";    DestDir: "{app}\app\{#AppVersion}\agent";    Flags: recursesubdirs ignoreversion
 Source: "{#PackageDir}\pgsql\*";                      DestDir: "{app}\pgsql";                      Flags: recursesubdirs ignoreversion; Check: IsServerMode
 Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"; Flags: ignoreversion
+; Ventana propia BusinessPost.exe (Fase 13-B, D13B-07), en los dos modos. Si está abierta al reinstalar, se reemplaza al reiniciar.
+Source: "{#PackageDir}\desktop\*"; DestDir: "{app}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist
+; Ayudantes del primer arranque (Fase 13-B): no se instalan; se usan desde la carpeta temporal durante la instalación.
+Source: "scripts\precalentar.ps1";      Flags: dontcopy
+Source: "scripts\esperar-servicio.ps1"; Flags: dontcopy
 
 [Icons]
-; La interfaz se abre en Edge en modo aplicación (Fase 15, D15-03): sin barra de direcciones ni pestañas, como un programa.
-Name: "{commondesktop}\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"
-Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"
+; La interfaz se abre en la ventana propia BusinessPost.exe (Fase 13-B, D13B-07): lee la dirección de C:\ProgramData\BusinessPost\config
+; (equipo principal: localhost; caja adicional: el equipo principal de updater.json) y muestra la pantalla de carga mientras arranca.
+Name: "{commondesktop}\BusinessPost"; Filename: "{app}\desktop\BusinessPost.exe"; WorkingDir: "{app}\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
+Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{app}\desktop\BusinessPost.exe"; WorkingDir: "{app}\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
+; Respaldo solo si falta BusinessPost.exe: Edge en modo aplicación (Fase 15, D15-03), como antes.
+Name: "{commondesktop}\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"; Check: not HasDesktopApp
+Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; Check: not HasDesktopApp
 Name: "{commonprograms}\BusinessPost\Paquete de soporte"; Filename: "{app}\app\current\migrator\Pos.Server.Migrator.exe"; Parameters: "support-bundle"; Check: IsServerMode
 
 [UninstallRun]
@@ -75,6 +91,10 @@ Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N {#Product}-DB
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#Product} LAN"""; Flags: runhidden; RunOnceId: "DelFirewall"
 Filename: "{cmd}"; Parameters: "/c rmdir ""{app}\app\current"""; Flags: runhidden; RunOnceId: "DelJunction"
 
+[UninstallDelete]
+; Copia del instalador premium que deja la instalación para desinstalar con el mismo diseño (Fase 13-B §8).
+Type: filesandordirs; Name: "{app}\instalador"
+
 [Code]
 var
   ModePage: TInputOptionWizardPage;
@@ -82,6 +102,63 @@ var
   RecoveryFilePage: TInputFileWizardPage;
   TerminalPage: TInputQueryWizardPage;
   DeleteData: Boolean;
+  LastProgress: Integer;
+
+// ------------------------------------------------------------------------------------------------------------------------------------
+// Instalador premium (Fase 13-B, D13B-08): BusinessPost-Setup.exe recoge los datos con su propio diseño y ejecuta ESTE paquete en
+// silencio (/VERYSILENT /SUPPRESSMSGBOXES /LOG=...) con estos parámetros. Lee el avance del registro: líneas "Progreso: N" (copia de
+// archivos), "Paso: ..." (cada etapa) y "Resultado: ..." (al final). Sin /PREMIUM=1 el asistente clásico funciona como siempre.
+//   /PREMIUM=1                          no abre el navegador al final (el instalador premium configura y abre BusinessPost)
+//   /MODO=unica|principal|adicional     tipo de instalación
+//   /SERVIDOR=https://...:5443/ /HUELLA=...   caja adicional: equipo principal y huella de su certificado
+//   /BACKUP=ruta.posbak /RECUPERACION=archivo  recuperar: el archivo con el código se borra apenas se lee (el código no va en la línea
+//                                               de comandos)
+// Desinstalar: /BORRARDATOS=si (solo en silencio; el premium ya pidió la doble confirmación).
+// ------------------------------------------------------------------------------------------------------------------------------------
+function Premium: Boolean;
+begin
+  Result := ExpandConstant('{param:PREMIUM|0}') = '1';
+end;
+
+procedure ApplyPremiumParams;
+var
+  Mode, CodeFile: String;
+  Code: AnsiString;
+begin
+  Mode := Lowercase(ExpandConstant('{param:MODO|}'));
+  if Mode = 'unica' then ModePage.SelectedValueIndex := 0;
+  if Mode = 'principal' then ModePage.SelectedValueIndex := 1;
+  if Mode = 'adicional' then ModePage.SelectedValueIndex := 2;
+  if ExpandConstant('{param:SERVIDOR|}') <> '' then
+    TerminalPage.Values[0] := ExpandConstant('{param:SERVIDOR|}');
+  if ExpandConstant('{param:HUELLA|}') <> '' then
+    TerminalPage.Values[1] := ExpandConstant('{param:HUELLA|}');
+  if ExpandConstant('{param:BACKUP|}') <> '' then
+    RecoveryFilePage.Values[0] := ExpandConstant('{param:BACKUP|}');
+  CodeFile := ExpandConstant('{param:RECUPERACION|}');
+  if (CodeFile <> '') and LoadStringFromFile(CodeFile, Code) then
+  begin
+    RecoveryPage.Values[0] := Trim(String(Code));
+    DeleteFile(CodeFile);
+  end;
+  if Mode <> '' then
+    Log('Instalador premium: modo ' + Mode);
+end;
+
+// Avance real de la copia de archivos para el instalador premium (una línea por cada punto porcentual).
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+var
+  Percent: Integer;
+begin
+  if MaxProgress <= 0 then
+    exit;
+  Percent := (CurProgress * 100) div MaxProgress;
+  if Percent <> LastProgress then
+  begin
+    LastProgress := Percent;
+    Log('Progreso: ' + IntToStr(Percent));
+  end;
+end;
 
 function IsServerMode: Boolean;
 begin
@@ -108,13 +185,21 @@ begin
     Result := ExpandConstant('{commonpf64}\Microsoft\Edge\Application\msedge.exe');
 end;
 
+// Fase 13-B (D13B-07): los accesos directos abren BusinessPost.exe; Edge en modo aplicación queda solo de respaldo si falta.
+function HasDesktopApp: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\desktop\BusinessPost.exe'));
+end;
+
 procedure InitializeWizard;
 begin
-  ModePage := CreateInputOptionPage(wpWelcome, 'Tipo de instalación', '¿Cómo se usará este computador?',
-    'Elija una opción. Si la tienda tiene una sola caja, elija "Todo en uno".', True, False);
-  ModePage.Add('Todo en uno (Caja Única): este computador guarda los datos y es la caja');
-  ModePage.Add('Servidor (Multicaja): este computador guarda los datos; las cajas se conectan a él por la red');
-  ModePage.Add('Caja (Multicaja): este computador es una caja; los datos están en el servidor de la tienda');
+  // No cambie el orden de las opciones: el código usa SelectedValueIndex (0 = única caja, 1 = equipo principal, 2 = caja adicional).
+  ModePage := CreateInputOptionPage(wpWelcome, 'Tipo de instalación', '¿Cómo usará este equipo?',
+    'Si el local tiene una sola caja, elija la primera opción. Si tiene varias, instale primero el equipo principal y después cada caja.',
+    True, False);
+  ModePage.Add('Este equipo es la única caja (Caja Única)');
+  ModePage.Add('Este es el equipo principal: guarda los datos y las demás cajas se conectan a él (Multicaja)');
+  ModePage.Add('Esta es una caja adicional: se conecta al equipo principal del local (Multicaja)');
   ModePage.SelectedValueIndex := 0;
 
   RecoveryPage := CreateInputQueryPage(ModePage.ID, 'Recuperar desde un backup (opcional)',
@@ -126,11 +211,14 @@ begin
     'Deje en blanco para una instalación nueva.');
   RecoveryFilePage.Add('Archivo .posbak:', 'Backups (*.posbak)|*.posbak', '.posbak');
 
-  TerminalPage := CreateInputQueryPage(RecoveryFilePage.ID, 'Servidor de la tienda', 'Dirección del servidor Multicaja',
-    'Se buscó el servidor en la red. Si no aparece, escriba la dirección que muestra la administración del servidor ' +
-    '(por ejemplo https://192.168.1.10:5443/) y la huella del certificado para verificarlo.');
-  TerminalPage.Add('Dirección del servidor:', False);
+  TerminalPage := CreateInputQueryPage(RecoveryFilePage.ID, 'Equipo principal del local', '¿A qué equipo se conecta esta caja?',
+    'Buscamos el equipo principal en la red del local. Si los datos no aparecen solos, cópielos de la administración del equipo ' +
+    'principal (Cajas e impresoras). La dirección se ve así: https://192.168.1.10:5443/');
+  TerminalPage.Add('Dirección del equipo principal:', False);
   TerminalPage.Add('Huella del certificado (SHA-256):', False);
+
+  LastProgress := -1;
+  ApplyPremiumParams;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -142,7 +230,7 @@ begin
     Result := IsServerMode;
 end;
 
-// Caja: busca el servidor en la LAN con el actualizador ("discover") y propone el primero encontrado.
+// Caja adicional: busca el equipo principal ("servidor") en la LAN con el actualizador ("discover") y propone el primero encontrado.
 procedure CurPageChanged(CurPageID: Integer);
 var
   ResultCode: Integer;
@@ -180,7 +268,8 @@ begin
   Result := True;
   if (CurPageID = TerminalPage.ID) and ((TerminalPage.Values[0] = '') or (TerminalPage.Values[1] = '')) then
   begin
-    MsgBox('Escriba la dirección del servidor y la huella de su certificado (las muestra la administración del servidor).', mbError, MB_OK);
+    MsgBox('Escriba la dirección del equipo principal y la huella de su certificado (las muestra la administración del equipo ' +
+      'principal, en Cajas e impresoras).', mbError, MB_OK);
     Result := False;
   end;
   if (CurPageID = RecoveryFilePage.ID) and (RecoveryFilePage.Values[0] <> '') and (RecoveryPage.Values[0] = '') then
@@ -197,9 +286,15 @@ begin
   Log(Step + ': ' + FileName + ' ' + Params);
   Result := Exec(FileName, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
   if not Result then
+  begin
+    Log('Resultado: ERROR ' + Step + ' (código ' + IntToStr(ResultCode) + ')');
     MsgBox(Step + ' falló (código ' + IntToStr(ResultCode) + '). Revise el registro de la instalación y genere un paquete de soporte.', mbError, MB_OK);
+  end;
 end;
 
+// Inicio "auto" (no "delayed-auto") para todos: con los programas ya precalentados el arranque al encender el equipo es rápido, y un
+// inicio retrasado haría esperar unos 2 minutos a la caja cada mañana. Si el servicio no alcanza a iniciar, la espera del final de la
+// instalación lo vuelve a iniciar (WaitForService) y, si se cae después, Windows lo reinicia solo (acciones de recuperación).
 procedure CreateService(const Name, Exe, Params: String);
 var
   ResultCode: Integer;
@@ -212,9 +307,124 @@ begin
     ewWaitUntilTerminated, ResultCode);
 end;
 
+// ------------------------------------------------------------------------------------------------------------------------------------
+// Primer arranque (Fase 13-B, D13B-01 y D13B-02)
+// ------------------------------------------------------------------------------------------------------------------------------------
+
+// Muestra el paso en curso en la página "Instalando". Antes quedaba la barra llena y sin texto varios minutos y parecía trabado.
+procedure ShowStep(const Text, Detail: String);
+begin
+  Log('Paso: ' + Text);
+  WizardForm.StatusLabel.Caption := Text;
+  WizardForm.FilenameLabel.Caption := Detail;
+  // Barra en movimiento: estos pasos no tienen un avance medible, pero se ve que el instalador sigue trabajando.
+  WizardForm.ProgressGauge.Style := npbstMarquee;
+end;
+
+// Texto entre comillas simples para PowerShell (duplica las comillas simples internas).
+function PsText(const Value: String): String;
+begin
+  Result := Value;
+  StringChangeEx(Result, '''', '''''', True);
+  Result := '''' + Result + '''';
+end;
+
+// Ejecuta un ayudante de installer\scripts (extraído a {tmp}) con PowerShell, oculto, y deja su salida en el registro de la instalación.
+// Se pasa con -Command e Invoke-Expression (no con -File) para que no lo bloquee la directiva de ejecución de scripts del equipo.
+// Mientras espera, el instalador sigue procesando los mensajes de Windows: la ventana se repinta y no queda "No responde".
+function RunHelper(const Script, Variables: String; var Code: Integer): Boolean;
+var
+  Command: String;
+begin
+  Command := Variables + ' Invoke-Expression ([System.IO.File]::ReadAllText(' + PsText(ExpandConstant('{tmp}\' + Script)) + '))';
+  try
+    Result := ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -Command "' + Command + '"', '', SW_HIDE, ewWaitUntilTerminated, Code, nil);
+  except
+    Log('No se pudo ejecutar ' + Script + ': ' + GetExceptionMessage);
+    Result := False;
+  end;
+  if not Result then
+    Code := -1;
+end;
+
+// Un programa a precalentar: 'ruta|argumentos' (lo separa precalentar.ps1).
+function WarmupItem(const Exe, Args: String): String;
+begin
+  Result := PsText(Exe + '|' + Args);
+end;
+
+// Corre los programas con --precalentar, todos a la vez, con un límite de 15 minutos (igual que el actualizador, D17C-02). Windows
+// Defender revisa ahora cada .exe y .dll nuevo sin firma, y no cuando Windows arranca el servicio (allí solo espera 30 s). Mejor
+// esfuerzo: si falla o se agota el tiempo, queda en el registro y la instalación sigue.
+procedure Warmup(const Items: String);
+var
+  Code: Integer;
+begin
+  ShowStep('Revisando los archivos con Windows Defender (la primera vez puede tardar varios minutos)…',
+    'Así BusinessPost abre rápido después. No cierre esta ventana.');
+  if RunHelper('precalentar.ps1', '$Minutos = 15; $Programas = @(' + Items + ');', Code) then
+    Log('Precalentamiento terminado; programas que no alcanzaron: ' + IntToStr(Code))
+  else
+    Log('No se pudo precalentar; la instalación sigue.');
+end;
+
+procedure StartService(const Name: String);
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\sc.exe'), 'start ' + Name, '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Log('sc start ' + Name + ': código ' + IntToStr(Code));
+end;
+
+// Espera hasta unos 5 minutos (15 rondas de 20 s) a que el programa responda en Url. Si encuentra el servicio detenido (por ejemplo,
+// Windows se rindió a los 30 s), lo vuelve a iniciar, máximo 3 veces. Devuelve True si respondió. Si PowerShell no se puede usar en
+// este equipo no hay cómo comprobarlo: devuelve True para abrir la página como antes.
+function WaitForService(const Service, Url: String): Boolean;
+var
+  Attempt, Restarts, Code: Integer;
+  CanRestart: String;
+begin
+  Result := False;
+  Restarts := 0;
+  for Attempt := 1 to 15 do
+  begin
+    if Attempt = 1 then
+      ShowStep('Esperando a que BusinessPost responda…', 'Puede tardar hasta 5 minutos.')
+    else
+      ShowStep('Esperando a que BusinessPost responda…', Format('Lleva unos %d segundos. Puede tardar hasta 5 minutos.', [(Attempt - 1) * 20]));
+    if Restarts < 3 then CanRestart := '$true' else CanRestart := '$false';
+    if not RunHelper('esperar-servicio.ps1', '$Url = ' + PsText(Url) + '; $Servicio = ' + PsText(Service) + '; $Segundos = 20; ' +
+      '$PuedeReiniciar = ' + CanRestart + ';', Code) then
+    begin
+      Log('No se pudo comprobar si ' + Service + ' responde; se abre la página igual.');
+      Result := True;
+      exit;
+    end;
+    case Code of
+      0: begin
+           Result := True;
+           exit;
+         end;
+      2: Restarts := Restarts + 1;
+      3: exit;
+    end;
+  end;
+end;
+
+// Abre la página con el usuario que inició el instalador (no como administrador).
+procedure OpenPage(const Url: String);
+var
+  Code: Integer;
+begin
+  Log('Abriendo ' + Url);
+  if not ShellExecAsOriginalUser('open', Url, '', '', SW_SHOWNORMAL, ewNoWait, Code) then
+    ShellExec('open', Url, '', '', SW_SHOWNORMAL, ewNoWait, Code);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  App, Data, Migrator, Edition: String;
+  App, Data, Migrator, Edition, Items: String;
   Code: Integer;
 begin
   if CurStep <> ssPostInstall then
@@ -222,22 +432,48 @@ begin
 
   App := ExpandConstant('{app}');
   Data := ExpandConstant('{#DataDir}');
+  ExtractTemporaryFile('precalentar.ps1');
+  ExtractTemporaryFile('esperar-servicio.ps1');
   // Versión activa: unión NTFS app\current → app\<versión> (ADR-0056); los servicios apuntan a app\current.
   Exec(ExpandConstant('{cmd}'), '/c rmdir "' + App + '\app\current"', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Run(ExpandConstant('{cmd}'), '/c mklink /J "' + App + '\app\current" "' + App + '\app\{#AppVersion}"', 'Versión activa');
   SaveStringToFile(App + '\app\current.json', '{"version":"{#AppVersion}"}', False);
   ForceDirectories(Data + '\config');
 
+  // 1. Precalentar, antes de la base de datos (usa el migrador) y de crear los servicios. El actualizador es un solo .exe y no tiene
+  //    --precalentar: basta con abrirlo una vez ("discover" de 1 s busca equipos en la red y termina).
+  Items := WarmupItem(App + '\updater\Pos.Server.Updater.exe', 'discover --seconds 1');
+  if IsServerMode then
+    Items := Items + ', ' + WarmupItem(App + '\app\current\server\Pos.Server.Host.exe', '--precalentar') +
+      ', ' + WarmupItem(App + '\app\current\migrator\Pos.Server.Migrator.exe', '--precalentar');
+  if ModePage.SelectedValueIndex <> 1 then
+    Items := Items + ', ' + WarmupItem(App + '\app\current\agent\Pos.Terminal.Agent.exe', '--precalentar');
+  // Ventana propia BusinessPost.exe (D13B-07): así abre rápido la primera vez que el dueño pulsa "Abrir BusinessPost".
+  if FileExists(App + '\desktop\BusinessPost.exe') then
+    Items := Items + ', ' + WarmupItem(App + '\desktop\BusinessPost.exe', '--precalentar');
+  Warmup(Items);
+
+  // 2. Base de datos (y recuperación, si se eligió un backup).
   if IsServerMode then
   begin
+    ShowStep('Creando la base de datos…', 'Prepara la base de datos de la tienda en este equipo. Puede tardar unos minutos.');
     if IsMulti then Edition := 'MULTI' else Edition := 'SINGLE';
     Migrator := App + '\app\current\migrator\Pos.Server.Migrator.exe';
     if not Run(Migrator, 'install --pg-bin "' + App + '\pgsql\bin" --data-root "' + Data + '" --edition ' + Edition +
       ' --license-server "{#LicenseServer}" --update-manifest "{#UpdateManifest}"', 'Base de datos') then
       exit;
     if RecoveryFilePage.Values[0] <> '' then
+    begin
+      ShowStep('Recuperando los datos desde el backup…', 'Restaura el backup elegido y revisa que esté completo.');
       Run(Migrator, 'restore --file "' + RecoveryFilePage.Values[0] + '" --recovery-code "' + RecoveryPage.Values[0] + '" --data-root "' + Data + '" --yes',
         'Recuperación desde el backup');
+    end;
+  end;
+
+  // 3. Servicios de Windows (mantienen BusinessPost funcionando aunque se cierre la ventana).
+  ShowStep('Registrando los servicios de BusinessPost…', 'Así BusinessPost se inicia solo cada vez que se enciende el equipo.');
+  if IsServerMode then
+  begin
     CreateService('{#Product}-Server', App + '\app\current\server\Pos.Server.Host.exe', '');
     if IsMulti then
     begin
@@ -261,12 +497,52 @@ begin
     CreateService('{#Product}-TerminalAgent', App + '\app\current\agent\Pos.Terminal.Agent.exe', '');
   CreateService('{#Product}-Updater', App + '\updater\Pos.Server.Updater.exe', '');
 
-  Exec(ExpandConstant('{sys}\sc.exe'), 'start {#Product}-Server', '', SW_HIDE, ewWaitUntilTerminated, Code);
-  Exec(ExpandConstant('{sys}\sc.exe'), 'start {#Product}-TerminalAgent', '', SW_HIDE, ewWaitUntilTerminated, Code);
-  Exec(ExpandConstant('{sys}\sc.exe'), 'start {#Product}-Updater', '', SW_HIDE, ewWaitUntilTerminated, Code);
-
+  // 4. Iniciar los servicios.
+  ShowStep('Iniciando BusinessPost…', '');
   if IsServerMode then
-    ShellExec('open', 'http://localhost:5480/instalacion', '', '', SW_SHOWNORMAL, ewNoWait, Code);
+    StartService('{#Product}-Server');
+  if ModePage.SelectedValueIndex <> 1 then
+    StartService('{#Product}-TerminalAgent');
+  StartService('{#Product}-Updater');
+
+  // 5. Esperar a que responda y solo entonces abrir el navegador (antes: "localhost rechazó la conexión").
+  if Premium then
+  begin
+    // Instalador premium: él configura la tienda y abre BusinessPost; aquí solo se deja el resultado en el registro.
+    if IsServerMode then
+    begin
+      if WaitForService('{#Product}-Server', 'http://localhost:5480/health/live') then
+        Log('Resultado: OK')
+      else
+        Log('Resultado: SIN_RESPUESTA');
+    end
+    else if WaitForService('{#Product}-TerminalAgent', 'http://localhost:5490/status') then
+      Log('Resultado: OK')
+    else
+      Log('Resultado: SIN_RESPUESTA');
+  end
+  else if IsServerMode then
+  begin
+    if WaitForService('{#Product}-Server', 'http://localhost:5480/health/live') then
+      OpenPage('http://localhost:5480/instalacion')
+    else
+      MsgBox('BusinessPost quedó instalado, pero todavía no responde. Windows puede seguir revisando los archivos nuevos.' + #13#10#13#10 +
+        'Qué hacer:' + #13#10 +
+        '1. Espere unos minutos y abra el acceso "BusinessPost" del escritorio.' + #13#10 +
+        '2. Si no abre, reinicie el computador: BusinessPost se inicia solo al encenderlo.' + #13#10 +
+        '3. Si aun así no abre, busque en el menú Inicio "BusinessPost" → "Paquete de soporte" y envíe a soporte el archivo que queda ' +
+        'en el escritorio.', mbInformation, MB_OK);
+  end
+  else
+  begin
+    // Caja adicional: el agente de impresión corre en este equipo; la interfaz la sirve el equipo principal.
+    if not WaitForService('{#Product}-TerminalAgent', 'http://localhost:5490/status') then
+      MsgBox('La caja quedó instalada, pero el programa de impresión de este equipo todavía no responde.' + #13#10#13#10 +
+        'Puede vender igual. Si al cobrar no imprime, reinicie el computador; si sigue sin imprimir, contacte a soporte.',
+        mbInformation, MB_OK);
+    OpenPage(TerminalPage.Values[0]);
+  end;
+  WizardForm.ProgressGauge.Style := npbstNormal;
 end;
 
 // Desinstalar CONSERVA los datos y los backups (D13-12). Borrarlos exige dos confirmaciones.
@@ -274,6 +550,12 @@ function InitializeUninstall: Boolean;
 begin
   Result := True;
   DeleteData := False;
+  // Desde el desinstalador premium (en silencio): la doble confirmación ya se hizo allí.
+  if UninstallSilent then
+  begin
+    DeleteData := Lowercase(ExpandConstant('{param:BORRARDATOS|no}')) = 'si';
+    exit;
+  end;
   if MsgBox('¿Desea BORRAR también los datos de la tienda (ventas, inventario, clientes) y los backups de este equipo?' + #13#10 +
     'Si elige No, se conservan en ' + ExpandConstant('{#DataDir}') + ' y una reinstalación los reutiliza.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
     if MsgBox('ÚLTIMA CONFIRMACIÓN: se borrarán definitivamente los datos y los backups de este equipo. Haga antes una copia en un disco externo.' + #13#10 +

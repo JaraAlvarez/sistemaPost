@@ -71,7 +71,8 @@ public static partial class IdentityRules
         return Error.None;
     }
 
-    [GeneratedRegex("^[a-z0-9._-]{3,60}$", RegexOptions.CultureInvariant)]
+    // Fase 13-B (D13B-09): también un correo (el Propietario entra con el correo de su cuenta del portal).
+    [GeneratedRegex("^[a-z0-9._@+-]{3,120}$", RegexOptions.CultureInvariant)]
     private static partial Regex UsernamePattern();
 
     [GeneratedRegex("^[A-Z][A-Z0-9_]{1,39}$", RegexOptions.CultureInvariant)]
@@ -98,7 +99,7 @@ public static class IdentityErrors
         Error.Forbidden("AUTH.PIN_REQUIRES_TERMINAL", "El ingreso con PIN solo está permitido desde una caja registrada.");
 
     public static readonly Error InvalidUsername =
-        Error.Validation("IDENTITY.INVALID_USERNAME", "El usuario debe tener de 3 a 60 caracteres: minúsculas, dígitos, punto, guion o guion bajo.");
+        Error.Validation("IDENTITY.INVALID_USERNAME", "El usuario debe tener de 3 a 120 caracteres: minúsculas, dígitos, punto, guion, guion bajo, o ser un correo.");
 
     public static readonly Error InvalidPosCode =
         Error.Validation("IDENTITY.INVALID_POS_CODE", "El código de cajero debe tener de 3 a 6 dígitos.");
@@ -144,6 +145,12 @@ public static class IdentityErrors
 
     public static readonly Error OwnerAlreadyExists =
         Error.Conflict("SETUP.OWNER_ALREADY_EXISTS", "La empresa ya tiene un Propietario activo.");
+
+    public static readonly Error PortalLinkInvalid = Error.Validation(
+        "SETUP.PORTAL_LINK_INVALID", "La validación de tu cuenta del portal venció o no es válida. Vuelve a escribir tu correo y contraseña del portal.");
+
+    public static readonly Error PortalLinkOtherCompany = Error.Validation(
+        "SETUP.PORTAL_LINK_OTHER_COMPANY", "Tu cuenta del portal es de otra empresa: el NIT no coincide con el de la licencia.");
 
     public static readonly Error LocalOnly =
         Error.Forbidden("SECURITY.LOCAL_ONLY", "Esta operación solo se puede hacer desde el propio servidor.");

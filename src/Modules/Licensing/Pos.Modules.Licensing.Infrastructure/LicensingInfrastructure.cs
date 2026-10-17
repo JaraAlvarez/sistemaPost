@@ -313,6 +313,15 @@ internal sealed class LicenseCredentialsProvider(LicenseStateStore store, IDevic
             : null;
 }
 
+/// <summary>Enlace del propietario del instalador premium (Fase 13-B, D13B-09), verificado con las claves de confianza de la licencia.</summary>
+internal sealed class PortalOwnerLinkVerifier(ILicenseKeys keys, TimeProvider time) : IPortalOwnerLinkVerifier
+{
+    public PortalOwnerLink? Verify(string token) =>
+        OwnerLinkToken.Verify(token, keys.Ring, time.GetUtcNow()) is { IsValid: true, Claims: { } claims }
+            ? new PortalOwnerLink(claims.Email.Trim().ToLowerInvariant(), claims.DisplayName, claims.OrganizationNit)
+            : null;
+}
+
 public static class LicensingInfrastructureRegistration
 {
     public static void Register(IServiceCollection services)
@@ -336,6 +345,7 @@ public static class LicensingInfrastructureRegistration
         services.AddScoped<ILicenseStateStore>(sp => sp.GetRequiredService<LicenseStateStore>());
         services.AddScoped<LicenseService>();
         services.AddScoped<ILicenseCredentials, LicenseCredentialsProvider>();
+        services.AddSingleton<IPortalOwnerLinkVerifier, PortalOwnerLinkVerifier>();
         services.AddSingleton<LicenseWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<LicenseWorker>());
     }

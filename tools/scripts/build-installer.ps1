@@ -6,7 +6,10 @@
     Salida en artifacts\releases:
       BusinessPost-<versión>.zip          paquete de actualización (server, migrator, agent)
       <canal>.json                        manifiesto firmado (si se pasa -SigningKey)
-      BusinessPost-Setup-<versión>.exe    instalador (si Inno Setup 6 está instalado)
+      BusinessPost-Setup-<versión>.exe    instalador DESCARGABLE (si Inno Setup 6 está instalado): un solo archivo con el instalador
+                                          premium (ventana propia con la marca, Fase 13-B D13B-08) y el paquete clásico adentro
+      BusinessPost-Clasico-<versión>.exe  paquete clásico (asistente de Inno): lo usa el premium en silencio; sirve también solo
+                                          (soporte, equipos sin WebView2)
     Suba el ZIP y el manifiesto a la carpeta updates/ del VPS (docs/despliegue-nube.md §16).
 .PARAMETER PostgresZip
     ZIP oficial de binarios de PostgreSQL 18 para Windows x64 (https://www.enterprisedb.com/download-postgresql-binaries). Se incluye sin
@@ -46,9 +49,9 @@ if (-not (Test-Path $PostgresZip)) { throw "No existe $PostgresZip." }
 Remove-Item $package -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $app, $releases | Out-Null
 
-function Publish([string] $project, [string] $output, [switch] $SingleFile) {
+function Publish([string] $project, [string] $output, [switch] $SingleFile, [string[]] $Extra = @()) {
     $arguments = @('publish', (Join-Path $root $project), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
-        '-p:PublishReadyToRun=true', "-p:Version=$Version", '-o', $output, '--nologo', '-v', 'q')
+        '-p:PublishReadyToRun=true', "-p:Version=$Version", '-o', $output, '--nologo', '-v', 'q') + $Extra
     if ($SingleFile) { $arguments += @('-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true') }
     & dotnet @arguments
     if ($LASTEXITCODE -ne 0) { throw "Falló la publicación de $project." }
@@ -59,6 +62,8 @@ Publish 'src\Server\Pos.Server.Host\Pos.Server.Host.csproj' (Join-Path $app 'ser
 Publish 'src\Server\Pos.Server.Migrator\Pos.Server.Migrator.csproj' (Join-Path $app 'migrator')
 Publish 'src\Terminal\Pos.Terminal.Agent\Pos.Terminal.Agent.csproj' (Join-Path $app 'agent')
 Publish 'src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj' (Join-Path $package 'updater') -SingleFile
+# Ventana propia BusinessPost.exe (Fase 13-B, D13B-07): un solo .exe autocontenido; el instalador lo copia a {app}\desktop.
+Publish 'src\Desktop\Pos.Desktop\Pos.Desktop.csproj' (Join-Path $package 'desktop') -SingleFile
 
 # Firma de código (Authenticode): los ejecutables propios firmados no quedan retenidos por Windows Defender en el primer arranque.
 function Sign([string[]] $files) {
@@ -74,7 +79,7 @@ function Sign([string[]] $files) {
 
 if ($CodeSigningThumbprint) {
     Write-Host 'Firmando los ejecutables propios (Authenticode)...' -ForegroundColor Cyan
-    $own = Get-ChildItem $app, (Join-Path $package 'updater') -Recurse -Include 'Pos.*.exe', 'Pos.*.dll', 'BusinessPost*.exe' | ForEach-Object FullName
+    $own = Get-ChildItem $app, (Join-Path $package 'updater'), (Join-Path $package 'desktop') -Recurse -Include 'Pos.*.exe', 'Pos.*.dll', 'BusinessPost*.exe' | ForEach-Object FullName
     Sign $own
 } else {
     Write-Warning 'Sin -CodeSigningThumbprint: los ejecutables van sin firma de código. El primer arranque tras instalar o actualizar puede tardar varios minutos (docs/guia-instalacion.md §8).'
@@ -103,8 +108,22 @@ if ($SigningKey) {
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($iscc) {
     $manifest = if ($UpdateBaseUrl) { $UpdateBaseUrl.TrimEnd('/') + "/$Channel.json" } else { '' }
-    & $iscc "/DAppVersion=$Version" "/DPackageDir=$package" "/DLicenseServer=$LicenseServer" "/DUpdateManifest=$manifest" (Join-Path $root 'installer\BusinessPost.iss')
-    if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación del instalador.' }
+    # 1. Paquete clásico (asistente de Inno de siempre). El instalador premium lo ejecuta en silencio con parámetros.
+    $classic = Join-Path $releases "BusinessPost-Clasico-$Version.exe"
+    & $iscc "/DAppVersion=$Version" "/DPackageDir=$package" "/DLicenseServer=$LicenseServer" "/DUpdateManifest=$manifest" "/DOutputName=BusinessPost-Clasico-$Version" (Join-Path $root 'installer\BusinessPost.iss')
+    if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación del paquete clásico.' }
+    Sign @($classic)
+
+    # 2. Instalador premium (Fase 13-B, D13B-08): un solo .exe autocontenido con el servidor de licencias de esta versión.
+    Write-Host 'Instalador premium (ventana propia con la marca)...' -ForegroundColor Cyan
+    $premium = Join-Path $root 'artifacts\premium'
+    Remove-Item $premium -Recurse -Force -ErrorAction SilentlyContinue
+    Publish 'src\Installer\Pos.Installer.Setup\Pos.Installer.Setup.csproj' $premium -SingleFile -Extra @("-p:PosLicenseServer=$LicenseServer")
+    Sign @(Join-Path $premium 'BusinessPost-Setup.exe')
+
+    # 3. El archivo que se descarga: BusinessPost-Setup-<versión>.exe con los dos adentro (un solo aviso de permisos de Windows).
+    & $iscc "/DAppVersion=$Version" "/DPremiumExe=$(Join-Path $premium 'BusinessPost-Setup.exe')" "/DClassicSetup=$classic" (Join-Path $root 'installer\BusinessPost-Premium.iss')
+    if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación del instalador descargable.' }
     Sign @(Get-ChildItem $releases -Filter "BusinessPost-Setup-$Version.exe" | ForEach-Object FullName)
 } else {
     Write-Warning 'Inno Setup 6 no está instalado: instálelo (winget install JRSoftware.InnoSetup) para generar el .exe del instalador.'

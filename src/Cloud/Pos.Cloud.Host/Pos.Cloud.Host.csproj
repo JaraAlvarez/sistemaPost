@@ -22,6 +22,12 @@
     <ProjectReference Include="..\Modules\PortalIdentity\Pos.Cloud.PortalIdentity.Api\Pos.Cloud.PortalIdentity.Api.csproj" />
   </ItemGroup>
 
+  <!-- Fase 13-B (D13B-06): el manual de instalación vive en docs/ (una sola fuente) y se incrusta al compilar para la página
+       /descargas/manual. La imagen de Docker copia ese archivo (ver Dockerfile y .dockerignore). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\docs\manual-instalacion.md" Link="Docs\manual-instalacion.md" LogicalName="Pos.Cloud.Host.Docs.manual-instalacion.md" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Pos.Cloud.IntegrationTests" />
   </ItemGroup>

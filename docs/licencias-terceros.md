@@ -40,6 +40,7 @@ de copyright y la licencia junto con ella (`src/Client/Pos.Client/wwwroot/fonts/
 | Microsoft.AspNetCore.Authentication.Google *(desde la Fase 12-A, solo la nube)* | 10.0.12 | MIT | Ingreso al portal con Google (OAuth 2.0 / OpenID Connect; ADR-0062) |
 | Fuente Inter *(portal de la nube, `wwwroot/fonts`)* | 4.x (variable, subconjuntos latin y latin-ext en WOFF2) | SIL Open Font License 1.1 (licencia de fuentes; la pidió el propietario para la identidad visual, 2026-09-30) | Tipografía del portal; se sirve desde el propio servidor (sin CDN) con su `OFL.txt` al lado |
 | Logotipo "G" de Google *(portal de la nube)* | — | Marca de Google: uso permitido solo según las [pautas de marca de Google Identity](https://developers.google.com/identity/branding-guidelines) | Botón "Continuar con Google" del ingreso, sin modificar el logotipo |
+| Microsoft.Web.WebView2 *(desde la Fase 13-B)* | 1.0.3912.50 | BSD-3-Clause (© Microsoft; el aviso va junto al programa en `desktop\LICENSE-WebView2.txt`) | Ventana propia `BusinessPost.exe` (D13B-07): control WinForms y cargador nativo `WebView2Loader.dll`. El motor (Microsoft Edge WebView2 Runtime) **no se distribuye**: viene con Windows 10/11 |
 | Datos DIVIPOLA (DANE, datos.gov.co) | 2026-09-28 | Datos abiertos del Gobierno de Colombia | Catálogo de departamentos y municipios |
 
 ## Solo desarrollo y pruebas (no se distribuyen)

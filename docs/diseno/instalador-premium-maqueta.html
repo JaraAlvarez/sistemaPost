@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instalar BusinessPost</title>
+<style>
+:root{
+  --azul-1:#11157D; --azul-2:#2524C8; --morado:#5B3DF5; --morado-2:#4A2DE0; --lila:#EDF3FB;
+  --tarjeta:#F2F1F9; --texto:#1F2432; --texto-2:#6B7280; --borde:#DCDCEB; --verde:#16A34A; --turquesa:#2DD4BF;
+  --hundido: inset 5px 5px 12px rgba(163,177,198,.45), inset -5px -5px 12px rgba(255,255,255,.9);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:Inter,"Segoe UI",system-ui,sans-serif;color:var(--texto);background:#0b0f2e}
+body{display:grid;place-items:center;padding:24px;
+  background:radial-gradient(900px 600px at 15% 10%,rgba(91,61,245,.35),transparent 60%),radial-gradient(900px 600px at 88% 92%,rgba(59,130,246,.3),transparent 60%),#0b0f2e}
+/* Ventana del instalador: 960x600, sin marco de Windows (barra propia). */
+.ventana{width:960px;max-width:100%;height:600px;border-radius:22px;overflow:hidden;display:flex;position:relative;
+  box-shadow:0 60px 120px -30px rgba(10,6,50,.75),0 20px 50px -15px rgba(10,6,50,.6),inset 0 1px rgba(255,255,255,.4);background:#fff}
+.barra{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;justify-content:flex-end;padding:0 10px;z-index:5;-webkit-app-region:drag}
+.barra button{-webkit-app-region:no-drag;width:34px;height:26px;border:0;border-radius:8px;background:transparent;color:rgba(255,255,255,.85);font-size:15px;cursor:pointer}
+.barra button:hover{background:rgba(255,255,255,.15)}
+/* Panel izquierdo de marca. */
+.marca{width:340px;flex:none;position:relative;color:#fff;padding:34px 30px 26px;display:flex;flex-direction:column;
+  background:linear-gradient(160deg,var(--azul-1),var(--azul-2) 55%,var(--morado));overflow:hidden}
+.marca::after{content:"";position:absolute;right:-120px;bottom:-140px;width:360px;height:360px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(45,212,191,.35),transparent);pointer-events:none}
+.onda{position:absolute;left:0;right:0;bottom:0;height:150px;pointer-events:none}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.02em}
+.logo small{display:block;font-size:10px;font-weight:600;letter-spacing:.08em;opacity:.75;text-transform:uppercase}
+.logo .post{color:#C4B5FD}
+.pasos{list-style:none;margin:40px 0 0;padding:0;display:grid;gap:6px;position:relative;z-index:1}
+.pasos li{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:12px;font-size:14px;color:rgba(255,255,255,.62);transition:.2s}
+.pasos li .n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;border:1.5px solid rgba(255,255,255,.35)}
+.pasos li.hecho{color:rgba(255,255,255,.85)}
+.pasos li.hecho .n{background:var(--turquesa);border-color:var(--turquesa);color:#0b3b36}
+.pasos li.actual{background:rgba(255,255,255,.12);color:#fff;font-weight:600}
+.pasos li.actual .n{background:#fff;color:var(--morado);border-color:#fff}
+.version{margin-top:auto;position:relative;z-index:1;font-size:11px;opacity:.7}
+/* Contenido. */
+.contenido{flex:1;position:relative;background:linear-gradient(180deg,#fbfbff,#f3f3fb);display:flex;flex-direction:column}
+.pantalla{display:none;flex:1;padding:58px 46px 0;flex-direction:column;animation:entra .35s ease}
+.pantalla.activa{display:flex}
+@keyframes entra{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
+.lead{color:var(--texto-2);font-size:14.5px;line-height:1.55;margin:0 0 22px;max-width:520px}
+.pie{display:flex;align-items:center;gap:12px;padding:18px 46px 24px;margin-top:auto}
+.pie .izq{margin-right:auto;font-size:12px;color:var(--texto-2)}
+.btn{border:0;border-radius:999px;padding:12px 26px;font:inherit;font-weight:600;font-size:14px;cursor:pointer;transition:.15s}
+.btn-primario{background:var(--morado);color:#fff;box-shadow:6px 6px 16px rgba(93,68,160,.35)}
+.btn-primario:hover{background:var(--morado-2);transform:translateY(-1px)}
+.btn-sec{background:transparent;color:var(--texto-2)}
+.btn-sec:hover{color:var(--texto)}
+/* Bienvenida. */
+.hero{display:flex;gap:26px;align-items:center}
+.ilus{width:200px;height:160px;flex:none;border-radius:20px;background:linear-gradient(145deg,#ece9ff,#dfe8fb);display:grid;place-items:center;box-shadow:var(--hundido)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+.chip{font-size:12.5px;background:#fff;border:1px solid var(--borde);border-radius:999px;padding:6px 12px;color:#374151}
+.aliado-mini{margin-top:26px;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#fff;border:1px solid var(--borde);font-size:13px;max-width:520px}
+.aliado-mini b{color:var(--morado)}
+/* Tarjetas de modo. */
+.modos{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.modo{background:#fff;border:2px solid transparent;border-radius:18px;padding:18px 16px;cursor:pointer;box-shadow:0 10px 24px -14px rgba(31,36,50,.35);transition:.15s;position:relative}
+.modo:hover{transform:translateY(-2px)}
+.modo.sel{border-color:var(--morado);box-shadow:0 14px 30px -14px rgba(91,61,245,.55)}
+.modo.sel::after{content:"✓";position:absolute;top:12px;right:12px;width:22px;height:22px;border-radius:50%;background:var(--morado);color:#fff;font-size:12px;display:grid;place-items:center}
+.modo h3{font-size:15px;margin:12px 0 6px}
+.modo p{font-size:12.5px;color:var(--texto-2);line-height:1.5;margin:0}
+.modo .tag{display:inline-block;margin-top:10px;font-size:11px;font-weight:700;color:var(--morado);background:#efeaff;border-radius:999px;padding:3px 9px}
+.ayuda{margin-top:16px;font-size:12.5px;color:var(--texto-2)}
+/* Campos. */
+.campo{position:relative;margin-bottom:14px;max-width:520px}
+.campo label{display:block;font-size:12.5px;font-weight:600;margin:0 0 6px 4px}
+.campo input{width:100%;border:0;border-radius:999px;padding:13px 18px;font:inherit;font-size:15px;background:#EEF1F4;box-shadow:var(--hundido);letter-spacing:.04em}
+.campo input:focus{outline:none;box-shadow:var(--hundido),0 0 0 3px rgba(91,61,245,.25)}
+.empresa{max-width:520px;display:none;align-items:center;gap:14px;background:#fff;border:1px solid #c9f2e6;border-radius:16px;padding:14px 16px;margin-top:6px}
+.empresa.ver{display:flex}
+.ok{width:34px;height:34px;border-radius:50%;background:#dcfce7;color:var(--verde);display:grid;place-items:center;font-weight:800;flex:none}
+.empresa small{color:var(--texto-2)}
+.demo{margin-top:12px;font-size:13px;color:var(--texto-2)}
+.demo a{color:var(--morado);font-weight:600;text-decoration:none;cursor:pointer}
+.google{display:inline-flex;align-items:center;gap:10px;background:#fff;border:0;border-radius:999px;padding:11px 20px;font:inherit;font-weight:500;font-size:14px;cursor:pointer;box-shadow:0 4px 12px rgba(15,23,42,.14)}
+.sep{display:flex;align-items:center;gap:10px;color:var(--texto-2);font-size:12px;margin:16px 0;max-width:520px}
+.sep::before,.sep::after{content:"";flex:1;height:1px;background:var(--borde)}
+/* Progreso. */
+.progreso{display:flex;gap:22px;flex:1;min-height:0}
+.lista{flex:1;display:grid;align-content:start;gap:12px;font-size:14px}
+.item{display:flex;align-items:center;gap:12px;color:var(--texto-2)}
+.item .e{width:24px;height:24px;border-radius:50%;border:2px solid var(--borde);flex:none;display:grid;place-items:center;font-size:12px}
+.item.hecho{color:var(--texto)} .item.hecho .e{background:var(--verde);border-color:var(--verde);color:#fff}
+.item.va{color:var(--texto);font-weight:600} .item.va .e{border-color:var(--morado);border-top-color:transparent;animation:gira .8s linear infinite}
+@keyframes gira{to{transform:rotate(360deg)}}
+.nota{font-size:12px;color:var(--texto-2);margin-top:4px}
+.barra-p{height:8px;border-radius:999px;background:#e6e6f2;overflow:hidden;margin:0 0 4px;max-width:100%}
+.barra-p i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--azul-2),var(--morado),var(--turquesa));transition:width .6s}
+/* Carrusel. */
+.carrusel{width:300px;flex:none;border-radius:20px;overflow:hidden;position:relative;height:300px;box-shadow:0 20px 40px -20px rgba(31,36,50,.5)}
+.slide{position:absolute;inset:0;padding:22px;color:#fff;display:flex;flex-direction:column;justify-content:flex-end;opacity:0;transition:opacity .8s}
+.slide.ver{opacity:1}
+.slide h4{font-size:20px;line-height:1.2;margin:0 0 8px;letter-spacing:-.01em}
+.slide p{font-size:13px;line-height:1.5;margin:0;opacity:.9}
+.s1{background:linear-gradient(160deg,#11157D,#2524C8 60%,#5B3DF5)}
+.s2{background:linear-gradient(160deg,#0f766e,#14b8a6)}
+.s3{background:linear-gradient(140deg,#2524C8,#5737FA 52%,#8b6ff0)}
+.s3 .pill{align-self:flex-start;background:rgba(255,255,255,.2);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;letter-spacing:.04em;margin-bottom:auto}
+.s3 .tnu{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-weight:800;font-size:16px}
+.s3 .tnu span{width:36px;height:36px;border-radius:10px;background:#fff;color:#5B3DF5;display:grid;place-items:center;font-size:18px}
+.puntos{position:absolute;top:14px;right:16px;display:flex;gap:6px;z-index:2}
+.puntos i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.45)} .puntos i.on{background:#fff}
+/* Listo. */
+.listo{text-align:center;align-items:center;justify-content:center;padding-top:40px}
+.check{width:86px;height:86px;border-radius:50%;background:linear-gradient(145deg,#22c55e,#16a34a);display:grid;place-items:center;color:#fff;font-size:42px;box-shadow:0 18px 40px -12px rgba(22,163,74,.6);margin-bottom:18px;animation:pop .5s}
+@keyframes pop{0%{transform:scale(.4)}80%{transform:scale(1.08)}100%{transform:scale(1)}}
+.resumen{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0 18px;width:100%;max-width:600px}
+.resumen div{background:#fff;border:1px solid var(--borde);border-radius:14px;padding:12px;font-size:12.5px;color:var(--texto-2)}
+.resumen b{display:block;color:var(--texto);font-size:14px;margin-bottom:2px}
+.aliado-final{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--texto-2);margin-top:14px}
+.aliado-final input{accent-color:var(--morado);width:16px;height:16px}
+</style>
+</head>
+<body>
+<div class="ventana">
+  <div class="barra"><button title="Minimizar">–</button><button title="Cerrar">✕</button></div>
+
+  <aside class="marca">
+    <div class="logo">
+      <svg width="38" height="38" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".14"/><path fill="#fff" fill-rule="evenodd" d="M9 7H17C20 7 22 9 22 11.6C22 13.3 21.1 14.7 19.8 15.4C21.8 16.1 23 17.9 23 20.1C23 23 20.8 25 17.8 25H9ZM12.6 10.2V14H16.7C17.9 14 18.6 13.2 18.6 12.1C18.6 11 17.9 10.2 16.7 10.2ZM12.6 17.1V21.8H17.2C18.6 21.8 19.4 20.9 19.4 19.45C19.4 18 18.6 17.1 17.2 17.1Z"/><circle cx="26" cy="26" r="2.6" fill="#2DD4BF"/></svg>
+      <div>Business<span class="post">Post</span><small>Instalación</small></div>
+    </div>
+    <ol class="pasos" id="pasos">
+      <li data-p="0"><span class="n">1</span>Bienvenida</li>
+      <li data-p="1"><span class="n">2</span>Este equipo</li>
+      <li data-p="2"><span class="n">3</span>Licencia</li>
+      <li data-p="3"><span class="n">4</span>Tu cuenta</li>
+      <li data-p="4"><span class="n">5</span>Instalación</li>
+      <li data-p="5"><span class="n">6</span>¡Listo!</li>
+    </ol>
+    <div class="version">Versión 1.1.0 · Hecho en Colombia para tu negocio</div>
+    <svg class="onda" viewBox="0 0 340 150" preserveAspectRatio="none" aria-hidden="true"><path d="M0,70 C90,130 220,20 340,80 L340,150 L0,150 Z" fill="rgba(255,255,255,.07)"/><path d="M0,100 C110,150 230,60 340,110 L340,150 L0,150 Z" fill="rgba(255,255,255,.08)"/></svg>
+  </aside>
+
+  <main class="contenido">
+    <!-- 1. Bienvenida -->
+    <section class="pantalla activa" data-p="0">
+      <div class="hero">
+        <div>
+          <h1>Bienvenido a BusinessPost</h1>
+          <p class="lead">El punto de venta para tu negocio: caja rápida, inventario al día y facturación electrónica. Instalarlo toma unos minutos y te guiamos en cada paso.</p>
+          <div class="chips"><span class="chip">⚡ Cobros en segundos</span><span class="chip">📦 Inventario y compras</span><span class="chip">🧾 Factura DIAN</span><span class="chip">🔒 Backups automáticos</span></div>
+        </div>
+        <div class="ilus">
+          <svg width="150" height="120" viewBox="0 0 150 120" aria-hidden="true"><rect x="18" y="14" width="114" height="72" rx="10" fill="#fff" stroke="#c9c3ff" stroke-width="2"/><rect x="28" y="24" width="60" height="8" rx="4" fill="#5B3DF5" opacity=".8"/><rect x="28" y="38" width="94" height="6" rx="3" fill="#e2e0f5"/><rect x="28" y="50" width="80" height="6" rx="3" fill="#e2e0f5"/><rect x="96" y="62" width="26" height="14" rx="7" fill="#2DD4BF"/><rect x="58" y="88" width="34" height="10" rx="3" fill="#c9c3ff"/><rect x="40" y="98" width="70" height="8" rx="4" fill="#a99cff"/></svg>
+        </div>
+      </div>
+      <div class="aliado-mini"><span style="font-size:20px">🛍️</span><div>¿Quieres vender también por internet? Crea tu tienda en <b>tutiendanueva.com</b>, nuestro aliado comercial.</div></div>
+      <div class="pie"><span class="izq">Al continuar aceptas los <a href="#" style="color:var(--morado)">términos de uso</a>.</span><button class="btn btn-primario" onclick="ir(1)">Comenzar</button></div>
+    </section>
+
+    <!-- 2. Este equipo -->
+    <section class="pantalla" data-p="1">
+      <h1>¿Cómo usarás este equipo?</h1>
+      <p class="lead">Elige la opción que describe tu local. Si tienes una sola caja, deja la primera.</p>
+      <div class="modos" id="modos">
+        <div class="modo sel" onclick="modo(this)"><svg width="44" height="44" viewBox="0 0 44 44"><rect x="6" y="8" width="32" height="22" rx="4" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><rect x="16" y="32" width="12" height="4" rx="2" fill="#5B3DF5"/></svg><h3>Es la única caja</h3><p>Este equipo guarda los datos y es donde cobras. Ideal para negocios con una caja.</p><span class="tag">Plan Caja Única</span></div>
+        <div class="modo" onclick="modo(this)"><svg width="44" height="44" viewBox="0 0 44 44"><rect x="14" y="6" width="16" height="30" rx="3" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><circle cx="22" cy="14" r="2" fill="#5B3DF5"/><path d="M4 30h8M32 30h8" stroke="#2DD4BF" stroke-width="3" stroke-linecap="round"/></svg><h3>Es el equipo principal</h3><p>Tengo varias cajas. Aquí se guardan los datos y las demás cajas se conectan a él por la red del local.</p><span class="tag">Plan Multicaja</span></div>
+        <div class="modo" onclick="modo(this)"><svg width="44" height="44" viewBox="0 0 44 44"><rect x="8" y="10" width="28" height="18" rx="4" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><path d="M22 30v6M14 36h16" stroke="#5B3DF5" stroke-width="2" stroke-linecap="round"/><circle cx="36" cy="10" r="5" fill="#2DD4BF"/></svg><h3>Es una caja adicional</h3><p>Ya instalaste el equipo principal. Esta caja lo busca sola en la red.</p><span class="tag">Plan Multicaja</span></div>
+      </div>
+      <p class="ayuda">¿Reemplazas un equipo dañado? <a href="#" style="color:var(--morado);font-weight:600">Recuperar desde un backup</a></p>
+      <div class="pie"><button class="btn btn-sec" onclick="ir(0)">Atrás</button><button class="btn btn-primario" onclick="ir(2)">Continuar</button></div>
+    </section>
+
+    <!-- 3. Licencia -->
+    <section class="pantalla" data-p="2">
+      <h1>Activa tu licencia</h1>
+      <p class="lead">Escribe la clave que recibiste al comprar BusinessPost. Con ella traemos los datos de tu empresa para que no los escribas de nuevo.</p>
+      <div class="campo"><label>Clave de licencia</label><input id="clave" placeholder="POS-XXXXX-XXXXX-XXXXX-XXXXX" oninput="validar(this)"></div>
+      <div class="empresa" id="empresa"><span class="ok">✓</span><div><b>Supermercado La Economía SAS</b><br><small>NIT 900.123.456-8 · Plan Multicaja · Vigente hasta 16/11/2026</small></div></div>
+      <p class="demo">¿Aún no tienes clave? <a onclick="ir(3)">Probar gratis 30 días</a></p>
+      <div class="pie"><button class="btn btn-sec" onclick="ir(1)">Atrás</button><button class="btn btn-primario" onclick="ir(3)">Continuar</button></div>
+    </section>
+
+    <!-- 4. Cuenta -->
+    <section class="pantalla" data-p="3">
+      <h1>Entra con tu cuenta de BusinessPost</h1>
+      <p class="lead">Es la misma cuenta de tu portal. Con ella administrarás la tienda: crear cajeros, cargar productos y ver reportes. Funciona también sin internet.</p>
+      <button class="google"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Continuar con Google</button>
+      <div class="sep">o con tu correo</div>
+      <div class="campo"><label>Correo</label><input placeholder="tu@correo.com"></div>
+      <div class="campo"><label>Contraseña</label><input type="password" placeholder="Tu contraseña del portal"></div>
+      <div class="pie"><button class="btn btn-sec" onclick="ir(2)">Atrás</button><button class="btn btn-primario" onclick="instalar()">Instalar BusinessPost</button></div>
+    </section>
+
+    <!-- 5. Instalación -->
+    <section class="pantalla" data-p="4">
+      <h1>Instalando BusinessPost</h1>
+      <p class="lead">Puedes seguir usando el computador. Te avisamos cuando termine.</p>
+      <div class="progreso">
+        <div style="flex:1">
+          <div class="barra-p"><i id="barra"></i></div>
+          <div class="nota" id="pct">0 %</div>
+          <div class="lista" id="lista" style="margin-top:16px">
+            <div class="item"><span class="e"></span>Copiando los programas</div>
+            <div class="item"><span class="e"></span>Revisando los archivos con Windows Defender</div>
+            <div class="item"><span class="e"></span>Creando la base de datos</div>
+            <div class="item"><span class="e"></span>Preparando la caja y la impresora</div>
+            <div class="item"><span class="e"></span>Iniciando BusinessPost</div>
+          </div>
+          <div class="nota" id="nota" style="margin-top:14px"></div>
+        </div>
+        <div class="carrusel">
+          <div class="puntos"><i class="on"></i><i></i><i></i></div>
+          <div class="slide s1 ver"><h4>Cobra en segundos</h4><p>Lector de códigos, atajos de teclado y pago mixto: efectivo, tarjeta, Nequi y Sistecrédito.</p></div>
+          <div class="slide s2"><h4>Tu inventario siempre al día</h4><p>Compras, traslados y conteos con alertas de existencias bajas y vencimientos.</p></div>
+          <div class="slide s3"><span class="pill">ALIADO COMERCIAL</span><div class="tnu"><span>🛍️</span>tutiendanueva.com</div><h4>¿Quieres vender también por internet?</h4><p>Crea tu tienda en línea en minutos con tutiendanueva.com.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. Listo -->
+    <section class="pantalla listo" data-p="5">
+      <div class="check">✓</div>
+      <h1>¡Todo listo!</h1>
+      <p class="lead" style="margin-inline:auto">BusinessPost quedó instalado y tus backups automáticos ya están activos.</p>
+      <div class="resumen"><div><b>Supermercado La Economía</b>Empresa</div><div><b>Equipo principal</b>Multicaja</div><div><b>Licencia activa</b>hasta 16/11/2026</div></div>
+      <button class="btn btn-primario" style="padding:14px 34px;font-size:15px">Abrir BusinessPost</button>
+      <label class="aliado-final"><input type="checkbox"> Quiero conocer tutiendanueva.com para vender por internet</label>
+    </section>
+  </main>
+</div>
+
+<script>
+const pantallas=[...document.querySelectorAll('.pantalla')], pasos=[...document.querySelectorAll('#pasos li')];
+function ir(n){pantallas.forEach(p=>p.classList.toggle('activa',+p.dataset.p===n));
+  pasos.forEach((l,i)=>{l.classList.toggle('hecho',i<n);l.classList.toggle('actual',i===n)});}
+function modo(el){document.querySelectorAll('.modo').forEach(m=>m.classList.remove('sel'));el.classList.add('sel');}
+function validar(i){document.getElementById('empresa').classList.toggle('ver',i.value.replace(/[^A-Z0-9]/gi,'').length>=23);}
+function instalar(){ir(4);const items=[...document.querySelectorAll('#lista .item')];let k=0,p=0;
+  const notas=['','La primera vez Windows revisa cada archivo nuevo: puede tardar unos minutos.','','',''];
+  const paso=()=>{items.forEach((it,i)=>{it.classList.toggle('hecho',i<k);it.classList.toggle('va',i===k);it.querySelector('.e').textContent=i<k?'✓':''});
+    document.getElementById('nota').textContent=notas[k]||'';};
+  paso();const t=setInterval(()=>{p+=2;document.getElementById('barra').style.width=p+'%';document.getElementById('pct').textContent=p+' %';
+    if(p%20===0){k++;paso();} if(p>=100){clearInterval(t);setTimeout(()=>ir(5),600);}},160);}
+let s=0;setInterval(()=>{const sl=[...document.querySelectorAll('.slide')],pu=[...document.querySelectorAll('.puntos i')];s=(s+1)%sl.length;
+  sl.forEach((x,i)=>x.classList.toggle('ver',i===s));pu.forEach((x,i)=>x.classList.toggle('on',i===s));},3500);
+ir(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Instalador premium (Fase 13-B): lógica pura (avance leído del registro de Inno, dígito de verificación, municipios, parámetros). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Installer\Pos.Installer.Setup\Pos.Installer.Setup.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\Pos.SharedKernel\Pos.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

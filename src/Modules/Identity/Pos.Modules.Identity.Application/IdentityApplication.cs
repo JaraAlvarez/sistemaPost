@@ -5,6 +5,7 @@ using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
+using Pos.Modules.Licensing.Contracts;
 using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
@@ -14,7 +15,14 @@ namespace Pos.Modules.Identity.Application;
 
 /// <summary>Usuario system + 7 roles de sistema con los permisos vigentes del catálogo + Propietario.</summary>
 public sealed class IdentityProvisioning(
-    IIdentityStore store, CredentialPolicy policy, IIdentityState state, IAuditWriter audit, IIdGenerator ids, IClock clock) : IIdentityProvisioning
+    IIdentityStore store,
+    CredentialPolicy policy,
+    ISecretHasher hasher,
+    IPortalOwnerLinkVerifier links,
+    IIdentityState state,
+    IAuditWriter audit,
+    IIdGenerator ids,
+    IClock clock) : IIdentityProvisioning
 {
     public async Task ProvisionCompanyAsync(Guid companyId, Guid systemUserId, CancellationToken cancellationToken = default)
     {
@@ -27,28 +35,66 @@ public sealed class IdentityProvisioning(
         }
     }
 
-    public async Task<Result<Guid>> CreateOwnerAsync(Guid companyId, OwnerInput owner, CancellationToken cancellationToken = default)
+    public async Task<Result<Guid>> CreateOwnerAsync(
+        Guid companyId, OwnerInput owner, string? organizationNit = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        if (await store.UsernameExistsAsync(IdentityRules.NormalizeUsername(owner.Username), cancellationToken))
+
+        // Fase 13-B (D13B-09): cuenta del portal. El enlace (firmado por la nube, vida corta) dice qué correo validó la nube y de qué
+        // empresa es; el usuario será ese correo. La contraseña ya cumplió la política del portal (12+ caracteres, letras y números) y
+        // debe ser IGUAL a la del portal: no se le aplica la política local (podría rechazar una contraseña válida en el portal).
+        PortalOwnerLink? link = null;
+        if (!string.IsNullOrWhiteSpace(owner.PortalLinkToken))
+        {
+            link = links.Verify(owner.PortalLinkToken);
+            if (link is null)
+            {
+                return IdentityErrors.PortalLinkInvalid;
+            }
+
+            if (organizationNit is null || !string.Equals(link.OrganizationNit, organizationNit, StringComparison.Ordinal))
+            {
+                return IdentityErrors.PortalLinkOtherCompany;
+            }
+        }
+
+        var username = link?.Email ?? owner.Username;
+        if (await store.UsernameExistsAsync(IdentityRules.NormalizeUsername(username), cancellationToken))
         {
             return IdentityErrors.UsernameDuplicated;
         }
 
-        var hash = await policy.HashNewPasswordAsync(companyId, owner.Password, owner.Username, cancellationToken);
+        Result<string> hash;
+        if (link is null)
+        {
+            hash = await policy.HashNewPasswordAsync(companyId, owner.Password, owner.Username, cancellationToken);
+        }
+        else
+        {
+            hash = string.IsNullOrEmpty(owner.Password) || owner.Password.Length > 128
+                ? IdentityErrors.CurrentPasswordInvalid
+                : await hasher.HashAsync(owner.Password, SecretKind.Password, cancellationToken);
+        }
+
         if (hash.IsFailure)
         {
             return hash.Error;
         }
 
         // El Propietario eligió su contraseña: no se le obliga a cambiarla.
-        var created = User.CreateHuman(ids.NewId(), companyId, owner.Username, owner.DisplayName, owner.Email, hash.Value, clock.UtcNow, mustChangePassword: false);
+        var displayName = link is null || !string.IsNullOrWhiteSpace(owner.DisplayName) ? owner.DisplayName : link.DisplayName;
+        var created = User.CreateHuman(
+            ids.NewId(), companyId, username, displayName, link?.Email ?? owner.Email, hash.Value, clock.UtcNow, mustChangePassword: false);
         if (created.IsFailure)
         {
             return created.Error;
         }
 
         var user = created.Value;
+        if (link is not null)
+        {
+            user.LinkToPortal(clock.UtcNow);
+        }
         store.AddPasswordHistory(ids.NewId(), user.Id, hash.Value, clock.UtcNow);
         if (owner.PosCode is not null)
         {
@@ -70,7 +116,10 @@ public sealed class IdentityProvisioning(
         store.Add(user);
         await audit.WriteAsync(
             new AuditEntry("identity", "OWNER_CREATED", nameof(User), user.Id, user.AuditLabel,
-                $"Se creó el Propietario {user.DisplayName} ({user.Username}).", Severity: AuditSeverity.Warning),
+                link is null
+                    ? $"Se creó el Propietario {user.DisplayName} ({user.Username})."
+                    : $"Se creó el Propietario {user.DisplayName} ({user.Username}) con su cuenta del portal (enlace firmado por la nube).",
+                Severity: AuditSeverity.Warning),
             cancellationToken);
         state.Invalidate();
         return user.Id;

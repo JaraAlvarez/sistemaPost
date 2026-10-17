@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Ventana BusinessPost.exe (Fase 13-B, D13B-07): página inicial, reglas de navegación, fases de la pantalla de carga y posición de la ventana (sin interfaz). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Desktop\Pos.Desktop\Pos.Desktop.csproj" />
+  </ItemGroup>
+</Project>

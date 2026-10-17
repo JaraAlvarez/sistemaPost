@@ -49,6 +49,9 @@ internal sealed partial class FileLicenseTokenSigner : ILicenseTokenSigner, IDis
     public string Sign(LicenseClaims claims) =>
         IsAvailable ? LicenseToken.Sign(claims, _key!) : throw new InvalidOperationException("La firma de tokens no está disponible.");
 
+    public string SignOwnerLink(OwnerLinkClaims claims) =>
+        IsAvailable ? OwnerLinkToken.Sign(claims, _key!) : throw new InvalidOperationException("La firma de tokens no está disponible.");
+
     public void SetEnabled(bool enabled) => _enabled = enabled && _key is not null;
 
     public void Dispose() => _key?.Dispose();
