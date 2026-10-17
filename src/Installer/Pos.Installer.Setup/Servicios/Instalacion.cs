@@ -44,7 +44,7 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         if (!string.IsNullOrWhiteSpace(solicitud.Backup))
         {
             // El código de recuperación no va en la línea de comandos: Inno lo lee de este archivo y lo borra.
-            archivoCodigo = Path.Combine(temporal, $"recuperacion-{Guid.NewGuid():N}.txt");
+            archivoCodigo = Path.Combine(temporal, $"{Rutas.PrefijoArchivoCodigo}{Guid.NewGuid():N}.txt");
             await File.WriteAllTextAsync(archivoCodigo, solicitud.CodigoRecuperacion ?? string.Empty, cancellationToken);
         }
 
@@ -88,9 +88,8 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         _avisosPaquete = [.. lector.Avisos];
         if (salida != 0 || lector.Resultado == ResultadoInno.Error)
         {
-            Fallo(lector.Error is { } paso
-                ? $"La instalación no pudo terminar el paso \"{paso}\"."
-                : $"La instalación no pudo terminar (código {salida}).", Registro);
+            // IN7: el paquete sale con un código distinto de cero si la base de datos, la recuperación o el cambio de versión fallaron.
+            Fallo(SalidaPaquete.Mensaje(salida, lector.Error), Registro);
             return;
         }
 

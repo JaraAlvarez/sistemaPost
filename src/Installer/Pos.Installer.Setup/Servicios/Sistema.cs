@@ -44,7 +44,19 @@ internal static partial class Sistema
             }
         }
 
-        return CarpetaInstalada() is null ? null : Logica.ModoInstalado.Detectar(Leer("updater.json"), Leer("server.json"));
+        if (CarpetaInstalada() is null)
+        {
+            return null;
+        }
+
+        // IN10: igual que el paquete (DetectPreviousMode): primero el modo que guardó Inno; después, la configuración.
+        string? guardado;
+        using (var clave = Registry.LocalMachine.OpenSubKey(ClaveDesinstalacion))
+        {
+            guardado = clave?.GetValue(Logica.ModoInstalado.ValorRegistro) as string;
+        }
+
+        return Logica.ModoInstalado.Detectar(guardado, Leer("updater.json"), Leer("server.json"));
     }
 
     public static bool EsAdministrador()
@@ -168,50 +180,92 @@ internal static partial class Sistema
     /// <summary>Documentos del usuario de la sesión (el dueño de explorer.exe); los del proceso si no se puede saber.</summary>
     public static string DocumentosDelUsuario()
     {
+        int sesion;
+        Process[] exploradores;
         try
         {
-            var sesion = Process.GetCurrentProcess().SessionId;
-            foreach (var explorer in Process.GetProcessesByName("explorer"))
-            {
-                using (explorer)
-                {
-                    if (explorer.SessionId != sesion || !OpenProcessToken(explorer.Handle, TokenQuery | TokenImpersonate | TokenDuplicate, out var token))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        if (SHGetKnownFolderPath(DocumentosId, 0, token, out var ruta) == 0)
-                        {
-                            try
-                            {
-                                var texto = Marshal.PtrToStringUni(ruta);
-                                if (!string.IsNullOrWhiteSpace(texto) && Directory.Exists(texto))
-                                {
-                                    return texto;
-                                }
-                            }
-                            finally
-                            {
-                                Marshal.FreeCoTaskMem(ruta);
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        CloseHandle(token);
-                    }
-                }
-            }
+            sesion = Process.GetCurrentProcess().SessionId;
+            exploradores = Process.GetProcessesByName("explorer");
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or UnauthorizedAccessException)
         {
-            // Sin acceso al explorador (p. ej. otra sesión): se usan los Documentos de este proceso y el dueño elige la carpeta.
+            return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         }
 
+        foreach (var explorer in exploradores)
+        {
+            using (explorer)
+            {
+                // PN4: un explorador al que no se tiene acceso (otra sesión, cerrándose) no corta la búsqueda: se sigue con el siguiente.
+                try
+                {
+                    if (explorer.SessionId == sesion && DocumentosDe(explorer.Id) is { } documentos)
+                    {
+                        return documentos;
+                    }
+                }
+                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or UnauthorizedAccessException)
+                {
+                    // Sin acceso a este explorador: se prueba el siguiente.
+                }
+            }
+        }
+
+        // Sin acceso a ningún explorador: se usan los Documentos de este proceso y el dueño elige la carpeta.
         return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
     }
+
+    /// <summary>
+    /// Documentos del dueño del proceso <paramref name="id"/>. PN4: el proceso se abre solo con <c>PROCESS_QUERY_LIMITED_INFORMATION</c>
+    /// (lo mínimo para leer su token), no con <c>Process.Handle</c>, que pide acceso total.
+    /// </summary>
+    private static string? DocumentosDe(int id)
+    {
+        var proceso = OpenProcess(ProcessQueryLimitedInformation, false, (uint)id);
+        if (proceso == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            if (!OpenProcessToken(proceso, TokenQuery | TokenImpersonate | TokenDuplicate, out var token))
+            {
+                return null;
+            }
+
+            try
+            {
+                if (SHGetKnownFolderPath(DocumentosId, 0, token, out var ruta) != 0)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    var texto = Marshal.PtrToStringUni(ruta);
+                    return !string.IsNullOrWhiteSpace(texto) && Directory.Exists(texto) ? texto : null;
+                }
+                finally
+                {
+                    Marshal.FreeCoTaskMem(ruta);
+                }
+            }
+            finally
+            {
+                CloseHandle(token);
+            }
+        }
+        finally
+        {
+            CloseHandle(proceso);
+        }
+    }
+
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
 
     /// <summary>
     /// Borra este ejecutable (la copia temporal del desinstalador) cuando el proceso termine: un <c>cmd</c> oculto espera unos segundos y
@@ -293,6 +347,32 @@ internal static partial class Sistema
 
     [LibraryImport("shell32.dll")]
     private static partial int SHGetKnownFolderPath(in Guid folderId, uint flags, nint token, out nint path);
+
+    /// <summary>
+    /// PN1: archivos con el código de recuperación que pudieron quedar en la carpeta temporal (el paquete los borra al leerlos; si se
+    /// canceló antes, quedaban). Se llama al salir, cuando ya no hay instalación en curso.
+    /// </summary>
+    public static void BorrarArchivosDeCodigo()
+    {
+        try
+        {
+            foreach (var archivo in Directory.EnumerateFiles(CarpetaTemporal(), $"{Logica.Rutas.PrefijoArchivoCodigo}*.txt"))
+            {
+                try
+                {
+                    File.Delete(archivo);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Todavía en uso: se intenta la próxima vez.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Sin carpeta temporal accesible.
+        }
+    }
 
     public static string CarpetaTemporal()
     {

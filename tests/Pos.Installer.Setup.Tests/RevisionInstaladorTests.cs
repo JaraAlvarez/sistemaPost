@@ -297,6 +297,25 @@ public class ModoYAvisosTests
     public void Detecta_el_modo_instalado_como_el_paquete(string? updater, string? server, ModoEquipo? esperado) =>
         ModoInstalado.Detectar(updater, server).ShouldBe(esperado);
 
+    [Theory]
+    [InlineData("principal", """{ "Pos": { "Database": { "Edition": "SINGLE" } } }""", ModoEquipo.Principal)]
+    [InlineData("adicional", null, ModoEquipo.Adicional)]
+    [InlineData("UNICA", """{ "Pos": { "Database": { "Edition": "MULTI" } } }""", ModoEquipo.Unica)]
+    [InlineData("", """{ "Pos": { "Database": { "Edition": "MULTI" } } }""", ModoEquipo.Principal)]
+    [InlineData("otro", null, null)]
+    public void IN10_primero_el_modo_que_guardo_Inno_y_despues_la_configuracion(string? guardado, string? server, ModoEquipo? esperado) =>
+        ModoInstalado.Detectar(guardado, null, server).ShouldBe(esperado);
+
+    [Fact]
+    public void IN7_el_codigo_de_salida_del_paquete_da_un_mensaje_claro()
+    {
+        SalidaPaquete.Mensaje(SalidaPaquete.RestaurarConSoporte, "Base de datos").ShouldContain("soporte restaure el backup previo");
+        SalidaPaquete.Mensaje(SalidaPaquete.BaseDeDatos, "Base de datos").ShouldContain("sigue con la versión anterior");
+        SalidaPaquete.Mensaje(SalidaPaquete.BaseDeDatos, "Recuperación desde el backup").ShouldContain("No se pudo recuperar el backup");
+        SalidaPaquete.Mensaje(SalidaPaquete.VersionActiva, null).ShouldContain("vuelve a ejecutar el instalador");
+        SalidaPaquete.Mensaje(5, null).ShouldContain("código 5");
+    }
+
     [Fact]
     public void Cambiar_el_modo_va_en_los_parametros_solo_si_se_confirmo()
     {

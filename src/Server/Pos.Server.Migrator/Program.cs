@@ -45,6 +45,8 @@ using Pos.Server.Migrator;
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
 //                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex,
 //                    6 = falló el backup previo obligatorio, 7 = inconsistencias en verify-consistency.
+//                    install (actualización): 3 = la migración falló y los datos quedaron como antes (se restauró el backup PRE_UPDATE),
+//                    8 = la migración falló y NO se pudo volver atrás (restaurar con soporte; el instalador no arranca el servidor).
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole(o => o.SingleLine = true));
 var logger = loggerFactory.CreateLogger<DatabaseMigrator>();

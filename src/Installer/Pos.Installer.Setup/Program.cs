@@ -54,6 +54,11 @@ internal static class Program
         // ‑‑maqueta ‑‑pantalla <nombre>: abre directo en una pantalla (revisión del diseño).
         var pantalla = Array.FindIndex(args, a => string.Equals(a, "--pantalla", StringComparison.OrdinalIgnoreCase)) is var p and >= 0 && p + 1 < args.Length ? args[p + 1] : null;
         Application.Run(new VentanaInstalador(new Opciones(desinstalar, maqueta, paquete, pantalla, ArgumentosCaptura.Leer(args))));
+
+        // PN1: al cerrar la ventana durante la instalación, la tarea en segundo plano detiene el paquete (y lo que lanzó) y borra el
+        // archivo del código de recuperación. Antes el proceso salía sin esperarla. Se espera con límite (Detener espera hasta 30 s).
+        EsperarTrabajoPendiente(TimeSpan.FromSeconds(45));
+        Sistema.BorrarArchivosDeCodigo();
         if (copiaTemporal)
         {
             // La copia temporal no puede borrarse mientras corre: se borra al salir (y, si algo lo impide, al reiniciar Windows).
@@ -61,5 +66,36 @@ internal static class Program
         }
 
         return SinWebView2 ? SalidaSinWebView2 : 0;
+    }
+
+    private static readonly List<Task> TrabajosPendientes = [];
+
+    /// <summary>Instalación o desinstalación en segundo plano: <see cref="Main"/> la espera (con límite) antes de salir.</summary>
+    public static void RegistrarTrabajo(Task tarea)
+    {
+        lock (TrabajosPendientes)
+        {
+            TrabajosPendientes.RemoveAll(t => t.IsCompleted);
+            TrabajosPendientes.Add(tarea);
+        }
+    }
+
+    internal static bool EsperarTrabajoPendiente(TimeSpan limite)
+    {
+        Task[] pendientes;
+        lock (TrabajosPendientes)
+        {
+            pendientes = [.. TrabajosPendientes.Where(t => !t.IsCompleted)];
+        }
+
+        try
+        {
+            return pendientes.Length == 0 || Task.WaitAll(pendientes, limite);
+        }
+        catch (AggregateException)
+        {
+            // Las tareas ya informan sus fallas en la página; aquí solo importa que terminaron.
+            return true;
+        }
     }
 }

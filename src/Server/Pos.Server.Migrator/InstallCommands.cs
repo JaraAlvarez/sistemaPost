@@ -73,17 +73,21 @@ internal static class InstallCommands
                 }
             }
 
-            try
+            // IN4: si una migración falla a mitad (cada script va en su transacción: los anteriores ya quedaron), se restaura el backup
+            // PRE_UPDATE en una BD nueva y server.json pasa a usarla, ANTES de que el instalador vuelva a arrancar la versión anterior.
+            var update = await GuardedSchemaUpdate.RunAsync(
+                async ct =>
+                {
+                    var repaired = await migrator.MigrateAsync(connection, appVersion, ct);
+                    Console.WriteLine($"Versión de esquema: {repaired.SchemaVersion}.");
+                },
+                preUpdate,
+                pending.PendingVersioned.Count > 0,
+                (file, ct) => BackupCommands.RestorePreUpdateAsync(options, file, ct),
+                cancellationToken);
+            if (update.Outcome != GuardedUpdateOutcome.Updated)
             {
-                var repaired = await migrator.MigrateAsync(connection, appVersion, cancellationToken);
-                Console.WriteLine($"Versión de esquema: {repaired.SchemaVersion}.");
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Console.Error.WriteLine($"La actualización de la base de datos falló: {ex.Message}" +
-                    (preUpdate is null ? string.Empty : $" El backup previo quedó en {preUpdate}; con él se recuperan los datos.") +
-                    " Genere un paquete de soporte y contacte a soporte.");
-                return 3;
+                return await ReportFailedUpdateAsync(dataRoot, update, cancellationToken);
             }
 
             ApplySettings(config, options, pgBin, edition);
@@ -147,6 +151,63 @@ internal static class InstallCommands
         await WriteConfigAsync(configFile, config, cancellationToken);
         Console.WriteLine($"Configuración escrita en {configFile} (secretos cifrados con DPAPI de este equipo).");
         return 0;
+    }
+
+    /// <summary>Código de salida: la actualización falló pero los datos quedaron como antes (la versión anterior puede arrancar).</summary>
+    public const int ExitUpdateFailedRestored = 3;
+
+    /// <summary>
+    /// Código de salida: la actualización falló y NO se pudo volver a los datos de antes. El instalador NO debe arrancar el servidor
+    /// anterior: hay que restaurar con soporte desde el backup PRE_UPDATE.
+    /// </summary>
+    public const int ExitUpdateNeedsSupport = 8;
+
+    /// <summary>
+    /// Mensaje claro (consola, que el instalador deja en su registro) y archivo en <c>logs</c> (entra en el paquete de soporte) cuando la
+    /// actualización de la base de datos falló; devuelve el código de salida para el instalador.
+    /// </summary>
+    internal static async Task<int> ReportFailedUpdateAsync(string dataRoot, GuardedUpdateResult update, CancellationToken cancellationToken)
+    {
+        var text = FailedUpdateMessage(update);
+        Console.Error.WriteLine(text);
+        try
+        {
+            var logs = Path.Combine(dataRoot, "logs");
+            Directory.CreateDirectory(logs);
+            await File.WriteAllTextAsync(Path.Combine(logs, $"actualizacion-fallida-{DateTime.Now:yyyyMMdd-HHmmss}.txt"),
+                $"{DateTimeOffset.Now:O}{Environment.NewLine}{text}{Environment.NewLine}{Environment.NewLine}Detalle de la migración: {update.MigrationError}" +
+                (update.RestoreError is null ? string.Empty : $"{Environment.NewLine}{Environment.NewLine}Detalle de la restauración: {update.RestoreError}"),
+                CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"(No se pudo guardar el aviso en la carpeta de registros: {ex.Message})");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return update.Outcome == GuardedUpdateOutcome.FailedRestored ? ExitUpdateFailedRestored : ExitUpdateNeedsSupport;
+    }
+
+    internal static string FailedUpdateMessage(GuardedUpdateResult update)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        var cause = update.MigrationError?.Message ?? "(sin detalle)";
+        return update.Outcome switch
+        {
+            GuardedUpdateOutcome.FailedRestored when update.RestoredDatabase is not null =>
+                $"La actualización de la base de datos falló ({cause}). Se restauró automáticamente el backup previo {update.BackupFile} en la BD " +
+                $"'{update.RestoredDatabase}': los datos quedaron como antes de actualizar y la versión anterior de BusinessPost vuelve a funcionar. " +
+                "La BD a medio actualizar quedó para revisión. Genere un paquete de soporte y contacte a soporte.",
+            GuardedUpdateOutcome.FailedRestored =>
+                $"La actualización de la base de datos falló ({cause}) sin cambiar el esquema: la versión anterior de BusinessPost sigue funcionando. " +
+                "Genere un paquete de soporte y contacte a soporte.",
+            _ =>
+                $"RESTAURAR CON SOPORTE: la actualización de la base de datos falló ({cause}) y " +
+                (update.BackupFile is null
+                    ? "no había backup previo para volver atrás. "
+                    : $"no se pudo restaurar automáticamente el backup previo ({update.RestoreError?.Message}). El backup previo está en {update.BackupFile}. ") +
+                "BusinessPost NO se debe usar hasta restaurarlo: no se arrancó el servidor. Genere un paquete de soporte y contacte a soporte.",
+        };
     }
 
     /// <summary>ZIP con registros, versiones, estado de las migraciones, servicios y configuración sin secretos (nada de datos de clientes).</summary>

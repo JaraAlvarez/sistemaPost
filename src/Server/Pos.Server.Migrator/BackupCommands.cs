@@ -227,6 +227,62 @@ internal static class BackupCommands
         return 0;
     }
 
+    /// <summary>
+    /// Vuelta atrás de una actualización fallida (IN4): restaura el backup PRE_UPDATE (de este equipo, clave local) en una BD NUEVA SIN
+    /// migrar (queda en el esquema de la versión anterior), comprueba sello y conteos contra el encabezado y cambia la BD activa en
+    /// server.json. No incrementa la vida del nodo: el backup se hizo con el servidor detenido, nadie escribió desde entonces. Devuelve el
+    /// nombre de la BD activa; lanza si algo no cuadra (la configuración no se toca).
+    /// </summary>
+    public static async Task<string> RestorePreUpdateAsync(IReadOnlyDictionary<string, string> options, string file, CancellationToken cancellationToken)
+    {
+        var dataRoot = DataRoot(options);
+        var superuser = ConfigSecret(dataRoot, "SuperuserConnectionString")
+            ?? throw new InvalidOperationException("server.json no tiene la conexión del superusuario de PostgreSQL.");
+        var migratorConnection = ConfigSecret(dataRoot, "MigratorConnectionString")
+            ?? throw new InvalidOperationException("server.json no tiene la conexión del rol pos_migrator.");
+        var config = ReadConfig(dataRoot) ?? throw new InvalidOperationException("No se encontró server.json.");
+        var target = "pos_rb" + DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+        var work = Path.Combine(Path.GetTempPath(), "pos-rollback-" + Guid.NewGuid().ToString("N"));
+        Console.WriteLine($"Volviendo a los datos de antes de actualizar: se restaura {file} en la BD '{target}'…");
+        RestoreOutcome outcome;
+        try
+        {
+            outcome = await new BackupRestoreProcedure(new PgClientTools(options.GetValueOrDefault("pg-bin"))).RunAsync(
+                new RestoreRequest(file, null, new BackupKeyStore(Path.Combine(dataRoot, "config", "backup.key")),
+                    superuser, target, ScriptCatalog.Default.LatestVersion ?? string.Empty, work),
+                (admin, database, ct) => DatabaseCreator.CreateDatabaseOnlyAsync(admin, database, ct),
+                (_, _) => Task.CompletedTask,
+                migratorConnection,
+                cancellationToken);
+        }
+        finally
+        {
+            if (Directory.Exists(work))
+            {
+                Directory.Delete(work, recursive: true);
+            }
+        }
+
+        Console.WriteLine($"Backup previo restaurado en '{target}'. Auditoría: {(outcome.Audit.IsValid ? "íntegra" : "CON HALLAZGOS (ya estaban antes de actualizar)")}.");
+        if (!outcome.SealMatches || !outcome.CountsMatch)
+        {
+            throw new InvalidOperationException(
+                $"El backup restaurado en '{target}' no coincide con su encabezado (sello: {(outcome.SealMatches ? "coincide" : "NO coincide")}, " +
+                $"conteos: {(outcome.CountsMatch ? "iguales" : "DIFERENTES")}); no se cambió la BD activa.");
+        }
+
+        if (!SwitchDatabase(config, target))
+        {
+            throw new InvalidOperationException("server.json no tiene la sección Pos:Database; no se cambió la BD activa.");
+        }
+
+        var path = Path.Combine(dataRoot, "config", "server.json");
+        await File.WriteAllTextAsync(path + ".tmp", config.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }), CancellationToken.None);
+        File.Move(path + ".tmp", path, overwrite: true);
+        Console.WriteLine($"server.json ahora apunta a '{target}' (datos de antes de actualizar).");
+        return target;
+    }
+
     private static bool SwitchDatabase(JsonNode config, string database)
     {
         if (config["Pos"]?["Database"] is not JsonObject section)

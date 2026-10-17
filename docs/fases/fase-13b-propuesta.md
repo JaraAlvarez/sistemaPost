@@ -278,3 +278,40 @@ restablecer la contraseña o el TOTP de otro usuario exige ingreso reciente o co
 siempre el TOTP; nunca sobre sí mismo; restablecer el TOTP también restablece la contraseña (temporal) por defecto; desactivar el TOTP
 propio consume el código. Asistente `/instalacion`: confirmación de la contraseña y "Mostrar", regla real (mínimo 8), correo propio del
 propietario, script aparte sin `innerHTML` y CSP sin scripts en línea, manejo de sesión vencida y de "configurada pero sin ingreso".
+
+**Segunda revisión (IN1-IN10, PN1-PN8).** *Paquete Inno:* el desinstalador volvió a detener los servicios (la ruta de PowerShell había
+perdido sus barras invertidas; una prueba revisa ahora los `.iss` y `.ps1` del instalador: caracteres de control, `{sys}`/`{app}`/`{tmp}`
+sin barra y el BOM). Detener los servicios ya no usa `Stop-Service -Force` (esperaba sin límite a un servicio trabado): pide parar sin
+bloquear, espera 90 s y, si vence, cierra el proceso del servicio (PID de `Win32_Service`) y la instalación se cancela; también cierra los
+procesos sueltos (actualizador, migrador, `discover`, servidor o agente) que corren desde la carpeta de la instalación. Si se cancela,
+vuelven a arrancar SOLO los servicios que estaban en marcha (base de datos → agente → servidor → actualizador). Si una migración falla a
+mitad, el migrador **restaura automáticamente el backup PRE_UPDATE** en una BD nueva (sin migrarla: queda en el esquema anterior), revisa
+sello y conteos y cambia `server.json` a ella antes de que el paquete vuelva a la versión anterior (código 3); si esa restauración también
+falla (o no había backup), sale con el código **8 = restaurar con soporte**: el paquete NO arranca el servidor ni el actualizador
+anteriores, el mensaje dice dónde está el backup y queda un archivo `logs\actualizacion-fallida-*.txt` (va en el paquete de soporte).
+Cuando la base de datos, la recuperación o el cambio de `app\current` fallan, el paquete termina con código distinto de cero
+(`GetCustomSetupExitCode`: 20 base de datos o recuperación, 21 restaurar con soporte, 22 versión activa), conserva en el registro de
+Windows la versión y el modo de antes (`DisplayVersion` y `Inno Setup CodeFile: Modo`) y el premium muestra el error con un texto claro.
+La vuelta atrás (también en una reinstalación cuya recuperación falla) recupera el actualizador anterior y vuelve a arrancar los servicios
+que había. El cambio de modo (quitar servicios y la regla del firewall, renombrar `updater.json`, deshabilitar la base de datos) se hace
+recién después de que la base de datos quedó lista y la versión nueva activa; antes de migrar solo se habilita la base de datos de una
+caja adicional que pasa a equipo principal (y se vuelve a deshabilitar si falla). `app\current` se cambia creando primero la unión nueva
+aparte (`app\current.nueva`): si algo falla, la anterior sigue (o se recrea) y no se registran servicios hacia una ruta inexistente.
+
+*`pgsql\` y `updater\` (IN5).* Se eligió lo más simple y seguro: antes de copiar se guarda `updater\Pos.Server.Updater.exe.anterior` y la
+vuelta atrás lo recupera (se borra cuando la instalación termina bien). `pgsql\` **no** se respalda ni se versiona: el paquete trae siempre
+PostgreSQL 18 y dentro de la misma versión mayor los binarios son compatibles con el directorio de datos y con la versión anterior de
+BusinessPost (que solo usa la conexión). Un cambio de versión MAYOR de PostgreSQL exige `pg_upgrade` y tendrá su propia fase; ese paquete
+deberá versionar `pgsql` igual que `app\<versión>`.
+
+*Instalador premium:* detecta el modo instalado igual que el paquete (primero el valor que guardó Inno en
+`HKLM\…\Uninstall\{ED01E874-…}_is1`, después la configuración); al cerrar espera (hasta 45 s) a que termine de detener el paquete y borra
+los archivos temporales del código de recuperación; busca los Documentos del usuario abriendo `explorer.exe` solo con
+`PROCESS_QUERY_LIMITED_INFORMATION` y sin cortar la búsqueda si un proceso falla. *Nube y servidor:* un texto que no tiene la forma del
+código del instalador no gasta intentos; al agotar los 5 intentos la página dice "se canceló por demasiados códigos incorrectos"; la
+re-autenticación reciente (o confirmar con la contraseña/TOTP; siempre el TOTP si la cuenta es o pasa a ser de superadministrador) se
+exige también para crear un superadministrador, cambiar el rol, desactivar y desbloquear usuarios; `/instalacion` y su script se sirven con
+`Cache-Control: no-cache`. Las pruebas que adelantan el reloj usan su propio servidor y lo devuelven a la hora real.
+
+**Pendiente (decisión de producto, M14):** revocar los enlaces del dueño ya autorizados (hoy, una vez entregado, el enlace firmado vale
+hasta que vence) y exigir el TOTP (`Portal:RequireTotp`) a los usuarios Cliente dueños de una cuenta. No se implementa sin decidirlo.

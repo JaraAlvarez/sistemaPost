@@ -356,7 +356,7 @@ internal sealed class Puente(
 
 
         Trabajando = true;
-        _ = Task.Run(async () =>
+        Program.RegistrarTrabajo(Task.Run(async () =>
         {
             try
             {
@@ -384,7 +384,7 @@ internal sealed class Puente(
             {
                 Trabajando = false;
             }
-        });
+        }));
         return (null, null, null);
     }
 
@@ -392,7 +392,7 @@ internal sealed class Puente(
     {
         var solicitud = datos.Deserialize<SolicitudDesinstalacion>(Json)!;
         Trabajando = true;
-        _ = Task.Run(async () =>
+        Program.RegistrarTrabajo(Task.Run(async () =>
         {
             try
             {
@@ -425,7 +425,7 @@ internal sealed class Puente(
             {
                 Trabajando = false;
             }
-        });
+        }));
         return (null, null, null);
     }
 

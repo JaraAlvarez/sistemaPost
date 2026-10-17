@@ -26,4 +26,7 @@ public static class Rutas
 
     /// <summary>Nombre de la copia temporal con la que se desinstala (se borra al cerrar).</summary>
     public const string PrefijoCopiaDesinstalar = "BusinessPost-Desinstalar-";
+
+    /// <summary>Archivo temporal con el código de recuperación que lee (y borra) el paquete Inno.</summary>
+    public const string PrefijoArchivoCodigo = "recuperacion-";
 }
