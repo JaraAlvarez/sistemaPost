@@ -46,7 +46,7 @@ public sealed class CredentialPolicy(IIdentityStore store, ISecretHasher hasher,
     public async Task<Result> SetPinAsync(User user, string posCode, string pin, CancellationToken cancellationToken)
     {
         var length = await settings.GetAsync(SecuritySettings.PinLength, new SettingContext(user.CompanyId), cancellationToken);
-        var error = IdentityRules.CheckPin(pin, length);
+        var error = IdentityRules.CheckPin(pin, length, posCode);
         if (error != Error.None)
         {
             return error;
@@ -86,24 +86,32 @@ public sealed class PrivilegeGuard(ICurrentUser current, IPermissionEvaluator pe
     public Result NotSelf(Guid userId) => current.UserId == userId ? IdentityErrors.SelfModification : Result.Success();
 
     /// <summary>
-    /// DU-06: para restablecer la contraseña o el PIN de <paramref name="target"/>, quien lo hace debe tener todos sus permisos efectivos
-    /// (en todas las sucursales y en cada sucursal donde tiene un rol o una excepción); si no, podría apoderarse de una cuenta con más poder.
+    /// Jerarquía (DU-06, PU1): solo se gestiona a quien no tiene más poder que uno. El poder del usuario <paramref name="target"/> son los
+    /// permisos de sus ROLES más sus excepciones GRANT, cada uno en su alcance (todas las sucursales o una), SIN restar sus excepciones DENY:
+    /// un DENY es reversible por quien lo puso, así que no rebaja a nadie (si no, bastaría poner DENY al Propietario, restablecerle la
+    /// contraseña y quitar el DENY). Se aplica a editar, roles, excepciones, activar/inactivar, desbloquear y restablecer contraseña o PIN.
     /// </summary>
-    public async Task<Result> CanResetCredentialsOfAsync(User target, CancellationToken cancellationToken)
+    public async Task<Result> CanManageAsync(User target, CancellationToken cancellationToken)
     {
-        if (current.UserId is not { } actor)
+        if (current.UserId is not { } actor || actor == target.Id)
         {
             return Result.Success();
         }
 
-        var scopes = target.Roles.Select(r => r.BranchId).Concat(target.Overrides.Select(o => o.BranchId)).Append(null).Distinct();
-        foreach (var branchId in scopes)
+        var catalog = (await store.ListActivePermissionCodesAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+        var roles = await store.GetRolesAsync(target.Roles.Select(r => r.RoleId).Distinct(), cancellationToken);
+        var power = target.Roles
+            .SelectMany(a => (roles.FirstOrDefault(r => r.Id == a.RoleId)?.PermissionCodes ?? new HashSet<string>()).Select(code => (a.BranchId, Code: code)))
+            .Concat(target.Overrides.Where(o => o.Effect == OverrideEffect.Grant).Select(o => (o.BranchId, Code: o.PermissionCode)))
+            .Where(p => catalog.Contains(p.Code))
+            .GroupBy(p => p.BranchId);
+
+        foreach (var scope in power)
         {
-            var theirs = await permissions.GetEffectiveAsync(target.Id, branchId, null, cancellationToken);
-            var own = await permissions.GetEffectiveAsync(actor, branchId, null, cancellationToken);
-            if (!theirs.All(own.Contains))
+            var own = await permissions.GetEffectiveAsync(actor, scope.Key, null, cancellationToken);
+            if (!scope.All(p => own.Contains(p.Code)))
             {
-                return IdentityErrors.CredentialEscalation;
+                return IdentityErrors.TargetOutranks;
             }
         }
 
@@ -118,6 +126,8 @@ public sealed class PrivilegeGuard(ICurrentUser current, IPermissionEvaluator pe
             return Result.Success();
         }
 
+        // PU4: dos cambios simultáneos (cada uno quitando a "el otro") no deben dejar la empresa sin Propietario.
+        await store.LockAdministratorsAsync(user.CompanyId, cancellationToken);
         var error = IdentityRules.CheckOwnerRemains(true, false, await store.CountActiveOwnersAsync(user.Id, cancellationToken));
         return error == Error.None ? Result.Success() : error;
     }
@@ -141,6 +151,7 @@ public sealed class PrivilegeGuard(ICurrentUser current, IPermissionEvaluator pe
             return Result.Success();
         }
 
+        await store.LockAdministratorsAsync(user.CompanyId, cancellationToken);
         return await store.CountActiveAdministratorsAsync(user.Id, cancellationToken) > 0 ? Result.Success() : IdentityErrors.LastAdministrator;
     }
 

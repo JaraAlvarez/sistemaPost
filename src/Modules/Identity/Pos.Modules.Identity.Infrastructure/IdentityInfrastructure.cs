@@ -371,6 +371,12 @@ internal sealed class IdentityStore(PosDbContext context) : IIdentityStore
                 .CountAsync(u => u.Roles.Any(r => r.BranchId == null && r.RoleId == owner), cancellationToken);
     }
 
+    public async Task LockAdministratorsAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var key = "identity:administrators:" + companyId.ToString("D");
+        await context.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({key}))", cancellationToken);
+    }
+
     public async Task<bool> HasActiveOwnerAsync(CancellationToken cancellationToken)
     {
         var owner = await context.Set<Role>().Where(r => r.IsSystem && r.Code == SystemRoles.Owner).Select(r => (Guid?)r.Id).SingleOrDefaultAsync(cancellationToken);
@@ -469,6 +475,13 @@ internal sealed class SessionStore(PosDbContext context, Pos.SharedKernel.Time.I
     public Task<int> RevokeAllForUserAsync(Guid userId, Guid? revokedBy, string reason, Guid? exceptSessionId, CancellationToken cancellationToken) =>
         context.Set<UserSessionRecord>()
             .Where(s => s.UserId == userId && s.RevokedAt == null && s.Id != exceptSessionId)
+            .ExecuteUpdateAsync(
+                u => u.SetProperty(s => s.RevokedAt, clock.UtcNow).SetProperty(s => s.RevokedBy, revokedBy).SetProperty(s => s.RevokedReason, reason),
+                cancellationToken);
+
+    public Task<int> RevokeTerminalSessionsForUserAsync(Guid userId, Guid? revokedBy, string reason, Guid? exceptSessionId, CancellationToken cancellationToken) =>
+        context.Set<UserSessionRecord>()
+            .Where(s => s.UserId == userId && s.Kind == "TERMINAL" && s.RevokedAt == null && s.Id != exceptSessionId)
             .ExecuteUpdateAsync(
                 u => u.SetProperty(s => s.RevokedAt, clock.UtcNow).SetProperty(s => s.RevokedBy, revokedBy).SetProperty(s => s.RevokedReason, reason),
                 cancellationToken);

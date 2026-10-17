@@ -14,7 +14,7 @@
 | `POST identity/users/{id}/reset-pin` | `identity.user.manage` | Código de caja + PIN nuevo de otro usuario |
 | `POST identity/users/{id}/reset-password` | `identity.user.manage` | Contraseña temporal; obliga a cambiarla y cierra sus sesiones |
 | `POST auth/change-pin` | sesión | Cambiar el propio PIN (pedía tener ya código de caja) |
-| `GET identity/roles` | `identity.permission.view` | Catálogo de roles con su descripción |
+| `GET identity/roles` | `identity.permission.view` **o** `identity.role.manage` (PU10) | Catálogo de roles con su descripción |
 
 ### Decisiones
 
@@ -23,16 +23,23 @@
 | DU-01 | Diálogo de **detalle del usuario** desde la tabla: datos (nombre, correo), roles globales como casillas con su descripción, código de caja y estado del PIN. Cada bloque se guarda con su propio endpoint y solo aparece si la sesión tiene el permiso que pide el servidor | Mismo permiso en la interfaz y en el servidor |
 | DU-02 | Los roles asignados **por sucursal** se muestran como "solo en una sucursal" y se reenvían sin cambios al guardar | `PUT roles` reemplaza todas las asignaciones; la pantalla no los gestiona todavía |
 | DU-03 | `POST auth/change-pin` acepta además `posCode` y `currentPassword`: si el usuario **no tiene PIN**, lo define confirmando su contraseña y, si tampoco tiene código de caja, eligiéndolo (3 a 6 dígitos, único). Con PIN ya existente se exige el PIN actual y el código no se cambia por esta vía | El Propietario premium (y cualquier usuario sin PIN) puede ponerse uno sin depender de otro administrador; la contraseña evita que una sesión olvidada abierta defina un PIN |
-| DU-04 | Nuevo `GET auth/pin`: código de caja, si tiene PIN y la longitud configurada (`security.pin_length`) | La pantalla muestra la regla exacta sin pedir permiso de parámetros |
+| DU-04 | Nuevo `GET auth/credentials`: código de caja, si tiene PIN y las longitudes configuradas (`security.pin_length`, `security.password_min_length`). Si falla, la pantalla usa las de fábrica (PU8) | La pantalla muestra la regla exacta sin pedir permiso de parámetros |
 | DU-05 | `reset-pin` sobre uno mismo se rechaza (`IDENTITY.USE_CHANGE_PIN`), igual que ya hacía `reset-password` | El propio PIN se cambia conociendo el actual o la contraseña |
-| DU-06 | Restablecer contraseña o PIN de otro exige que quien lo hace tenga **todos los permisos efectivos** del usuario destino (`IDENTITY.CREDENTIAL_ESCALATION`) | Un gerente con `identity.user.manage` no puede apoderarse de la cuenta del Propietario |
-| DU-07 | Nunca queda la empresa **sin Propietario activo** (`IDENTITY.LAST_OWNER`): ni al quitarle el rol ni al inactivarlo, aunque queden Administradores | Complementa RN-SEC-04 (Propietario o Administrador) |
+| DU-06 | **Jerarquía** (`IDENTITY.TARGET_OUTRANKS`): solo se gestiona a quien no tiene más poder que uno. El poder del destino son los permisos de sus **roles** más sus excepciones GRANT, en cada alcance, **sin restar sus DENY** (PU1). Se aplica a editar (incluido el correo), roles, excepciones, activar/inactivar, desbloquear, `reset-pin` y `reset-password`. En excepciones, quitar un DENY cuenta como conceder ese permiso | Un DENY es reversible: si contara, un Administrador pondría DENY al Propietario, le restablecería la contraseña y quitaría el DENY |
+| DU-07 | Nunca queda la empresa **sin Propietario activo** (`IDENTITY.LAST_OWNER`): ni al quitarle el rol ni al inactivarlo, aunque queden Administradores. Antes de contar Propietarios o Administradores se toma `pg_advisory_xact_lock` por empresa dentro de la transacción (PU4) | Complementa RN-SEC-04; dos Propietarios que se degradan a la vez no dejan la empresa sin ninguno |
 | DU-08 | Auditoría: la que ya hace el servidor (`PIN_RESET`, `PASSWORD_RESET`, `PIN_CHANGED`, cambios de la entidad Usuario). Definir el PIN por primera vez se audita como `PIN_CHANGED` con el texto "definió su código de caja y su PIN" | Sin acciones nuevas en el catálogo |
 | DU-09 | Menú del usuario: «Cambiar PIN de caja» junto a «Cambiar contraseña», con la página `/cambiar-pin` | Coherente con la página de contraseña |
+| DU-10 | La contraseña o el PIN actuales en `change-password` y `change-pin` pasan por el mismo contador, bloqueo y auditoría que el ingreso (`LOGIN_FAILED`, `USER_LOCKED`); el intento fallido se confirma y se responde `IDENTITY.CURRENT_*_INVALID` o `IDENTITY.CREDENTIAL_LOCKED` (no 401: la sesión sigue). Ambos endpoints usan el límite de peticiones `auth-login` (PU5) | Sin esto, una sesión abierta permite adivinar la contraseña o el PIN sin límite |
+| DU-11 | `reset-pin` y `change-pin` cierran las sesiones de **caja** abiertas del usuario (salvo la actual) (PU6) | El PIN anterior deja de servir de inmediato |
+| DU-12 | El PIN tampoco puede ser igual al código de caja ni uno de una lista corta de PINs comunes (1212, 2580, 1122…) (PU7) | Son los primeros que se prueban |
+| DU-13 | `ResetPinCommand` y `ResetPasswordCommand` se permiten con la licencia restringida (R10) (PU11) | La tienda debe poder recuperar el acceso |
+| DU-14 | La contraseña temporal sugerida usa `RandomNumberGenerator` y respeta la longitud mínima de la empresa (PU9) | Imprevisible y válida a la primera |
 
 Sin migraciones: el modelo ya tiene `pos_code`, `pin_hash` y `must_change_password`.
 
 ### Pruebas
-- Unitarias (dominio): elección del código de caja propio y regla del último Propietario.
+- Unitarias (dominio): elección del código de caja propio, regla del último Propietario, PINs comunes e iguales al código.
 - Integración: PIN propio por primera vez (con contraseña, código único), cambio con PIN actual, `reset-pin` propio rechazado,
-  reset de credenciales sin escalar, último Propietario.
+  jerarquía (gerente frente al Propietario en todas las acciones), cadena DENY + reset rechazada, quitar DENY como concesión,
+  Propietario que degrada a otro, degradación simultánea de dos Propietarios (concurrencia), bloqueo al fallar la contraseña o el
+  PIN actuales y cierre de sesiones de caja.

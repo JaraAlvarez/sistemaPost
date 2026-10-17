@@ -180,7 +180,8 @@ public class ArchitectureTests
     /// <summary>
     /// R10 (Fase 12-B, D12B-02): lista de comandos que siguen disponibles con la licencia RESTRINGIDA. Cambiarla exige revisar esta
     /// prueba: un comando nuevo nace bloqueado en RESTRICTED (nunca en los demás estados) y solo se agrega aquí si es vender, cerrar la
-    /// jornada abierta, iniciar sesión, respaldar, exportar, verificar o atender la licencia.
+    /// jornada abierta, iniciar sesión, respaldar, exportar, verificar o atender la licencia. Restablecer contraseña o PIN de otro usuario
+    /// (PU11, docs/fases/pantallas-faltantes-propuesta.md) también: la tienda debe poder recuperar el acceso aunque la licencia esté restringida.
     /// </summary>
     [Fact]
     public void R10_Comandos_permitidos_con_la_licencia_restringida()
@@ -204,7 +205,8 @@ public class ArchitectureTests
             "Customers.CreateDataRequestCommand", "Customers.ExportCustomerDataCommand", "Customers.QuickCreateCustomerCommand", "Customers.RecordConsentsCommand",
             "Expenses.CreateExpenseCommand", "Expenses.VoidExpenseCommand",
             "Identity.ChangePasswordCommand", "Identity.ChangePinCommand", "Identity.CreateAuthorizationCommand", "Identity.CreateOwnerCommand",
-            "Identity.LoginCommand", "Identity.LogoutCommand", "Identity.PosLoginCommand", "Identity.RevokeSessionCommand", "Identity.UnlockUserCommand",
+            "Identity.LoginCommand", "Identity.LogoutCommand", "Identity.PosLoginCommand", "Identity.ResetPasswordCommand", "Identity.ResetPinCommand",
+            "Identity.RevokeSessionCommand", "Identity.UnlockUserCommand",
             "Inventory.RebuildStockCommand", "Inventory.VerifyStockCommand",
             "Licensing.ActivateLicenseCommand", "Licensing.CheckLicenseNowCommand", "Licensing.DeactivateLicenseCommand", "Licensing.RefreshLicenseCommand",
             "Organization.SetupCommand",

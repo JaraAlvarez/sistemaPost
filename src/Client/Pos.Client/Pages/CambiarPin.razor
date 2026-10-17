@@ -67,7 +67,7 @@
 </PantallaAcceso>
 
 @code {
-    private PinStatusDto? _estado;
+    private CredentialStatusDto? _estado;
     private string? _actual, _clave, _codigo, _nuevo, _repetir, _error;
     private bool _busy;
 
@@ -89,7 +89,7 @@
 
         try
         {
-            _estado = await Api.GetAsync<PinStatusDto>("api/v1/auth/pin");
+            _estado = await Api.GetAsync<CredentialStatusDto>("api/v1/auth/credentials");
         }
         catch (ApiException ex)
         {
@@ -109,7 +109,7 @@
         var length = _estado?.PinLength ?? 4;
         return (_nuevo?.Length ?? 0) switch
         {
-            0 => $"Exactamente {length} dígitos, sin secuencias (1234, 9876) ni el mismo dígito repetido (1111).",
+            0 => $"Exactamente {length} dígitos, sin secuencias (1234), repeticiones (1111), PINs comunes (1212, 2580) ni su código de caja.",
             var n when n < length => $"Faltan {length - n} dígitos.",
             _ => PinCompleto ? "Longitud correcta." : "Use solo dígitos.",
         };

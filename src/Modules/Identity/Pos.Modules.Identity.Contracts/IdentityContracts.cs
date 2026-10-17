@@ -129,8 +129,11 @@ public sealed record MeDto(
     int SistecreditoReviews = 0,
     BusinessFeaturesDto? Business = null);
 
-/// <summary>Código de caja y PIN del usuario de la sesión; <c>PinLength</c>: dígitos que exige la empresa (security.pin_length).</summary>
-public sealed record PinStatusDto(string? PosCode, bool HasPin, int PinLength);
+/// <summary>
+/// Código de caja y PIN del usuario de la sesión, con lo que exige la empresa: <c>PinLength</c> (security.pin_length) y
+/// <c>PasswordMinLength</c> (security.password_min_length).
+/// </summary>
+public sealed record CredentialStatusDto(string? PosCode, bool HasPin, int PinLength, int PasswordMinLength);
 
 public sealed record LoginResultDto(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeDto User);
 

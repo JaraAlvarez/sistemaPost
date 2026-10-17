@@ -135,7 +135,7 @@
             }
             @if (PuedeAsignarRoles && !EsYo(u) && _roles.Count > 0)
             {
-                <MudText Typo="Typo.caption" Class="d-block">Solo puede asignar roles cuyos permisos usted también tiene. Siempre debe quedar un Propietario activo.</MudText>
+                <MudText Typo="Typo.caption" Class="d-block">Solo puede asignar roles cuyos permisos usted también tiene, y no puede gestionar a quien tiene más permisos que usted. Siempre debe quedar un Propietario activo.</MudText>
                 <div class="d-flex justify-end mt-2">
                     <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || !RolesCambiaron(u))" OnClick="GuardarRolesAsync">Guardar roles</MudButton>
                 </div>
@@ -154,7 +154,7 @@
                     <MudTextField @bind-Value="_rCodigo" Label="Código de caja (3 a 6 dígitos, único)" Immediate="true" InputMode="InputMode.numeric" MaxLength="6"
                                   Error="@(_rCodigo is { Length: > 0 } && !CodigoValido(_rCodigo))" ErrorText="Use de 3 a 6 dígitos." />
                     <MudTextField @bind-Value="_rPin" Label="@($"PIN nuevo ({_pinLength} dígitos)")" InputType="InputType.Password" Immediate="true" InputMode="InputMode.numeric"
-                                  MaxLength="_pinLength" autocomplete="off" HelperText="Sin secuencias (1234, 9876) ni el mismo dígito repetido (1111)." />
+                                  MaxLength="_pinLength" autocomplete="off" HelperText="Sin secuencias (1234), repeticiones (1111), PINs comunes (1212, 2580) ni igual al código de caja." />
                     <MudTextField @bind-Value="_rPin2" Label="Repita el PIN" InputType="InputType.Password" Immediate="true" InputMode="InputMode.numeric" MaxLength="_pinLength"
                                   autocomplete="off" Error="@(_rPin2 is { Length: > 0 } && _rPin2 != _rPin)" ErrorText="No coincide." />
                     <div class="d-flex justify-end gap-2 mt-2">
@@ -184,12 +184,12 @@
                     </MudText>
                     <div class="d-flex align-center gap-2">
                         <MudTextField @bind-Value="_rClave" Label="Contraseña temporal" Immediate="true" autocomplete="off" Class="flex-grow-1"
-                                      HelperText="Al menos 10 caracteres; no puede contener el usuario ni ser una contraseña común." />
+                                      HelperText="@($"Al menos {_claveMinima} caracteres; no puede contener el usuario ni ser una contraseña común.")" />
                         <MudButton Size="Size.Small" StartIcon="@Icons.Material.Outlined.Autorenew" OnClick="GenerarClave">Generar</MudButton>
                     </div>
                     <div class="d-flex justify-end gap-2 mt-2">
                         <MudButton Size="Size.Small" OnClick="@(() => _panelClave = false)">Cancelar</MudButton>
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(_busy || (_rClave?.Length ?? 0) < 8)" OnClick="RestablecerClaveAsync">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(_busy || (_rClave?.Length ?? 0) < _claveMinima)" OnClick="RestablecerClaveAsync">
                             Restablecer contraseña
                         </MudButton>
                     </div>
@@ -215,7 +215,7 @@
     private bool _loading = true, _busy, _nuevo, _panelPin, _panelClave;
     private string? _error, _username, _displayName, _password, _posCode, _pin;
     private HashSet<Guid> _rolesNuevo = [];
-    private int _pinLength = 4;
+    private int _pinLength = 4, _claveMinima = 8;
 
     private UserDto? _detalle;
     private string? _eNombre, _eCorreo, _rCodigo, _rPin, _rPin2, _rClave;
@@ -238,12 +238,13 @@
         try
         {
             _users = await Api.GetAsync<List<UserDto>>("api/v1/identity/users");
-            if (Session.Has(IdentityPermissions.PermissionView))
+            // El catálogo de roles lo lee quien consulta permisos o quien asigna roles (el servidor admite cualquiera de los dos).
+            if (Session.Has(IdentityPermissions.PermissionView) || PuedeAsignarRoles)
             {
                 _roles = [.. (await Api.GetAsync<List<RoleDto>>("api/v1/identity/roles")).OrderBy(r => r.IsSystem ? 0 : 1).ThenBy(r => r.Name)];
             }
 
-            _pinLength = (await Api.GetAsync<PinStatusDto>("api/v1/auth/pin")).PinLength;
+            await CargarPoliticaAsync();
             if (_detalle is not null)
             {
                 _detalle = _users.FirstOrDefault(x => x.Id == _detalle.Id);
@@ -255,6 +256,22 @@
         }
 
         _loading = false;
+    }
+
+    /// <summary>Longitudes de PIN y contraseña que exige la empresa; si no se pueden leer, se usan las de fábrica y la página sigue (PU8).</summary>
+    private async Task CargarPoliticaAsync()
+    {
+        try
+        {
+            var politica = await Api.GetAsync<CredentialStatusDto>("api/v1/auth/credentials");
+            _pinLength = politica.PinLength;
+            _claveMinima = politica.PasswordMinLength;
+        }
+        catch (ApiException)
+        {
+            _pinLength = 4;
+            _claveMinima = 8;
+        }
     }
 
     /// <summary>Estado del usuario en mayúsculas (la API puede enviar "Active" o "ACTIVE").</summary>
@@ -387,13 +404,17 @@
         _panelClave = true;
     }
 
-    /// <summary>Contraseña temporal legible: sin letras ni dígitos que se confunden (O/0, l/1).</summary>
+    /// <summary>
+    /// Contraseña temporal legible con un generador criptográfico (PU9): sin letras ni dígitos que se confunden (O/0, l/1) y con al menos
+    /// la longitud mínima que exige la empresa.
+    /// </summary>
     private void GenerarClave()
     {
         const string letras = "abcdefghjkmnpqrstuvwxyz", mayusculas = "ABCDEFGHJKLMNPQRSTUVWXYZ", digitos = "23456789";
-        var random = Random.Shared;
-        string Tomar(string fuente, int n) => new([.. Enumerable.Range(0, n).Select(_ => fuente[random.Next(fuente.Length)])]);
-        _rClave = $"{Tomar(mayusculas, 1)}{Tomar(letras, 5)}-{Tomar(digitos, 4)}-{Tomar(mayusculas, 1)}{Tomar(letras, 2)}";
+        static string Tomar(string fuente, int n) =>
+            new([.. Enumerable.Range(0, n).Select(_ => fuente[System.Security.Cryptography.RandomNumberGenerator.GetInt32(fuente.Length)])]);
+        var letrasFinales = Math.Max(2, _claveMinima - 13);
+        _rClave = $"{Tomar(mayusculas, 1)}{Tomar(letras, 5)}-{Tomar(digitos, 4)}-{Tomar(mayusculas, 1)}{Tomar(letras, letrasFinales)}";
     }
 
     private async Task RestablecerClaveAsync()

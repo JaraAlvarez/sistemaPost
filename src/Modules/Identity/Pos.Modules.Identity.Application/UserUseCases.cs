@@ -124,7 +124,7 @@ internal sealed class UpdateUserValidator : AbstractValidator<UpdateUserCommand>
     }
 }
 
-internal sealed class UpdateUserHandler(IIdentityStore store, UserMutations mutations) : ICommandHandler<UpdateUserCommand, UserDto>
+internal sealed class UpdateUserHandler(IIdentityStore store, PrivilegeGuard guard, UserMutations mutations) : ICommandHandler<UpdateUserCommand, UserDto>
 {
     public async Task<Result<UserDto>> Handle(UpdateUserCommand request, CancellationToken cancellationToken)
     {
@@ -132,6 +132,13 @@ internal sealed class UpdateUserHandler(IIdentityStore store, UserMutations muta
         if (user is not { IsHuman: true })
         {
             return IdentityErrors.UserNotFound;
+        }
+
+        // PU3: el correo sirve para recuperar la cuenta; no se edita a quien tiene más poder.
+        var allowed = await guard.CanManageAsync(user, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed.Error;
         }
 
         if (request.EmployeeId is { } employee && await store.GetEmployeeAsync(employee, cancellationToken) is null)
@@ -165,6 +172,12 @@ internal sealed class SetUserActiveHandler(
         if (self.IsFailure)
         {
             return self;
+        }
+
+        var allowed = await guard.CanManageAsync(user, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed;
         }
 
         if (request.Active)
@@ -203,7 +216,7 @@ internal sealed class SetUserActiveHandler(
 
 public sealed record UnlockUserCommand(Guid UserId) : ICommand, IAllowedWhenRestricted;
 
-internal sealed class UnlockUserHandler(IIdentityStore store) : ICommandHandler<UnlockUserCommand>
+internal sealed class UnlockUserHandler(IIdentityStore store, PrivilegeGuard guard) : ICommandHandler<UnlockUserCommand>
 {
     public async Task<Result> Handle(UnlockUserCommand request, CancellationToken cancellationToken)
     {
@@ -213,13 +226,20 @@ internal sealed class UnlockUserHandler(IIdentityStore store) : ICommandHandler<
             return IdentityErrors.UserNotFound;
         }
 
+        var allowed = await guard.CanManageAsync(user, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed;
+        }
+
         user.Unlock();
         return Result.Success();
     }
 }
 
 /// <summary>Contraseña temporal fijada por un administrador: el usuario debe cambiarla al entrar; sus sesiones se cierran.</summary>
-public sealed record ResetPasswordCommand(Guid UserId, string TemporaryPassword) : ICommand;
+/// <remarks>Permitido con la licencia restringida (PU11): la tienda debe poder recuperar el acceso de sus usuarios.</remarks>
+public sealed record ResetPasswordCommand(Guid UserId, string TemporaryPassword) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class ResetPasswordHandler(
     IIdentityStore store, CredentialPolicy policy, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current, IAuditWriter audit)
@@ -239,7 +259,7 @@ internal sealed class ResetPasswordHandler(
             return Error.BusinessRule("IDENTITY.USE_CHANGE_PASSWORD", "Para su propia contraseña use 'cambiar contraseña'.");
         }
 
-        var allowed = await guard.CanResetCredentialsOfAsync(user, cancellationToken);
+        var allowed = await guard.CanManageAsync(user, cancellationToken);
         if (allowed.IsFailure)
         {
             return allowed;
@@ -259,9 +279,12 @@ internal sealed class ResetPasswordHandler(
     }
 }
 
-public sealed record ResetPinCommand(Guid UserId, string PosCode, string Pin) : ICommand;
+/// <summary>Código de caja + PIN nuevos para otro usuario; cierra sus sesiones de caja abiertas (PU6).</summary>
+/// <remarks>Permitido con la licencia restringida (PU11): la tienda debe poder recuperar el acceso a la caja.</remarks>
+public sealed record ResetPinCommand(Guid UserId, string PosCode, string Pin) : ICommand, IAllowedWhenRestricted;
 
-internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy policy, PrivilegeGuard guard, ICurrentUser current, IAuditWriter audit)
+internal sealed class ResetPinHandler(
+    IIdentityStore store, CredentialPolicy policy, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current, IAuditWriter audit)
     : ICommandHandler<ResetPinCommand>
 {
     public async Task<Result> Handle(ResetPinCommand request, CancellationToken cancellationToken)
@@ -278,7 +301,7 @@ internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy pol
             return IdentityErrors.UseChangePin;
         }
 
-        var allowed = await guard.CanResetCredentialsOfAsync(user, cancellationToken);
+        var allowed = await guard.CanManageAsync(user, cancellationToken);
         if (allowed.IsFailure)
         {
             return allowed;
@@ -287,6 +310,7 @@ internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy pol
         var result = await policy.SetPinAsync(user, request.PosCode, request.Pin, cancellationToken);
         if (result.IsSuccess)
         {
+            await sessions.RevokeTerminalSessionsForUserAsync(user.Id, current.UserId, "PIN_RESET", null, cancellationToken);
             await audit.WriteAsync(
                 new AuditEntry("identity", "PIN_RESET", nameof(User), user.Id, user.AuditLabel,
                     $"{current.DisplayName} asignó o restableció el código de caja y el PIN de {user.DisplayName}.", Severity: AuditSeverity.Warning),
@@ -301,7 +325,7 @@ internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy pol
 
 public sealed record SetUserRolesCommand(Guid UserId, IReadOnlyList<RoleAssignmentInput> Roles) : ICommand<UserDto>;
 
-internal sealed class SetUserRolesHandler(IIdentityStore store, UserMutations mutations) : ICommandHandler<SetUserRolesCommand, UserDto>
+internal sealed class SetUserRolesHandler(IIdentityStore store, PrivilegeGuard guard, UserMutations mutations) : ICommandHandler<SetUserRolesCommand, UserDto>
 {
     public async Task<Result<UserDto>> Handle(SetUserRolesCommand request, CancellationToken cancellationToken)
     {
@@ -309,6 +333,13 @@ internal sealed class SetUserRolesHandler(IIdentityStore store, UserMutations mu
         if (user is not { IsHuman: true })
         {
             return IdentityErrors.UserNotFound;
+        }
+
+        // PU2: un subordinado no degrada a quien tiene más poder (p. ej. un Administrador al Propietario).
+        var allowed = await guard.CanManageAsync(user, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed.Error;
         }
 
         var result = await mutations.ReplaceRolesAsync(user, request.Roles, checkSelf: true, cancellationToken);
@@ -345,18 +376,31 @@ internal sealed class SetUserOverridesHandler(IIdentityStore store, PrivilegeGua
             return self.Error;
         }
 
+        // PU1: ni un DENY ni un GRANT sobre quien tiene más poder.
+        var allowed = await guard.CanManageAsync(user, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed.Error;
+        }
+
         var catalog = (await store.ListActivePermissionCodesAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
         if (request.Overrides.FirstOrDefault(o => !catalog.Contains(o.PermissionCode)) is { } unknown)
         {
             return Error.Validation("IDENTITY.UNKNOWN_PERMISSION", $"El permiso '{unknown.PermissionCode}' no existe.");
         }
 
-        foreach (var grant in request.Overrides.Where(o => o.Effect == OverrideEffect.Grant).GroupBy(o => o.BranchId))
+        // Quitar un DENY devuelve el permiso: cuenta como concederlo (PU1).
+        var removedDenies = user.Overrides
+            .Where(o => o.Effect == OverrideEffect.Deny)
+            .Where(o => !request.Overrides.Any(n => n.Effect == OverrideEffect.Deny && n.PermissionCode == o.PermissionCode && n.BranchId == o.BranchId))
+            .Select(o => (o.PermissionCode, o.BranchId));
+        var granted = request.Overrides.Where(o => o.Effect == OverrideEffect.Grant).Select(o => (o.PermissionCode, o.BranchId)).Concat(removedDenies);
+        foreach (var grant in granted.Where(g => catalog.Contains(g.PermissionCode)).GroupBy(g => g.BranchId))
         {
-            var allowed = await guard.CanGrantAsync(grant.Select(g => g.PermissionCode), grant.Key, cancellationToken);
-            if (allowed.IsFailure)
+            var canGrant = await guard.CanGrantAsync(grant.Select(g => g.PermissionCode), grant.Key, cancellationToken);
+            if (canGrant.IsFailure)
             {
-                return allowed.Error;
+                return canGrant.Error;
             }
         }
 

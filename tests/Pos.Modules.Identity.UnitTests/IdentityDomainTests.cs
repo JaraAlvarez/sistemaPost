@@ -257,6 +257,20 @@ public class OwnPinAndOwnerRulesTests
     public void El_codigo_elegido_debe_tener_de_3_a_6_digitos(string requested) =>
         IdentityRules.ResolveOwnPosCode(null, requested).Error.ShouldBe(IdentityErrors.InvalidPosCode);
 
+    [Theory]
+    [InlineData("1212", null, "IDENTITY.PIN_TOO_COMMON")]
+    [InlineData("2580", null, "IDENTITY.PIN_TOO_COMMON")]
+    [InlineData("1122", null, "IDENTITY.PIN_TOO_COMMON")]
+    [InlineData("0000", null, "IDENTITY.PIN_TOO_SIMPLE")]
+    [InlineData("4071", "4071", "IDENTITY.PIN_EQUALS_POS_CODE")]
+    [InlineData("4071", "407", null)]
+    [InlineData("5937", "100", null)]
+    public void El_PIN_no_es_comun_ni_igual_al_codigo_de_caja(string pin, string? posCode, string? expected)
+    {
+        var error = IdentityRules.CheckPin(pin, 4, posCode);
+        (error == Error.None ? null : error.Code).ShouldBe(expected);
+    }
+
     [Fact]
     public void Un_codigo_valido_se_acepta_sin_espacios() =>
         IdentityRules.ResolveOwnPosCode(null, " 0042 ").Value.ShouldBe("0042");
