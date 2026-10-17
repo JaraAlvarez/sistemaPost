@@ -9,6 +9,9 @@ namespace Pos.Terminal.Agent.Api;
 /// <summary><c>POST /scale/tare</c>: toma la tara con el peso actual; con <c>clear</c> la quita.</summary>
 public sealed record ScaleTareRequest(bool Clear = false);
 
+/// <summary><c>GET /scale/pairing/pending</c>: clave pendiente de confirmar (si hay) y la vigente.</summary>
+public sealed record ScalePendingDto(Guid? PendingKeyId, Guid? KeyId);
+
 /// <summary><c>POST /scale/simulator</c> (solo desarrollo): lo que "tiene encima" la báscula simulada.</summary>
 public sealed record ScaleSimulatorRequest(decimal WeightKg, bool Stable = true, bool Overload = false, bool Silent = false);
 
@@ -47,6 +50,8 @@ public static class ScaleEndpoints
         app.MapPost("/scale/test/stop", TestStopAsync).WithSummary("Cierra la prueba: la báscula en uso sigue igual");
         app.MapPost("/scale/pairing", PairAsync)
             .WithSummary("Prepara una clave PENDIENTE para vincular la caja (la vigente sigue firmando) y devuelve la pública para registrarla en el servidor");
+        app.MapGet("/scale/pairing/pending", (ScaleSigner signer) => TypedResults.Ok(new ScalePendingDto(signer.PendingKeyId, signer.KeyId)))
+            .WithSummary("Clave pendiente de confirmar y clave vigente (para «Completar vinculación» sin volver a registrar)");
         app.MapPost("/scale/pairing/commit", CommitAsync)
             .WithSummary("El servidor ya registró la clave pendiente: el agente la activa y la guarda (sin esto, la pendiente se descarta)");
         app.MapPost("/scale/accepted", AcceptedAsync)

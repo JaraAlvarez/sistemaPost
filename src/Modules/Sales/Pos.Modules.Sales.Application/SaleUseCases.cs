@@ -205,8 +205,9 @@ internal sealed class AddLineHandler(
                 interlock = await store.GetScaleInterlockAsync(scope.PosTerminalId, cancellationToken);
                 var skew = await settings.GetAsync(
                     SalesSettings.ScaleReadingMaxSkewSeconds, new SettingContext(sale.CompanyId, sale.BranchId, scope.PosTerminalId), cancellationToken);
-                var blocked = (interlock ?? ScaleInterlock.Start(scope.PosTerminalId, sale.CompanyId, clock.UtcNow))
-                    .Check(verified.Reading, clock.UtcNow, TimeSpan.FromSeconds(skew));
+                var state = interlock ?? ScaleInterlock.Start(scope.PosTerminalId, sale.CompanyId, clock.UtcNow);
+                state.AdoptKey(verified.KeyId);
+                var blocked = state.Check(verified.Reading, clock.UtcNow, TimeSpan.FromSeconds(skew));
                 if (blocked.IsFailure)
                 {
                     return blocked.Error;
@@ -256,7 +257,7 @@ internal sealed class AddLineHandler(
                 store.Add(interlock);
             }
 
-            interlock.Accept(verified.Reading, sale.Id, line.Value.Id, now);
+            interlock.Accept(verified.Reading, verified.KeyId, sale.Id, line.Value.Id, now);
             if (interlock.PurgeDue(now))
             {
                 // BB10: las lecturas firmadas se guardan 90 días (auditoría); la limpieza va con la pesada, una vez al día por caja.

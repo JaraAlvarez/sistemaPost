@@ -346,3 +346,19 @@ así que toda caja vincula de nuevo con un agente que firma este formato; las le
 **Pruebas:** agente 163/163 · Sales 118/118 · Cash 71/71 · SharedKernel 103/103 · Catalog 117/117 · Organization 58/58 ·
 Identity 33/33 · Printing 59/59 · ArchitectureTests 23/23 · Database.Tests 81/81 · integración `Phase7C` 14/14, `Phase7` 9/9,
 `Phase7B` 24/24, `Phase3` 24/24 y `Labels` 3/3.
+
+## Sexta revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.053** (`sales.scale_interlocks.last_key_id`).
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BS1 · Contador que vuelve a 1 | El orden de los arranques (número, secuencia y arranques retirados) vale solo para la clave con la que se aceptó la última lectura (`last_key_id`). Al volver a vincular (otra clave) se empieza de cero: reinstalar el agente, cambiar el computador o restaurar una imagen nunca deja la caja trabada. Un número de arranque menor con la misma clave da `SALES.SCALE_BOOT_REGRESSED`: "vuelva a vincular la báscula (F1 → Vincular báscula)". En el agente, si hay una clave pero falta el número de arranque (o no se puede leer), no firma con 1: pide volver a vincular. "Reiniciar báscula" no toca el número de arranque: lo resuelve volver a vincular. |
+| BS2 · Confirmación | Si la confirmación falla, la caja reintenta SOLO la confirmación con la misma clave (4 intentos con pausas), sin volver a preparar ni registrar. Si se agotan: "El servidor ya tiene la clave nueva; reinicie el programa de la caja y pulse F1 → Completar vinculación". **Completar vinculación** aparece en F1 cuando la clave pendiente del agente (`GET /scale/pairing/pending`) es la misma que tiene registrada el servidor (`GET /organization/terminals/{id}/scale` → `readingKeyId`); solo confirma, sin supervisor ni otro registro. |
+| BS3 · No se puede guardar el número | El agente no firma y lo informa en `GET /status` (`scaleSigningProblem`), en `GET /scale/status` y en cada lectura; la caja muestra ese mensaje en lugar de "no vinculada". |
+| BS4 | Las claves y el número de arranque se escriben con la carpeta `keys` asegurada (permisos restringidos), no con `Directory.CreateDirectory`. |
+| BS5 | La báscula genérica reconoce también "NETO" y "NET" pegado al número. |
+| BS6 | El aviso al registrar un producto de báscula con un panel abierto dice cuál cerrar (cobro, cliente, suspendidas, consulta, pesada en curso). |
+| BQ5 | Si activar la clave pendiente falla, la clave en memoria se libera. |
+
+**Pruebas:** agente 168/168 · Sales 119/119 · integración `Phase7C` 15/15 (incluye reinstalar el agente → volver a vincular → pesar).

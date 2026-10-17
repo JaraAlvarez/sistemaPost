@@ -130,7 +130,7 @@ public class ScaleReviewTests
         agent.Empty();
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{next.Id}/lines",
                 Line(0.640m, agent.Read(0.640m, bootCounter: agent.BootCounter - 1, bootId: Guid.NewGuid()).Body))
-            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_READING_STALE");
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_BOOT_REGRESSED");
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM sales.scale_readings")).ShouldBe(5);
     }
 
@@ -214,6 +214,37 @@ public class ScaleReviewTests
         var (ownDevice, _) = await scenario.PairTerminalAsync(caja1, ip: "192.168.1.21", hostname: "CAJA-01", fingerprint: 'a');
         await SecurityScenario.PosLoginAsync(ownDevice, OwnerPosCode, OwnerPin);
         (await SendAsync<TerminalScaleDto>(ownDevice, HttpMethod.Put, url, agent.KeyBody)).ReadingKeyId.ShouldBe(agent.KeyId);
+    }
+
+    [Fact]
+    public async Task Reinstalar_el_agente_y_volver_a_vincular_destraba_la_caja()
+    {
+        // BS1 de punta a punta: la caja pesa varias veces, se reinstala el agente (número de arranque 1), el servidor pide volver a
+        // vincular, se vincula con el supervisor (clave nueva) y la caja vuelve a pesar.
+        await using var factory = new CashServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        using var agent = await ScaleAgentDouble.PairAsync(shop);
+        ScaleAgentDouble.UseCurrentClient(shop.Cashier);
+        await shop.OpenSessionAsync();
+        var sale = await shop.StartAsync();
+        var lines = $"/api/v1/sales/{sale.Id}/lines";
+        object Line(decimal weightKg, object scale) => new { code = "TOMATE", weightKg, weightSource = "SCALE", scale };
+        agent.Restart();
+        agent.Restart();
+        await PostAsync<SaleDto>(shop.Cashier, lines, Line(0.7m, agent.Read(0.7m).Body));
+
+        agent.Reinstall();
+        agent.Empty();
+        var rejected = await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.5m, agent.Read(0.5m).Body));
+        (await SecurityScenario.ProblemAsync(rejected)).GetProperty("detail").GetString()!.ShouldContain("vuelva a vincular la báscula (F1");
+        await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.5m, agent.Read(0.5m).Body))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_BOOT_REGRESSED");
+
+        using var relinked = new ScaleAgentDouble(agent.TerminalId);
+        await relinked.RegisterKeyAsync(shop);
+        relinked.Empty();
+        (await PostAsync<SaleDto>(shop.Cashier, lines, Line(0.5m, relinked.Read(0.5m).Body))).Lines[^1].Quantity.ShouldBe(0.5m);
+        (await shop.Catalog.ScalarAsync<long>($"SELECT last_boot_counter FROM sales.scale_interlocks WHERE pos_terminal_id = '{agent.TerminalId}'")).ShouldBe(1);
     }
 
     [Fact]

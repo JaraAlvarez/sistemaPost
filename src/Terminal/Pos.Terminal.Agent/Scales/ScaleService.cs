@@ -34,7 +34,8 @@ public sealed record ScaleWeightDto(
     bool ScaleNet = false,
     Guid? ReadingId = null,
     bool EmptiedSinceLastAccepted = true,
-    SignedScaleReading? SignedReading = null)
+    SignedScaleReading? SignedReading = null,
+    string? SigningProblem = null)
 {
     public const string Ok = "OK";
     public const string Unstable = "UNSTABLE";
@@ -60,7 +61,10 @@ public sealed record ScaleStatusDto(
     IReadOnlyList<ScaleDriverInfo> Drivers,
     IReadOnlyList<string> SerialPorts,
     Guid? PairedTerminalId = null,
-    bool Testing = false);
+    bool Testing = false,
+    string? SigningProblem = null,
+    Guid? KeyId = null,
+    Guid? PendingKeyId = null);
 
 /// <summary><c>POST /scale/accepted</c>: la caja agregó la línea con esta lectura (o, con <c>Release</c>, eliminó la última línea pesada).</summary>
 public sealed record ScaleAcceptedRequest(Guid? ReadingId = null, bool Release = false);
@@ -196,7 +200,7 @@ public sealed class ScaleService : IDisposable
         var live = _live;
         return new ScaleStatusDto(
             live is not null, live?.Target.DriverCode, live?.Target.Description, live?.Target.Simulated ?? false, SimulatorAvailable, live?.TareKg ?? 0m, LastReading,
-            LastError, _settings, DriverInfos, ports, _signer.TerminalId, Testing);
+            LastError, _settings, DriverInfos, ports, _signer.TerminalId, Testing, _signer.SigningProblem, _signer.KeyId, _signer.PendingKeyId);
     }
 
     /// <summary>Aplica una configuración (vacía o deshabilitada = sin báscula). Con <paramref name="persist"/> la guarda en disco.</summary>
@@ -685,7 +689,9 @@ public sealed class ScaleService : IDisposable
             signed = _signer.Sign(payload.Format());
         }
 
-        return dto with { ReadingId = readingId, EmptiedSinceLastAccepted = emptied, SignedReading = signed };
+        // BS1/BS3: con clave pero sin un número de arranque confiable el agente no firma y dice por qué (la caja lo muestra).
+        var problem = !live.Simulated && _signer.TerminalId is not null ? _signer.SigningProblem : null;
+        return dto with { ReadingId = readingId, EmptiedSinceLastAccepted = emptied, SignedReading = signed, SigningProblem = problem };
     }
 
     private bool EmptiedAfter(long seq) => _lastEmptySeq is { } empty && empty > seq;

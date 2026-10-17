@@ -434,10 +434,19 @@ public sealed partial class Caja
     /// </summary>
     private async Task PesarAsync(ScanResult producto, Guid productId)
     {
-        // BQ4: con otro panel abierto (cobro, cliente…) no se empieza a pesar: la lectura quedaría detrás del panel.
+        // BQ4/BS6: con otro panel abierto no se empieza a pesar (la lectura quedaría detrás del panel); el aviso dice cuál cerrar.
         if (_panel != Panel.None)
         {
-            Snackbar.Add($"{producto.Name} se vende por báscula: cierre el cobro (Esc) antes de pesarlo.", Severity.Warning);
+            var cerrar = _panel switch
+            {
+                Panel.Cobro => "cierre el cobro (Esc)",
+                Panel.Cliente => "cierre la búsqueda de cliente (Esc)",
+                Panel.Suspendidas => "cierre la lista de ventas suspendidas (Esc)",
+                Panel.Consulta => "cierre la consulta de precio (Esc)",
+                Panel.Pesando or Panel.PesoDigitado => "termine la pesada en curso o cancélela (Esc)",
+                _ => "cierre la ventana abierta (Esc)",
+            };
+            Snackbar.Add($"{producto.Name} se vende por báscula: {cerrar} antes de pesarlo.", Severity.Warning);
             return;
         }
 
@@ -490,8 +499,10 @@ public sealed partial class Caja
                 }
                 else if (lectura.IsOk && lectura.SignedReading is null)
                 {
-                    // La báscula responde, pero el agente no está vinculado con esta caja: el servidor no aceptaría el peso.
-                    BasculaSinRespuesta("Báscula no vinculada: vincule con F1 → Vincular báscula (con la autorización de un supervisor).", config.AllowManualWeight);
+                    // La báscula responde, pero el agente no firma: no está vinculado con esta caja o (BS1/BS3) perdió su número de arranque.
+                    BasculaSinRespuesta(
+                        lectura.SigningProblem ?? "Báscula no vinculada: vincule con F1 → Vincular báscula (con la autorización de un supervisor).",
+                        config.AllowManualWeight);
                     return;
                 }
                 else if (lectura.IsOk && lectura.SignedReading is { } firmada && lectura.WeightKg - tara > 0m)
@@ -639,39 +650,17 @@ public sealed partial class Caja
                 await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(HttpMethod.Put, url, new { });
             }
 
-            // BQ2: si el agente no pudo activar la clave, se repite una vez Prepare → PUT → commit. La autorización del supervisor es de un
-            // solo uso: en el segundo intento, si hace falta, el servidor la pide otra vez (RunAsync muestra el panel).
-            for (var intento = 1; intento <= 2; intento++)
+            // El agente prepara una clave PENDIENTE (la vigente sigue firmando); solo se activa si el servidor la registró.
+            var (vinculo, error) = await AgentScale.PairAsync(caja);
+            if (vinculo is null)
             {
-                // El agente prepara una clave PENDIENTE (la vigente sigue firmando); solo se activa si el servidor la registró.
-                var (vinculo, error) = await AgentScale.PairAsync(caja);
-                if (vinculo is null)
-                {
-                    Snackbar.Add(error ?? "El agente de esta caja no respondió.", Severity.Error);
-                    return;
-                }
-
-                await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(
-                    HttpMethod.Put, url, new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, intento == 1 ? grant : null);
-                var (viejo, fallo) = await AgentScale.CommitPairingAsync(vinculo.KeyId);
-                if (viejo)
-                {
-                    Snackbar.Add(fallo!, Severity.Error);
-                    return;
-                }
-
-                if (fallo is null)
-                {
-                    var aviso = await Scale.LoadAsync(caja);
-                    Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
-                    return;
-                }
-
-                if (intento == 2)
-                {
-                    Snackbar.Add($"El servidor registró la clave, pero el agente no la activó: {fallo} Vuelva a vincular la báscula.", Severity.Error);
-                }
+                Snackbar.Add(error ?? "El agente de esta caja no respondió.", Severity.Error);
+                return;
             }
+
+            await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(
+                HttpMethod.Put, url, new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, grant);
+            await ConfirmarVinculoAsync(caja, vinculo.KeyId);
         });
     }
 
@@ -689,6 +678,56 @@ public sealed partial class Caja
     {
         CancelarPesaje();
         await CerrarPanel();
+    }
+
+    /// <summary>
+    /// BS2: confirma en el agente la clave que el servidor ya registró. Solo se reintenta la confirmación con la MISMA clave (sin volver a
+    /// preparar ni a registrar). Si no se logra, la pendiente queda en disco y "Completar vinculación" la confirma después.
+    /// </summary>
+    private async Task ConfirmarVinculoAsync(Guid caja, Guid keyId)
+    {
+        string? fallo = null;
+        for (var intento = 1; intento <= 4; intento++)
+        {
+            (var viejo, fallo) = await AgentScale.CommitPairingAsync(keyId);
+            if (viejo)
+            {
+                Snackbar.Add(fallo!, Severity.Error);
+                return;
+            }
+
+            if (fallo is null)
+            {
+                var aviso = await Scale.LoadAsync(caja);
+                Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(400 * intento));
+        }
+
+        Snackbar.Add(
+            $"El servidor ya tiene la clave nueva; reinicie el programa de la caja y pulse F1 → Completar vinculación. ({fallo})", Severity.Error);
+    }
+
+    /// <summary>BS2: "Completar vinculación": confirma la clave pendiente que coincide con la registrada en el servidor (sin supervisor).</summary>
+    private async Task CompletarVinculoAsync()
+    {
+        _panel = Panel.None;
+        if (Session.Me?.PosTerminalId is not { } caja)
+        {
+            return;
+        }
+
+        // Se vuelve a consultar: solo se confirma si la pendiente del agente es la misma clave que tiene registrada el servidor.
+        await Scale.LoadAsync(caja);
+        if (Scale.PendingToComplete is not { } keyId)
+        {
+            Snackbar.Add("No hay una vinculación a medias: si la báscula no firma, pulse F1 → Vincular báscula.", Severity.Info);
+            return;
+        }
+
+        await ConfirmarVinculoAsync(caja, keyId);
     }
 
     /// <summary>Esc durante la pesada: la tara manual tomada para ella se quita (D2).</summary>

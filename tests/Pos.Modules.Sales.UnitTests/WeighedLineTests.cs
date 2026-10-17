@@ -16,6 +16,7 @@ public class WeighedLineTests
 
     private static readonly Guid Caja = Guid.NewGuid();
     private static readonly Guid Boot = Guid.NewGuid();
+    private static readonly Guid Key = Guid.NewGuid();
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(5);
 
     /// <summary>Lectura del agente (ya verificada): bruto, tara manual, trama neta de la báscula, estable, orden en el agente y última vacía.</summary>
@@ -98,7 +99,7 @@ public class WeighedLineTests
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
         var line = Guid.NewGuid();
         interlock.Check(Reading(1.2m, seq: 10), Now, Window).IsSuccess.ShouldBeTrue();
-        interlock.Accept(Reading(1.2m, seq: 10), Guid.NewGuid(), line, Now);
+        interlock.Accept(Reading(1.2m, seq: 10), Key, Guid.NewGuid(), line, Now);
 
         // D1: sin ver la báscula vacía se rechaza, pese lo mismo o pese otra cosa (el tomate encima de la carne).
         interlock.Check(Reading(1.2m, seq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
@@ -116,7 +117,7 @@ public class WeighedLineTests
     public void La_hora_solo_se_compara_con_el_servidor_y_un_salto_del_reloj_del_agente_no_traba_la_caja()
     {
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
-        interlock.Accept(Reading(1.2m, at: Now, seq: 10), Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.Accept(Reading(1.2m, at: Now, seq: 10), Key, Guid.NewGuid(), Guid.NewGuid(), Now);
 
         // BB4: vieja o del futuro frente al reloj del servidor (⚙️ 5 min): no vale.
         interlock.Check(Reading(0.5m, at: Now.AddMinutes(-6), seq: 12, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleClockSkew);
@@ -141,11 +142,11 @@ public class WeighedLineTests
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
         var r1 = Reading(1.0m, seq: 1, boot: bootA, bootCounter: 7);
         var r2 = Reading(0.7m, seq: 3, lastEmptySeq: 2, boot: bootA, bootCounter: 7);
-        interlock.Accept(r1, Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.Accept(r1, Key, Guid.NewGuid(), Guid.NewGuid(), Now);
 
         var fromB = Reading(0.5m, seq: 2, lastEmptySeq: 1, boot: bootB, bootCounter: 8);
         interlock.Check(fromB, Now, Window).IsSuccess.ShouldBeTrue();
-        interlock.Accept(fromB, Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.Accept(fromB, Key, Guid.NewGuid(), Guid.NewGuid(), Now);
         interlock.RetiredBootIds.ShouldBe([bootA]);
 
         interlock.Check(r2, Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
@@ -157,12 +158,30 @@ public class WeighedLineTests
         // BQ3: el arranque 6 nunca tuvo una pesada aceptada (no está entre los retirados), pero su número es menor que el del arranque 8
         // ya aceptado: sus lecturas nunca valen.
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
-        interlock.Accept(Reading(1.0m, seq: 1, boot: Guid.NewGuid(), bootCounter: 8), Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.Accept(Reading(1.0m, seq: 1, boot: Guid.NewGuid(), bootCounter: 8), Key, Guid.NewGuid(), Guid.NewGuid(), Now);
         interlock.Reset(Now);
 
-        interlock.Check(Reading(0.7m, seq: 4, lastEmptySeq: 3, boot: Guid.NewGuid(), bootCounter: 6), Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
+        interlock.Check(Reading(0.7m, seq: 4, lastEmptySeq: 3, boot: Guid.NewGuid(), bootCounter: 6), Now, Window).Error.ShouldBe(SalesErrors.ScaleBootRegressed);
         interlock.Check(Reading(0.7m, seq: 4, lastEmptySeq: 3, boot: Guid.NewGuid(), bootCounter: 9), Now, Window).IsSuccess.ShouldBeTrue();
         interlock.LastBootCounter.ShouldBe(8);
+    }
+
+    [Fact]
+    public void Volver_a_vincular_destraba_un_agente_que_volvio_al_arranque_1()
+    {
+        // BS1: se reinstaló el agente (número de arranque 1, menor que el 8 aceptado): con la misma clave nunca vale; con la clave nueva
+        // (volver a vincular) el orden de los arranques empieza de cero y la caja pesa.
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        interlock.Accept(Reading(1.0m, seq: 3, boot: Guid.NewGuid(), bootCounter: 8), Key, Guid.NewGuid(), Guid.NewGuid(), Now);
+        var reinstalled = Reading(0.7m, seq: 2, lastEmptySeq: 1, boot: Guid.NewGuid(), bootCounter: 1);
+
+        interlock.Check(reinstalled, Now, Window).Error.ShouldBe(SalesErrors.ScaleBootRegressed);
+
+        var newKey = Guid.NewGuid();
+        interlock.AdoptKey(newKey);
+        interlock.Check(reinstalled, Now, Window).IsSuccess.ShouldBeTrue();
+        interlock.Accept(reinstalled, newKey, Guid.NewGuid(), Guid.NewGuid(), Now);
+        (interlock.LastKeyId, interlock.LastBootCounter, interlock.RetiredBootIds.Length).ShouldBe(((Guid?)newKey, (long?)1, 0));
     }
 
     [Fact]
@@ -170,7 +189,7 @@ public class WeighedLineTests
     {
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
         var line = Guid.NewGuid();
-        interlock.Accept(Reading(1.2m, seq: 1), Guid.NewGuid(), line, Now);
+        interlock.Accept(Reading(1.2m, seq: 1), Key, Guid.NewGuid(), line, Now);
 
         interlock.Release(Guid.NewGuid(), Now).ShouldBeFalse();
         interlock.AwaitingEmpty.ShouldBeTrue();
@@ -178,7 +197,7 @@ public class WeighedLineTests
         interlock.Check(Reading(1.2m, seq: 2), Now, Window).IsSuccess.ShouldBeTrue();
 
         // BB5: "Reiniciar báscula" libera aunque la última pesada no se elimine.
-        interlock.Accept(Reading(1.2m, seq: 2), Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.Accept(Reading(1.2m, seq: 2), Key, Guid.NewGuid(), Guid.NewGuid(), Now);
         interlock.Reset(Now).ShouldBeTrue();
         interlock.Check(Reading(1.2m, seq: 3), Now, Window).IsSuccess.ShouldBeTrue();
 

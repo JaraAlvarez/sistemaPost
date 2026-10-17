@@ -71,6 +71,13 @@ public sealed class ScaleAgentDouble : IDisposable
     /// <summary>El agente vio la báscula vacía (una lectura con el bruto en la banda de cero).</summary>
     public void Empty() => _lastEmptySeq = ++_seq;
 
+    /// <summary>Se reinstaló el agente o se restauró el equipo: el número de arranque vuelve a 1 (BS1).</summary>
+    public void Reinstall()
+    {
+        Restart();
+        BootCounter = 1;
+    }
+
     /// <summary>El agente se reinició: otro arranque, la secuencia empieza de nuevo y todavía no ha visto la báscula vacía.</summary>
     public void Restart()
     {

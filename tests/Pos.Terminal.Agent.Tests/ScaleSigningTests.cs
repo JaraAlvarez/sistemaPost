@@ -221,6 +221,45 @@ public class ScaleSigningTests
     }
 
     [Fact]
+    public async Task Sin_el_numero_de_arranque_el_agente_no_firma_hasta_volver_a_vincular()
+    {
+        // BS1/BS3: se restauró el equipo y se perdió el número de arranque, pero la clave sigue: firmar con 1 dejaría la caja trabada (o
+        // aceptaría lecturas viejas). El agente no firma, lo dice en su estado y en cada lectura, y al volver a vincular sigue.
+        var folder = TempDirectory();
+        var settings = new Dictionary<string, string?> { ["Agent:ScaleConfigFile"] = Path.Combine(folder, "scale.json") };
+        try
+        {
+            await using (var first = await Rig.StartAsync(Toledo, settings))
+            {
+                first.Device.Set(0.5m);
+                (await WeightAsync(first.Client)).SignedReading.ShouldNotBeNull();
+            }
+
+            File.Delete(Path.Combine(folder, "keys", "boot-counter.txt"));
+            await using var again = await Rig.StartAsync(Toledo, settings, pair: false);
+            again.Device.Set(0.5m);
+            var blocked = await WeightAsync(again.Client);
+            blocked.SignedReading.ShouldBeNull();
+            blocked.SigningProblem!.ShouldContain("vuelva a vincular");
+            (await again.Client.GetFromJsonAsync<ScaleStatusDto>("/scale/status", Json, Ct))!.SigningProblem.ShouldNotBeNull();
+            (await again.Client.GetFromJsonAsync<AgentStatusDto>("/status", Json, Ct))!.ScaleSigningProblem.ShouldNotBeNull();
+
+            // BS2: la pendiente se puede consultar (para "Completar vinculación") y, confirmada, el agente vuelve a firmar.
+            var pairing = await PreparedAsync(again.Client);
+            (await again.Client.GetFromJsonAsync<ScalePendingDto>("/scale/pairing/pending", Json, Ct))!.PendingKeyId.ShouldBe(pairing.KeyId);
+            (await CommitAsync(again.Client, pairing.KeyId)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+            var signed = await WeightAsync(again.Client);
+            (signed.SigningProblem, Verifies(pairing, signed.SignedReading!)).ShouldBe(((string?)null, true));
+            File.Exists(Path.Combine(folder, "keys", "boot-counter.txt")).ShouldBeTrue();
+            (await again.Client.GetFromJsonAsync<ScalePendingDto>("/scale/pairing/pending", Json, Ct))!.ShouldBe(new ScalePendingDto(null, pairing.KeyId));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Al_arrancar_se_reparan_los_permisos_de_la_carpeta_de_claves()
     {
         if (!OperatingSystem.IsWindows())

@@ -165,6 +165,9 @@ public class ScaleDriverTests
     [InlineData("N.W.  1.250kg")]
     [InlineData("PESO NETO 0.500 kg")]
     [InlineData("NT0.500kg")]
+    [InlineData("NETO 0.500 kg")]
+    [InlineData("NET0.500kg")]
+    [InlineData("0.500NET kg")]
     [InlineData("0.500kg NT")]
     [InlineData("ST,NT,+0000.500kg")]
     public void Generico_reconoce_el_peso_neto_de_la_tara_fisica(string frame) => Generic.Parse(frame, 3)!.Net.ShouldBeTrue();
@@ -174,6 +177,7 @@ public class ScaleDriverTests
     [InlineData("G.W.  0.500kg")]
     [InlineData("PESO BRUTO 0.500 kg")]
     [InlineData("UNIT 0.500 kg")]
+    [InlineData("NETWORK 0.500 kg")]
     public void Generico_sin_marca_de_neto_es_bruto(string frame) => Generic.Parse(frame, 3)!.Net.ShouldBeFalse();
 
     [Fact]

@@ -13,7 +13,8 @@ namespace Pos.Client.Services;
 /// </summary>
 public sealed record ScaleRead(
     string Status, string Message, decimal? WeightKg, decimal TareKg, bool Stable, string Display, bool Unavailable = false, decimal? GrossKg = null,
-    bool ScaleNet = false, DateTimeOffset? At = null, Guid? ReadingId = null, bool EmptiedSinceLastAccepted = true, SignedScaleReading? SignedReading = null)
+    bool ScaleNet = false, DateTimeOffset? At = null, Guid? ReadingId = null, bool EmptiedSinceLastAccepted = true, SignedScaleReading? SignedReading = null,
+    string? SigningProblem = null)
 {
     public bool IsOk => Status == "OK" && WeightKg > 0m;
 
@@ -22,6 +23,9 @@ public sealed record ScaleRead(
 
 /// <summary>Lectura firmada por el agente (D3): se reenvía al servidor tal cual.</summary>
 public sealed record SignedScaleReading(string Payload, string Signature, Guid KeyId);
+
+/// <summary>Clave pendiente de confirmar y clave vigente del agente.</summary>
+public sealed record AgentPendingKey(Guid? PendingKeyId, Guid? KeyId);
 
 /// <summary>Clave pública que el agente creó al vincular la caja.</summary>
 public sealed record ScalePairing(Guid TerminalId, Guid KeyId, string PublicKey, string Algorithm);
@@ -71,9 +75,34 @@ public sealed class AgentScale(ApiClient api)
         }
 
         var aviso = await PushAsync(config);
-        return aviso ?? (config is { Enabled: true, ReadingKeyId: null }
-            ? "Báscula no vinculada: vincule con F1 → Vincular báscula (con un supervisor). Mientras tanto el servidor no acepta sus pesos."
-            : null);
+
+        // BS2: la vinculación quedó a medias (el servidor ya tiene la clave pendiente del agente, pero el agente no la activó).
+        var pendiente = await PendingAsync();
+        PendingToComplete = pendiente is { PendingKeyId: { } p } && p == config.ReadingKeyId && pendiente.KeyId != p ? p : null;
+        return aviso ?? (PendingToComplete is not null
+            ? "La vinculación de la báscula quedó a medias: pulse F1 → Completar vinculación."
+            : config is { Enabled: true, ReadingKeyId: null }
+                ? "Báscula no vinculada: vincule con F1 → Vincular báscula (con un supervisor). Mientras tanto el servidor no acepta sus pesos."
+                : null);
+    }
+
+    /// <summary>
+    /// BS2: clave que el servidor ya registró y que el agente tiene pendiente sin activar: "Completar vinculación" solo la confirma (sin
+    /// otro registro ni supervisor).
+    /// </summary>
+    public Guid? PendingToComplete { get; private set; }
+
+    /// <summary>Clave pendiente y vigente del agente (<c>GET /scale/pairing/pending</c>); nulo si el agente no responde o es viejo.</summary>
+    public static async Task<AgentPendingKey?> PendingAsync()
+    {
+        try
+        {
+            return await Agent.GetFromJsonAsync<AgentPendingKey>("scale/pairing/pending", ApiClient.Json);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Entrega la configuración al agente (<c>PUT /scale/config</c>); el agente la guarda en el equipo.</summary>

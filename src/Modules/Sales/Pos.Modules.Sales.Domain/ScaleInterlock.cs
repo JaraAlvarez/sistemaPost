@@ -42,6 +42,28 @@ public sealed class ScaleInterlock : Entity<Guid>
     /// <summary>BQ3: número de arranque más alto aceptado de esta caja; un arranque menor (anterior) nunca vale.</summary>
     public long? LastBootCounter { get; private set; }
 
+    /// <summary>
+    /// BS1: clave de la báscula con la que se aceptó la última lectura. El número de arranque, la secuencia y los arranques retirados
+    /// valen solo para esa clave: con otra (volver a vincular) se empieza de cero, así que reinstalar el agente o cambiar el computador
+    /// nunca deja la caja trabada.
+    /// </summary>
+    public Guid? LastKeyId { get; private set; }
+
+    /// <summary>
+    /// BS1: la lectura viene firmada con otra clave (la caja se volvió a vincular): el orden de los arranques empieza de cero. El retorno
+    /// a cero pendiente se conserva (el agente nuevo debe ver la báscula vacía desde que arrancó). No se guarda nada si la línea no se agrega.
+    /// </summary>
+    public void AdoptKey(Guid keyId)
+    {
+        if (LastKeyId is { } current && current != keyId)
+        {
+            LastBootId = null;
+            LastSeq = null;
+            LastBootCounter = null;
+            RetiredBootIds = [];
+        }
+    }
+
     /// <summary>Secuencia (en ese arranque) de la última lectura aceptada.</summary>
     public long? LastSeq { get; private set; }
 
@@ -70,9 +92,16 @@ public sealed class ScaleInterlock : Entity<Guid>
             return SalesErrors.ScaleClockSkew;
         }
 
-        if (RetiredBootIds.Contains(reading.BootId) || (LastBootCounter is { } counter && reading.BootCounter < counter))
+        // Una lectura de un arranque que ya conocemos y quedó atrás es una lectura vieja; un número de arranque menor que nunca vimos es un
+        // agente que volvió atrás (reinstalado o restaurado): solo volver a vincular lo destraba (BS1).
+        if (RetiredBootIds.Contains(reading.BootId))
         {
             return SalesErrors.ScaleReadingStale;
+        }
+
+        if (LastBootCounter is { } counter && reading.BootCounter < counter)
+        {
+            return SalesErrors.ScaleBootRegressed;
         }
 
         var sameBoot = LastBootId == reading.BootId;
@@ -89,10 +118,12 @@ public sealed class ScaleInterlock : Entity<Guid>
         return Result.Success();
     }
 
-    /// <summary>Se agregó la línea con esta lectura: la siguiente pesada exige ver la báscula vacía.</summary>
-    public void Accept(ScaleReadingPayload reading, Guid saleId, Guid saleLineId, DateTimeOffset now)
+    /// <summary>Se agregó la línea con esta lectura (firmada con <paramref name="keyId"/>): la siguiente pesada exige ver la báscula vacía.</summary>
+    public void Accept(ScaleReadingPayload reading, Guid keyId, Guid saleId, Guid saleLineId, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(reading);
+        AdoptKey(keyId);
+        LastKeyId = keyId;
         LastReadingId = reading.ReadingId;
         LastReadingAt = reading.At;
         if (LastBootId is { } previous && previous != reading.BootId && !RetiredBootIds.Contains(previous))

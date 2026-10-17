@@ -30,7 +30,10 @@ public sealed record SignedScaleReading(string Payload, string Signature, Guid K
 /// <para>Las claves (BB3/BK3) se guardan en la carpeta <c>keys</c> cifradas con DPAPI de la CUENTA del agente (el servicio corre como
 /// SYSTEM; sin entropía fija); la carpeta y sus archivos tienen permisos solo para SYSTEM, Administradores y la cuenta del agente (sin
 /// herencia) y se reparan al arrancar. Una clave del formato anterior (<c>dpapi:</c> con entropía fija) se borra al arrancar.</para>
-/// <para>BQ3: también guarda en <c>keys</c> el número de arranque del agente, que sube en cada arranque y va firmado en cada lectura.</para>
+/// <para>BQ3: también guarda en <c>keys</c> el número de arranque del agente, que sube en cada arranque y va firmado en cada lectura.
+/// BS1/BS3: si hay una clave pero falta el número (o no se puede leer, o no se puede guardar el nuevo), el agente NO firma con un número
+/// que podría repetirse: exige volver a vincular (<see cref="SigningProblem"/>). Al vincular, el servidor empieza de cero con la clave
+/// nueva, así que el número vuelve a valer.</para>
 /// </summary>
 public sealed class ScaleSigner : IDisposable
 {
@@ -52,9 +55,9 @@ public sealed class ScaleSigner : IDisposable
         _pendingFile = Path.Combine(_folder, "scale-signing.pending.json");
         _bootFile = Path.Combine(_folder, "boot-counter.txt");
         RemoveLegacy(Path.Combine(agentFolder, "scale-signing.json"));
-        RepairFolder();
-        BootCounter = NextBootCounter();
+        EnsureFolder();
         Load();
+        (BootCounter, SigningProblem) = NextBootCounter(hasKey: _key is not null);
     }
 
     /// <summary>Caja con la que está vinculado el agente (nulo: sin vincular, las lecturas no se firman).</summary>
@@ -64,6 +67,31 @@ public sealed class ScaleSigner : IDisposable
 
     /// <summary>Número de este arranque del agente (BQ3): siempre mayor que el del arranque anterior.</summary>
     public long BootCounter { get; }
+
+    /// <summary>
+    /// Por qué el agente no firma aunque tenga clave (BS1/BS3): falta o no se pudo leer o guardar el número de arranque. Nulo si firma.
+    /// Se ve en <c>GET /status</c>, en <c>GET /scale/status</c> y en cada lectura; vincular de nuevo lo resuelve.
+    /// </summary>
+    public string? SigningProblem { get; private set; }
+
+    /// <summary>Clave pendiente de confirmar (BS2): la caja la confirma sin otro registro si coincide con la que tiene el servidor.</summary>
+    public Guid? PendingKeyId
+    {
+        get
+        {
+            lock (_gate)
+            {
+                try
+                {
+                    return Read(_pendingFile)?.KeyId;
+                }
+                catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+                {
+                    return null;
+                }
+            }
+        }
+    }
 
     /// <summary>Ruta del archivo de la clave vigente.</summary>
     public string KeyFile => _file;
@@ -98,12 +126,25 @@ public sealed class ScaleSigner : IDisposable
             }
 
             var key = ECDsa.Create();
-            key.ImportPkcs8PrivateKey(Unprotect(pending.PrivateKey), out _);
-            File.Move(_pendingFile, _file, overwrite: true);
+            try
+            {
+                key.ImportPkcs8PrivateKey(Unprotect(pending.PrivateKey), out _);
+                File.Move(_pendingFile, _file, overwrite: true);
+            }
+            catch
+            {
+                // BQ5: si no se pudo activar, la clave nueva no queda abierta en memoria.
+                key.Dispose();
+                throw;
+            }
+
             _key?.Dispose();
             _key = key;
             TerminalId = pending.TerminalId;
             KeyId = pending.KeyId;
+
+            // BS1: con la clave nueva el servidor empieza de cero; el número de arranque actual queda guardado y vuelve a valer.
+            SigningProblem = SaveBootCounter(BootCounter);
             return true;
         }
     }
@@ -114,7 +155,7 @@ public sealed class ScaleSigner : IDisposable
         ArgumentNullException.ThrowIfNull(payload);
         lock (_gate)
         {
-            if (_key is null || KeyId is not { } keyId)
+            if (_key is null || KeyId is not { } keyId || SigningProblem is not null)
             {
                 return null;
             }
@@ -189,7 +230,7 @@ public sealed class ScaleSigner : IDisposable
     /// BK3/BK5: carpeta <c>keys</c> con permisos solo para SYSTEM, Administradores y la cuenta del agente. Al arrancar se reparan la carpeta
     /// y sus archivos (por si alguien cambió los permisos).
     /// </summary>
-    private void RepairFolder()
+    private void EnsureFolder()
     {
         try
         {
@@ -239,38 +280,55 @@ public sealed class ScaleSigner : IDisposable
 
     private void Save(string path, StoredKey stored)
     {
-        Directory.CreateDirectory(_folder);
+        EnsureFolder();
         WriteRestricted(path, JsonSerializer.Serialize(stored, AgentEndpoints.Json));
     }
 
-    /// <summary>BQ3: lee el número del último arranque, lo sube y lo guarda (si no se puede guardar, igual sube en memoria).</summary>
-    private long NextBootCounter()
+    /// <summary>
+    /// BQ3/BS1: lee el número del último arranque, lo sube y lo guarda. Si hay una clave y el número falta o no se puede leer, o si no se
+    /// puede guardar el nuevo, devuelve el problema: el agente no firma hasta volver a vincular (con un número repetido el servidor
+    /// rechazaría las lecturas o, peor, aceptaría lecturas de un arranque anterior).
+    /// </summary>
+    private (long Counter, string? Problem) NextBootCounter(bool hasKey)
     {
         long previous = 0;
+        string? problem = null;
         try
         {
-            if (File.Exists(_bootFile))
+            if (!File.Exists(_bootFile))
             {
-                _ = long.TryParse(File.ReadAllText(_bootFile).Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out previous);
+                problem = hasKey ? "Falta el número de arranque del agente de la báscula (se reinstaló o se restauró): vuelva a vincular la báscula (F1)." : null;
+            }
+            else if (!long.TryParse(File.ReadAllText(_bootFile).Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out previous))
+            {
+                previous = 0;
+                problem = hasKey ? "El número de arranque del agente de la báscula está dañado: vuelva a vincular la báscula (F1)." : null;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             AgentLog.ScaleConfigUnreadable(_logger, ex, _bootFile);
+            problem = hasKey ? "No se pudo leer el número de arranque del agente de la báscula: vuelva a vincular la báscula (F1)." : null;
         }
 
         var next = previous + 1;
+        return (next, SaveBootCounter(next) ?? problem);
+    }
+
+    /// <summary>Guarda el número de arranque (BS3): devuelve el problema si no se pudo (entonces el agente no firma).</summary>
+    private string? SaveBootCounter(long counter)
+    {
         try
         {
-            Directory.CreateDirectory(_folder);
-            WriteRestricted(_bootFile, next.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            EnsureFolder();
+            WriteRestricted(_bootFile, counter.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             AgentLog.ScaleConfigUnreadable(_logger, ex, _bootFile);
+            return "No se pudo guardar el número de arranque del agente de la báscula: revise los permisos de la carpeta del agente y vuelva a vincular (F1).";
         }
-
-        return next;
     }
 
     /// <summary>BK3: la clave del formato anterior (DPAPI de máquina con entropía fija) se borra al arrancar.</summary>
