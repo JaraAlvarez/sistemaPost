@@ -213,7 +213,7 @@ roles Inventario y Compras: el rol Compras lo recibe a propósito, porque quien 
 todo rol creado por la empresa que podía hacer ajustes de inventario también lo recibe, para que nadie pierda lo que ya podía hacer)
 - **Uno por uno**: en la ficha del producto, pestaña **Existencias** → "Mínimos y máximos": una fila por bodega con mínimo, punto de
   pedido, máximo y cantidad a pedir; escriba los números y pulse **Guardar** en esa fila. El máximo puede quedar vacío. Si usa punto de
-  pedido, la pantalla pide también el máximo o la cantidad a pedir.
+  pedido, también hay que poner el máximo o la cantidad a pedir (lo exige el sistema, también al importar).
 - **Desde Excel**: Inventario → Importar desde Excel → "Mínimos y máximos". Descargue la plantilla (columnas `sku` o `codigo_barras`,
   `minimo`, y opcionales `maximo`, `punto_pedido` y `bodega` con el código de la bodega). Si el archivo no trae la bodega, se usa la
   que elija en la pantalla. Al subir el archivo se ve la **vista previa** fila por fila (nuevo, cambia, sin cambios o error con el
@@ -243,8 +243,10 @@ todo rol creado por la empresa que podía hacer ajustes de inventario también l
 - **Crear órdenes de compra** (permiso "Crear, enviar y cerrar órdenes de compra") crea **una orden en borrador por proveedor y bodega**
   con el último costo del proveedor, y muestra los enlaces a cada orden (el valor solo lo ve quien puede ver costos). Si una falla (por
   ejemplo, el proveedor está bloqueado o la bodega se inactivó), no se crea ninguna y el aviso dice cuál falló.
-- **No se pide dos veces**: un doble clic o un reintento después de un corte devuelve las mismas órdenes. Si otra persona creó órdenes
-  mientras usted revisaba (o cambiaron las existencias), el sistema avisa "El pedido sugerido cambió" y pide **Actualizar** la pantalla.
+- **No se pide dos veces**: un doble clic o un reintento después de un corte devuelve las mismas órdenes. Si otra persona pidió alguno
+  de los productos marcados mientras usted revisaba, el sistema lo avisa (con el SKU y el nombre), vuelve a cargar la lista **conservando
+  sus cambios** en los demás productos y resalta y desmarca los que cambiaron para que los revise. Las ventas que ocurran mientras tanto
+  no bloquean: se pide la cantidad que usted eligió.
 - Si hay más de 5.000 productos para pedir, se muestran los primeros 5.000 con un aviso: filtre por categoría o proveedor. Después, en Compras → Órdenes, revise, apruebe y envíe cada una como siempre.
 - Todo queda en la **Auditoría**: cada cambio de mínimo y máximo ("Mínimo y máximo · creado/modificado"), cada importación
   ("Mínimos y máximos importados de Excel"), los mínimos calculados guardados y las órdenes creadas desde el pedido sugerido.

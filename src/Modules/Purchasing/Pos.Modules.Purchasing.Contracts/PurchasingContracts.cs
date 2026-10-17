@@ -356,10 +356,11 @@ public sealed record ReplenishmentDto(IReadOnlyList<ReplenishmentLineDto> Lines,
 
 /// <summary>
 /// Línea elegida para la orden: cantidad en la presentación (o en unidades base sin presentación); costo opcional (si falta, el último del
-/// proveedor). <c>SeenSuggestedQuantity</c>: el sugerido que se veía en la pantalla; si al crear ya es otro, se pide recargar.
+/// proveedor). <c>SeenPendingQuantity</c>: lo "ya pedido" que se veía en la pantalla; si al crear es otro (alguien creó o cambió órdenes
+/// de ese producto), se pide recargar. Las ventas o entradas de mercancía entre tanto no cuentan: se pide lo que el usuario eligió.
 /// </summary>
 public sealed record SuggestedOrderLineRequest(
-    Guid WarehouseId, Guid? SupplierId, Guid ProductId, Guid? PackagingId, decimal Quantity, decimal? UnitCost = null, decimal? SeenSuggestedQuantity = null);
+    Guid WarehouseId, Guid? SupplierId, Guid ProductId, Guid? PackagingId, decimal Quantity, decimal? UnitCost = null, decimal? SeenPendingQuantity = null);
 
 /// <summary>Orden de compra en borrador creada desde el pedido sugerido (<c>Total</c> solo con inventory.cost.view).</summary>
 public sealed record SuggestedOrderDto(Guid OrderId, string Number, Guid SupplierId, string SupplierName, Guid WarehouseId, int LineCount, decimal? Total);

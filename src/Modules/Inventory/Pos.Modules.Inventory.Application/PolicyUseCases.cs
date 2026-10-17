@@ -209,9 +209,12 @@ internal sealed class ImportStockPoliciesHandler(
             var max = maxCell ?? current?.MaxQty;
             var reorderPoint = reorderCell ?? current?.ReorderPoint;
             if (min is { } m && errors.Count == 0
-                && StockPolicy.Create(Guid.Empty, Guid.Empty, Guid.Empty, Guid.Empty, Guid.Empty, m, max, reorderPoint, current?.ReorderQty) is { IsFailure: true })
+                && StockPolicy.Create(Guid.Empty, Guid.Empty, Guid.Empty, Guid.Empty, Guid.Empty, m, max, reorderPoint, current?.ReorderQty) is
+                    { IsFailure: true } invalid)
             {
-                errors.Add(max < m ? "maximo: debe ser mayor o igual que el mínimo." : InventoryErrors.InvalidPolicy.Message);
+                errors.Add(max < m ? "maximo: debe ser mayor o igual que el mínimo."
+                    : invalid.Error == InventoryErrors.ReorderPointNeedsTarget ? "punto_pedido: indique también el máximo (o la cantidad a pedir en la ficha)."
+                    : invalid.Error.Message);
             }
 
             var action = errors.Count > 0 ? "ERROR"

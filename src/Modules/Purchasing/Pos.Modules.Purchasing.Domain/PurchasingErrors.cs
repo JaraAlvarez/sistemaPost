@@ -151,6 +151,6 @@ public static class PurchasingErrors
 
     public static Error SuggestionChanged(IEnumerable<string> products) => Error.Conflict(
         "PURCHASING.SUGGESTION_CHANGED",
-        $"El pedido sugerido cambió mientras lo revisaba (otra persona creó órdenes o cambiaron las existencias): {string.Join(", ", products)}. "
-        + "Actualice la pantalla, revise las cantidades y vuelva a crear las órdenes.");
+        $"Otra persona pidió algunos de estos productos mientras usted revisaba: {string.Join("; ", products)}. "
+        + "Actualice la pantalla (se conservan sus cambios en los demás productos), revise los marcados y vuelva a crear las órdenes.");
 }

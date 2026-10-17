@@ -105,4 +105,7 @@ public static class InventoryErrors
         "Revise los datos: días de venta de 1 a 365, días de entrega de 1 a 180 y días de cobertura de 0 a 180.");
 
     public static readonly Error NothingToApply = Error.Validation("INVENTORY.NOTHING_TO_APPLY", "No hay mínimos para guardar.");
+
+    public static readonly Error ReorderPointNeedsTarget = Error.Validation(
+        "INVENTORY.REORDER_POINT_NEEDS_TARGET", "Con punto de pedido indique también el máximo o la cantidad a pedir.");
 }

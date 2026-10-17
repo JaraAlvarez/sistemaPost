@@ -79,6 +79,10 @@ public interface IPurchasingQueries
     /// pendiente (órdenes en borrador, aprobadas, enviadas o recibidas en parte) y el proveedor preferido (o el de la compra más reciente).
     /// </summary>
     Task<IReadOnlyList<ReplenishmentRow>> ListReplenishmentAsync(ReplenishmentFilter filter, CancellationToken cancellationToken);
+
+    /// <summary>Lo pendiente por recibir (órdenes en borrador, aprobadas, enviadas o recibidas en parte) de esos productos, por bodega.</summary>
+    Task<IReadOnlyDictionary<(Guid WarehouseId, Guid ProductId), decimal>> PendingQuantitiesAsync(
+        Guid branchId, IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken);
 }
 
 /// <summary>Pedido sugerido: candado por sucursal y claves de idempotencia de cada envío (RN-GEN-09).</summary>
@@ -87,8 +91,10 @@ public interface ISuggestedOrderGate
     /// <summary>Espera el turno: dos envíos de la misma sucursal no se cruzan (se libera al terminar la transacción).</summary>
     Task LockAsync(Guid branchId, CancellationToken cancellationToken);
 
-    Task<StoredSuggestionBatch?> FindAsync(string key, CancellationToken cancellationToken);
+    /// <summary>El envío guardado con esa clave, si no ha vencido.</summary>
+    Task<StoredSuggestionBatch?> FindAsync(string key, DateTimeOffset now, CancellationToken cancellationToken);
 
+    /// <summary>Guarda el envío (30 días) y borra de paso las claves vencidas del pedido sugerido.</summary>
     Task SaveAsync(string key, string requestHash, string responseJson, DateTimeOffset now, CancellationToken cancellationToken);
 }
 

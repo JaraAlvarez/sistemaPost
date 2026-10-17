@@ -50,6 +50,7 @@ public class ReplenishmentApiTests
         var rice = lines.Single(l => l.ProductId == shop.Rice);
         rice.SupplierId.ShouldBe(arrocera);
         rice.SuggestedQuantity.ShouldBe(20m);
+        yogurt.LastCost.ShouldBeNull(); // Sin compras no hay último costo (aunque el dueño puede ver costos).
         var noSupplier = lines.Single(l => l.ProductId == panela);
         noSupplier.SupplierId.ShouldBeNull();
         noSupplier.SuggestedQuantity.ShouldBe(15m);
@@ -60,7 +61,7 @@ public class ReplenishmentApiTests
 
         // Sin clave de envío, o con una línea sin proveedor, no se crea nada.
         var request = lines.Select(l => new SuggestedOrderLineRequest(
-            l.WarehouseId, l.SupplierId, l.ProductId, l.PackagingId, l.SuggestedQuantity, SeenSuggestedQuantity: l.SuggestedQuantity)).ToList();
+            l.WarehouseId, l.SupplierId, l.ProductId, l.PackagingId, l.SuggestedQuantity, SeenPendingQuantity: l.PendingQuantity)).ToList();
         var batch = Guid.NewGuid();
         await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { lines = request }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "PURCHASING.SUGGESTION_BATCH_REQUIRED");
@@ -95,9 +96,12 @@ public class ReplenishmentApiTests
         await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = batch, lines = request.Take(1) }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.Conflict, "PURCHASING.SUGGESTION_BATCH_REUSED");
 
-        // Otro envío con lo que se veía antes (otra pestaña): el sugerido ya cambió → recargar.
-        await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = Guid.NewGuid(), lines = request }, Json, Ct)
-            .ShouldFailWithAsync(HttpStatusCode.Conflict, "PURCHASING.SUGGESTION_CHANGED");
+        // Otro envío con lo que se veía antes (otra pestaña): otra persona ya pidió esos productos → recargar; el aviso los nombra.
+        var stale = await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = Guid.NewGuid(), lines = request }, Json, Ct);
+        var staleProblem = await stale.Content.ReadAsStringAsync(Ct);
+        stale.StatusCode.ShouldBe(HttpStatusCode.Conflict, staleProblem);
+        staleProblem.ShouldContain("PURCHASING.SUGGESTION_CHANGED");
+        staleProblem.ShouldContain("YOG-1");
         (await OrderCountAsync(shop)).ShouldBe(2);
 
         // Lo pedido (aunque esté en borrador) cuenta como pendiente: el sugerido baja a cero.
@@ -121,8 +125,13 @@ public class ReplenishmentApiTests
         await PutOkAsync(owner, $"/api/v1/purchasing/suppliers/{arrocera}/products",
             new { productId = shop.Rice, packagingId = (Guid?)null, supplierCode = "A500", leadTimeDays = 5, isPreferred = true });
 
-        // Punto de pedido sin máximo ni cantidad a pedir: se pide hasta el punto de pedido (8), no hasta el mínimo (5).
-        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 5, reorderPoint = 8 });
+        // Un punto de pedido nuevo necesita máximo o cantidad a pedir (también por la API, no solo en la pantalla).
+        await owner.PutAsJsonAsync("/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 5, reorderPoint = 8 }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "INVENTORY.REORDER_POINT_NEEDS_TARGET");
+
+        // Una política antigua con punto de pedido sin máximo ni cantidad: se pide hasta el punto de pedido (8), no hasta el mínimo (5).
+        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = shop.Floor, productId = shop.Rice, minQuantity = 5 });
+        await shop.Catalog.ExecuteAsync($"UPDATE inventory.stock_policies SET reorder_point = 8 WHERE product_id = '{shop.Rice}'");
         (await LinesAsync(owner, "")).Single(l => l.ProductId == shop.Rice).SuggestedQuantity.ShouldBe(8m);
 
         // Bodega inactiva: sus productos no aparecen y una orden para ella dice cuál falló (y no se crea ninguna).
@@ -161,15 +170,29 @@ public class ReplenishmentApiTests
         (await OrderCountAsync(shop)).ShouldBe(0);
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM system.idempotency_keys")).ShouldBe(0);
 
-        // Dos envíos a la vez (dos personas, dos pestañas) con lo mismo que veían: uno crea la orden, el otro debe recargar.
+        // Una venta o una entrada de mercancía entre cargar y crear NO bloquea: se pide lo que el usuario eligió.
         var seen = (await LinesAsync(owner, $"?supplierId={arrocera}")).Single();
-        var line = new SuggestedOrderLineRequest(shop.Floor, arrocera, shop.Rice, null, seen.SuggestedQuantity, SeenSuggestedQuantity: seen.SuggestedQuantity);
+        var adjusted = await owner.PostAsJsonAsync("/api/v1/inventory/quick-adjustments",
+            new { warehouseId = shop.Floor, productId = shop.Rice, quantity = 3m, reason = "Llegó mercancía sin registrar" }, Json, Ct);
+        adjusted.StatusCode.ShouldBe(HttpStatusCode.Created, await adjusted.Content.ReadAsStringAsync(Ct));
+        (await LinesAsync(owner, $"?supplierId={arrocera}")).Single().SuggestedQuantity.ShouldBe(5m);
+        var chosen = await shop.SendAsync<List<SuggestedOrderDto>>("/api/v1/purchasing/replenishment/orders", new
+        {
+            batchId = Guid.NewGuid(),
+            lines = new[] { new SuggestedOrderLineRequest(shop.Floor, arrocera, shop.Rice, null, seen.SuggestedQuantity, SeenPendingQuantity: seen.PendingQuantity) },
+        });
+        (await GetAsync<PurchaseOrderDto>(owner, $"/api/v1/purchasing/orders/{chosen.Single().OrderId}")).Lines.Single().Quantity.ShouldBe(8m);
+        (await OrderCountAsync(shop)).ShouldBe(1);
+
+        // Dos envíos a la vez (dos personas, dos pestañas) con lo mismo que veían: uno crea la orden, el otro debe recargar.
+        seen = (await LinesAsync(owner, $"?supplierId={arrocera}")).Single();
+        var line = new SuggestedOrderLineRequest(shop.Floor, arrocera, shop.Rice, null, 5m, SeenPendingQuantity: seen.PendingQuantity);
         var both = await Task.WhenAll(Enumerable.Range(0, 2).Select(_ =>
             owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new { batchId = Guid.NewGuid(), lines = new[] { line } }, Json, Ct)));
         both.Count(r => r.StatusCode == HttpStatusCode.OK).ShouldBe(1);
         both.Count(r => r.StatusCode == HttpStatusCode.Conflict).ShouldBe(1);
         (await ErrorCodeAsync(both.Single(r => r.StatusCode == HttpStatusCode.Conflict))).ShouldBe("PURCHASING.SUGGESTION_CHANGED");
-        (await OrderCountAsync(shop)).ShouldBe(1);
+        (await OrderCountAsync(shop)).ShouldBe(2);
     }
 
     [Fact]
@@ -202,6 +225,29 @@ public class ReplenishmentApiTests
                 batchId = Guid.NewGuid(), lines = new[] { new SuggestedOrderLineRequest(shop.Floor, shop.SupplierId, shop.Rice, null, 48m) },
             }, Json, Ct))
             .StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+
+        // Quien crea órdenes pero no ve costos: las crea y no recibe el total (ni al crearlas ni al repetir el envío).
+        await CreateRoleAsync(owner, "COMPRAS_SIN_COSTO", ["purchasing.purchase.view", "purchasing.order.manage"]);
+        await security.CreateUserAsync("comprador", "COMPRAS_SIN_COSTO");
+        var buyer = await security.LocalClientAsync("comprador");
+        var toOrder = (await LinesAsync(buyer, "")).Single();
+        var body = new
+        {
+            batchId = Guid.NewGuid(),
+            lines = new[]
+            {
+                new SuggestedOrderLineRequest(toOrder.WarehouseId, toOrder.SupplierId, toOrder.ProductId, toOrder.PackagingId, toOrder.SuggestedQuantity,
+                    SeenPendingQuantity: toOrder.PendingQuantity),
+            },
+        };
+        for (var i = 0; i < 2; i++)
+        {
+            var response = await buyer.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", body, Json, Ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+            (await response.Content.ReadFromJsonAsync<List<SuggestedOrderDto>>(Json, Ct))!.ShouldHaveSingleItem().Total.ShouldBeNull();
+        }
+
+        (await OrderCountAsync(shop)).ShouldBe(1);
 
         // Un rol nuevo con solo ajustes de inventario ya no edita mínimos (los roles que existían antes lo reciben en la migración 047).
         await CreateRoleAsync(owner, "AJUSTES", ["inventory.stock.view", "inventory.adjustment.manage"]);
@@ -302,6 +348,11 @@ public class ReplenishmentApiTests
             var changed = await owner.PostAsJsonAsync($"/api/v1/catalog/products/{product}/status", new { status }, Json, Ct);
             changed.IsSuccessStatusCode.ShouldBeTrue(await changed.Content.ReadAsStringAsync(Ct));
         }
+
+        // Punto de pedido sin máximo en el archivo (y sin cantidad a pedir guardada): error en la fila.
+        var noTarget = await ReadAsync<StockPolicyImportDto>(await shop.Catalog.UploadAsync(
+            $"/api/v1/inventory/policies/import?warehouseId={shop.Floor}", CatalogScenario.Csv("sku;minimo;maximo;punto_pedido", "YOG-1;3;;5"), "minimos.csv"));
+        noTarget.Rows.Single().Errors.ShouldHaveSingleItem().ShouldContain("punto_pedido");
 
         var file = CatalogScenario.Csv("sku;minimo;maximo", "VIEJO-1;2;6", "PAUSA-1;3;9");
         var preview = await ReadAsync<StockPolicyImportDto>(

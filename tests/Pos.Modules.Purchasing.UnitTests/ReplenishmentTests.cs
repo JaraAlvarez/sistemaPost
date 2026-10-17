@@ -72,6 +72,12 @@ public class ReplenishmentMathTests
         dto.LastCost.ShouldBeNull();
         GetReplenishmentHandler.ToDto(row, includeCosts: true).LastCost.ShouldBe(1_500m);
 
+        // Con más filas que el máximo se marcan como truncadas y se devuelven solo las primeras.
+        var truncated = GetReplenishmentHandler.Build([row, row, row], includeCosts: false, maxRows: 2);
+        truncated.Truncated.ShouldBeTrue();
+        truncated.Lines.Count.ShouldBe(2);
+        GetReplenishmentHandler.Build([row, row], includeCosts: false, maxRows: 2).Truncated.ShouldBeFalse();
+
         var unpacked = GetReplenishmentHandler.ToDto(row with { PackagingId = null, PackagingName = null, PackagingFactor = null }, includeCosts: true);
         unpacked.SuggestedQuantity.ShouldBe(47m);
         unpacked.PackagingFactor.ShouldBe(1m);

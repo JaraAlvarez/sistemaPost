@@ -250,7 +250,7 @@ internal sealed class PurchasingQueries(PosDbContext context, IInstallationConte
                 ORDER BY x.is_preferred DESC, x.last_purchase_at DESC NULLS LAST, x.created_at
                 LIMIT 1) sup ON true
             WHERE sp.branch_id = @branchId AND sp.deleted_at IS NULL AND pr.deleted_at IS NULL AND pr.status <> 'DISCONTINUED'
-              AND w.status = 'ACTIVE' AND w.kind <> 'IN_TRANSIT'
+              AND w.status = 'ACTIVE' AND w.deleted_at IS NULL AND w.kind NOT IN ('IN_TRANSIT', 'DAMAGED')
               AND (COALESCE(bal.quantity, 0) < sp.min_qty OR (sp.reorder_point IS NOT NULL AND COALESCE(bal.quantity, 0) <= sp.reorder_point))
               AND (@warehouseId::uuid IS NULL OR sp.warehouse_id = @warehouseId)
               AND (@category::text IS NULL OR c.path LIKE @category)
@@ -269,6 +269,28 @@ internal sealed class PurchasingQueries(PosDbContext context, IInstallationConte
             r.MinQuantity, r.MaxQuantity, r.ReorderPoint, r.ReorderQuantity, r.PendingQuantity, r.SupplierId, r.SupplierName, r.LastCost,
             r.LastPurchaseAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null, r.PackagingId, r.PackagingName,
             r.PackagingFactor))];
+    }
+
+    public async Task<IReadOnlyDictionary<(Guid WarehouseId, Guid ProductId), decimal>> PendingQuantitiesAsync(
+        Guid branchId, IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken)
+    {
+        if (productIds.Count == 0)
+        {
+            return new Dictionary<(Guid, Guid), decimal>();
+        }
+
+        var (connection, transaction) = await OpenAsync(cancellationToken);
+        var rows = await connection.QueryAsync<(Guid WarehouseId, Guid ProductId, decimal Pending)>(new CommandDefinition(
+            """
+            SELECT o.warehouse_id, ol.product_id, sum(ol.base_quantity - ol.received_base_quantity)
+            FROM purchasing.purchase_orders o
+            JOIN purchasing.purchase_order_lines ol ON ol.order_id = o.id
+            WHERE o.branch_id = @branchId AND ol.product_id = ANY(@ids) AND o.status IN ('DRAFT', 'APPROVED', 'SENT', 'PARTIALLY_RECEIVED')
+              AND ol.base_quantity > ol.received_base_quantity
+            GROUP BY o.warehouse_id, ol.product_id
+            """,
+            new { branchId, ids = productIds.Distinct().ToArray() }, transaction, cancellationToken: cancellationToken));
+        return rows.ToDictionary(r => (r.WarehouseId, r.ProductId), r => r.Pending);
     }
 
     private async Task<IReadOnlyList<SupplierDto>> QuerySuppliersAsync(Guid? supplierId, string? search, bool includeInactive, CancellationToken cancellationToken)

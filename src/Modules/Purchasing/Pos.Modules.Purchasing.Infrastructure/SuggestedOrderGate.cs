@@ -23,12 +23,12 @@ internal sealed class SuggestedOrderGate(PosDbContext context) : ISuggestedOrder
             transaction, cancellationToken: cancellationToken));
     }
 
-    public async Task<StoredSuggestionBatch?> FindAsync(string key, CancellationToken cancellationToken)
+    public async Task<StoredSuggestionBatch?> FindAsync(string key, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var (connection, transaction) = await OpenAsync(cancellationToken);
         var row = await connection.QuerySingleOrDefaultAsync<BatchRow>(new CommandDefinition(
-            "SELECT request_hash AS RequestHash, response_body::text AS ResponseBody FROM system.idempotency_keys WHERE scope = @scope AND key = @key",
-            new { scope = Scope, key }, transaction, cancellationToken: cancellationToken));
+            "SELECT request_hash AS RequestHash, response_body::text AS ResponseBody FROM system.idempotency_keys WHERE scope = @scope AND key = @key AND expires_at > @now",
+            new { scope = Scope, key, now }, transaction, cancellationToken: cancellationToken));
         return row is null ? null : new StoredSuggestionBatch(row.RequestHash, row.ResponseBody ?? "[]");
     }
 
@@ -37,6 +37,7 @@ internal sealed class SuggestedOrderGate(PosDbContext context) : ISuggestedOrder
         var (connection, transaction) = await OpenAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition(
             """
+            DELETE FROM system.idempotency_keys WHERE scope = @scope AND expires_at <= @now;
             INSERT INTO system.idempotency_keys (scope, key, request_hash, response_status, response_body, created_at, expires_at)
             VALUES (@scope, @key, @requestHash, 200, @body::jsonb, @now, @expires)
             """,

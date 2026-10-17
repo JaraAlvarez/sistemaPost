@@ -5,6 +5,7 @@ using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
+using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Inventory.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Purchasing.Contracts;
@@ -36,8 +37,12 @@ internal sealed class GetReplenishmentHandler(IInstallationContext installation,
         var costs = await permissions.HasPermissionAsync(InventoryPermissions.CostView, cancellationToken: cancellationToken);
         var rows = await queries.ListReplenishmentAsync(
             new ReplenishmentFilter(local.Value.BranchId, request.WarehouseId, request.CategoryId, request.SupplierId, MaxRows + 1), cancellationToken);
-        return new ReplenishmentDto([.. rows.Take(MaxRows).Select(r => ToDto(r, costs))], rows.Count > MaxRows);
+        return Build(rows, costs, MaxRows);
     }
+
+    /// <summary>Hasta <paramref name="maxRows"/> líneas; si llegaron más, se marca <c>Truncated</c> (la pantalla pide filtrar).</summary>
+    internal static ReplenishmentDto Build(IReadOnlyList<ReplenishmentRow> rows, bool includeCosts, int maxRows) =>
+        new([.. rows.Take(maxRows).Select(r => ToDto(r, includeCosts))], rows.Count > maxRows);
 
     internal static ReplenishmentLineDto ToDto(ReplenishmentRow r, bool includeCosts)
     {
@@ -59,7 +64,8 @@ internal sealed class GetReplenishmentHandler(IInstallationContext installation,
 /// <para>
 /// Contra pedidos dobles: <c>BatchId</c> (lo genera la pantalla una vez por envío) es la clave de idempotencia: repetir el mismo envío
 /// (doble clic, reintento tras un corte) devuelve las mismas órdenes. Además los envíos de una sucursal se hacen de a uno (candado) y,
-/// dentro de la transacción, se recalcula el sugerido: si ya no es el que se veía (otra persona creó órdenes), se pide recargar.
+/// dentro de la transacción, se revisa lo "ya pedido" de los productos enviados: si otra persona creó o cambió órdenes de ellos, se pide
+/// recargar. Las ventas entre tanto no lo impiden: se pide la cantidad que eligió el usuario.
 /// </para>
 /// </summary>
 public sealed record CreateSuggestedOrdersCommand(
@@ -71,6 +77,7 @@ internal sealed class CreateSuggestedOrdersHandler(
     ISuggestedOrderGate gate,
     IPurchasingQueries queries,
     IWarehouseDirectory warehouses,
+    ICatalogReader catalog,
     IPermissionChecker permissions,
     IDispatcher sender,
     IAuditWriter audit,
@@ -101,7 +108,7 @@ internal sealed class CreateSuggestedOrdersHandler(
         await gate.LockAsync(local.Value.BranchId, cancellationToken);
         var key = $"{local.Value.BranchId:D}:{request.BatchId:D}";
         var hash = Hash(request);
-        if (await gate.FindAsync(key, cancellationToken) is { } previous)
+        if (await gate.FindAsync(key, clock.UtcNow, cancellationToken) is { } previous)
         {
             return previous.RequestHash == hash
                 ? Result.Success<IReadOnlyList<SuggestedOrderDto>>(
@@ -116,7 +123,7 @@ internal sealed class CreateSuggestedOrdersHandler(
             return groups.Error;
         }
 
-        // Ya con el turno: el sugerido de ahora (con las órdenes que otros acaban de crear) debe ser el que se veía.
+        // Ya con el turno: lo "ya pedido" de esos productos debe ser lo que se veía (si no, otra persona acaba de pedirlos).
         var changed = await ChangedAsync(local.Value.BranchId, lines, cancellationToken);
         if (changed.Count > 0)
         {
@@ -158,32 +165,31 @@ internal sealed class CreateSuggestedOrdersHandler(
         return created.Select(o => costs ? o : o with { Total = null }).ToList();
     }
 
-    /// <summary>Productos cuyo sugerido (con lo que se veía en pantalla) ya no es el mismo, o que ya no están bajo el mínimo.</summary>
+    /// <summary>
+    /// Productos cuyo "ya pedido" cambió desde que se cargó la pantalla (otra persona creó, cambió o canceló órdenes de ese producto). Solo
+    /// se revisan los productos enviados; las ventas y entradas de mercancía no cuentan.
+    /// </summary>
     private async Task<List<string>> ChangedAsync(Guid branchId, IReadOnlyList<SuggestedOrderLineRequest> lines, CancellationToken cancellationToken)
     {
-        var checkedLines = lines.Where(l => l.SeenSuggestedQuantity is not null).ToList();
+        var checkedLines = lines.Where(l => l.SeenPendingQuantity is not null).ToList();
         if (checkedLines.Count == 0)
         {
             return [];
         }
 
-        var current = (await queries.ListReplenishmentAsync(new ReplenishmentFilter(branchId, null, null, null, int.MaxValue), cancellationToken))
-            .Select(r => GetReplenishmentHandler.ToDto(r, includeCosts: false))
-            .ToDictionary(l => (l.WarehouseId, l.ProductId));
-        var changed = new List<string>();
-        foreach (var line in checkedLines)
+        var pending = await queries.PendingQuantitiesAsync(branchId, [.. checkedLines.Select(l => l.ProductId).Distinct()], cancellationToken);
+        var changed = checkedLines.Where(l => pending.GetValueOrDefault((l.WarehouseId, l.ProductId)) != l.SeenPendingQuantity).ToList();
+        if (changed.Count == 0)
         {
-            if (!current.TryGetValue((line.WarehouseId, line.ProductId), out var now))
-            {
-                changed.Add($"un producto que ya no está bajo el mínimo ({line.ProductId:D})");
-            }
-            else if (now.SuggestedQuantity != line.SeenSuggestedQuantity || now.PackagingId != line.PackagingId)
-            {
-                changed.Add($"{now.Sku} (ahora sugiere {now.SuggestedQuantity:0.###})");
-            }
+            return [];
         }
 
-        return changed;
+        var products = await catalog.GetProductsAsync([.. changed.Select(l => l.ProductId).Distinct()], cancellationToken);
+        return [.. changed.Select(l =>
+        {
+            var name = products.TryGetValue(l.ProductId, out var p) ? $"{p.Sku} · {p.Name}" : "producto";
+            return $"{name} (ya pedido: antes {l.SeenPendingQuantity:0.###}, ahora {pending.GetValueOrDefault((l.WarehouseId, l.ProductId)):0.###})";
+        })];
     }
 
     /// <summary>El error de una orden con el proveedor y la bodega, para saber qué quitar.</summary>

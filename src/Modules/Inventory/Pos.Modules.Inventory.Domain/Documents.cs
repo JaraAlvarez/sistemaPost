@@ -383,6 +383,12 @@ public sealed class StockPolicy : AggregateRoot<Guid>, ICompanyOwned, ISoftDelet
             return InventoryErrors.InvalidPolicy;
         }
 
+        // Con punto de pedido sin máximo ni cantidad a pedir, al llegar justo al punto el pedido sugerido sería cero.
+        if (reorderPoint is not null && max is null && reorderQty is null)
+        {
+            return InventoryErrors.ReorderPointNeedsTarget;
+        }
+
         MinQty = min;
         MaxQty = max;
         ReorderPoint = reorderPoint;

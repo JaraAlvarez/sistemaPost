@@ -124,10 +124,16 @@
                                         @foreach (var linea in grupo)
                                         {
                                             var d = linea.Dato;
-                                            <tr>
+                                            <tr style="@(linea.Cambio ? "background:var(--mud-palette-warning-hover)" : null)">
                                                 <td><MudCheckBox T="bool" @bind-Value="linea.Marcada" aria-label="@($"Marcar {d.ProductName}")" /></td>
                                                 <td>
-                                                    <div>@d.Sku · @d.ProductName</div>
+                                                    <div>
+                                                        @d.Sku · @d.ProductName
+                                                        @if (linea.Cambio)
+                                                        {
+                                                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">Otra persona lo pidió: revise</MudChip>
+                                                        }
+                                                    </div>
                                                     <MudText Typo="Typo.caption">@d.CategoryName</MudText>
                                                 </td>
                                                 <td>@d.WarehouseCode</td>
@@ -293,6 +299,9 @@
         public decimal Cantidad { get; set; }
 
         public Guid? Proveedor { get; set; }
+
+        /// <summary>Lo "ya pedido" cambió al recargar (otra persona lo pidió): se resalta y se desmarca para revisarlo.</summary>
+        public bool Cambio { get; set; }
     }
 
     /// <summary>Una fila de "Calcular mínimos sugeridos" en edición.</summary>
@@ -361,6 +370,23 @@
 
     private async Task CargarPedidoAsync()
     {
+        _busy = true;
+        try
+        {
+            await RecargarAsync(conservar: false);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>
+    /// Lee el pedido sugerido. Con <paramref name="conservar"/>, mantiene lo que el usuario cambió (marcas, cantidades, proveedor) en los
+    /// productos cuyo "ya pedido" sigue igual, y resalta y desmarca los que otra persona pidió entre tanto.
+    /// </summary>
+    private async Task RecargarAsync(bool conservar)
+    {
         var consulta = new List<string>();
         if (_bodega is { } bodega)
         {
@@ -377,15 +403,31 @@
             consulta.Add($"supplierId={proveedor}");
         }
 
-        _busy = true;
         try
         {
+            var antes = conservar ? _lineas.ToDictionary(l => (l.Dato.WarehouseId, l.Dato.ProductId)) : [];
             var pedido = await Api.GetAsync<ReplenishmentDto>("api/v1/purchasing/replenishment" + (consulta.Count > 0 ? "?" + string.Join('&', consulta) : ""));
             _truncado = pedido.Truncated;
             _lote = Guid.NewGuid();
-            _lineas = [.. pedido.Lines.Select(l => new Linea
+            _lineas = [.. pedido.Lines.Select(l =>
             {
-                Dato = l, Cantidad = l.SuggestedQuantity, Proveedor = l.SupplierId, Marcada = l.SupplierId is not null && l.SuggestedQuantity > 0,
+                var linea = new Linea
+                {
+                    Dato = l, Cantidad = l.SuggestedQuantity, Proveedor = l.SupplierId, Marcada = l.SupplierId is not null && l.SuggestedQuantity > 0,
+                };
+                if (antes.TryGetValue((l.WarehouseId, l.ProductId), out var previa))
+                {
+                    if (previa.Dato.PendingQuantity == l.PendingQuantity)
+                    {
+                        (linea.Marcada, linea.Cantidad, linea.Proveedor) = (previa.Marcada, previa.Cantidad, previa.Proveedor);
+                    }
+                    else
+                    {
+                        (linea.Cambio, linea.Marcada) = (true, false);
+                    }
+                }
+
+                return linea;
             })];
             _error = null;
         }
@@ -393,8 +435,6 @@
         {
             _error = ex.Texto;
         }
-
-        _busy = false;
     }
 
     private async Task CrearOrdenesAsync()
@@ -419,18 +459,26 @@
             {
                 batchId = _lote,
                 lines = marcadas.Select(l => new SuggestedOrderLineRequest(
-                    l.Dato.WarehouseId, l.Proveedor, l.Dato.ProductId, l.Dato.PackagingId, l.Cantidad, SeenSuggestedQuantity: l.Dato.SuggestedQuantity)),
+                    l.Dato.WarehouseId, l.Proveedor, l.Dato.ProductId, l.Dato.PackagingId, l.Cantidad, SeenPendingQuantity: l.Dato.PendingQuantity)),
             });
             Snackbar.Add($"Se crearon {creadas.Count} órdenes de compra en borrador.", Severity.Success);
-            await CargarPedidoAsync();
+            await RecargarAsync(conservar: false);
             _creadas = creadas;
+        }
+        catch (ApiException ex) when (ex.Code == "PURCHASING.SUGGESTION_CHANGED")
+        {
+            // Otra persona pidió algunos productos: se recarga conservando lo editado y se resaltan los que cambiaron.
+            Snackbar.Add(ex.Texto, Severity.Warning);
+            await RecargarAsync(conservar: true);
         }
         catch (ApiException ex)
         {
             Snackbar.Add(ex.Texto, Severity.Error);
         }
-
-        _busy = false;
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task CalcularAsync()
@@ -456,8 +504,10 @@
         {
             Snackbar.Add(ex.Texto, Severity.Error);
         }
-
-        _busy = false;
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task GuardarSugeridosAsync()
@@ -485,14 +535,16 @@
             _sugeridos = null;
             if (VerPedido)
             {
-                await CargarPedidoAsync();
+                await RecargarAsync(conservar: false);
             }
         }
         catch (ApiException ex)
         {
             Snackbar.Add(ex.Texto, Severity.Error);
         }
-
-        _busy = false;
+        finally
+        {
+            _busy = false;
+        }
     }
 }
