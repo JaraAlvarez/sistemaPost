@@ -167,6 +167,33 @@ public class WeighedLineTests
     }
 
     [Fact]
+    public void Volver_a_vincular_el_mismo_agente_no_salta_el_retorno_a_cero()
+    {
+        // Ronda 7: mismo arranque, clave nueva: la siguiente pesada sigue exigiendo ver la báscula vacía después de la última aceptada.
+        var boot = Guid.NewGuid();
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        interlock.Accept(Reading(1.0m, seq: 5, boot: boot, bootCounter: 3), Key, Guid.NewGuid(), Guid.NewGuid(), Now);
+
+        interlock.AdoptKey(Guid.NewGuid());
+        interlock.Check(Reading(1.0m, seq: 6, lastEmptySeq: 2, boot: boot, bootCounter: 3), Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
+        interlock.Check(Reading(1.0m, seq: 8, lastEmptySeq: 7, boot: boot, bootCounter: 3), Now, Window).IsSuccess.ShouldBeTrue();
+        (interlock.LastBootId, interlock.LastSeq).ShouldBe(((Guid?)boot, (long?)5));
+    }
+
+    [Fact]
+    public void Un_estado_sin_clave_guardada_cuenta_como_cambio_de_clave()
+    {
+        // Ronda 7: filas de antes de last_key_id (sin clave pero con número de arranque): volver a vincular también destraba.
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        interlock.Accept(Reading(1.0m, seq: 1, boot: Guid.NewGuid(), bootCounter: 9), Key, Guid.NewGuid(), Guid.NewGuid(), Now);
+        typeof(ScaleInterlock).GetProperty(nameof(ScaleInterlock.LastKeyId))!.SetValue(interlock, null);
+
+        interlock.AdoptKey(Guid.NewGuid());
+
+        interlock.LastBootCounter.ShouldBeNull();
+    }
+
+    [Fact]
     public void Volver_a_vincular_destraba_un_agente_que_volvio_al_arranque_1()
     {
         // BS1: se reinstaló el agente (número de arranque 1, menor que el 8 aceptado): con la misma clave nunca vale; con la clave nueva
@@ -180,8 +207,9 @@ public class WeighedLineTests
         var newKey = Guid.NewGuid();
         interlock.AdoptKey(newKey);
         interlock.Check(reinstalled, Now, Window).IsSuccess.ShouldBeTrue();
+        interlock.Check(reinstalled with { LastEmptySeq = null }, Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
         interlock.Accept(reinstalled, newKey, Guid.NewGuid(), Guid.NewGuid(), Now);
-        (interlock.LastKeyId, interlock.LastBootCounter, interlock.RetiredBootIds.Length).ShouldBe(((Guid?)newKey, (long?)1, 0));
+        (interlock.LastKeyId, interlock.LastBootCounter, interlock.RetiredBootIds.Length).ShouldBe(((Guid?)newKey, (long?)1, 1));
     }
 
     [Fact]

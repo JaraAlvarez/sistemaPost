@@ -71,6 +71,19 @@ public sealed class ScaleAgentDouble : IDisposable
     /// <summary>El agente vio la báscula vacía (una lectura con el bruto en la banda de cero).</summary>
     public void Empty() => _lastEmptySeq = ++_seq;
 
+    /// <summary>
+    /// El mismo agente (mismo arranque, secuencia y báscula vacía vista) con una clave nueva: lo que pasa al volver a vincular sin
+    /// reiniciar el agente.
+    /// </summary>
+    public static ScaleAgentDouble SameAgentWithNewKey(ScaleAgentDouble agent)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        return new ScaleAgentDouble(agent.TerminalId)
+        {
+            BootId = agent.BootId, BootCounter = agent.BootCounter, _seq = agent._seq, _lastEmptySeq = agent._lastEmptySeq,
+        };
+    }
+
     /// <summary>Se reinstaló el agente o se restauró el equipo: el número de arranque vuelve a 1 (BS1).</summary>
     public void Reinstall()
     {

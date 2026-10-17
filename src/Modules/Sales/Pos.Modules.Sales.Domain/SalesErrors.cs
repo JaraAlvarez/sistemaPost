@@ -42,11 +42,11 @@ public static class SalesErrors
         "SALES.SCALE_READING_STALE",
         "La lectura de la báscula está fuera de orden (es anterior a la última pesada o de antes de reiniciar el agente): vuelva a registrar el producto.");
 
-    // BQ8: el servidor no puede distinguir un reloj desfasado de una lectura que se guardó más de 5 minutos: mensaje neutro con las dos causas.
     public static readonly Error ScaleBootRegressed = Error.BusinessRule(
         "SALES.SCALE_BOOT_REGRESSED",
         "El agente de la báscula volvió a un arranque anterior (se reinstaló o se restauró el equipo): vuelva a vincular la báscula (F1 → Vincular báscula).");
 
+    // BQ8: el servidor no puede distinguir un reloj desfasado de una lectura que se guardó más de 5 minutos: mensaje neutro con las dos causas.
     public static readonly Error ScaleClockSkew = Error.BusinessRule(
         "SALES.SCALE_CLOCK_SKEW",
         "La hora de la lectura de la báscula difiere en más de 5 minutos de la del servidor: vuelva a registrar el producto. Si se repite, revise la fecha y hora del computador de la caja.");

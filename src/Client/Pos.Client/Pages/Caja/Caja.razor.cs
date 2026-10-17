@@ -696,10 +696,21 @@ public sealed partial class Caja
                 return;
             }
 
-            if (fallo is null)
+            // Ronda 7: antes de reintentar se pregunta al agente cómo quedó: la clave ya puede estar activa (la confirmación llegó pero la
+            // respuesta se perdió) o otra vinculación pudo reemplazar la pendiente.
+            var estado = fallo is null ? null : await AgentScale.PendingAsync();
+            if (fallo is null || estado?.KeyId == keyId)
             {
                 var aviso = await Scale.LoadAsync(caja);
                 Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
+                return;
+            }
+
+            if (estado is { PendingKeyId: { } otra } && otra != keyId)
+            {
+                Snackbar.Add(
+                    "Se inició otra vinculación de la báscula en esta caja mientras se confirmaba esta: vuelva a pulsar F1 → Vincular báscula.",
+                    Severity.Warning);
                 return;
             }
 

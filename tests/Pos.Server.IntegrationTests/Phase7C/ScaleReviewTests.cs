@@ -234,17 +234,42 @@ public class ScaleReviewTests
         await PostAsync<SaleDto>(shop.Cashier, lines, Line(0.7m, agent.Read(0.7m).Body));
 
         agent.Reinstall();
-        agent.Empty();
         var rejected = await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.5m, agent.Read(0.5m).Body));
         (await SecurityScenario.ProblemAsync(rejected)).GetProperty("detail").GetString()!.ShouldContain("vuelva a vincular la báscula (F1");
         await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.5m, agent.Read(0.5m).Body))
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_BOOT_REGRESSED");
 
-        using var relinked = new ScaleAgentDouble(agent.TerminalId);
+        // El agente reinstalado (otro arranque, número 1) se vincula con una clave nueva: antes de vaciar la báscula no pesa; después sí.
+        using var relinked = ScaleAgentDouble.SameAgentWithNewKey(agent);
         await relinked.RegisterKeyAsync(shop);
+        await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.5m, relinked.Read(0.5m).Body))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_NOT_EMPTIED");
         relinked.Empty();
         (await PostAsync<SaleDto>(shop.Cashier, lines, Line(0.5m, relinked.Read(0.5m).Body))).Lines[^1].Quantity.ShouldBe(0.5m);
         (await shop.Catalog.ScalarAsync<long>($"SELECT last_boot_counter FROM sales.scale_interlocks WHERE pos_terminal_id = '{agent.TerminalId}'")).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Volver_a_vincular_sin_retirar_el_producto_no_salta_el_retorno_a_cero()
+    {
+        // Ronda 7: se pesa, se vuelve a vincular (mismo agente, clave nueva) sin retirar el producto y se pesa otra vez: SCALE_NOT_EMPTIED.
+        await using var factory = new CashServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        using var agent = await ScaleAgentDouble.PairAsync(shop);
+        ScaleAgentDouble.UseCurrentClient(shop.Cashier);
+        await shop.OpenSessionAsync();
+        var sale = await shop.StartAsync();
+        var lines = $"/api/v1/sales/{sale.Id}/lines";
+        object Line(decimal weightKg, object scale) => new { code = "TOMATE", weightKg, weightSource = "SCALE", scale };
+        await PostAsync<SaleDto>(shop.Cashier, lines, Line(0.7m, agent.Read(0.7m).Body));
+
+        using var relinked = ScaleAgentDouble.SameAgentWithNewKey(agent);
+        await relinked.RegisterKeyAsync(shop);
+        await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.7m, relinked.Read(0.7m).Body))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_NOT_EMPTIED");
+
+        relinked.Empty();
+        (await PostAsync<SaleDto>(shop.Cashier, lines, Line(0.7m, relinked.Read(0.7m).Body))).Lines[^1].Quantity.ShouldBe(0.7m);
     }
 
     [Fact]

@@ -362,3 +362,9 @@ Migración POS **V2026.10.053** (`sales.scale_interlocks.last_key_id`).
 | BQ5 | Si activar la clave pendiente falla, la clave en memoria se libera. |
 
 **Pruebas:** agente 168/168 · Sales 119/119 · integración `Phase7C` 15/15 (incluye reinstalar el agente → volver a vincular → pesar).
+
+**Ronda 7 (antes de unir):** al cambiar la clave solo se olvidan el número de arranque más alto y los arranques retirados; el último
+arranque y su secuencia se conservan, así volver a vincular el mismo agente no salta el retorno a cero (y un agente reinstalado puede
+pesar después de vaciar la báscula). Un estado sin clave guardada pero con número de arranque también cuenta como cambio de clave. Si
+la confirmación de la vinculación falla, la caja pregunta al agente: si la clave ya está activa lo da por hecho; si otra vinculación
+reemplazó la pendiente, avisa sin reintentar. Pruebas: Sales 121/121 · `Phase7C` 16/16.

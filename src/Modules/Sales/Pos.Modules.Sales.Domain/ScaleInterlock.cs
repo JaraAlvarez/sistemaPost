@@ -50,15 +50,17 @@ public sealed class ScaleInterlock : Entity<Guid>
     public Guid? LastKeyId { get; private set; }
 
     /// <summary>
-    /// BS1: la lectura viene firmada con otra clave (la caja se volvió a vincular): el orden de los arranques empieza de cero. El retorno
-    /// a cero pendiente se conserva (el agente nuevo debe ver la báscula vacía desde que arrancó). No se guarda nada si la línea no se agrega.
+    /// BS1: la lectura viene firmada con otra clave (la caja se volvió a vincular): se olvidan el número de arranque más alto y los
+    /// arranques retirados (un agente reinstalado vuelve a 1). Se CONSERVAN el último arranque y su secuencia: si el agente es el mismo
+    /// (solo se volvió a vincular), la siguiente pesada sigue exigiendo ver la báscula vacía después de la última aceptada; si es otro
+    /// arranque, basta con verla vacía desde que arrancó. También cuenta como cambio de clave un estado anterior a <c>last_key_id</c>
+    /// (sin clave guardada pero con número de arranque). No se guarda nada si la línea no se agrega.
     /// </summary>
     public void AdoptKey(Guid keyId)
     {
-        if (LastKeyId is { } current && current != keyId)
+        var changed = LastKeyId is { } current ? current != keyId : LastBootCounter is not null;
+        if (changed)
         {
-            LastBootId = null;
-            LastSeq = null;
             LastBootCounter = null;
             RetiredBootIds = [];
         }
