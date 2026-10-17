@@ -99,8 +99,12 @@ public sealed class LabelBranch(ICurrentUser currentUser, IInstallationContext i
                 : LabelErrors.BranchForbidden;
         }
 
-        var resolved = currentUser.BranchId ?? installation.BranchId;
-        return resolved is { } value ? value : LabelErrors.BranchRequired;
+        if ((currentUser.BranchId ?? installation.BranchId) is not { } resolved)
+        {
+            return LabelErrors.BranchRequired;
+        }
+
+        return await permissions.HasPermissionAsync(CatalogPermissions.ProductView, resolved, cancellationToken) ? resolved : LabelErrors.BranchForbidden;
     }
 }
 
@@ -159,7 +163,7 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
         decimal? price = product.ListPrice is { } list ? LabelPricing.RegularPrice(list, product.IncludesTax, taxes) : null;
         var unit = weighed ? (product.BaseUnitCode == "KG" ? "kg" : product.BaseUnitCode.ToLowerInvariant()) : null;
         var offer = LabelPricing.BestOffer(
-            product.Id, product.CategoryId, product.BrandId, product.ListPrice, product.IncludesTax, taxes, promotions, unit ?? "und");
+            product.Id, product.CategoryId, product.BrandId, product.ListPrice, product.IncludesTax, taxes, promotions, unit ?? "und", weighed);
         DateOnly? until = offer?.ValidTo is { } to ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(to.AddTicks(-1), zone).DateTime) : null;
         return new LabelItemDto(
             product.Id,
@@ -209,7 +213,8 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
         d.Percent,
         d.MinQuantity,
         d.ValidTo,
-        d.HasSchedule);
+        d.HasSchedule,
+        d.Id);
 }
 
 // ─────────────────────────────── Armar la lista ───────────────────────────────

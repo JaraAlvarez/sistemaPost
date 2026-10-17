@@ -69,7 +69,29 @@ public class LabelPricingTests
         var item = LabelBuilder.ToItem(product, [], [new LabelPromotion("x", "QUANTITY_PRICE", [ForProduct()], Price: 18_000m, MinQuantity: 2m)], 1,
             TimeZoneInfo.Utc);
 
-        item.PromoText.ShouldBe("Desde 2 kg: $ 18.000 /kg");
+        item.PromoText.ShouldBe("Desde 2 kg: $ 18.000/kg");
+        item.PromoPrice.ShouldBeNull();
+
+        // Por peso, "desde 1 kg" no es precio principal: la caja no lo aplica a 0,750 kg.
+        var fromOne = LabelBuilder.ToItem(product, [], [new LabelPromotion("x", "QUANTITY_PRICE", [ForProduct()], Price: 18_000m, MinQuantity: 1m)], 1,
+            TimeZoneInfo.Utc);
+        fromOne.PromoPrice.ShouldBeNull();
+        fromOne.PromoText.ShouldBe("Desde 1 kg: $ 18.000/kg");
+        fromOne.Price.ShouldBe(20_000m);
+    }
+
+    [Fact]
+    public void Empate_gana_la_de_menor_Id_como_en_la_caja()
+    {
+        var low = new Guid("00000000-0000-0000-0000-000000000001");
+        var high = new Guid("00000000-0000-0000-0000-000000000002");
+        LabelPromotion[] promotions =
+        [
+            new("Especial", "SPECIAL_PRICE", [ForProduct()], Price: 9_000m, Id: high),
+            new("Diez", "PERCENT_OFF", [ForProduct()], Percent: 10m, Id: low),
+        ];
+
+        LabelPricing.BestOffer(Product, Category, Brand, 10_000m, true, [], promotions).ShouldBe(new LabelOffer(9_000m, "Ahorre 10 %"));
     }
 
     [Fact]

@@ -455,8 +455,7 @@ internal sealed class UpdatePriceListHandler(ICatalogStore store, Pos.Applicatio
         }
 
         var rules = list.ConfigureRules(
-            request.IsDefault ? null : request.AdjustmentPercent, request.RoundingIncrement ?? list.RoundingIncrement,
-            request.IsDefault ? true : request.AllowsPromotions ?? list.AllowsPromotions);
+            request.IsDefault ? null : request.AdjustmentPercent, request.RoundingIncrement ?? list.RoundingIncrement, request.AllowsPromotions);
         if (rules.IsFailure)
         {
             return rules.Error;

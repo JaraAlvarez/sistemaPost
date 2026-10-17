@@ -452,20 +452,24 @@ internal sealed class CatalogStore(PosDbContext context) : ICatalogStore
             """, cancellationToken);
 
         // 2) Una sola consulta: los primeros números libres después del último usado. El rango basta con count + los ocupados por encima.
+        // Se compara como texto (prefijo + consecutivo de 7 dígitos + cualquier dígito de control): sin conversiones que fallen con códigos
+        // alfanuméricos y aprovechando el índice de normalized_code.
         var pattern = prefix + "%";
         var free = await context.Database.SqlQuery<long>($"""
             WITH cur AS (
                 SELECT last_value FROM catalog.code_sequences WHERE node_id = {nodeId} AND kind = 'BARCODE'
-            ), taken AS (
-                SELECT substring(b.normalized_code FROM 6 FOR 7)::bigint AS s
-                FROM catalog.product_barcodes b
-                WHERE b.company_id = {companyId} AND b.deleted_at IS NULL AND b.normalized_code LIKE {pattern}
-                  AND length(b.normalized_code) = 13 AND b.normalized_code ~ '^[0-9]+$'
+            ), above AS (
+                SELECT count(*) AS n
+                FROM catalog.product_barcodes b, cur
+                WHERE b.company_id = {companyId} AND b.deleted_at IS NULL AND b.normalized_code LIKE {pattern} AND length(b.normalized_code) = 13
+                  AND substring(b.normalized_code FROM 6 FOR 7) > lpad(cur.last_value::text, 7, '0')
             )
             SELECT g AS "Value"
-            FROM cur, generate_series(cur.last_value + 1,
-                    LEAST(9999999, cur.last_value + {count} + (SELECT count(*) FROM taken WHERE taken.s > cur.last_value))) AS g
-            WHERE g NOT IN (SELECT s FROM taken)
+            FROM cur, above, generate_series(cur.last_value + 1, LEAST(9999999, cur.last_value + {count} + above.n)) AS g
+            WHERE NOT EXISTS (
+                SELECT 1 FROM catalog.product_barcodes b
+                WHERE b.company_id = {companyId} AND b.deleted_at IS NULL
+                  AND b.normalized_code LIKE {prefix} || lpad(g::text, 7, '0') || '_')
             ORDER BY g
             LIMIT {count}
             """).ToListAsync(cancellationToken);

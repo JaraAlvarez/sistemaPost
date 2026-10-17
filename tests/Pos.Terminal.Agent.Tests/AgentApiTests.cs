@@ -119,6 +119,18 @@ public class AgentApiTests
     }
 
     [Fact]
+    public async Task Una_simbologia_demasiado_larga_se_rechaza()
+    {
+        await using var agent = new AgentFactory();
+        var ticket = new TicketDocument("x", [new BarcodeElement("123", new string('X', TicketValidator.MaxSymbologyLength + 1))], Cut: false);
+
+        var response = await agent.CreateClient().PostAsync("/print", Body(new PrintRequest(ticket, FilePrinter)), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync(Ct)).ShouldContain(AgentEndpoints.InvalidDocument);
+    }
+
+    [Fact]
     public async Task Sin_cajon_conectado_se_omite_el_pulso_y_no_se_abre()
     {
         await using var agent = new AgentFactory();

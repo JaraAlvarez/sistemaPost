@@ -14,9 +14,14 @@ public class LabelBranchTests
     [Fact]
     public async Task Sin_sucursal_pedida_usa_la_del_usuario_y_si_no_la_del_equipo()
     {
-        (await Branch(userBranch: North, nodeBranch: Home).ResolveAsync(null, CancellationToken.None)).Value.ShouldBe(North);
-        (await Branch(userBranch: null, nodeBranch: Home).ResolveAsync(null, CancellationToken.None)).Value.ShouldBe(Home);
+        (await Branch(userBranch: North, nodeBranch: Home, allowed: [North]).ResolveAsync(null, CancellationToken.None)).Value.ShouldBe(North);
+        (await Branch(userBranch: null, nodeBranch: Home, allowed: [Home]).ResolveAsync(null, CancellationToken.None)).Value.ShouldBe(Home);
     }
+
+    [Fact]
+    public async Task La_sucursal_de_respaldo_tambien_exige_el_permiso() =>
+        (await Branch(userBranch: North, nodeBranch: Home, allowed: [Home]).ResolveAsync(null, CancellationToken.None)).Error
+            .ShouldBe(LabelErrors.BranchForbidden);
 
     [Fact]
     public async Task Sin_ninguna_sucursal_se_pide_elegirla() =>

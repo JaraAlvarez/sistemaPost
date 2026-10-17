@@ -21,7 +21,8 @@ public sealed record LabelPromotion(
     decimal? Percent = null,
     decimal? MinQuantity = null,
     DateTimeOffset? ValidTo = null,
-    bool HasSchedule = false);
+    bool HasSchedule = false,
+    Guid Id = default);
 
 /// <summary>Impuesto del producto: porcentual (<c>Rate</c>, p. ej. 19) o valor fijo por unidad base (<c>FixedAmount</c>, p. ej. IBUA).</summary>
 public sealed record LabelTax(decimal? Rate, decimal? FixedAmount);
@@ -68,7 +69,7 @@ public static class LabelPricing
     /// </summary>
     public static LabelOffer? BestOffer(
         Guid productId, Guid categoryId, Guid? brandId, decimal? listPrice, bool includesTax, IReadOnlyList<LabelTax> taxes,
-        IEnumerable<LabelPromotion> promotions, string quantityUnit = "und")
+        IEnumerable<LabelPromotion> promotions, string quantityUnit = "und", bool weighed = false)
     {
         ArgumentNullException.ThrowIfNull(promotions);
         ArgumentNullException.ThrowIfNull(taxes);
@@ -81,44 +82,49 @@ public static class LabelPricing
 
         var gross = Rounding.RoundMoney(list);
         var regular = CheckoutPrice(gross, includesTax, taxes);
-        var priced = new List<(decimal Price, string Text, DateTimeOffset? ValidTo)>();
+        // Por peso la caja exige kilos ≥ mínimo: "desde 1 kg" no aplica a 0,750 kg, así que solo es precio principal si el mínimo es 0.
+        var principalMinimum = weighed ? 0m : 1m;
+        var priced = new List<(decimal Price, string Text, DateTimeOffset? ValidTo, Guid Id)>();
         foreach (var promotion in applicable)
         {
             switch (promotion.Kind)
             {
                 case "SPECIAL_PRICE" when promotion.Price is { } price && price > 0m:
                     priced.Add((CheckoutPrice(gross - Math.Clamp(gross - Rounding.RoundMoney(price), 0m, gross), includesTax, taxes), "Precio especial",
-                        promotion.ValidTo));
+                        promotion.ValidTo, promotion.Id));
                     break;
-                case "QUANTITY_PRICE" when promotion is { Price: > 0m, MinQuantity: <= 1m }:
-                    // Desde 1 unidad (o menos) la caja la aplica a la primera unidad: es un precio especial.
+                case "QUANTITY_PRICE" when promotion is { Price: > 0m, MinQuantity: { } minimum } && minimum <= principalMinimum:
+                    // Desde 1 unidad (o 0 kg) la caja la aplica a cualquier compra: es un precio especial.
                     priced.Add((CheckoutPrice(gross - Math.Clamp(gross - Rounding.RoundMoney(promotion.Price!.Value), 0m, gross), includesTax, taxes),
-                        "Precio especial", promotion.ValidTo));
+                        "Precio especial", promotion.ValidTo, promotion.Id));
                     break;
                 case "MULTI_BUY" when promotion is { BuyQuantity: 1, PayQuantity: 0 }:
                     // Lleve 1 pague 0: la caja descuenta la unidad completa.
-                    priced.Add((CheckoutPrice(0m, includesTax, taxes), "Gratis", promotion.ValidTo));
+                    priced.Add((CheckoutPrice(0m, includesTax, taxes), "Gratis", promotion.ValidTo, promotion.Id));
                     break;
                 case "PERCENT_OFF" when promotion.Percent is { } percent && percent > 0m:
                     var discount = Math.Clamp(Rounding.RoundMoney(gross * percent / 100m), 0m, gross);
-                    priced.Add((CheckoutPrice(gross - discount, includesTax, taxes), $"Ahorre {percent.ToString("0.##", Colombia)} %", promotion.ValidTo));
+                    priced.Add((CheckoutPrice(gross - discount, includesTax, taxes), $"Ahorre {percent.ToString("0.##", Colombia)} %", promotion.ValidTo,
+                        promotion.Id));
                     break;
                 default:
                     break;
             }
         }
 
-        if (priced.Where(p => p.Price < regular).OrderBy(p => p.Price).ThenBy(p => p.Text, StringComparer.Ordinal).FirstOrDefault() is { Text: not null } best)
+        // Empate: gana la de menor Id, como en la caja (SaleCalculator recorre las promociones por Id y solo cambia si descuenta más).
+        if (priced.Where(p => p.Price < regular).OrderBy(p => p.Price).ThenBy(p => p.Id).FirstOrDefault() is { Text: not null } best)
         {
             return new LabelOffer(best.Price, best.Text, best.ValidTo);
         }
 
-        var quantity = applicable.Where(p => p is { Kind: "QUANTITY_PRICE", Price: > 0m, MinQuantity: > 1m } && Rounding.RoundMoney(p.Price!.Value) < gross)
+        var quantity = applicable.Where(p => p is { Kind: "QUANTITY_PRICE", Price: > 0m, MinQuantity: { } minimum } && minimum > principalMinimum
+                && Rounding.RoundMoney(p.Price!.Value) < gross)
             .OrderBy(p => p.Price).FirstOrDefault();
         if (quantity is not null)
         {
             var each = CheckoutPrice(Rounding.RoundMoney(quantity.Price!.Value), includesTax, taxes);
-            return new LabelOffer(null, $"Desde {quantity.MinQuantity!.Value.ToString("0.###", Colombia)} {quantityUnit}: {Money(each)} {(quantityUnit == "und" ? "c/u" : "/" + quantityUnit)}", quantity.ValidTo);
+            return new LabelOffer(null, $"Desde {quantity.MinQuantity!.Value.ToString("0.###", Colombia)} {quantityUnit}: {Money(each)}{(quantityUnit == "und" ? " c/u" : "/" + quantityUnit)}", quantity.ValidTo);
         }
 
         var multi = applicable.Where(p => p is { Kind: "MULTI_BUY", BuyQuantity: > 1, PayQuantity: >= 0 } && p.BuyQuantity > p.PayQuantity)

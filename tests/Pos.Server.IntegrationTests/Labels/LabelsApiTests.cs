@@ -208,6 +208,23 @@ public class LabelsApiTests
         await owner.PutAsJsonAsync($"/api/v1/catalog/price-lists/{general.Id}",
                 new { name = general.Name, pricesIncludeTax = general.PricesIncludeTax, isDefault = true, isActive = true, allowsPromotions = false }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "CATALOG.DEFAULT_LIST_ALLOWS_PROMOTIONS");
+
+        // Filas viejas: la general guardada con false se puede actualizar sin enviar el campo, y conserva su valor.
+        await scenario.Catalog.ScalarAsync<int?>("UPDATE catalog.price_lists SET allows_promotions = false WHERE is_default");
+        var kept = await owner.PutAsJsonAsync($"/api/v1/catalog/price-lists/{general.Id}",
+            new { name = general.Name, pricesIncludeTax = general.PricesIncludeTax, isDefault = true, isActive = true, roundingIncrement = 100m }, Json, Ct);
+        kept.StatusCode.ShouldBe(HttpStatusCode.OK, await kept.Content.ReadAsStringAsync(Ct));
+        (await kept.Content.ReadFromJsonAsync<PriceListDto>(Json, Ct))!.AllowsPromotions.ShouldBeFalse();
+
+        // Una lista de clientes sin promociones se actualiza (isDefault = false) sin problema.
+        var customers = await owner.PostAsJsonAsync("/api/v1/catalog/price-lists",
+            new { code = "CLIENTES", name = "Clientes", pricesIncludeTax = true, adjustmentPercent = 5m, allowsPromotions = false }, Json, Ct);
+        customers.StatusCode.ShouldBe(HttpStatusCode.Created, await customers.Content.ReadAsStringAsync(Ct));
+        var customersId = (await customers.Content.ReadFromJsonAsync<PriceListDto>(Json, Ct))!.Id;
+        var updated = await owner.PutAsJsonAsync($"/api/v1/catalog/price-lists/{customersId}",
+            new { name = "Clientes VIP", pricesIncludeTax = true, isDefault = false, isActive = true, adjustmentPercent = 5m }, Json, Ct);
+        updated.StatusCode.ShouldBe(HttpStatusCode.OK, await updated.Content.ReadAsStringAsync(Ct));
+        (await updated.Content.ReadFromJsonAsync<PriceListDto>(Json, Ct))!.AllowsPromotions.ShouldBeFalse();
     }
 
     private static async Task PromotionAsync(HttpClient owner, object promotion)
