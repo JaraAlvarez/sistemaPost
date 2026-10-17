@@ -93,4 +93,16 @@ public static class InventoryErrors
 
     public static readonly Error ImportMissingColumns =
         Error.Validation("INVENTORY.IMPORT_MISSING_COLUMNS", "El archivo de saldo inicial necesita las columnas: producto (SKU o código), cantidad y costo.");
+
+    public static readonly Error PolicyImportMissingColumns = Error.Validation(
+        "INVENTORY.POLICY_IMPORT_MISSING_COLUMNS", "El archivo de mínimos y máximos necesita las columnas: sku (o codigo_barras) y minimo.");
+
+    public static readonly Error PolicyImportNeedsWarehouse = Error.Validation(
+        "INVENTORY.POLICY_IMPORT_NEEDS_WAREHOUSE", "Elija la bodega o agregue al archivo la columna bodega (código de la bodega).");
+
+    public static readonly Error InvalidSuggestionParameters = Error.Validation(
+        "INVENTORY.INVALID_SUGGESTION_PARAMETERS",
+        "Revise los datos: días de venta de 1 a 365, días de entrega de 1 a 180 y días de cobertura de 0 a 180.");
+
+    public static readonly Error NothingToApply = Error.Validation("INVENTORY.NOTHING_TO_APPLY", "No hay mínimos para guardar.");
 }

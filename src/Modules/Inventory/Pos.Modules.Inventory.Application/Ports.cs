@@ -87,6 +87,9 @@ public interface IInventoryStore
     Task<StockTransfer?> GetTransferAsync(Guid id, CancellationToken cancellationToken);
 
     Task<StockPolicy?> GetPolicyAsync(Guid warehouseId, Guid productId, CancellationToken cancellationToken);
+
+    /// <summary>Políticas vigentes (no borradas) de los productos, en todas las bodegas.</summary>
+    Task<IReadOnlyList<StockPolicy>> GetPoliciesAsync(IReadOnlyCollection<Guid> productIds, CancellationToken cancellationToken);
 }
 
 /// <summary>Lecturas y operaciones directas sobre saldos y kardex (SQL en la transacción en curso).</summary>
@@ -118,7 +121,15 @@ public interface IInventoryReadModel
 
     /// <summary>Existencias por lote de la sucursal (solo lotes con saldo, salvo que se pida un producto).</summary>
     Task<IReadOnlyList<LotStockDto>> GetLotsAsync(LotFilter filter, DateOnly today, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Venta neta por producto en una bodega entre dos fechas de negocio (ventas menos anulaciones y devoluciones), solo productos
+    /// inventariables no descontinuados con venta mayor que cero. Para "Calcular mínimos sugeridos".
+    /// </summary>
+    Task<IReadOnlyList<ProductSalesRow>> GetNetSalesAsync(Guid warehouseId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
 }
+
+public sealed record ProductSalesRow(Guid ProductId, string Sku, string ProductName, string BaseUnitCode, bool AllowsDecimalQuantity, decimal SoldQuantity);
 
 /// <summary><c>ExpiringWithinDays</c>: solo lotes con saldo que vencen en esos días o ya vencieron.</summary>
 public sealed record LotFilter(Guid BranchId, Guid? ProductId, Guid? WarehouseId, int? ExpiringWithinDays);

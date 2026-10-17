@@ -73,7 +73,40 @@ public interface IPurchasingQueries
 
     /// <summary>Catálogo de bancos (ref.banks).</summary>
     Task<IReadOnlyList<BankDto>> ListBanksAsync(bool includeInactive, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reabastecimiento: productos con política de la sucursal cuya existencia está bajo el mínimo o en el punto de pedido, con el pedido
+    /// pendiente (órdenes en borrador, aprobadas, enviadas o recibidas en parte) y el proveedor preferido (o el de la compra más reciente).
+    /// </summary>
+    Task<IReadOnlyList<ReplenishmentRow>> ListReplenishmentAsync(ReplenishmentFilter filter, CancellationToken cancellationToken);
 }
+
+public sealed record ReplenishmentFilter(Guid BranchId, Guid? WarehouseId, Guid? CategoryId, Guid? SupplierId);
+
+/// <summary>Fila cruda del reabastecimiento (las cuentas del sugerido las hace <see cref="ReplenishmentMath"/>).</summary>
+public sealed record ReplenishmentRow(
+    Guid WarehouseId,
+    string WarehouseCode,
+    Guid ProductId,
+    string Sku,
+    string ProductName,
+    Guid CategoryId,
+    string CategoryName,
+    string BaseUnitCode,
+    bool AllowsDecimalQuantity,
+    decimal Quantity,
+    decimal MinQuantity,
+    decimal? MaxQuantity,
+    decimal? ReorderPoint,
+    decimal? ReorderQuantity,
+    decimal PendingQuantity,
+    Guid? SupplierId,
+    string? SupplierName,
+    decimal? LastCost,
+    DateTimeOffset? LastPurchaseAt,
+    Guid? PackagingId,
+    string? PackagingName,
+    decimal? PackagingFactor);
 
 /// <summary>Actividad del proveedor en un período (compras por fecha de factura, devoluciones por fecha del documento).</summary>
 public sealed record SupplierActivity(

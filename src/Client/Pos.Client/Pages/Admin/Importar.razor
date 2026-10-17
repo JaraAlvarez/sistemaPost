@@ -3,6 +3,7 @@
 @inject SessionState Session
 @inject IJSRuntime Js
 @inject ISnackbar Snackbar
+@inject Bodegas Bodegas
 @using Pos.Modules.Catalog.Contracts
 @using Pos.Modules.Inventory.Contracts
 @using Pos.Modules.Organization.Contracts
@@ -93,6 +94,72 @@
                 </MudFileUpload>
             </MudStack>
         }
+
+        @if (Session.Has("inventory.policy.manage"))
+        {
+            <MudText Typo="Typo.h6" Class="mb-2 mt-6" id="minimos">Mínimos y máximos</MudText>
+            <MudText Typo="Typo.body2" Class="mb-3">
+                Columnas: <b>sku</b> (o <b>codigo_barras</b>) y <b>minimo</b>; opcionales <b>maximo</b>, <b>punto_pedido</b> y <b>bodega</b> (código de la
+                bodega). Si el archivo no trae la bodega se usa la que elija aquí. Una celda vacía de máximo o punto de pedido conserva lo que ya
+                tiene. Primero verá la vista previa; nada cambia hasta que pulse <b>Aplicar</b>, y solo si ninguna fila tiene errores.
+            </MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-4">
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Download" OnClick="PlantillaMinimosAsync">Plantilla de mínimos y máximos</MudButton>
+                <MudSelect T="Guid?" @bind-Value="_bodegaMinimos" Label="Bodega (si el archivo no la trae)" Clearable="true" Style="min-width:260px">
+                    @foreach (var bodega in Bodegas.Elegibles)
+                    {
+                        <MudSelectItem T="Guid?" Value="@bodega.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(bodega)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudFileUpload T="IBrowserFile" Accept=".xlsx,.csv" FilesChanged="SubirMinimosAsync" MaximumFileCount="1">
+                    <CustomContent Context="upload">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile" Disabled="_busy"
+                                   OnClick="@upload.OpenFilePickerAsync">Subir mínimos y máximos</MudButton>
+                    </CustomContent>
+                </MudFileUpload>
+            </MudStack>
+
+            @if (_minimos is { } minimos)
+            {
+                <MudPaper Outlined="true" Class="pa-4 mb-6">
+                    <MudText Typo="Typo.subtitle1">
+                        @minimos.FileName · @minimos.TotalRows filas: @minimos.CreateRows nuevas, @minimos.UpdateRows cambian, @minimos.UnchangedRows sin cambios,
+                        <b>@minimos.ErrorRows con errores</b>. @(minimos.Applied ? "Estado: aplicada." : "Estado: vista previa.")
+                    </MudText>
+                    @if (!minimos.Applied)
+                    {
+                        <div class="acciones mb-2">
+                            <MudButton OnClick="@(() => { _minimos = null; _archivoMinimos = null; })" Disabled="_busy">Descartar</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || minimos.ErrorRows > 0 || minimos.CreateRows + minimos.UpdateRows == 0)"
+                                       OnClick="AplicarMinimosAsync">Aplicar</MudButton>
+                        </div>
+                    }
+                    <MudTable RowsPerPage="25" Items="FilasMinimos" Dense="true" Striped="true" Height="420px" FixedHeader="true">
+                        <HeaderContent>
+                            <MudTh>Fila</MudTh><MudTh>Acción</MudTh><MudTh>Producto</MudTh><MudTh>Bodega</MudTh><MudTh Class="num">Mínimo</MudTh>
+                            <MudTh Class="num">Máximo</MudTh><MudTh Class="num">Punto de pedido</MudTh><MudTh>Errores</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd>@context.RowNumber</MudTd>
+                            <MudTd>@Accion(context.Action)</MudTd>
+                            <MudTd>@(context.ProductName ?? context.Code)</MudTd>
+                            <MudTd>@context.WarehouseCode</MudTd>
+                            <MudTd Class="num">@Cambio(context.CurrentMinQuantity, context.MinQuantity)</MudTd>
+                            <MudTd Class="num">@Cambio(context.CurrentMaxQuantity, context.MaxQuantity)</MudTd>
+                            <MudTd Class="num">@(context.ReorderPoint is { } punto ? Format.Quantity(punto) : "—")</MudTd>
+                            <MudTd>
+                                @foreach (var e in context.Errors)
+                                {
+                                    <div style="color:var(--mud-palette-error)">@e</div>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent><Paginador /></PagerContent>
+                        <NoRecordsContent><EstadoVacio Mensaje="El archivo no trae filas para importar." /></NoRecordsContent>
+                    </MudTable>
+                </MudPaper>
+            }
+        }
     </ChildContent>
 </Pagina>
 
@@ -102,12 +169,34 @@
     private List<BranchDto> _branches = [];
     private Guid? _warehouse;
     private bool _busy;
+    private StockPolicyImportDto? _minimos;
+    private (string Name, byte[] Content)? _archivoMinimos;
+    private Guid? _bodegaMinimos;
+
+    private List<StockPolicyImportRowDto> FilasMinimos =>
+        (_minimos?.Rows ?? []).Where(r => r.Errors.Count > 0 || !EnumText.Same(r.Action, "UNCHANGED")).Take(500).ToList();
+
+    private static string Cambio(decimal? antes, decimal? despues) =>
+        (antes, despues) switch
+        {
+            (null, null) => "—",
+            (null, { } nuevo) => Format.Quantity(nuevo),
+            ({ } viejo, { } nuevo) when viejo != nuevo => $"{Format.Quantity(viejo)} → {Format.Quantity(nuevo)}",
+            (_, { } igual) => Format.Quantity(igual),
+            ({ } viejo, null) => Format.Quantity(viejo),
+        };
 
     private List<ImportRowDto> Filas =>
         (_batch?.Rows ?? []).Where(r => r.Errors.Count > 0 || r.Warnings.Count > 0 || !EnumText.Same(r.Action, "UNCHANGED")).Take(500).ToList();
 
     protected override async Task OnInitializedAsync()
     {
+        if (Session.Has("inventory.policy.manage"))
+        {
+            await Bodegas.CargarAsync();
+            _bodegaMinimos = Bodegas.Primera(Bodegas.Elegibles);
+        }
+
         if (Session.Has("inventory.adjustment.manage"))
         {
             try
@@ -229,6 +318,75 @@
         catch (IOException ex)
         {
             Snackbar.Add($"No se pudo leer el archivo: {ex.Message}", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task PlantillaMinimosAsync()
+    {
+        try
+        {
+            var (name, type, content) = await Api.DownloadAsync("api/v1/inventory/policies/import/template");
+            await Js.InvokeVoidAsync("pos.download", name, type, Convert.ToBase64String(content));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+    }
+
+    private async Task SubirMinimosAsync(IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _archivoMinimos = (file.Name, await LeerAsync(file));
+        }
+        catch (IOException ex)
+        {
+            Snackbar.Add($"No se pudo leer el archivo: {ex.Message}", Severity.Error);
+            return;
+        }
+
+        await EnviarMinimosAsync(apply: false);
+    }
+
+    private async Task AplicarMinimosAsync()
+    {
+        await EnviarMinimosAsync(apply: true);
+        if (_minimos is { Applied: true } aplicada)
+        {
+            Snackbar.Add($"Mínimos y máximos guardados: {aplicada.CreateRows} nuevos y {aplicada.UpdateRows} cambiados.", Severity.Success);
+        }
+        else if (_minimos is not null)
+        {
+            Snackbar.Add("No se aplicó: el archivo tiene filas con errores (revise la vista previa).", Severity.Warning);
+        }
+    }
+
+    /// <summary>Sube el archivo elegido: con <paramref name="apply"/> = false solo muestra la vista previa; con true guarda si no hay errores.</summary>
+    private async Task EnviarMinimosAsync(bool apply)
+    {
+        if (_archivoMinimos is not { } archivo)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var bodega = _bodegaMinimos is { } id ? $"&warehouseId={id}" : "";
+            _minimos = await Api.UploadAsync<StockPolicyImportDto>(
+                $"api/v1/inventory/policies/import?apply={(apply ? "true" : "false")}{bodega}", archivo.Name, archivo.Content);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
         }
 
         _busy = false;

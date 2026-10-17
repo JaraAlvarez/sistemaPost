@@ -137,4 +137,9 @@ public static class PurchasingErrors
 
     public static readonly Error InvalidPeriod = Error.Validation(
         "PURCHASING.INVALID_PERIOD", "Período inválido: la fecha inicial debe ser anterior o igual a la final (máximo 3 años) y los días entre 0 y 90.");
+
+    public static readonly Error NothingSelected = Error.Validation("PURCHASING.NOTHING_SELECTED", "Marque al menos un producto para crear las órdenes de compra.");
+
+    public static readonly Error SupplierRequiredForSuggestion = Error.Validation(
+        "PURCHASING.SUPPLIER_REQUIRED", "Hay productos marcados sin proveedor: asígneles uno en el grupo \"Sin proveedor\" o desmárquelos.");
 }

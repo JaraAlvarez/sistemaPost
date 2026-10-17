@@ -319,3 +319,40 @@ public sealed record SupplierReturnDto(
     DateTimeOffset? PostedAt,
     DateTimeOffset? SettledAt,
     IReadOnlyList<SupplierReturnLineDto> Lines);
+
+/// <summary>
+/// Producto bajo el mínimo (o en el punto de pedido) de una bodega, con su pedido sugerido (Reabastecimiento). <c>SuggestedBaseQuantity</c>
+/// está en unidades base; <c>SuggestedQuantity</c> en la presentación de compra del proveedor (<c>PackagingFactor</c> unidades cada una),
+/// ya redondeado hacia arriba. Sin proveedor (<c>SupplierId</c> nulo) el producto va al grupo "Sin proveedor". <c>LastCost</c> (por
+/// unidad base) solo llega con inventory.cost.view.
+/// </summary>
+public sealed record ReplenishmentLineDto(
+    Guid WarehouseId,
+    string WarehouseCode,
+    Guid ProductId,
+    string Sku,
+    string ProductName,
+    Guid CategoryId,
+    string CategoryName,
+    string BaseUnitCode,
+    bool AllowsDecimalQuantity,
+    decimal Quantity,
+    decimal MinQuantity,
+    decimal? MaxQuantity,
+    decimal? ReorderPoint,
+    decimal PendingQuantity,
+    decimal SuggestedBaseQuantity,
+    Guid? SupplierId,
+    string? SupplierName,
+    decimal? LastCost,
+    DateTimeOffset? LastPurchaseAt,
+    Guid? PackagingId,
+    string? PackagingName,
+    decimal PackagingFactor,
+    decimal SuggestedQuantity);
+
+/// <summary>Línea elegida para la orden: cantidad en la presentación (o en unidades base sin presentación); costo opcional (si falta, el último del proveedor).</summary>
+public sealed record SuggestedOrderLineRequest(Guid WarehouseId, Guid? SupplierId, Guid ProductId, Guid? PackagingId, decimal Quantity, decimal? UnitCost = null);
+
+/// <summary>Orden de compra en borrador creada desde el pedido sugerido.</summary>
+public sealed record SuggestedOrderDto(Guid OrderId, string Number, Guid SupplierId, string SupplierName, Guid WarehouseId, int LineCount, decimal Total);
