@@ -18,7 +18,6 @@ public sealed partial class Caja
     private enum Panel
     {
         None,
-        Buscar,
         Cantidad,
         Cobro,
         Suspendidas,
@@ -46,6 +45,7 @@ public sealed partial class Caja
     private DotNetObjectReference<Caja>? _self;
     private MudTextField<string>? _scanner;
     private bool _loading = true;
+    private bool _enfocado;
     private bool _busy;
     private bool _offline;
     private DateTime _ahora = DateTime.Now;
@@ -62,9 +62,11 @@ public sealed partial class Caja
     private readonly Dictionary<Guid, decimal> _closingOthers = [];
     private string? _closingNote;
     private CashReport? _zReport;
-    private string? _search;
-    private List<JsonElement> _found = [];
-    private bool _buscando;
+
+    /// <summary>Productos que coinciden con el nombre escrito en el escáner (lista bajo el campo) y el elegido con las flechas.</summary>
+    private List<JsonElement> _sugerencias = [];
+    private int _sugerida = -1;
+    private CancellationTokenSource? _sugerirCts;
     private decimal _quantity = 1;
     private readonly List<PaymentLine> _payments = [];
     private PaymentMethod? _methodSelected;
@@ -155,6 +157,14 @@ public sealed partial class Caja
             _self = DotNetObjectReference.Create(this);
             await Js.InvokeVoidAsync("pos.registerKeys", _self, "escaner");
         }
+
+        // El escáner está deshabilitado mientras carga la caja (AutoFocus no lo alcanza): al quedar lista se le da el foco una vez,
+        // para que el primer código del lector no se pierda.
+        if (!_enfocado && !_loading && _session is not null && _panel == Panel.None)
+        {
+            _enfocado = true;
+            await FocusScannerAsync();
+        }
     }
 
     /// <summary>Reloj de la barra y estado de la conexión con el servidor de la tienda.</summary>
@@ -208,7 +218,7 @@ public sealed partial class Caja
                 _panel = _panel == Panel.Ayuda ? Panel.None : _panel == Panel.None ? Panel.Ayuda : _panel;
                 break;
             case "F2" when _panel == Panel.None:
-                AbrirBuscar();
+                await FocusScannerAsync();
                 break;
             case "F3" when _panel == Panel.None:
                 AbrirCliente();
@@ -244,8 +254,102 @@ public sealed partial class Caja
 
     // ------------------------------------------------------------------------------------------ Venta
 
+    /// <summary>Separa "3*arroz" en cantidad (3) y texto (arroz).</summary>
+    private static (decimal? Quantity, string Text) Separar(string? value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        var star = text.IndexOf('*', StringComparison.Ordinal);
+        return star > 0 && decimal.TryParse(text[..star].Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var q)
+            ? (q, text[(star + 1)..].Trim())
+            : (null, text);
+    }
+
+    /// <summary>
+    /// Al escribir un nombre (con letras, 2 o más caracteres) se muestra la lista de productos bajo el escáner. Un código de barras o PLU
+    /// (solo números) no busca nada: el lector sigue igual de rápido.
+    /// </summary>
+    private async Task EscanerCambioAsync(string? value)
+    {
+        _scan = value;
+        _sugerirCts?.Cancel();
+        var (_, text) = Separar(value);
+        if (text.Length < 2 || !text.Any(char.IsLetter))
+        {
+            CerrarSugerencias();
+            return;
+        }
+
+        var cts = _sugerirCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            var encontrados = await BuscarProductosAsync(text);
+            if (!cts.IsCancellationRequested)
+            {
+                _sugerencias = encontrados;
+                _sugerida = encontrados.Count > 0 ? 0 : -1;
+                StateHasChanged();
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Se siguió escribiendo: cuenta la búsqueda más reciente.
+        }
+    }
+
+    private void CerrarSugerencias()
+    {
+        _sugerirCts?.Cancel();
+        _sugerencias = [];
+        _sugerida = -1;
+    }
+
+    private async Task<List<JsonElement>> BuscarProductosAsync(string text)
+    {
+        try
+        {
+            var page = await Api.GetAsync<JsonElement>($"api/v1/catalog/products?search={Uri.EscapeDataString(text)}&status=ACTIVE&pageSize=8");
+            var items = page.ValueKind == JsonValueKind.Array ? page : page.TryGetProperty("items", out var list) ? list : default;
+            return items.ValueKind == JsonValueKind.Array ? [.. items.EnumerateArray()] : [];
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            _offline = true;
+        }
+
+        return [];
+    }
+
+    private async Task AgregarSugerenciaAsync(JsonElement product)
+    {
+        var (quantity, _) = Separar(_scan);
+        _scan = string.Empty;
+        CerrarSugerencias();
+        await AgregarAsync(new { productId = product.GetProperty("id").GetGuid(), quantity });
+    }
+
     private async Task EscanerTeclaAsync(KeyboardEventArgs e)
     {
+        if (_sugerencias.Count > 0)
+        {
+            switch (e.Key)
+            {
+                case "ArrowUp" or "ArrowDown":
+                    _sugerida = Math.Clamp(_sugerida + (e.Key == "ArrowUp" ? -1 : 1), 0, _sugerencias.Count - 1);
+                    return;
+                case "Escape":
+                    CerrarSugerencias();
+                    return;
+                case "Enter" when _sugerida >= 0:
+                    await AgregarSugerenciaAsync(_sugerencias[_sugerida]);
+                    return;
+            }
+        }
+
         if (e.Key is "ArrowUp" or "ArrowDown")
         {
             await MoverSeleccionAsync(e.Key == "ArrowUp" ? -1 : 1);
@@ -257,16 +361,32 @@ public sealed partial class Caja
             return;
         }
 
-        var text = _scan.Trim();
-        _scan = string.Empty;
-        decimal? quantity = null;
-        var star = text.IndexOf('*', StringComparison.Ordinal);
-        if (star > 0 && decimal.TryParse(text[..star].Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var q))
+        var (quantity, text) = Separar(_scan);
+
+        // Enter con letras antes de que aparezca la lista: SKU exacto o un solo producto se agrega; si hay varios, se muestra la lista.
+        if (text.Any(char.IsLetter))
         {
-            quantity = q;
-            text = text[(star + 1)..];
+            _sugerirCts?.Cancel();
+            var encontrados = await BuscarProductosAsync(text);
+            var exacto = encontrados.FirstOrDefault(p => string.Equals(p.Str("sku"), text, StringComparison.OrdinalIgnoreCase));
+            if (exacto.ValueKind == JsonValueKind.Object || encontrados.Count == 1)
+            {
+                await AgregarSugerenciaAsync(exacto.ValueKind == JsonValueKind.Object ? exacto : encontrados[0]);
+                return;
+            }
+
+            _sugerencias = encontrados;
+            _sugerida = encontrados.Count > 0 ? 0 : -1;
+            if (encontrados.Count == 0)
+            {
+                Snackbar.Add($"No encontramos productos con \"{text}\".", Severity.Warning);
+            }
+
+            return;
         }
 
+        _scan = string.Empty;
+        CerrarSugerencias();
         await AgregarAsync(new { code = text, quantity });
     }
 
@@ -288,19 +408,6 @@ public sealed partial class Caja
         var nueva = actual < 0 ? activas.Count - 1 : Math.Clamp(actual + paso, 0, activas.Count - 1);
         _selected = activas[nueva].Id;
         await Js.InvokeVoidAsync("pos.scrollIntoView", $"linea-{_selected}");
-    }
-
-    private void AbrirBuscar()
-    {
-        _found = [];
-        _search = null;
-        _panel = Panel.Buscar;
-    }
-
-    private async Task AgregarProductoAsync(JsonElement product)
-    {
-        _panel = Panel.None;
-        await AgregarAsync(new { productId = product.GetProperty("id").GetGuid(), quantity = (decimal?)null });
     }
 
     private async Task AgregarAsync(object line)
@@ -462,35 +569,6 @@ public sealed partial class Caja
             _selected = null;
             Snackbar.Add("Venta cancelada.", Severity.Info);
         });
-    }
-
-    private async Task BuscarAsync(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text) || text.Length < 2)
-        {
-            _found = [];
-            return;
-        }
-
-        _buscando = true;
-        try
-        {
-            var page = await Api.GetAsync<JsonElement>($"api/v1/catalog/products?search={Uri.EscapeDataString(text)}&status=ACTIVE&pageSize=20");
-            var items = page.ValueKind == JsonValueKind.Array ? page : page.TryGetProperty("items", out var list) ? list : default;
-            _found = items.ValueKind == JsonValueKind.Array ? [.. items.EnumerateArray()] : [];
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Texto, Severity.Error);
-        }
-        catch (HttpRequestException)
-        {
-            _offline = true;
-        }
-        finally
-        {
-            _buscando = false;
-        }
     }
 
     // ------------------------------------------------------------------------------------------ Cliente y descuentos
@@ -681,11 +759,23 @@ public sealed partial class Caja
             _sale = null;
             _selected = null;
             _panel = Panel.None;
-            if (await Printer.PrintAsync(Session.Me!.PosTerminalId!.Value, receipt.Ticket) is { } problem)
+
+            // El cambio se muestra ya y la caja queda lista para el siguiente cliente; el tiquete se imprime aparte (si el agente no
+            // responde, el aviso llega después, sin bloquear la caja).
+            _ = ImprimirAsync(receipt.Ticket);
+        });
+    }
+
+    private async Task ImprimirAsync(JsonElement ticket)
+    {
+        if (await Printer.PrintAsync(Session.Me!.PosTerminalId!.Value, ticket) is { } problem)
+        {
+            await InvokeAsync(() =>
             {
                 Snackbar.Add(problem, Severity.Warning);
-            }
-        });
+                StateHasChanged();
+            });
+        }
     }
 
     private async Task ReimprimirAsync()

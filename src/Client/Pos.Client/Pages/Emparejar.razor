@@ -44,7 +44,8 @@
             var device = await Api.PostAsync<DeviceCredential>("api/v1/devices/pair", new
             {
                 code = _code?.Trim(), hostname = string.IsNullOrWhiteSpace(_name) ? "CAJA" : _name.Trim(), machineFingerprintHash = fingerprint,
-                osVersion = agent.Length > 100 ? agent[..100] : agent, appVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? "1.0.0",
+                // El servidor admite 60 caracteres (PairDeviceValidator); el user agent de un navegador moderno es más largo.
+                osVersion = agent.Length > 60 ? agent[..60] : agent, appVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? "1.0.0",
             });
             await Session.SaveDeviceAsync(device);
             Navigation.NavigateTo("/ingresar");

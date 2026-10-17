@@ -1,0 +1,345 @@
+@page "/admin/jornadas/{Id:guid}"
+@inject ApiClient Api
+@inject SessionState Session
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+<PageTitle>@Titulo · BusinessPost</PageTitle>
+
+<Pagina Titulo="@Titulo" Subtitulo="@Subtitulo" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (_detalle.ValueKind == JsonValueKind.Object)
+        {
+            if (PuedeRevisar)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.FactCheck" Disabled="_busy" OnClick="AbrirRevision">Revisar</MudButton>
+            }
+            if (PuedeCerrarSupervisor && !_cerrar)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Outlined.Lock" Disabled="_busy" OnClick="AbrirCierreAsync">Cerrar como supervisor</MudButton>
+            }
+        }
+    </Acciones>
+    <ChildContent>
+        @if (_detalle.ValueKind == JsonValueKind.Object)
+        {
+            if (_cerrar)
+            {
+                <MudPaper Outlined="true" Class="pa-4 mb-4">
+                    <MudText Typo="Typo.h6" HtmlTag="h2">Cerrar como supervisor</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-3">
+                        Para jornadas que el cajero dejó abiertas. Cuente el efectivo del cajón por denominación y escriba el total de los demás medios.
+                        El cierre es definitivo, queda para revisión y se audita como incidente crítico.
+                    </MudText>
+                    <Conteo Denominaciones="_denominaciones" Cantidades="_conteo" OnChanged="@(() => StateHasChanged())" />
+                    @if (_medios.Any(m => !m.AffectsCashDrawer))
+                    {
+                        <MudGrid Spacing="2" Class="mt-1">
+                            @foreach (var method in _medios.Where(m => !m.AffectsCashDrawer))
+                            {
+                                <MudItem xs="6" sm="4">
+                                    <MudNumericField T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0"
+                                                     Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                </MudItem>
+                            }
+                        </MudGrid>
+                    }
+                    <MudText Typo="Typo.body1" Class="mt-3"><b>Efectivo contado: @Format.Money(_denominaciones.Sum(d => d.Value * _conteo.GetValueOrDefault(d.Id)))</b></MudText>
+                    <MudTextField @bind-Value="_motivo" Label="Motivo del cierre por supervisor" Immediate="true" Class="mt-2" />
+                    <MudStack Row="true" Justify="Justify.FlexEnd" Class="mt-4">
+                        <MudButton Disabled="_busy" OnClick="@(() => _cerrar = false)">Cancelar</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="CerrarAsync">Confirmar cierre</MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
+
+            <MudPaper Outlined="true" Class="pa-4 mb-4">
+                <MudSimpleTable Dense="true">
+                    <tbody>
+                        <tr><td>Cajero</td><td>@_detalle.Str("cashierName")</td><td>Estado</td><td>@Estado(_detalle.Str("status"))</td></tr>
+                        <tr><td>Día</td><td>@_detalle.Str("businessDate")</td><td>Base inicial</td><td class="num">@Format.Money(_detalle.Dec("openingFloat"))</td></tr>
+                        <tr><td>Abierta</td><td>@Format.Date(_detalle.Date("openedAt"))</td><td>Cerrada</td><td>@Format.Date(_detalle.Date("closedAt"))</td></tr>
+                        @if (!_detalle.Bool("expectedHidden"))
+                        {
+                            <tr>
+                                <td>Esperado</td><td class="num">@Format.Money(Opcional(_detalle, "expectedTotal"))</td>
+                                <td>Contado</td><td class="num">@Format.Money(Opcional(_detalle, "countedTotal"))</td>
+                            </tr>
+                            <tr><td>Diferencia</td><td class="num"><b>@Format.Money(Opcional(_detalle, "difference"))</b></td><td></td><td></td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                @if (_detalle.Bool("expectedHidden"))
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">Arqueo ciego: el valor esperado no se muestra mientras la jornada no esté cerrada.</MudAlert>
+                }
+                @if (_detalle.Bool("closedBySupervisor"))
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">Cerrada por supervisor. Motivo: @_detalle.Str("closeReason")</MudAlert>
+                }
+                @if (_detalle.Str("differenceNote").Length > 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-2">Nota del cajero: @_detalle.Str("differenceNote")</MudText>
+                }
+                @if (_detalle.Bool("reviewRequired"))
+                {
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        @(_detalle.Date("reviewedAt") is null ? "Pendiente de revisión." : $"Revisada el {Format.Date(_detalle.Date("reviewedAt"))}: {_detalle.Str("reviewNote")}")
+                    </MudText>
+                }
+                @if (_detalle.Str("zSealCode").Length > 0)
+                {
+                    <MudText Typo="Typo.caption">Sello Z n.º @_detalle.Str("zSealNo") · @_detalle.Str("zSealCode")</MudText>
+                }
+            </MudPaper>
+
+            <MudTabs Elevation="0" Outlined="true" TabPanelsClass="pa-3">
+                <MudTabPanel Text="Totales por medio de pago">
+                    <MudSimpleTable Dense="true" Striped="true">
+                        <thead><tr><th>Medio</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferencia</th><th class="num">Transacciones</th></tr></thead>
+                        <tbody>
+                            @foreach (var total in _detalle.Prop("totals").Items())
+                            {
+                                <tr>
+                                    <td>@total.Str("name")</td>
+                                    <td class="num">@Format.Money(Opcional(total, "expected"))</td>
+                                    <td class="num">@Format.Money(Opcional(total, "counted"))</td>
+                                    <td class="num">@Format.Money(Opcional(total, "difference"))</td>
+                                    <td class="num">@total.Str("transactions")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </MudTabPanel>
+                <MudTabPanel Text="@($"Movimientos ({_detalle.Prop("movements").Items().Count})")">
+                    <div style="overflow-x: auto">
+                        <MudSimpleTable Dense="true" Striped="true">
+                            <thead><tr><th>#</th><th>Hora</th><th>Tipo</th><th>Medio</th><th class="num">Valor</th><th>Documento o motivo</th><th>Usuario</th><th>Autorizó</th></tr></thead>
+                            <tbody>
+                                @foreach (var movement in _detalle.Prop("movements").Items())
+                                {
+                                    <tr>
+                                        <td>@movement.Str("lineNo")</td>
+                                        <td>@Format.Date(movement.Date("occurredAt"))</td>
+                                        <td>@TipoMovimiento(movement.Str("movementType"))</td>
+                                        <td>@movement.Str("paymentMethodName")</td>
+                                        <td class="num">@(movement.Dec("direction") < 0 ? "−" : "")@Format.Money(movement.Dec("amount"))</td>
+                                        <td>@(movement.Str("sourceNumber").Length > 0 ? movement.Str("sourceNumber") : movement.Str("reason"))</td>
+                                        <td>@movement.Str("userName")</td>
+                                        <td>@movement.Str("authorizedByName")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </div>
+                </MudTabPanel>
+                <MudTabPanel Text="@(Cerrada ? "Reporte Z" : "Reporte X (parcial)")">
+                    @if (_reporte is not null)
+                    {
+                        <MudStack Row="true" Justify="Justify.FlexEnd" Class="mb-2">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="DescargarAsync">Descargar</MudButton>
+                        </MudStack>
+                        <div class="tiquete">@_reporte</div>
+                    }
+                    else if (_reporteError is not null)
+                    {
+                        <MudText Typo="Typo.caption">@_reporteError</MudText>
+                    }
+                </MudTabPanel>
+            </MudTabs>
+        }
+    </ChildContent>
+</Pagina>
+
+@if (_revisar)
+{
+    <div class="panel-fondo">
+        <div class="panel" role="dialog" aria-modal="true">
+            <h2>Revisar la jornada @_detalle.Str("number")</h2>
+            <MudText Typo="Typo.body2" Class="mb-2">Diferencia: @Format.Money(Opcional(_detalle, "difference")). Deje constancia de lo que se decidió (p. ej. se descuenta al cajero o se corrige en la jornada siguiente).</MudText>
+            <MudTextField @bind-Value="_nota" Label="Nota de la revisión" Lines="3" Immediate="true" AutoFocus="true" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _revisar = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RevisarAsync">Registrar revisión</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] ReservedKinds = ["EXCHANGE_CREDIT", "CUSTOMER_CREDIT", "LOYALTY_POINTS"];
+
+    private JsonElement _detalle;
+    private bool _loading = true, _busy, _revisar, _cerrar, _iniciado;
+    private string? _error, _reporte, _reporteError, _nota, _motivo;
+    private Guid _cargado;
+    private IReadOnlyList<Denomination> _denominaciones = [];
+    private IReadOnlyList<PaymentMethod> _medios = [];
+    private readonly Dictionary<Guid, int> _conteo = [];
+    private readonly Dictionary<Guid, decimal> _otros = [];
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private string Titulo => _detalle.Str("number") is { Length: > 0 } number ? $"Jornada {number}" : "Jornada";
+
+    private string? Subtitulo => _detalle.ValueKind == JsonValueKind.Object
+        ? $"Caja {_detalle.Str("terminalCode")} · {_detalle.Str("cashierName")} · {Estado(_detalle.Str("status"))}"
+        : null;
+
+    private bool Cerrada => string.Equals(_detalle.Str("status"), "CLOSED", StringComparison.OrdinalIgnoreCase);
+
+    private bool PuedeRevisar =>
+        Session.Has("cash.session.review") && Cerrada && _detalle.Bool("reviewRequired") && _detalle.Date("reviewedAt") is null;
+
+    private bool PuedeCerrarSupervisor => Session.Has("cash.session.close_any") && !Cerrada;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_iniciado && _cargado == Id)
+        {
+            return;
+        }
+
+        _iniciado = true;
+        _cargado = Id;
+        _revisar = _cerrar = false;
+        _loading = true;
+        try
+        {
+            await CargarDetalleAsync(Id);
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _detalle = default;
+            _error = ex.Texto;
+        }
+
+        _loading = false;
+    }
+
+    private async Task CargarDetalleAsync(Guid id)
+    {
+        _detalle = await Api.GetAsync<JsonElement>($"api/v1/cash/sessions/{id}");
+        _reporte = null;
+        _reporteError = null;
+        try
+        {
+            var report = await Api.GetAsync<JsonElement>($"api/v1/cash/sessions/{id}/{(Cerrada ? "report-z" : "report-x")}");
+            _reporte = report.Str("text");
+        }
+        catch (ApiException ex)
+        {
+            _reporteError = ex.Texto;
+        }
+    }
+
+    private void AbrirRevision()
+    {
+        _nota = null;
+        _revisar = true;
+    }
+
+    private async Task RevisarAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/cash/sessions/{Id}/review", new { note = _nota });
+            Snackbar.Add("Revisión registrada.", Severity.Success);
+            _revisar = false;
+            await CargarDetalleAsync(Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task AbrirCierreAsync()
+    {
+        _busy = true;
+        try
+        {
+            _denominaciones = [.. (await Api.GetAsync<List<Denomination>>("api/v1/cash/denominations")).Where(d => d.Status == "ACTIVE").OrderByDescending(d => d.Value)];
+            _medios = [.. (await Api.GetAsync<List<PaymentMethod>>("api/v1/cash/payment-methods"))
+                .Where(m => m.Status == "ACTIVE" && !ReservedKinds.Contains(m.Kind)).OrderBy(m => m.SortOrder)];
+            _conteo.Clear();
+            _otros.Clear();
+            _motivo = null;
+            _cerrar = true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task CerrarAsync()
+    {
+        var cash = _medios.FirstOrDefault(m => m.AffectsCashDrawer);
+        if (cash is null)
+        {
+            Snackbar.Add("No hay un medio de pago en efectivo activo.", Severity.Error);
+            return;
+        }
+
+        var count = _conteo.Where(c => c.Value > 0)
+            .Select(c => (object)new { paymentMethodId = cash.Id, denominationId = (Guid?)c.Key, quantity = (int?)c.Value, amount = (decimal?)null })
+            .Concat(_otros.Where(o => o.Value > 0)
+                .Select(o => (object)new { paymentMethodId = o.Key, denominationId = (Guid?)null, quantity = (int?)null, amount = (decimal?)o.Value }))
+            .ToList();
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/cash/sessions/{Id}/supervisor-close", new { count, reason = _motivo });
+            Snackbar.Add("Jornada cerrada por supervisor. Queda pendiente de revisión.", Severity.Success);
+            _cerrar = false;
+            await CargarDetalleAsync(Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task DescargarAsync()
+    {
+        var name = $"reporte-{(Cerrada ? "z" : "x")}-{_detalle.Str("number")}.txt";
+        var content = System.Text.Encoding.UTF8.GetBytes(_reporte ?? "");
+        await Js.InvokeVoidAsync("pos.download", name, "text/plain", Convert.ToBase64String(content));
+    }
+
+    private static decimal? Opcional(JsonElement element, string name) =>
+        element.Prop(name).ValueKind == JsonValueKind.Number ? element.Dec(name) : null;
+
+    internal static string Estado(string status) => status.ToUpperInvariant() switch
+    {
+        "OPEN" => "Abierta",
+        "CLOSING" => "En cierre",
+        "CLOSED" => "Cerrada",
+        _ => status,
+    };
+
+    private static string TipoMovimiento(string type) => type.ToUpperInvariant() switch
+    {
+        "OPENING_FLOAT" => "Base inicial",
+        "SALE" => "Venta",
+        "SALE_VOID" => "Anulación de venta",
+        "CUSTOMER_REFUND" => "Reintegro al cliente",
+        "CASH_IN" => "Ingreso de efectivo",
+        "CASH_OUT_WITHDRAWAL" => "Retiro (sangría)",
+        "EXPENSE" => "Gasto",
+        "SUPPLIER_PAYMENT" => "Pago a proveedor",
+        "CORRECTION" => "Corrección",
+        "NO_SALE_DRAWER_OPEN" => "Apertura sin venta",
+        _ => type,
+    };
+}

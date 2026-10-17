@@ -396,6 +396,16 @@ html[data-tema="oscuro"] .caja-aviso.info { background: #1E1B4B; color: #E0E7FF;
 .caja-escaner .mud-input-outlined-border { border-width: 2px !important; border-radius: var(--bp-radio-l) !important; }
 .caja-escaner .mud-input:focus-within .mud-input-outlined-border { border-color: var(--mud-palette-primary) !important; box-shadow: 0 0 0 4px rgba(var(--mud-palette-primary-rgb), .18); }
 .caja-escaner .mud-button-root { min-height: var(--bp-tactil-caja); min-width: 120px; }
+/* Lista de productos bajo el escáner mientras se escribe un nombre (↑ ↓ Enter, Esc cierra). */
+.escaner-campo { position: relative; flex: 1; min-width: 0; }
+.sugerencias { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; display: grid; gap: 2px; padding: 6px;
+    max-height: 60vh; overflow-y: auto; background: var(--mud-palette-surface); border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--bp-radio-l); box-shadow: 0 12px 32px rgba(0, 0, 0, .18); }
+.sugerencias button { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 10px 12px;
+    border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sugerencias button small { display: block; color: var(--mud-palette-text-secondary); font-size: 12px; }
+.sugerencias button .precio { font-weight: 700; white-space: nowrap; }
+.sugerencias button:hover, .sugerencias button.activa { background: rgba(var(--mud-palette-primary-rgb), .10); }
 .caja-lineas { flex: 1; min-height: 0; overflow-y: auto; margin: 0 16px 12px; background: var(--mud-palette-surface); border: 1px solid var(--mud-palette-lines-default); border-radius: var(--bp-radio-l); }
 .caja table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 17px; }
 .caja thead th {
@@ -488,6 +498,26 @@ html[data-tema="oscuro"] .etiqueta.promo { color: #86EFAC; }
 .cobro-pagos { display: grid; gap: 6px; }
 .cobro-pago { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; border-radius: var(--bp-radio-m); background: var(--mud-palette-background-gray); font-variant-numeric: tabular-nums; }
 @media (max-width: 760px) { .cobro-cuerpo { grid-template-columns: 1fr; } }
+
+/* Columna derecha en modo cobro, cliente o suspendidas (sin ventana encima: la venta sigue a la vista). */
+.caja-lateral.modo { gap: 10px; }
+.lateral-encabezado { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lateral-encabezado h2 { margin: 0; font-size: 1.25rem; font-weight: 750; }
+.cobro-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cobro-dos .cobro-cifra b { font-size: 1.5rem; }
+.caja-lateral .cobro-medios { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+.caja-lateral .cobro-medio.mud-button-root { min-height: 58px; }
+.caja-lateral .lista-elegir { max-height: none; }
+
+/* Abrir y cerrar la jornada: pantalla completa en lugar de la venta. */
+.caja-paso { grid-row: 4 / 6; grid-column: 1 / -1; min-height: 0; overflow-y: auto; padding: 24px 16px 32px; }
+.caja-paso-tarjeta {
+    max-width: 780px; margin: 0 auto; padding: 24px 28px; background: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-lines-default); border-radius: var(--bp-radio-xl);
+}
+.caja-paso-tarjeta h1 { margin: 0 0 6px; font-size: 1.6rem; font-weight: 800; letter-spacing: -.01em; }
+.caja-paso-ayuda { margin: 0 0 16px; color: var(--mud-palette-text-secondary); }
+.caja-paso-tarjeta .acciones { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 /* Ayuda de atajos (F1). */
 .atajos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 20px; }

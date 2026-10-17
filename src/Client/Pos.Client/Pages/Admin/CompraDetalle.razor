@@ -1,0 +1,559 @@
+@page "/admin/compras/nueva"
+@page "/admin/compras/{Id:guid}"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<PageTitle>@TituloPagina · BusinessPost</PageTitle>
+
+<Pagina Titulo="@TituloPagina" Subtitulo="@Resumen" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Id is null)
+        {
+            <MudButton Variant="Variant.Text" Href="/admin/compras">Cancelar</MudButton>
+            @if (Session.Has("purchasing.purchase.manage"))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" Disabled="_busy || _loading" OnClick="CrearAsync" Class="ml-2">Guardar borrador</MudButton>
+            }
+        }
+        else if (_compra.ValueKind == JsonValueKind.Object)
+        {
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/admin/compras">Volver a la lista</MudButton>
+            @if (_compra.Str("status") == "DRAFT" && Session.Has("purchasing.purchase.manage"))
+            {
+                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="GuardarTotalAsync" Class="ml-2">Guardar total</MudButton>
+            }
+            @if (_compra.Str("status") == "DRAFT" && Session.Has("purchasing.purchase.post"))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ContabilizarAsync" Class="ml-2">Contabilizar</MudButton>
+            }
+            @if (_compra.Str("status") == "POSTED" && Session.Has("purchasing.purchase.void"))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="PedirAnulacion" Class="ml-2">Anular</MudButton>
+            }
+        }
+    </Acciones>
+    <ChildContent>
+        @if (Id is null)
+        {
+            @if (_ordenId is not null)
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-3">Se registra contra la orden @_ordenNumero. Si no agrega líneas, se propone lo pendiente de la orden.</MudAlert>
+            }
+            <MudPaper Outlined="true" Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Datos de la factura</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="Guid?" @bind-Value="_proveedor" Label="Proveedor" Disabled="_ordenId is not null">
+                            @foreach (var supplier in _proveedores)
+                            {
+                                <MudSelectItem T="Guid?" Value="@supplier.GetProperty("id").GetGuid()">@supplier.Str("name") (@supplier.Str("identification"))</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega que recibe" Disabled="_ordenId is not null">
+                            @foreach (var warehouse in _bodegas)
+                            {
+                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_factura" Label="Número de la factura del proveedor" Immediate="true" /></MudItem>
+                    <MudItem xs="12" sm="6" md="4"><MudDatePicker @bind-Date="_fecha" Label="Fecha de la factura" DateFormat="dd/MM/yyyy" /></MudItem>
+                    <MudItem xs="12" sm="6" md="4"><MudNumericField T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura (para contabilizar)" Min="0" /></MudItem>
+                    <MudItem xs="12" sm="6" md="4">
+                        <MudSelect T="string" @bind-Value="_modo" Label="Forma de pago">
+                            <MudSelectItem T="string" Value="@("Credit")">A crédito (plazo del proveedor)</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("Cash")">De contado</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    @if (_modo == "Cash")
+                    {
+                        <MudItem xs="12" sm="6" md="4">
+                            <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
+                                @foreach (var method in _medios)
+                                {
+                                    <MudSelectItem T="Guid?" Value="@method.GetProperty("id").GetGuid()">@method.Str("name")</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_referencia" Label="Referencia del pago (transferencia, cheque…)" Immediate="true" /></MudItem>
+                    }
+                    <MudItem xs="12"><MudTextField @bind-Value="_notas" Label="Notas" Immediate="true" /></MudItem>
+                </MudGrid>
+            </MudPaper>
+
+            <MudPaper Outlined="true" Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Productos</MudText>
+                <MudTextField T="string" @bind-Value="_buscar" Label="Buscar producto por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarProductosAsync())" Class="mb-2" />
+                @if (_resultados.Count > 0)
+                {
+                    <MudSimpleTable Dense="true" Hover="true" Class="mb-3">
+                        <tbody>
+                            @foreach (var product in _resultados)
+                            {
+                                <tr>
+                                    <td>@product.Str("sku")</td>
+                                    <td>@product.Str("name")</td>
+                                    <td>@product.Str("primaryBarcode")</td>
+                                    <td><MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => AgregarAsync(product))">Agregar</MudButton></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+                <MudSimpleTable Dense="true" Outlined="true">
+                    <thead>
+                        <tr>
+                            <th>Producto</th><th>Presentación</th><th class="num">Cantidad</th><th class="num">Costo unitario</th>
+                            <th class="num">Descuento</th><th>Lote</th><th>Vencimiento</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var linea in _lineas)
+                        {
+                            <tr>
+                                <td>@linea.Sku · @linea.Nombre</td>
+                                <td style="min-width:150px">
+                                    <MudSelect T="Guid" @bind-Value="linea.EmpaqueId" Dense="true">
+                                        <MudSelectItem T="Guid" Value="Guid.Empty">@linea.Unidad (unidad base)</MudSelectItem>
+                                        @foreach (var packaging in linea.Empaques)
+                                        {
+                                            <MudSelectItem T="Guid" Value="packaging.Id">@packaging.Nombre</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </td>
+                                <td style="min-width:100px"><MudNumericField T="decimal" @bind-Value="linea.Cantidad" Min="0" /></td>
+                                <td style="min-width:130px"><MudNumericField T="decimal?" @bind-Value="linea.Costo" Min="0" Placeholder="Último costo" /></td>
+                                <td style="min-width:110px"><MudNumericField T="decimal" @bind-Value="linea.Descuento" Min="0" /></td>
+                                <td style="min-width:110px">
+                                    @if (linea.Lotes)
+                                    {
+                                        <MudTextField @bind-Value="linea.Lote" Placeholder="Lote" Immediate="true" />
+                                    }
+                                </td>
+                                <td style="min-width:150px">
+                                    @if (linea.Vence)
+                                    {
+                                        <MudDatePicker @bind-Date="linea.Vencimiento" DateFormat="dd/MM/yyyy" Placeholder="Vence" />
+                                    }
+                                </td>
+                                <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Quitar producto" OnClick="@(() => Quitar(linea))" /></td>
+                            </tr>
+                        }
+                        @if (_lineas.Count == 0)
+                        {
+                            <tr><td colspan="8">Busque y agregue los productos.</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        }
+        else if (_compra.ValueKind == JsonValueKind.Object)
+        {
+            <MudChip T="string" Size="Size.Small" Color="@ColorEstado(_compra.Str("status"))" Class="ml-0 mb-3">@Compras.EstadoCompra(_compra.Str("status"))</MudChip>
+            @foreach (var alert in Alertas)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-1">@alert.Str("sku") @alert.Str("productName"): @alert.Str("message")</MudAlert>
+            }
+            <MudPaper Outlined="true" Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Productos</MudText>
+                <MudSimpleTable Dense="true" Outlined="true">
+                    <thead>
+                        <tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Costo unitario</th><th class="num">Descuento</th><th class="num">Impuestos</th><th class="num">Total</th><th>Lote</th><th>Vence</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in LineasCompra)
+                        {
+                            <tr>
+                                <td>@line.Str("sku") · @line.Str("productName")</td>
+                                <td class="num">@Format.Quantity(line.Dec("quantity"))@(line.Dec("factor") != 1 ? $" × {Format.Quantity(line.Dec("factor"))}" : "")</td>
+                                <td class="num">@Format.Money(line.Dec("unitCost"))</td>
+                                <td class="num">@Format.Money(line.Dec("discountAmount"))</td>
+                                <td class="num">@Format.Money(line.Dec("taxAmount"))</td>
+                                <td class="num">@Format.Money(line.Dec("lineTotal"))</td>
+                                <td>@line.Str("lotNumber")</td>
+                                <td>@Compras.Dia(line, "expiryDate")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="7">
+                    @if (_compra.Str("status") == "DRAFT")
+                    {
+                        <MudPaper Outlined="true" Class="pa-4">
+                            <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Total de la factura del proveedor</MudText>
+                            <MudNumericField T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al contabilizar)" Min="0" />
+                        </MudPaper>
+                    }
+                    else if (_compra.Str("status") == "VOIDED")
+                    {
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Anulada el @Format.Date(_compra.Date("voidedAt")): @_compra.Str("voidReason")</MudAlert>
+                    }
+                </MudItem>
+                <MudItem xs="12" md="5">
+                    <MudSimpleTable Dense="true" Outlined="true">
+                        <tbody>
+                            <tr><td>Subtotal</td><td class="num">@Format.Money(_compra.Dec("subtotal"))</td></tr>
+                            <tr><td>Descuentos</td><td class="num">@Format.Money(_compra.Dec("discountTotal"))</td></tr>
+                            <tr><td>Impuestos</td><td class="num">@Format.Money(_compra.Dec("taxTotal"))</td></tr>
+                            <tr><td>Cargos</td><td class="num">@Format.Money(_compra.Dec("chargesTotal"))</td></tr>
+                            <tr><td><b>Total</b></td><td class="num"><b>@Format.Money(_compra.Dec("total"))</b></td></tr>
+                            <tr><td>Retenciones</td><td class="num">@Format.Money(_compra.Dec("withholdingTotal"))</td></tr>
+                            <tr><td>A pagar al proveedor</td><td class="num">@Format.Money(_compra.Dec("payableTotal"))</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudItem>
+            </MudGrid>
+        }
+    </ChildContent>
+</Pagina>
+
+@if (_anulando && _compra.ValueKind == JsonValueKind.Object)
+{
+    <div class="panel-fondo">
+        <div class="panel" role="dialog" aria-modal="true">
+            <h2>Anular la compra @_compra.Str("number")</h2>
+            <MudText Typo="Typo.body2">Se reversan las entradas al inventario y la cuenta por pagar. No se puede si ya tiene pagos o devoluciones, o si deja existencias negativas.</MudText>
+            <MudTextField @bind-Value="_motivo" Label="Motivo (5 a 300 caracteres)" Immediate="true" AutoFocus="true" Lines="2" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _anulando = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="AnularAsync">Anular</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<JsonElement> _proveedores = [];
+    private List<JsonElement> _bodegas = [];
+    private List<JsonElement> _medios = [];
+    private List<JsonElement> _resultados = [];
+    private List<Linea> _lineas = [];
+    private string _modo = "Credit";
+    private string? _error, _factura, _referencia, _notas, _buscar, _motivo, _ordenNumero, _clave;
+    private Guid? _proveedor, _bodega, _medio, _ordenId;
+    private DateTime? _fecha;
+    private decimal? _totalFactura;
+    private bool _loading = true, _busy, _anulando;
+    private JsonElement _compra;
+
+    /// <summary>La compra que se muestra; sin valor (ruta <c>/nueva</c>), el formulario de una factura nueva.</summary>
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    /// <summary>En <c>/nueva?orden={id}</c>: la orden de compra contra la que se registra la factura.</summary>
+    [SupplyParameterFromQuery(Name = "orden")]
+    public Guid? Orden { get; set; }
+
+    private string TituloPagina => Id is null
+        ? "Nueva factura de compra"
+        : _compra.ValueKind == JsonValueKind.Object ? $"Compra {_compra.Str("number")}" : "Compra";
+
+    private string? Resumen => Id is null || _compra.ValueKind != JsonValueKind.Object
+        ? null
+        : $"{_compra.Str("supplierName")} · factura {_compra.Str("supplierInvoiceNumber")} del {Compras.Dia(_compra, "invoiceDate")} · vence {Compras.Dia(_compra, "dueDate")} · "
+          + (_compra.Str("paymentMode") == "CASH" ? "de contado" : "a crédito")
+          + (_compra.Bool("requiresSupportDocument") ? " · requiere documento soporte" : "");
+
+    private List<JsonElement> LineasCompra => _compra.Prop("lines").Items();
+
+    private List<JsonElement> Alertas => _compra.Prop("alerts").Items();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // La misma instancia sirve /nueva y /{id}: solo se recarga cuando cambia lo que se muestra (al guardar el borrador ya se tiene).
+        var clave = $"{Id}|{Orden}";
+        if (clave == _clave)
+        {
+            return;
+        }
+
+        _clave = clave;
+        _loading = true;
+        _error = null;
+        _anulando = false;
+        try
+        {
+            if (Id is { } id)
+            {
+                _compra = await Api.GetAsync<JsonElement>($"api/v1/purchasing/purchases/{id}");
+                _totalFactura = TotalDeclarado(_compra);
+            }
+            else
+            {
+                _compra = default;
+                await PrepararNuevaAsync();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+
+        _loading = false;
+    }
+
+    /// <summary>El valor de la base de datos (CREDIT, VALUE, RETEFUENTE) como lo recibe la API (Credit, Value, Retefuente).</summary>
+    private static string Enumeracion(string value) => value.Length == 0 ? value : value[..1].ToUpperInvariant() + value[1..].ToLowerInvariant();
+
+    private static Guid? GuidOpcional(JsonElement element, string name) => Guid.TryParse(element.Str(name), out var id) ? id : null;
+
+    private static decimal? TotalDeclarado(JsonElement purchase) => purchase.Str("invoiceTotal") == "" ? null : purchase.Dec("invoiceTotal");
+
+    private static string? Texto(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static Color ColorEstado(string status) => status switch
+    {
+        "POSTED" => Color.Success,
+        "VOIDED" => Color.Error,
+        _ => Color.Default,
+    };
+
+    private async Task PrepararNuevaAsync()
+    {
+        _proveedores = (await Api.GetAsync<JsonElement>("api/v1/purchasing/suppliers")).Items();
+        _medios = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
+        if (Session.Me is { } me)
+        {
+            try
+            {
+                var branch = await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}");
+                _bodegas = [.. branch.Prop("warehouses").Items().Where(w => w.Str("status") is "ACTIVE" or "Active")];
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add($"No se pudieron leer las bodegas: {ex.Texto}", Severity.Warning);
+            }
+        }
+
+        JsonElement? order = Orden is { } orderId ? await Api.GetAsync<JsonElement>($"api/v1/purchasing/orders/{orderId}") : null;
+        _lineas = [];
+        _resultados = [];
+        _buscar = _factura = _referencia = _notas = null;
+        _fecha = DateTime.Today;
+        _totalFactura = null;
+        _modo = "Credit";
+        _medio = null;
+        _ordenId = order?.GetProperty("id").GetGuid();
+        _ordenNumero = order?.Str("number");
+        _proveedor = order?.GetProperty("supplierId").GetGuid();
+        _bodega = order?.GetProperty("warehouseId").GetGuid()
+            ?? _bodegas.Where(w => w.Str("kind") == "SalesFloor").Concat(_bodegas).Select(w => (Guid?)w.GetProperty("id").GetGuid()).FirstOrDefault();
+    }
+
+    private async Task BuscarProductosAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_buscar))
+        {
+            _resultados = [];
+            return;
+        }
+
+        try
+        {
+            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+    }
+
+    private async Task AgregarAsync(JsonElement product)
+    {
+        try
+        {
+            var detail = await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{product.GetProperty("id").GetGuid()}");
+            _lineas.Add(new Linea
+            {
+                ProductId = detail.GetProperty("id").GetGuid(),
+                Sku = detail.Str("sku"),
+                Nombre = detail.Str("name"),
+                Unidad = detail.Str("baseUnitCode"),
+                Lotes = detail.Bool("tracksLots"),
+                Vence = detail.Bool("tracksExpiry"),
+                Empaques = [.. detail.Prop("packagings").Items().Where(p => p.Bool("isPurchasable"))
+                    .Select(p => new Empaque(p.GetProperty("id").GetGuid(), $"{p.Str("name")} (× {Format.Quantity(p.Dec("factor"))})"))],
+            });
+            _resultados = [];
+            _buscar = null;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+    }
+
+    private async Task CrearAsync()
+    {
+        if (_proveedor is null || _bodega is null)
+        {
+            Snackbar.Add("Seleccione el proveedor y la bodega.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var purchase = await Api.PostAsync<JsonElement>("api/v1/purchasing/purchases", new
+            {
+                supplierId = _proveedor, warehouseId = _bodega, purchaseOrderId = _ordenId, supplierInvoiceNumber = (_factura ?? "").Trim(),
+                invoiceDate = DateOnly.FromDateTime(_fecha ?? DateTime.Today), businessDate = (DateOnly?)null, dueDate = (DateOnly?)null,
+                paymentMode = _modo, paymentMethodId = _modo == "Cash" ? _medio : null, paymentReference = _modo == "Cash" ? Texto(_referencia) : null,
+                invoiceTotal = _totalFactura, proration = "Value", chargesTotal = 0m, chargesNotes = (string?)null, notes = Texto(_notas),
+                lines = _lineas.Count == 0 && _ordenId is not null ? null : _lineas.Select(l => new
+                {
+                    productId = l.ProductId, code = (string?)null, packagingId = l.EmpaqueId == Guid.Empty ? (Guid?)null : l.EmpaqueId, quantity = l.Cantidad, unitCost = l.Costo,
+                    discount = l.Descuento, taxes = (object[]?)null, manualCharges = (decimal?)null, lotNumber = l.Lotes ? Texto(l.Lote) : null,
+                    expiryDate = l.Vence && l.Vencimiento is { } expiry ? DateOnly.FromDateTime(expiry) : (DateOnly?)null, orderLineId = (Guid?)null,
+                }).ToList(),
+                withholdings = (object[]?)null,
+            });
+            Snackbar.Add($"Compra {purchase.Str("number")} guardada en borrador.", Severity.Success);
+            var id = purchase.GetProperty("id").GetGuid();
+            _compra = purchase;
+            _totalFactura = TotalDeclarado(purchase);
+            _clave = $"{id}|";
+            Navigation.NavigateTo($"/admin/compras/{id}", replace: true);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    /// <summary>Reenvía el borrador tal como está, cambiando solo el total de la factura digitado.</summary>
+    private async Task ActualizarTotalAsync()
+    {
+        var p = _compra;
+        var manual = p.Str("prorationMethod") == "MANUAL";
+        _compra = await Api.PutAsync<JsonElement>($"api/v1/purchasing/purchases/{p.GetProperty("id").GetGuid()}", new
+        {
+            supplierId = p.GetProperty("supplierId").GetGuid(), warehouseId = p.GetProperty("warehouseId").GetGuid(), purchaseOrderId = GuidOpcional(p, "purchaseOrderId"),
+            supplierInvoiceNumber = p.Str("supplierInvoiceNumber"), invoiceDate = p.Str("invoiceDate"), businessDate = p.Str("businessDate"), dueDate = (string?)null,
+            paymentMode = Enumeracion(p.Str("paymentMode")), paymentMethodId = GuidOpcional(p, "paymentMethodId"), paymentReference = Texto(p.Str("paymentReference")),
+            invoiceTotal = _totalFactura, proration = Enumeracion(p.Str("prorationMethod")), chargesTotal = p.Dec("chargesTotal"), chargesNotes = Texto(p.Str("chargesNotes")),
+            notes = Texto(p.Str("notes")),
+            lines = p.Prop("lines").Items().Select(l => new
+            {
+                productId = l.GetProperty("productId").GetGuid(), code = (string?)null, packagingId = GuidOpcional(l, "packagingId"), quantity = l.Dec("quantity"),
+                unitCost = (decimal?)l.Dec("unitCost"), discount = l.Dec("discountAmount"), taxes = (object[]?)null, manualCharges = manual ? l.Dec("chargesAmount") : (decimal?)null,
+                lotNumber = Texto(l.Str("lotNumber")), expiryDate = Texto(l.Str("expiryDate")), orderLineId = GuidOpcional(l, "orderLineId"),
+            }).ToList(),
+            withholdings = p.Prop("withholdings").Items().Select(w => new
+            {
+                kind = Enumeracion(w.Str("kind")), @base = w.Dec("base"), rate = w.Str("rate") == "" ? (decimal?)null : w.Dec("rate"), amount = (decimal?)w.Dec("amount"),
+            }).ToList(),
+        });
+    }
+
+    private async Task GuardarTotalAsync()
+    {
+        _busy = true;
+        try
+        {
+            await ActualizarTotalAsync();
+            Snackbar.Add("Total de la factura guardado.", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    /// <summary>
+    /// Contabiliza (guardando antes el total si cambió). Se queda con la respuesta del servidor en lugar de volver a leer la compra: es el
+    /// documento completo y trae las alertas de costo, que no vuelven en una lectura posterior.
+    /// </summary>
+    private async Task ContabilizarAsync()
+    {
+        _busy = true;
+        try
+        {
+            if (_totalFactura != TotalDeclarado(_compra))
+            {
+                await ActualizarTotalAsync();
+            }
+
+            var posted = await Api.PostAsync<JsonElement>($"api/v1/purchasing/purchases/{_compra.GetProperty("id").GetGuid()}/post", new { cashSessionId = (Guid?)null });
+            Snackbar.Add($"Compra {posted.Str("number")} contabilizada: entró al inventario y a cuentas por pagar.", Severity.Success);
+            _compra = posted;
+            _totalFactura = TotalDeclarado(posted);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void PedirAnulacion()
+    {
+        _motivo = null;
+        _anulando = true;
+    }
+
+    private async Task AnularAsync()
+    {
+        _busy = true;
+        try
+        {
+            var id = _compra.GetProperty("id").GetGuid();
+            await Api.PostAsync<JsonElement>($"api/v1/purchasing/purchases/{id}/void", new { reason = (_motivo ?? "").Trim() });
+            Snackbar.Add($"Compra {_compra.Str("number")} anulada.", Severity.Success);
+            _anulando = false;
+            _compra = await Api.GetAsync<JsonElement>($"api/v1/purchasing/purchases/{id}");
+            _totalFactura = TotalDeclarado(_compra);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void Quitar(Linea linea) => _lineas.Remove(linea);
+
+    private sealed record Empaque(Guid Id, string Nombre);
+
+    private sealed class Linea
+    {
+        public Guid ProductId { get; init; }
+
+        public string Sku { get; init; } = "";
+
+        public string Nombre { get; init; } = "";
+
+        public string Unidad { get; init; } = "";
+
+        public List<Empaque> Empaques { get; init; } = [];
+
+        public bool Lotes { get; init; }
+
+        public bool Vence { get; init; }
+
+        public Guid EmpaqueId { get; set; }
+
+        public decimal Cantidad { get; set; } = 1;
+
+        public decimal? Costo { get; set; }
+
+        public decimal Descuento { get; set; }
+
+        public string? Lote { get; set; }
+
+        public DateTime? Vencimiento { get; set; }
+    }
+}

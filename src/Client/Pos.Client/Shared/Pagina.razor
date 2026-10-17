@@ -83,6 +83,10 @@ else
     [Parameter]
     public string? Subtitulo { get; set; }
 
+    /// <summary>Último paso de las migas en una página de detalle (p. ej. "Compra S01-000001"); si falta, se usa el título.</summary>
+    [Parameter]
+    public string? Miga { get; set; }
+
     [Parameter]
     public bool Cargando { get; set; }
 
@@ -102,14 +106,23 @@ else
             _cargoUnaVez = true;
         }
 
-        var (grupo, opcion) = Navegacion.Buscar(Navigation.ToBaseRelativePath(Navigation.Uri));
+        var (grupo, opcion, exacta) = Navegacion.Buscar(Navigation.ToBaseRelativePath(Navigation.Uri));
         _icono = opcion?.Icono;
         _migas.Clear();
         if (grupo is not null)
         {
             _migas.Add(new BreadcrumbItem("Inicio", Navegacion.Inicio));
             _migas.Add(new BreadcrumbItem(grupo.Titulo, null));
-            _migas.Add(new BreadcrumbItem(opcion!.Titulo, null));
+            if (exacta)
+            {
+                _migas.Add(new BreadcrumbItem(opcion!.Titulo, null));
+            }
+            else
+            {
+                // Página de detalle (/admin/compras/{id}): la lista enlaza de vuelta y el último paso es el documento.
+                _migas.Add(new BreadcrumbItem(opcion!.Titulo, opcion.Ruta));
+                _migas.Add(new BreadcrumbItem(Miga ?? Titulo, null));
+            }
         }
     }
 }

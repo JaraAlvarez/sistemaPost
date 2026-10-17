@@ -107,7 +107,8 @@ public sealed class SystemRoleSynchronizer(IIdentityStore store, IAuditWriter au
             await store.BumpSecurityVersionForRoleAsync(role.Id, cancellationToken);
             await audit.WriteAsync(
                 new AuditEntry("identity", "SYSTEM_ROLE_UPDATED", nameof(Role), role.Id, role.AuditLabel,
-                    $"El rol de sistema {role.Code} recibió {added.Count} permisos nuevos de esta versión: {string.Join(", ", added)}."),
+                    $"El rol de sistema {role.Code} recibió {added.Count} permisos nuevos de esta versión.",
+                    NewValues: new Dictionary<string, object?> { ["addedPermissions"] = added }),
                 cancellationToken);
         }
 
