@@ -176,6 +176,10 @@ public static class IdentityErrors
     public static readonly Error LastAdministrator = Error.BusinessRule(
         "IDENTITY.LAST_ADMINISTRATOR", "Debe quedar al menos un Propietario o Administrador activo.");
 
+    public static readonly Error LastAdministratorLockout = Error.BusinessRule(
+        "IDENTITY.LAST_ADMINISTRATOR_LOCKOUT",
+        "Es el último Propietario o Administrador: no se le puede negar administrar usuarios, roles ni sesiones (nadie podría deshacerlo).");
+
     public static readonly Error LastOwner = Error.BusinessRule(
         "IDENTITY.LAST_OWNER", "Debe quedar al menos un Propietario activo: asigne el rol Propietario a otro usuario antes de quitárselo a este.");
 

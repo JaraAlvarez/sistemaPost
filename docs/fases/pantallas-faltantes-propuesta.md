@@ -38,6 +38,9 @@
 | DU-16 | Para el alcance "todas las sucursales", los permisos propios son los que se tienen en **cada** sucursal: se restan los que niega un DENY por sucursal de quien actúa. Vale para la jerarquía y para conceder roles o excepciones (UR2) | Un DENY en una sucursal no se esquiva concediendo o gestionando en global |
 | DU-17 | Cerrar la sesión de otro aplica la jerarquía; con autorización de supervisor, se compara con el supervisor que autorizó (UR3) | Un supervisor no cierra la sesión del Propietario |
 | DU-18 | `GET auth/credentials` funciona con la contraseña temporal pendiente (UR4) y `SetUserOverrides` toma el mismo candado cuando el objetivo es Propietario o Administrador (UR5) | La pantalla de contraseña temporal muestra la longitud real; los cambios que cuentan administradores se serializan |
+| DU-19 | Revocar o re-emparejar un **equipo** cierra todas sus sesiones, también las de un superior: es por diseño (protege la tienda ante un equipo perdido o reemplazado) y no aplica la jerarquía. La auditoría (`USER_SESSIONS_REVOKED` sobre el equipo) dice a quiénes se les cerró | Seguridad del equipo antes que la jerarquía |
+| DU-20 | Un **Propietario activo** no pierde nada por sus propios DENY en la jerarquía ni al conceder, y puede **quitarse** sus propios DENY (excepción a "no a sí mismo", solo para quitar). Al último Propietario o Administrador no se le puede poner DENY de `identity.role.manage`, `identity.user.manage` ni `identity.session.revoke` (`IDENTITY.LAST_ADMINISTRATOR_LOCKOUT`). En excepciones, el candado de administradores se toma antes de verificar | Un DENY heredado no deja sin salida al único Propietario |
+| DU-21 | Si quien cierra una sesión actúa por autorización de supervisor, el rechazo por jerarquía es genérico ("El supervisor que autorizó no puede cerrar la sesión de esa persona"), sin listar permisos | Lo lee el cajero en la caja |
 
 ### Nota de versión: roles personalizados antiguos y jerarquía
 

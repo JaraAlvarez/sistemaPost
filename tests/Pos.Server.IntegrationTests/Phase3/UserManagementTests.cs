@@ -15,6 +15,8 @@ public class UserManagementTests
 
     private static readonly string[] UserView = ["identity.user.view"];
 
+    private static readonly string[] AdministrationPermissions = ["identity.role.manage", "identity.user.manage", "identity.session.revoke"];
+
     private static readonly string[] ManagerPermissions = ["identity.user.manage", "identity.user.view", "identity.role.manage", "identity.permission.view"];
 
     private const string ActiveOwnersSql = """
@@ -385,6 +387,112 @@ public class UserManagementTests
         var temporary = factory.CreateClient();
         (await LoginAsync(temporary, "temporal", SecurityScenario.UserPassword)).User.MustChangePassword.ShouldBeTrue();
         (await GetAsync<CredentialStatusDto>(temporary, "/api/v1/auth/credentials")).PasswordHistory.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task Un_Propietario_unico_con_un_DENY_heredado_no_queda_sin_salida()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        var ownerId = scenario.Setup.OwnerUserId;
+        var adminId = await scenario.CreateUserAsync("admin2", "ADMIN");
+
+        // Una socia le deja un DENY al Propietario y luego se va: queda un Propietario único con un DENY heredado.
+        var partnerId = await scenario.CreateUserAsync("socia", "OWNER");
+        var partner = await scenario.LocalClientAsync("socia");
+        var inherited = new[] { new { permissionCode = "sales.sale.void", effect = "Deny", branchId = (Guid?)null, reason = "Heredado" } };
+        (await partner.PutAsJsonAsync($"/api/v1/identity/users/{ownerId}/overrides", inherited, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await scenario.Owner.PostAsync($"/api/v1/identity/users/{partnerId}/deactivate", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // Su DENY no le resta en la jerarquía: sigue gestionando al Administrador (que sí puede anular ventas).
+        (await scenario.Owner.PostAsJsonAsync($"/api/v1/identity/users/{adminId}/reset-pin", new { posCode = "555", pin = "5937" }, Json, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // Puede quitarse el DENY (y solo quitar: agregarse uno sigue prohibido).
+        var extra = new[] { new { permissionCode = "sales.sale.void", effect = "Deny", branchId = (Guid?)null, reason = "Heredado" },
+                            new { permissionCode = LicenseManage, effect = "Deny", branchId = (Guid?)null, reason = "Nuevo" } };
+        await scenario.Owner.PutAsJsonAsync($"/api/v1/identity/users/{ownerId}/overrides", extra, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.SELF_MODIFICATION");
+        var removed = await scenario.Owner.PutAsJsonAsync($"/api/v1/identity/users/{ownerId}/overrides", Array.Empty<object>(), Json, Ct);
+        removed.StatusCode.ShouldBe(HttpStatusCode.OK, await removed.Content.ReadAsStringAsync(Ct));
+        (await removed.Content.ReadFromJsonAsync<UserDto>(Json, Ct))!.Overrides.ShouldBeEmpty();
+
+        // Un Administrador no puede quitarse sus DENY: la excepción es solo del Propietario.
+        var admin = await scenario.LocalClientAsync("admin2");
+        (await scenario.Owner.PutAsJsonAsync($"/api/v1/identity/users/{adminId}/overrides", inherited, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await admin.PutAsJsonAsync($"/api/v1/identity/users/{adminId}/overrides", Array.Empty<object>(), Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.SELF_MODIFICATION");
+    }
+
+    [Fact]
+    public async Task Al_ultimo_administrador_no_se_le_niega_administrar()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        // SOCIO: copia del Propietario que no cuenta como Propietario ni Administrador; el dueño sigue siendo el último administrador.
+        var clone = await scenario.Owner.PostAsJsonAsync(
+            $"/api/v1/identity/roles/{await scenario.RoleIdAsync("OWNER")}/clone", new { code = "SOCIO", name = "Socio" }, Json, Ct);
+        clone.StatusCode.ShouldBe(HttpStatusCode.Created);
+        await scenario.CreateUserAsync("socio", "SOCIO");
+        var partner = await scenario.LocalClientAsync("socio");
+        var ownerId = scenario.Setup.OwnerUserId;
+
+        foreach (var permission in AdministrationPermissions)
+        {
+            await partner.PutAsJsonAsync($"/api/v1/identity/users/{ownerId}/overrides",
+                    new[] { new { permissionCode = permission, effect = "Deny", branchId = (Guid?)null, reason = "Prueba" } }, Json, Ct)
+                .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "IDENTITY.LAST_ADMINISTRATOR_LOCKOUT");
+        }
+
+        (await partner.PutAsJsonAsync($"/api/v1/identity/users/{ownerId}/overrides",
+                new[] { new { permissionCode = "sales.sale.void", effect = "Deny", branchId = (Guid?)null, reason = "Otra cosa sí" } }, Json, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Revocar_un_equipo_cierra_todas_sus_sesiones_y_audita_a_quienes()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        await scenario.CreateUserAsync("cajero", "CASHIER", posCode: "200", pin: "5937");
+        var (terminal, device) = await scenario.PairTerminalAsync(scenario.Setup.PosTerminalId);
+        await SecurityScenario.PosLoginAsync(terminal, "200", "5937");
+
+        (await scenario.Owner.PostAsync($"/api/v1/devices/{device.DeviceId}/revoke", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await Phase2.OrganizationApiTests.ScalarAsync<string>(factory,
+            "SELECT summary FROM audit.audit_log WHERE action = 'USER_SESSIONS_REVOKED' AND entity_type = 'Device'"))!.ShouldContain("(cajero)");
+    }
+
+    [Fact]
+    public async Task Con_autorizacion_de_supervisor_el_rechazo_por_jerarquia_no_lista_permisos()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        await scenario.CreateUserAsync("cajera", "CASHIER", posCode: "200", pin: "5937");
+        await scenario.CreateUserAsync("supervisor", "CASH_SUPERVISOR", posCode: "300", pin: "7152");
+        var (terminal, _) = await scenario.PairTerminalAsync(scenario.Setup.PosTerminalId);
+        await SecurityScenario.PosLoginAsync(terminal, "200", "5937");
+        var ownerSession = (await GetAsync<MeDto>(scenario.Owner, "/api/v1/auth/me")).SessionId;
+        var revokeUrl = $"/api/v1/identity/sessions/{ownerSession}/revoke";
+
+        var denied = await terminal.PostAsync(revokeUrl, null, Ct);
+        var action = (await SecurityScenario.ProblemAsync(denied)).GetProperty("action").GetString()!;
+        var granted = await terminal.PostAsJsonAsync("/api/v1/auth/authorizations", new
+        {
+            supervisorCode = "300", supervisorPin = "7152", permissionCode = IdentityPermissions.SessionRevoke, action,
+            targetId = ownerSession, targetType = "Session", reason = "Prueba",
+        }, Json, Ct);
+        granted.StatusCode.ShouldBe(HttpStatusCode.Created, await granted.Content.ReadAsStringAsync(Ct));
+        var grant = (await granted.Content.ReadFromJsonAsync<AuthorizationGrantDto>(Json, Ct))!;
+
+        var withGrant = new HttpRequestMessage(HttpMethod.Post, revokeUrl);
+        withGrant.Headers.Add("X-Authorization-Grant", grant.GrantId.ToString());
+        var response = await terminal.SendAsync(withGrant, Ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        var problem = await SecurityScenario.ProblemAsync(response);
+        problem.GetProperty("code").GetString().ShouldBe("IDENTITY.TARGET_OUTRANKS");
+        problem.GetProperty("detail").GetString().ShouldBe("El supervisor que autorizó no puede cerrar la sesión de esa persona.");
+        (await scenario.Owner.GetAsync("/api/v1/auth/me", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]

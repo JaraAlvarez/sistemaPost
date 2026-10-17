@@ -380,10 +380,14 @@ internal sealed class RevokeSessionHandler(
 
         if (await store.GetUserAsync(ownerId, cancellationToken) is { } owner)
         {
-            var allowed = await guard.CanManageAsync(owner, cancellationToken, authorization.Current?.AuthorizedBy ?? current.UserId);
+            var supervisor = authorization.Current?.AuthorizedBy;
+            var allowed = await guard.CanManageAsync(owner, cancellationToken, supervisor ?? current.UserId);
             if (allowed.IsFailure)
             {
-                return allowed;
+                // Con autorización de supervisor no se listan permisos: quien lo ve en la caja es el cajero.
+                return supervisor is null
+                    ? allowed
+                    : Error.Forbidden(IdentityErrors.TargetOutranks.Code, "El supervisor que autorizó no puede cerrar la sesión de esa persona.");
             }
         }
 

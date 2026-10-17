@@ -362,6 +362,9 @@ internal sealed class SetUserOverridesValidator : AbstractValidator<SetUserOverr
 internal sealed class SetUserOverridesHandler(IIdentityStore store, PrivilegeGuard guard, UserMutations mutations, IIdGenerator ids)
     : ICommandHandler<SetUserOverridesCommand, UserDto>
 {
+    private static readonly HashSet<string> AdministrationPermissions =
+        new([IdentityPermissions.RoleManage, IdentityPermissions.UserManage, IdentityPermissions.SessionRevoke], StringComparer.Ordinal);
+
     public async Task<Result<UserDto>> Handle(SetUserOverridesCommand request, CancellationToken cancellationToken)
     {
         var user = await store.GetUserAsync(request.UserId, cancellationToken);
@@ -373,7 +376,23 @@ internal sealed class SetUserOverridesHandler(IIdentityStore store, PrivilegeGua
         var self = guard.NotSelf(user.Id);
         if (self.IsFailure)
         {
-            return self.Error;
+            // Excepción: un Propietario activo puede quitarse sus propios DENY (solo quitar: la lista nueva es un subconjunto de la actual
+            // y solo le faltan DENY). Así un DENY heredado nunca deja sin salida al único Propietario.
+            var onlyRemovesDenies = request.Overrides.All(n => user.Overrides.Any(o => o.PermissionCode == n.PermissionCode && o.Effect == n.Effect && o.BranchId == n.BranchId))
+                && user.Overrides.Where(o => !request.Overrides.Any(n => n.PermissionCode == o.PermissionCode && n.Effect == o.Effect && n.BranchId == o.BranchId))
+                    .All(o => o.Effect == OverrideEffect.Deny);
+            if (!onlyRemovesDenies || !await guard.IsActiveOwnerSelfAsync(user, cancellationToken))
+            {
+                return self.Error;
+            }
+        }
+
+        // UR5: con un Propietario o Administrador como objetivo, el candado se toma ANTES de verificar; los permisos de quien actúa se leen
+        // después (el evaluador consulta la base en cada llamada), así un cambio simultáneo que lo degrade se ve.
+        var isAdministrator = await guard.IsAdministratorAsync(user, cancellationToken);
+        if (isAdministrator)
+        {
+            await store.LockAdministratorsAsync(user.CompanyId, cancellationToken);
         }
 
         // PU1: ni un DENY ni un GRANT sobre quien tiene más poder.
@@ -383,10 +402,12 @@ internal sealed class SetUserOverridesHandler(IIdentityStore store, PrivilegeGua
             return allowed.Error;
         }
 
-        // UR5: un DENY a un Propietario o Administrador se serializa con los demás cambios que los cuentan.
-        if (await guard.IsAdministratorAsync(user, cancellationToken))
+        // El último Propietario o Administrador no puede quedar sin poder administrar usuarios, roles ni sesiones.
+        if (isAdministrator
+            && request.Overrides.Any(o => o.Effect == OverrideEffect.Deny && AdministrationPermissions.Contains(o.PermissionCode))
+            && await store.CountActiveAdministratorsAsync(user.Id, cancellationToken) == 0)
         {
-            await store.LockAdministratorsAsync(user.CompanyId, cancellationToken);
+            return IdentityErrors.LastAdministratorLockout;
         }
 
         var catalog = (await store.ListActivePermissionCodesAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);

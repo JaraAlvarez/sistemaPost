@@ -160,13 +160,20 @@ public sealed class PrivilegeGuard(ICurrentUser current, IPermissionEvaluator pe
     /// </summary>
     private async Task<IReadOnlySet<string>> OwnAsync(Guid actor, Guid? branchId, CancellationToken cancellationToken)
     {
+        // Un Propietario activo (rol OWNER global) no pierde nada por sus PROPIOS DENY: si no, un DENY heredado dejaría al único
+        // Propietario sin poder quitárselo ni gestionar a nadie. Su poder es todo el catálogo vigente (el rol OWNER lo tiene todo).
+        var actorUser = await store.GetUserAsync(actor, cancellationToken);
+        if (actorUser is not null && await IsActiveOwnerAsync(actorUser, cancellationToken))
+        {
+            return (await store.ListActivePermissionCodesAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+        }
+
         var own = await permissions.GetEffectiveAsync(actor, branchId, null, cancellationToken);
         if (branchId is not null)
         {
             return own;
         }
 
-        var actorUser = await store.GetUserAsync(actor, cancellationToken);
         var denyBranches = actorUser?.Overrides.Where(o => o.Effect == OverrideEffect.Deny && o.BranchId is not null).Select(o => o.BranchId).Distinct().ToList() ?? [];
         if (denyBranches.Count == 0)
         {
@@ -189,6 +196,10 @@ public sealed class PrivilegeGuard(ICurrentUser current, IPermissionEvaluator pe
         var shown = string.Join("; ", names.Take(MaxListedPermissions)) + (names.Count > MaxListedPermissions ? $"; y {names.Count - MaxListedPermissions} más" : string.Empty);
         return Error.Forbidden(IdentityErrors.TargetOutranks.Code, $"{subject} tiene permisos que usted no tiene: {shown}.");
     }
+
+    /// <summary>Excepción a <see cref="NotSelf"/>: un Propietario activo puede QUITARSE sus propios DENY (y nada más).</summary>
+    public async Task<bool> IsActiveOwnerSelfAsync(User user, CancellationToken cancellationToken) =>
+        current.UserId == user.Id && await IsActiveOwnerAsync(user, cancellationToken);
 
     /// <summary>DU-07: ¿quedaría algún Propietario activo si <paramref name="user"/> deja de serlo (<paramref name="remainsOwner"/> = false)?</summary>
     public async Task<Result> KeepsAnOwnerAsync(User user, bool remainsOwner, CancellationToken cancellationToken)
