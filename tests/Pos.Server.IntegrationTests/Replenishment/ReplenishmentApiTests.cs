@@ -111,6 +111,17 @@ public class ReplenishmentApiTests
 
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'PURCHASE_ORDERS_SUGGESTED'")).ShouldBe(1);
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'STOCK_POLICY_CREATED'")).ShouldBe(3);
+
+        // Una clave vencida (más de 30 días) ya no repite el envío: se crean órdenes nuevas y la clave vencida se reemplaza.
+        await shop.Catalog.ExecuteAsync(
+            "UPDATE system.idempotency_keys SET created_at = now() - interval '40 days', expires_at = now() - interval '10 days'");
+        var fresh = await shop.SendAsync<List<SuggestedOrderDto>>("/api/v1/purchasing/replenishment/orders",
+            new { batchId = batch, lines = request.Select(l => l with { SeenPendingQuantity = null }) });
+        fresh.Select(o => o.OrderId).ShouldNotContain(orders[0].OrderId);
+        fresh.Select(o => o.OrderId).ShouldNotContain(orders[1].OrderId);
+        (await OrderCountAsync(shop)).ShouldBe(4);
+        (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM system.idempotency_keys WHERE expires_at > now()")).ShouldBe(1);
+        (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM system.idempotency_keys WHERE expires_at <= now()")).ShouldBe(0);
     }
 
     [Fact]
@@ -144,6 +155,21 @@ public class ReplenishmentApiTests
         (await LinesAsync(owner, $"?warehouseId={storage}")).ShouldHaveSingleItem();
         (await owner.PostAsync($"/api/v1/organization/warehouses/{storage}/deactivate", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
         (await LinesAsync(owner, $"?warehouseId={storage}")).ShouldBeEmpty();
+
+        // Las bodegas de averías y las borradas tampoco entran al pedido sugerido.
+        var branch = await GetAsync<BranchDetailDto>(owner, $"/api/v1/organization/branches/{shop.Catalog.Setup.BranchId}");
+        var damaged = branch.Warehouses.Single(w => w.Kind == "DAMAGED").Id;
+        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = damaged, productId = shop.Yogurt, minQuantity = 5, maxQuantity = 10 });
+        (await LinesAsync(owner, $"?warehouseId={damaged}")).ShouldBeEmpty();
+        var other = await owner.PostAsJsonAsync($"/api/v1/organization/branches/{shop.Catalog.Setup.BranchId}/warehouses",
+            new { code = "BORRADA", name = "Bodega borrada", kind = "Storage", allowsSales = false }, Json, Ct);
+        other.StatusCode.ShouldBe(HttpStatusCode.Created, await other.Content.ReadAsStringAsync(Ct));
+        var removed = (await GetAsync<BranchDetailDto>(owner, $"/api/v1/organization/branches/{shop.Catalog.Setup.BranchId}"))
+            .Warehouses.Single(w => w.Code == "BORRADA").Id;
+        await PutOkAsync(owner, "/api/v1/inventory/policies", new { warehouseId = removed, productId = shop.Yogurt, minQuantity = 5, maxQuantity = 10 });
+        (await LinesAsync(owner, $"?warehouseId={removed}")).ShouldHaveSingleItem();
+        await shop.Catalog.ExecuteAsync($"UPDATE org.warehouses SET deleted_at = now(), deleted_by = gen_random_uuid() WHERE id = '{removed}'");
+        (await LinesAsync(owner, $"?warehouseId={removed}")).ShouldBeEmpty();
 
         var rice = new SuggestedOrderLineRequest(shop.Floor, arrocera, shop.Rice, null, 8m);
         var inactive = await owner.PostAsJsonAsync("/api/v1/purchasing/replenishment/orders", new
@@ -332,6 +358,21 @@ public class ReplenishmentApiTests
         var yogurt = (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={shop.Yogurt}")).Single();
         (yogurt.MinQuantity, yogurt.MaxQuantity, yogurt.ReorderPoint).ShouldBe((12m, 30m, 8m));
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'STOCK_POLICIES_SUGGESTED'")).ShouldBe(1);
+
+        // Sin máximo se conserva el actual. Un producto con punto de pedido que quedaría sin máximo ni cantidad a pedir se rechaza con su
+        // SKU (el punto de pedido no se quita) y los demás se guardan.
+        await shop.Catalog.ExecuteAsync(
+            $"UPDATE inventory.stock_policies SET max_qty = NULL, reorder_qty = NULL, reorder_point = 9 WHERE product_id = '{shop.Rice}'");
+        var partial = await shop.SendAsync<StockPolicyBulkResultDto>("/api/v1/inventory/policies/apply-minimums", new
+        {
+            items = new[] { new MinMaxInput(shop.Floor, shop.Yogurt, 14m, null), new MinMaxInput(shop.Floor, shop.Rice, 7m, null) },
+        });
+        partial.Updated.ShouldBe(1);
+        partial.Rejected.ShouldNotBeNull().ShouldHaveSingleItem().ShouldContain("ARROZ-500");
+        yogurt = (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={shop.Yogurt}")).Single();
+        (yogurt.MinQuantity, yogurt.MaxQuantity, yogurt.ReorderPoint).ShouldBe((14m, 30m, 8m));
+        var keptRice = (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={shop.Rice}")).Single();
+        (keptRice.MinQuantity, keptRice.ReorderPoint).ShouldBe((6m, 9m));
     }
 
     [Fact]

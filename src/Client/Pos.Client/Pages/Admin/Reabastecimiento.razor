@@ -147,6 +147,10 @@
                                                                          Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:100px" aria-label="@($"Cantidad a pedir de {d.ProductName}")" />
                                                         <MudText Typo="Typo.caption">@Presentacion(d)</MudText>
                                                     </MudStack>
+                                                    @if (linea.Cantidad > d.SuggestedQuantity)
+                                                    {
+                                                        <MudText Typo="Typo.caption" Color="Color.Warning">Más que el sugerido (@Format.Quantity(d.SuggestedQuantity))</MudText>
+                                                    }
                                                 </td>
                                                 @if (sinProveedor)
                                                 {
@@ -409,6 +413,21 @@
             var pedido = await Api.GetAsync<ReplenishmentDto>("api/v1/purchasing/replenishment" + (consulta.Count > 0 ? "?" + string.Join('&', consulta) : ""));
             _truncado = pedido.Truncated;
             _lote = Guid.NewGuid();
+            if (conservar)
+            {
+                // Lo que el usuario había marcado o cambiado y ya no aparece (subió la existencia por encima del mínimo): se avisa.
+                var nuevas = pedido.Lines.Select(l => (l.WarehouseId, l.ProductId)).ToHashSet();
+                var salieron = antes.Values
+                    .Where(l => !nuevas.Contains((l.Dato.WarehouseId, l.Dato.ProductId))
+                        && (l.Marcada || l.Cantidad != l.Dato.SuggestedQuantity || l.Proveedor != l.Dato.SupplierId))
+                    .Select(l => l.Dato.Sku)
+                    .ToList();
+                if (salieron.Count > 0)
+                {
+                    Snackbar.Add($"{salieron.Count} producto(s) ya no están bajo el mínimo y salieron del listado: {string.Join(", ", salieron)}.", Severity.Warning);
+                }
+            }
+
             _lineas = [.. pedido.Lines.Select(l =>
             {
                 var linea = new Linea
@@ -532,6 +551,10 @@
                 items = marcadas.Select(s => new MinMaxInput(s.Dato.WarehouseId, s.Dato.ProductId, s.Minimo, s.Maximo)),
             });
             Snackbar.Add($"Mínimos guardados: {resultado.Created} nuevos y {resultado.Updated} cambiados.", Severity.Success);
+            if (resultado.Rejected is { Count: > 0 } rechazados)
+            {
+                Snackbar.Add($"No se guardaron {rechazados.Count}: {string.Join("; ", rechazados)}", Severity.Warning);
+            }
             _sugeridos = null;
             if (VerPedido)
             {

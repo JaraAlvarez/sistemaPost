@@ -334,7 +334,11 @@ internal sealed class SuggestMinimumsHandler(InventoryGuards guards, IInventoryR
     }
 }
 
-/// <summary>Guarda los mínimos y máximos elegidos (aplicar los sugeridos). Conserva el punto de pedido y la cantidad a pedir que ya tengan.</summary>
+/// <summary>
+/// Guarda los mínimos y máximos elegidos (aplicar los sugeridos). Conserva el punto de pedido y la cantidad a pedir que ya tengan; un
+/// máximo vacío conserva el máximo actual. Un producto que no se puede guardar (por ejemplo, con punto de pedido quedaría sin máximo ni
+/// cantidad a pedir) se rechaza con su SKU en <c>Rejected</c> y los demás sí se guardan: nunca se quita el punto de pedido en silencio.
+/// </summary>
 public sealed record ApplyMinimumsCommand(IReadOnlyList<MinMaxInput> Items) : ICommand<StockPolicyBulkResultDto>;
 
 internal sealed class ApplyMinimumsHandler(
@@ -370,6 +374,7 @@ internal sealed class ApplyMinimumsHandler(
         var policies = (await store.GetPoliciesAsync([.. items.Select(i => i.ProductId)], cancellationToken)).ToDictionary(p => (p.WarehouseId, p.ProductId));
         var warehouses = new Dictionary<Guid, WarehouseInfo>();
         int created = 0, updated = 0, unchanged = 0;
+        var rejected = new List<string>();
         foreach (var item in items)
         {
             if (!warehouses.TryGetValue(item.WarehouseId, out var warehouse))
@@ -384,11 +389,13 @@ internal sealed class ApplyMinimumsHandler(
             }
 
             var current = policies.GetValueOrDefault((item.WarehouseId, item.ProductId));
-            var saved = writer.Upsert(current, local.Value.CompanyId, warehouse, item.ProductId, item.MinQuantity, item.MaxQuantity, current?.ReorderPoint,
-                current?.ReorderQty);
+            var saved = writer.Upsert(current, local.Value.CompanyId, warehouse, item.ProductId, item.MinQuantity, item.MaxQuantity ?? current?.MaxQty,
+                current?.ReorderPoint, current?.ReorderQty);
             if (saved.IsFailure)
             {
-                return saved.Error;
+                var sku = products.Value.TryGetValue(item.ProductId, out var product) ? product.Sku : item.ProductId.ToString("D");
+                rejected.Add($"{sku} ({warehouse.Code}): {saved.Error.Message}");
+                continue;
             }
 
             _ = saved.Value switch
@@ -399,11 +406,19 @@ internal sealed class ApplyMinimumsHandler(
             };
         }
 
-        await audit.WriteAsync(
-            new AuditEntry("inventory", "STOCK_POLICIES_SUGGESTED", "StockPolicy", ids.NewId(), "Mínimos sugeridos",
-                $"Se guardaron mínimos y máximos calculados por la venta: {created} nuevos, {updated} cambiados.",
-                NewValues: new Dictionary<string, object?> { ["created"] = created, ["updated"] = updated, ["products"] = items.Count }),
-            cancellationToken);
-        return new StockPolicyBulkResultDto(created, updated, unchanged);
+        if (created + updated > 0)
+        {
+            await audit.WriteAsync(
+                new AuditEntry("inventory", "STOCK_POLICIES_SUGGESTED", "StockPolicy", ids.NewId(), "Mínimos sugeridos",
+                    $"Se guardaron mínimos y máximos calculados por la venta: {created} nuevos, {updated} cambiados"
+                    + (rejected.Count > 0 ? $", {rejected.Count} rechazados." : "."),
+                    NewValues: new Dictionary<string, object?>
+                    {
+                        ["created"] = created, ["updated"] = updated, ["products"] = items.Count, ["rejected"] = rejected.ToArray(),
+                    }),
+                cancellationToken);
+        }
+
+        return new StockPolicyBulkResultDto(created, updated, unchanged, rejected);
     }
 }

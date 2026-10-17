@@ -346,5 +346,8 @@ public sealed record MinimumSuggestionsDto(IReadOnlyList<MinimumSuggestionDto> I
 /// <summary>Mínimo y máximo a guardar para un producto en una bodega (aplicar sugeridos).</summary>
 public sealed record MinMaxInput(Guid WarehouseId, Guid ProductId, decimal MinQuantity, decimal? MaxQuantity);
 
-/// <summary>Cuántas políticas se crearon y cuántas se actualizaron.</summary>
-public sealed record StockPolicyBulkResultDto(int Created, int Updated, int Unchanged);
+/// <summary>
+/// Cuántas políticas se crearon y cuántas se actualizaron. <c>Rejected</c>: los productos que no se guardaron, con el SKU y el motivo
+/// (p. ej. tienen punto de pedido y quedarían sin máximo); los demás sí se guardan.
+/// </summary>
+public sealed record StockPolicyBulkResultDto(int Created, int Updated, int Unchanged, IReadOnlyList<string>? Rejected = null);
