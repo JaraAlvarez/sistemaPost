@@ -27,7 +27,7 @@ internal sealed partial class VentanaInstalador : Form
         BackColor = Color.FromArgb(17, 21, 125);
         AutoScaleMode = AutoScaleMode.None;
         Controls.Add(_web);
-        _puente = new Puente(opciones, Enviar, ElegirBackup, AccionVentana);
+        _puente = new Puente(opciones, Enviar, ElegirBackup, ElegirCarpeta, AccionVentana);
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -160,6 +160,30 @@ internal sealed partial class VentanaInstalador : Form
             if (dialogo.ShowDialog(this) == DialogResult.OK)
             {
                 ruta = dialogo.FileName;
+            }
+        });
+        return ruta;
+    }
+
+    /// <summary>
+    /// Backup final (§8): el dueño elige la carpeta (p. ej. una memoria USB). Empieza en SUS Documentos (los del usuario que inició
+    /// sesión en Windows, no los del administrador con el que corre el desinstalador). <c>null</c> si cancela.
+    /// </summary>
+    private string? ElegirCarpeta(string inicial)
+    {
+        string? ruta = null;
+        Invoke(() =>
+        {
+            using var dialogo = new FolderBrowserDialog
+            {
+                Description = "Elige dónde guardar el backup final de BusinessPost (por ejemplo, una memoria USB)",
+                UseDescriptionForTitle = true,
+                ShowNewFolderButton = true,
+                InitialDirectory = Directory.Exists(inicial) ? inicial : (Path.GetDirectoryName(inicial) ?? string.Empty),
+            };
+            if (dialogo.ShowDialog(this) == DialogResult.OK)
+            {
+                ruta = dialogo.SelectedPath;
             }
         });
         return ruta;

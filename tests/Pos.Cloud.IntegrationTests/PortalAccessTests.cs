@@ -101,7 +101,9 @@ public class PortalAccessTests(CloudFixture cloud) : IClassFixture<CloudFixture>
         // Bloqueado, ni la contraseña correcta entra; el superadministrador lo desbloquea.
         (await PortalApi.SendAsync(anonymous, HttpMethod.Post, "/admin/auth/login", new { email, password = temporary.TemporaryPassword }))
             .Code.ShouldBe("PORTAL.USER_LOCKED");
-        (await PortalApi.SendAsync(cloud.Superadmin, HttpMethod.Post, $"/admin/users/{temporary.UserId}/unlock")).Status.ShouldBe(HttpStatusCode.NoContent);
+        // IL7: con la confirmación (contraseña) no depende de cuánto hace que ingresó la sesión compartida del superadministrador.
+        (await PortalApi.SendAsync(cloud.Superadmin, HttpMethod.Post, $"/admin/users/{temporary.UserId}/unlock", new { confirmation = cloud.SuperadminUser.Password }))
+            .Status.ShouldBe(HttpStatusCode.NoContent);
         (await PortalApi.SendAsync(anonymous, HttpMethod.Post, "/admin/auth/login", new { email, password = temporary.TemporaryPassword }))
             .Status.ShouldBe(HttpStatusCode.OK);
     }

@@ -95,8 +95,8 @@
       </div>
       <!-- "Continuar con Google": Google no deja entrar dentro de esta ventana, así que se entra en el navegador y aquí se espera. -->
       <div class="google-espera oculto" id="googleEspera">
-        <div class="espera-fila"><span class="girando" aria-hidden="true"></span><div><b>Te abrimos el navegador para entrar con Google…</b><br><small>Entra a tu portal de BusinessPost (con Google o con tu contraseña) y pulsa <b>Autorizar</b>. Revisa que veas este mismo código:</small></div></div>
-        <div class="codigo codigo-corto" id="googleCodigo" aria-label="Código para comparar"></div>
+        <div class="espera-fila"><span class="girando" aria-hidden="true"></span><div><b>Te abrimos el navegador para entrar con Google…</b><br><small>Entra a tu portal de BusinessPost (con Google o con tu contraseña). <b>Escribe este código en la página que se abrió</b> y pulsa <b>Autorizar</b>. Nunca se lo des a otra persona:</small></div></div>
+        <div class="codigo codigo-corto" id="googleCodigo" aria-label="Código para escribir en la página"></div>
         <p class="demo">¿No se abrió el navegador? <a id="lnkGoogleAbrir">Abrirlo otra vez</a></p>
       </div>
       <div class="oculto" id="googleContrasena">
@@ -113,6 +113,7 @@
         <div class="campo oculto" id="campoTotp"><label for="cuentaTotp">Código de verificación (6 dígitos de tu aplicación)</label><input id="cuentaTotp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
       </div>
       <div class="aviso oculto" id="avisoCuenta"></div>
+      <p class="demo oculto" id="googleReintentar"><a id="lnkGoogleReintentar">Reintentar con Google</a></p>
       <div class="pie"><button class="btn btn-sec" data-ir="licencia">Atrás</button><button class="btn btn-sec oculto" id="btnGoogleCancelar">Cancelar</button><button class="btn btn-primario" id="btnCuenta">Continuar</button></div>
     </section>
 

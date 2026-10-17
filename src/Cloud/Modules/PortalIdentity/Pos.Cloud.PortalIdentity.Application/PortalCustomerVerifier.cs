@@ -85,8 +85,13 @@ public sealed class PortalCustomerVerifier(PortalAuthServices auth, IAuditWriter
         return new(PortalCustomerCheck.Valid, user.Email, user.DisplayName);
     }
 
+    /// <summary>
+    /// Autorización en el navegador ("Continuar con Google" del instalador). Además de la pertenencia exige un ingreso RECIENTE y, para
+    /// autorizar, el TOTP si el usuario lo tiene activo o el portal lo exige, aunque haya entrado con Google: ver
+    /// <see cref="OwnerLinkAuthorizationPolicy"/> y la adenda de ADR-0062. Abrir la página (GET) no escribe en la auditoría.
+    /// </summary>
     public async Task<PortalCustomerVerification> VerifySignedInAsync(
-        Guid userId, Guid accountId, string organizationLabel, IPAddress? ipAddress, CancellationToken cancellationToken)
+        Guid userId, Guid? sessionId, Guid accountId, string organizationLabel, bool deciding, IPAddress? ipAddress, CancellationToken cancellationToken)
     {
         var now = auth.Clock.UtcNow;
         var origin = $"en el navegador, para el instalador ({ipAddress?.ToString() ?? "IP desconocida"})";
@@ -98,12 +103,62 @@ public sealed class PortalCustomerVerifier(PortalAuthServices auth, IAuditWriter
 
         if (user.Role != PortalRole.Customer || user.ResellerAccountId != accountId)
         {
-            await auth.AuditAsync(user, "PORTAL_OWNER_LINK_REJECTED",
-                $"{user.Email} no es un usuario Cliente de la cuenta dueña de {organizationLabel} ({origin}).", AuditSeverity.Warning, cancellationToken);
+            if (deciding)
+            {
+                await auth.AuditAsync(user, "PORTAL_OWNER_LINK_REJECTED",
+                    $"{user.Email} intentó decidir la solicitud del instalador de {organizationLabel} sin ser un usuario Cliente de la cuenta dueña ({origin}).",
+                    AuditSeverity.Warning, cancellationToken);
+            }
+
             return new(PortalCustomerCheck.NotOwner);
         }
 
-        return new(PortalCustomerCheck.Valid, user.Email, user.DisplayName);
+        var session = sessionId is { } id ? await auth.Store.GetSessionAsync(id, cancellationToken) : null;
+        if (session is null || !OwnerLinkAuthorizationPolicy.IsRecent(session, user, now))
+        {
+            return new(PortalCustomerCheck.ReauthenticationRequired, user.Email, user.DisplayName);
+        }
+
+        return new(PortalCustomerCheck.Valid, user.Email, user.DisplayName, OwnerLinkAuthorizationPolicy.RequiresTotp(user, auth.Options.RequireTotp));
+    }
+
+    public async Task<PortalCustomerCheck> VerifySignedInTotpAsync(
+        Guid userId, string? totpCode, string organizationLabel, IPAddress? ipAddress, CancellationToken cancellationToken)
+    {
+        var now = auth.Clock.UtcNow;
+        var user = await auth.Store.GetUserAsync(userId, cancellationToken);
+        if (user is null || !user.CanSignIn(now))
+        {
+            return PortalCustomerCheck.InvalidCredentials;
+        }
+
+        if (!OwnerLinkAuthorizationPolicy.RequiresTotp(user, auth.Options.RequireTotp))
+        {
+            return PortalCustomerCheck.Valid;
+        }
+
+        var secret = user.TotpSecretProtected is { } stored && user.TotpEnabled ? auth.Protector.Unprotect(stored) : null;
+        if (secret is null)
+        {
+            return PortalCustomerCheck.TotpNotEnrolled;
+        }
+
+        var step = string.IsNullOrWhiteSpace(totpCode) ? null : Totp.Verify(secret, totpCode, now, user.TotpLastStep);
+        if (step is null)
+        {
+            if (string.IsNullOrWhiteSpace(totpCode))
+            {
+                return PortalCustomerCheck.TotpRequired;
+            }
+
+            var error = await auth.FailAsync(user, "PORTAL_TOTP_FAILED",
+                $"Código de verificación incorrecto al autorizar el instalador de {organizationLabel} ({user.Email}, en el navegador, {ipAddress?.ToString() ?? "IP desconocida"}).",
+                cancellationToken);
+            return error.Code == PortalIdentityErrors.UserLocked.Code ? PortalCustomerCheck.Locked : PortalCustomerCheck.TotpRequired;
+        }
+
+        user.UseTotpStep(step.Value);
+        return PortalCustomerCheck.Valid;
     }
 
     private static string Shown(string email) => email.Length == 0 ? "(sin correo)" : email.Length > 120 ? email[..120] : email;
