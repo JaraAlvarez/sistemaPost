@@ -11,7 +11,7 @@
         <MudButton Variant="Variant.Text" Href="@Lista">Cancelar</MudButton>
         @if (Session.Has("purchasing.payable.pay"))
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Payments" Disabled="_busy || _loading" OnClick="PagarAsync" Class="ml-2">Registrar pago</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Payments" Disabled="@(_busy || _loading || TotalPago <= 0)" OnClick="PagarAsync" Class="ml-2">Registrar pago</MudButton>
         }
     </Acciones>
     <ChildContent>
@@ -27,7 +27,14 @@
                     </MudSelect>
                     @if (_aplicaciones.Count > 0)
                     {
-                        <MudSimpleTable Dense="true" Outlined="true" Class="my-3">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mt-3">
+                            <MudText Typo="Typo.body2">Marque las facturas que va a pagar; el valor de cada una se puede bajar para un abono.</MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="MarcarTodas"
+                                       StartIcon="@(TodasMarcadas ? Icons.Material.Outlined.CheckBoxOutlineBlank : Icons.Material.Outlined.LibraryAddCheck)">
+                                @(TodasMarcadas ? "Desmarcar todas" : "Marcar todas")
+                            </MudButton>
+                        </MudStack>
+                        <MudSimpleTable Dense="true" Outlined="true" Class="my-2">
                             <thead><tr><th></th><th>Documento</th><th>Vence</th><th class="num">Saldo</th><th class="num">Valor a pagar</th></tr></thead>
                             <tbody>
                                 @foreach (var item in _aplicaciones)
@@ -43,6 +50,10 @@
                             </tbody>
                         </MudSimpleTable>
                         <MudText Class="num" Align="Align.Right"><b>Total del pago: @Format.Money(TotalPago)</b></MudText>
+                        @if (TotalPago <= 0)
+                        {
+                            <MudText Typo="Typo.caption" Align="Align.Right" Class="d-block texto-secundario">Marque al menos una factura para registrar el pago.</MudText>
+                        }
                     }
                     else if (_pagoProveedor is not null)
                     {
@@ -92,6 +103,18 @@
     public Guid? FacturaInicial { get; set; }
 
     private decimal TotalPago => _aplicaciones.Where(a => a.Incluir).Sum(a => a.Valor);
+
+    private bool TodasMarcadas => _aplicaciones.Count > 0 && _aplicaciones.All(a => a.Incluir);
+
+    /// <summary>Marca todas las facturas (pago total al proveedor) o, si ya lo están, las desmarca.</summary>
+    private void MarcarTodas()
+    {
+        var marcar = !TodasMarcadas;
+        foreach (var item in _aplicaciones)
+        {
+            item.Incluir = marcar;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -146,7 +169,8 @@
                 Vence = Dia(a, "dueDate"),
                 Saldo = a.Dec("balance"),
                 Valor = a.Dec("balance"),
-                Incluir = true,
+                // Desmarcadas: se paga solo lo que se elige (con todas marcadas era fácil pagar facturas que no se estaban pagando).
+                Incluir = false,
             })];
         }
         catch (ApiException ex)
@@ -160,6 +184,12 @@
         if (_pagoProveedor is null || _medio is null)
         {
             Snackbar.Add("Seleccione el proveedor y el medio de pago.", Severity.Warning);
+            return;
+        }
+
+        if (TotalPago <= 0)
+        {
+            Snackbar.Add("Marque al menos una factura para pagar.", Severity.Warning);
             return;
         }
 
