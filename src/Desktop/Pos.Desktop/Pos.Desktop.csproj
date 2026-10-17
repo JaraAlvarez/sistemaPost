@@ -3,7 +3,8 @@
     Ventana propia de BusinessPost (Fase 13-B, D13B-07): BusinessPost.exe reemplaza a "Microsoft Edge en modo aplicación". Es una
     ventana de Windows (WinForms) con WebView2, el motor de Edge que ya trae Windows 10/11; muestra la misma interfaz de siempre, con
     pantalla de carga de la marca, sin barra de direcciones y sin poder navegar a otros sitios. No guarda datos de la tienda.
-    Se publica autocontenido en un solo archivo (tools/scripts/build-installer.ps1) y el instalador lo deja en {app}\desktop.
+    Se publica autocontenido en un solo archivo (tools/scripts/build-installer.ps1) dentro de la versión: app\<versión>\desktop, que
+    también va en el paquete de actualización. Los accesos directos abren {app}\app\current\desktop\BusinessPost.exe.
   -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>

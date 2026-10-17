@@ -11,7 +11,8 @@ namespace Pos.Server.Updater;
 
 /// <summary>
 /// El equipo real (D13-03): versiones lado a lado en <c>{InstallRoot}\app\{versión}</c> con el enlace <c>app\current</c> (unión de NTFS) al que
-/// apuntan los servicios; el migrador de cada versión hace el backup, las migraciones y la restauración.
+/// apuntan los servicios y los accesos directos de la ventana (<c>app\current\desktop\BusinessPost.exe</c>, ver
+/// <see cref="VentanaEscritorio"/>); el migrador de cada versión hace el backup, las migraciones y la restauración.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<WindowsUpdateHost> logger) : IUpdateHost
@@ -59,12 +60,17 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
 
     /// <summary>
     /// Corre los programas de la versión nueva en modo <c>--precalentar</c> (D17C-02): el antivirus revisa sus .exe y .dll ahora, con la
-    /// versión anterior todavía vendiendo, y no durante el cambio (en pruebas, más de 4 minutos sin firma de código). Mejor esfuerzo: si
-    /// falla o tarda más de ⚙️ 15 minutos, la actualización sigue igual.
+    /// versión anterior todavía vendiendo, y no durante el cambio (en pruebas, más de 4 minutos sin firma de código). Incluye la ventana
+    /// <c>BusinessPost.exe</c>: así la primera apertura después de actualizar es rápida (su <c>--precalentar</c> no abre ventanas y no
+    /// choca con la que el cajero tenga abierta). Mejor esfuerzo: si falla o tarda más de ⚙️ 15 minutos, la actualización sigue igual.
     /// </summary>
     private async Task PrecalentarAsync(string versionDirectory, CancellationToken cancellationToken)
     {
-        foreach (var (folder, exe) in new[] { ("server", "Pos.Server.Host.exe"), ("migrator", "Pos.Server.Migrator.exe"), ("agent", "Pos.Terminal.Agent.exe") })
+        foreach (var (folder, exe) in new[]
+                 {
+                     ("server", "Pos.Server.Host.exe"), ("migrator", "Pos.Server.Migrator.exe"), ("agent", "Pos.Terminal.Agent.exe"),
+                     (VentanaEscritorio.Carpeta, VentanaEscritorio.Programa),
+                 })
         {
             var path = Path.Combine(versionDirectory, folder, exe);
             if (!File.Exists(path))
@@ -199,6 +205,13 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
 
         File.WriteAllText(CurrentFile + ".tmp", JsonSerializer.Serialize(new { version }));
         File.Move(CurrentFile + ".tmp", CurrentFile, overwrite: true);
+
+        // Ventana: los accesos directos nuevos ya apuntan a app\current; los de instalaciones anteriores, a {InstallRoot}\desktop. La
+        // ventana abierta no se cierra: sigue funcionando y la versión nueva se usa la próxima vez que se abra (también en la vuelta atrás).
+        foreach (var aviso in VentanaEscritorio.RefrescarCopiaAnterior(settings.InstallRoot, Path.Combine(AppDirectory, version)))
+        {
+            LogServiceFailed(logger, VentanaEscritorio.Programa, aviso);
+        }
     }
 
     public async Task<bool> IsHealthyAsync(CancellationToken cancellationToken)
@@ -240,6 +253,13 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
             .ToList();
         foreach (var old in versions.Skip(keep).Where(v => v.Name != current))
         {
+            if (VentanaEscritorio.EnUso(Path.Combine(AppDirectory, old.Name)))
+            {
+                // La ventana sigue abierta desde esa versión: no se borra a medias; se intenta en la próxima actualización.
+                LogServiceFailed(logger, old.Name, "la ventana BusinessPost.exe de esta versión sigue abierta; se borrará en la próxima limpieza");
+                continue;
+            }
+
             try
             {
                 Directory.Delete(Path.Combine(AppDirectory, old.Name), recursive: true);

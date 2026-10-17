@@ -283,8 +283,11 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
         if (!opciones.Maqueta)
         {
             var carpeta = Sistema.CarpetaInstalada();
-            var ventana = carpeta is null ? null : Path.Combine(carpeta, "desktop", "BusinessPost.exe");
-            Sistema.AbrirComoUsuario(ventana is not null && File.Exists(ventana) ? ventana
+            // La ventana va dentro de la versión activa (app\current\desktop); {app}\desktop queda en instalaciones anteriores.
+            var ventana = carpeta is null ? null
+                : new[] { Path.Combine(carpeta, "app", "current", "desktop", "BusinessPost.exe"), Path.Combine(carpeta, "desktop", "BusinessPost.exe") }
+                    .FirstOrDefault(File.Exists);
+            Sistema.AbrirComoUsuario(ventana is not null ? ventana
                 : !string.IsNullOrWhiteSpace(servidor) ? servidor : ServidorLocal.Direccion.ToString());
         }
 

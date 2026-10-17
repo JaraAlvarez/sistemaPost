@@ -4,7 +4,7 @@
     crea el paquete de actualización (ZIP), firma su manifiesto y compila el instalador con Inno Setup.
 .DESCRIPTION
     Salida en artifacts\releases:
-      BusinessPost-<versión>.zip          paquete de actualización (server, migrator, agent)
+      BusinessPost-<versión>.zip          paquete de actualización (server, migrator, agent y desktop: la ventana BusinessPost.exe)
       <canal>.json                        manifiesto firmado (si se pasa -SigningKey)
       BusinessPost-Setup-<versión>.exe    instalador DESCARGABLE (si Inno Setup 6 está instalado): un solo archivo con el instalador
                                           premium (ventana propia con la marca, Fase 13-B D13B-08) y el paquete clásico adentro
@@ -62,8 +62,13 @@ Publish 'src\Server\Pos.Server.Host\Pos.Server.Host.csproj' (Join-Path $app 'ser
 Publish 'src\Server\Pos.Server.Migrator\Pos.Server.Migrator.csproj' (Join-Path $app 'migrator')
 Publish 'src\Terminal\Pos.Terminal.Agent\Pos.Terminal.Agent.csproj' (Join-Path $app 'agent')
 Publish 'src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj' (Join-Path $package 'updater') -SingleFile
-# Ventana propia BusinessPost.exe (Fase 13-B, D13B-07): un solo .exe autocontenido; el instalador lo copia a {app}\desktop.
-Publish 'src\Desktop\Pos.Desktop\Pos.Desktop.csproj' (Join-Path $package 'desktop') -SingleFile
+# Ventana propia BusinessPost.exe (Fase 13-B, D13B-07): un solo .exe autocontenido (y el aviso de licencia de WebView2). Va DENTRO de
+# la versión (app\<versión>\desktop) para que el paquete de actualización la lleve: los accesos directos abren
+# {app}\app\current\desktop\BusinessPost.exe y el cambio de versión (o la vuelta atrás) la cambia junto con el servidor.
+Publish 'src\Desktop\Pos.Desktop\Pos.Desktop.csproj' (Join-Path $app 'desktop') -SingleFile
+foreach ($required in 'BusinessPost.exe', 'LICENSE-WebView2.txt') {
+    if (-not (Test-Path (Join-Path $app "desktop\$required"))) { throw "Falta desktop\$required en el paquete de la versión." }
+}
 
 # Firma de código (Authenticode): los ejecutables propios firmados no quedan retenidos por Windows Defender en el primer arranque.
 function Sign([string[]] $files) {
@@ -79,7 +84,7 @@ function Sign([string[]] $files) {
 
 if ($CodeSigningThumbprint) {
     Write-Host 'Firmando los ejecutables propios (Authenticode)...' -ForegroundColor Cyan
-    $own = Get-ChildItem $app, (Join-Path $package 'updater'), (Join-Path $package 'desktop') -Recurse -Include 'Pos.*.exe', 'Pos.*.dll', 'BusinessPost*.exe' | ForEach-Object FullName
+    $own = Get-ChildItem $app, (Join-Path $package 'updater') -Recurse -Include 'Pos.*.exe', 'Pos.*.dll', 'BusinessPost*.exe' | ForEach-Object FullName
     Sign $own
 } else {
     Write-Warning 'Sin -CodeSigningThumbprint: los ejecutables van sin firma de código. El primer arranque tras instalar o actualizar puede tardar varios minutos (docs/guia-instalacion.md §8).'
@@ -96,6 +101,15 @@ Write-Host 'Paquete de actualización...' -ForegroundColor Cyan
 $zip = Join-Path $releases "BusinessPost-$Version.zip"
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $app '*') -DestinationPath $zip -CompressionLevel Optimal
+# Revisión del paquete: el actualizador (servidor y cajas, que lo reciben del servidor de la tienda) necesita estas carpetas.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$entries = [System.IO.Compression.ZipFile]::OpenRead($zip)
+try {
+    $names = $entries.Entries | ForEach-Object { $_.FullName -replace '\\', '/' }
+    foreach ($required in 'server/Pos.Server.Host.exe', 'migrator/Pos.Server.Migrator.exe', 'agent/Pos.Terminal.Agent.exe', 'desktop/BusinessPost.exe') {
+        if ($names -notcontains $required) { throw "El paquete de actualización no tiene $required." }
+    }
+} finally { $entries.Dispose() }
 
 if ($SigningKey) {
     & dotnet run --project (Join-Path $root 'tools\Pos.Release\Pos.Release.csproj') -c Release -- sign --package $zip --version $Version `

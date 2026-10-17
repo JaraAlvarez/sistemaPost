@@ -6,7 +6,7 @@
 ;       internamente "servidor") · "Esta es una caja adicional" (Multicaja; internamente "caja").
 ; Primer arranque (Fase 13-B, D13B-01 y D13B-02): precalienta los programas (Windows Defender) antes de crear los servicios, muestra el
 ;       paso en curso y espera a que BusinessPost responda antes de abrir el navegador.
-; Deja: C:\Program Files\BusinessPost\app\<versión>\{server,migrator,agent}, app\current (unión NTFS a la versión activa),
+; Deja: C:\Program Files\BusinessPost\app\<versión>\{server,migrator,agent,desktop}, app\current (unión NTFS a la versión activa),
 ;       updater\ y pgsql\ (PostgreSQL 18 empaquetado). Datos, backups y configuración en C:\ProgramData\BusinessPost (se CONSERVAN al
 ;       desinstalar salvo que el usuario pida borrarlos, con doble confirmación).
 ; =====================================================================================================================================
@@ -49,7 +49,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=BusinessPost-Setup.ico
-UninstallDisplayIcon={app}\desktop\BusinessPost.exe
+UninstallDisplayIcon={app}\app\current\desktop\BusinessPost.exe
 OutputDir=..\artifacts\releases
 OutputBaseFilename={#OutputName}
 UninstallDisplayName=BusinessPost
@@ -65,8 +65,12 @@ Source: "{#PackageDir}\app\{#AppVersion}\migrator\*"; DestDir: "{app}\app\{#AppV
 Source: "{#PackageDir}\app\{#AppVersion}\agent\*";    DestDir: "{app}\app\{#AppVersion}\agent";    Flags: recursesubdirs ignoreversion
 Source: "{#PackageDir}\pgsql\*";                      DestDir: "{app}\pgsql";                      Flags: recursesubdirs ignoreversion; Check: IsServerMode
 Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"; Flags: ignoreversion
-; Ventana propia BusinessPost.exe (Fase 13-B, D13B-07), en los dos modos. Si está abierta al reinstalar, se reemplaza al reiniciar.
-Source: "{#PackageDir}\desktop\*"; DestDir: "{app}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist
+; Ventana propia BusinessPost.exe (Fase 13-B, D13B-07), en los dos modos. Va dentro de la versión (app\<versión>\desktop, también en el
+; paquete de actualización): los accesos directos abren app\current\desktop y el actualizador la cambia con la versión. Si está abierta
+; al reinstalar, se reemplaza al reiniciar. La segunda línea solo refresca la carpeta {app}\desktop de instalaciones anteriores (accesos
+; directos o ventana anclada a la barra de tareas que todavía apunten allí); en instalaciones nuevas esa carpeta no existe.
+Source: "{#PackageDir}\app\{#AppVersion}\desktop\*"; DestDir: "{app}\app\{#AppVersion}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist
+Source: "{#PackageDir}\app\{#AppVersion}\desktop\*"; DestDir: "{app}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist; Check: HasLegacyDesktopApp
 ; Ayudantes del primer arranque (Fase 13-B): no se instalan; se usan desde la carpeta temporal durante la instalación.
 Source: "scripts\precalentar.ps1";      Flags: dontcopy
 Source: "scripts\esperar-servicio.ps1"; Flags: dontcopy
@@ -74,8 +78,9 @@ Source: "scripts\esperar-servicio.ps1"; Flags: dontcopy
 [Icons]
 ; La interfaz se abre en la ventana propia BusinessPost.exe (Fase 13-B, D13B-07): lee la dirección de C:\ProgramData\BusinessPost\config
 ; (equipo principal: localhost; caja adicional: el equipo principal de updater.json) y muestra la pantalla de carga mientras arranca.
-Name: "{commondesktop}\BusinessPost"; Filename: "{app}\desktop\BusinessPost.exe"; WorkingDir: "{app}\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
-Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{app}\desktop\BusinessPost.exe"; WorkingDir: "{app}\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
+; Apuntan a app\current (unión NTFS a la versión activa): después de una actualización o de una vuelta atrás abren la ventana de esa versión.
+Name: "{commondesktop}\BusinessPost"; Filename: "{app}\app\current\desktop\BusinessPost.exe"; WorkingDir: "{app}\app\current\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
+Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{app}\app\current\desktop\BusinessPost.exe"; WorkingDir: "{app}\app\current\desktop"; Comment: "Abrir BusinessPost"; Check: HasDesktopApp
 ; Respaldo solo si falta BusinessPost.exe: Edge en modo aplicación (Fase 15, D15-03), como antes.
 Name: "{commondesktop}\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; IconFilename: "{app}\updater\Pos.Server.Updater.exe"; Check: not HasDesktopApp
 Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{code:EdgePath}"; Parameters: "--app={code:StartUrl}"; Check: not HasDesktopApp
@@ -189,6 +194,12 @@ end;
 
 // Fase 13-B (D13B-07): los accesos directos abren BusinessPost.exe; Edge en modo aplicación queda solo de respaldo si falta.
 function HasDesktopApp: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{app}\app\{#AppVersion}\desktop\BusinessPost.exe'));
+end;
+
+// Instalaciones anteriores dejaban la ventana en {app}\desktop (sin versión): se refresca para no dejar una ventana vieja anclada.
+function HasLegacyDesktopApp: Boolean;
 begin
   Result := FileExists(ExpandConstant('{app}\desktop\BusinessPost.exe'));
 end;
@@ -451,8 +462,8 @@ begin
   if ModePage.SelectedValueIndex <> 1 then
     Items := Items + ', ' + WarmupItem(App + '\app\current\agent\Pos.Terminal.Agent.exe', '--precalentar');
   // Ventana propia BusinessPost.exe (D13B-07): así abre rápido la primera vez que el dueño pulsa "Abrir BusinessPost".
-  if FileExists(App + '\desktop\BusinessPost.exe') then
-    Items := Items + ', ' + WarmupItem(App + '\desktop\BusinessPost.exe', '--precalentar');
+  if FileExists(App + '\app\current\desktop\BusinessPost.exe') then
+    Items := Items + ', ' + WarmupItem(App + '\app\current\desktop\BusinessPost.exe', '--precalentar');
   Warmup(Items);
 
   // 2. Base de datos (y recuperación, si se eligió un backup).
