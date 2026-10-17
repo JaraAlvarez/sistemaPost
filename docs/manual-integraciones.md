@@ -72,7 +72,7 @@ proveedor tecnológico, y el tiquete pasa a decir **"Factura electrónica de ven
 4. Pulse **Guardar credenciales**. Debe aparecer el aviso verde "Configuradas el …". Por seguridad las credenciales nunca se vuelven a
    mostrar: para cambiarlas hay que escribir las cuatro de nuevo.
 
-<!-- CAPTURA: Facturación electrónica · pestaña Configuración (modo, ambiente y credenciales de Factus) -->
+![Facturación electrónica · Configuración: modo de emisión, ambiente de pruebas y credenciales de Factus guardadas (nunca se vuelven a mostrar).](imagenes/uso/integ-11-facturacion-configurada.png)
 
 **B. Elegir el ambiente de pruebas**
 
@@ -89,7 +89,7 @@ proveedor tecnológico, y el tiquete pasa a decir **"Factura electrónica de ven
 11. Elija la **Sucursal**. Si Factus le dio un rango por caja, elija también la **Caja (opcional)**; si no, deje **Toda la sucursal**.
 12. Pulse **Guardar**. Cada sucursal necesita un rango vigente de **factura** y otro de **nota crédito**.
 
-<!-- CAPTURA: Facturación electrónica · pestaña Rangos de numeración con la ventana Asignar -->
+![Rangos de numeración: asignar el rango de factura a la sucursal.](imagenes/uso/integ-13-rango-asignar.png)
 
 **D. Probar en el sandbox**
 
@@ -176,7 +176,7 @@ Cambio o garantía, Compra) para revisarlas.
 4. Si necesita el reporte en Excel, CSV o PDF, use el enlace **Reporte «Conciliación de facturación electrónica»** (lleva a
    **Ventas y caja → Reportes**).
 
-<!-- CAPTURA: Facturación electrónica · pestaña Alertas y conciliación -->
+![Alertas y conciliación: la revisión diaria de las ventas y sus documentos.](imagenes/uso/integ-17-facturacion-alertas-y-conciliacion.png)
 
 ### Si algo falla
 
@@ -221,7 +221,7 @@ BusinessPost**. Se necesita Internet **solo en el momento del cobro**; sin Inter
 6. Debe aparecer **"¡Conectado! Sistecrédito ya aparece como forma de pago en la caja."** y la tarjeta queda en **Conectado**, con la
    etiqueta **Activo en la caja** y el final de la llave ("llave terminada en …").
 
-<!-- CAPTURA: Configuración · Medios de pago · tarjeta Sistecrédito conectada -->
+![Tarjeta Sistecrédito conectada: activo en la caja, con Volver a probar, Cambiar llaves y Desconectar.](imagenes/uso/integ-06-sistecredito-conectado.png)
 
 En la tarjeta conectada tiene tres botones:
 
@@ -250,7 +250,7 @@ En la tarjeta conectada tiene tres botones:
 
 Para detener la espera, pulse **Cancelar** debajo del QR. Si el cliente igual aprueba después, el sistema lo detecta solo.
 
-<!-- CAPTURA: Caja · Cobrar con Sistecrédito mostrando el código QR -->
+![Cobro con Sistecrédito en la caja: tipo y número de documento del cliente y el botón Generar cobro (el código QR aparece al pulsarlo).](imagenes/uso/caja-28-cobro-sistecredito.png)
 
 **En el cierre de caja**, Sistecrédito sale como un medio aparte (no es efectivo), igual que el datáfono. Cuadre con las transacciones
 aprobadas del día en el portal de Sistecrédito.
@@ -331,7 +331,7 @@ $2.100). No hay que pulsar ningún botón para pesar. Las etiquetas impresas por
     unidad de peso (Kilogramo, Gramo o **Libra (500 g)**) y marque **Se vende por báscula (la caja lee el peso al registrarlo)**. Si se
     empaca en bolsa o bandeja, escriba su peso en **Tara (g)**. Guarde.
 
-<!-- CAPTURA: Cajas e impresoras · ventana Báscula con la prueba de peso en vivo -->
+![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas, permitir digitar el peso y la prueba con el peso en vivo.](imagenes/uso/integ-03-bascula.png)
 
 **En la caja:**
 
@@ -392,7 +392,7 @@ El cajón se conecta a la impresora (no al computador) y **se abre solo** cuando
 8. Pulse **Guardar**.
 9. Pruebe: haga una venta pequeña en efectivo en esa caja. Debe imprimirse el tiquete, cortarse el papel y abrirse el cajón.
 
-<!-- CAPTURA: Cajas e impresoras · ventana Impresora de tiquetes -->
+![Cajas e impresoras · Impresora de tiquetes conectada por red, con papel de 80 mm, corte y cajón monedero.](imagenes/uso/integ-02-impresora-red.png)
 
 Para volver a imprimir el tiquete de la última venta, use el botón **Reimprimir** en la pantalla de la caja. Los reportes X y Z de un
 turno se reimprimen desde **Ventas y caja → Turnos de caja**, en el detalle del turno, botón **Imprimir**.
@@ -434,7 +434,7 @@ vuelve la conexión.
 4. Si quiere subir ya, pulse **Sincronizar ahora**.
 5. En **Envíos recientes** verá cada envío con su fecha, la vía (**En línea** o **Paquete**), la cantidad de datos y el resultado.
 
-<!-- CAPTURA: Administración · Sincronización con la nube -->
+![Administración · Sincronización: lo pendiente de subir, Sincronizar ahora y Exportar paquete .possync (en este equipo de ejemplo falta la dirección de la nube, por eso sale el aviso).](imagenes/uso/integ-18-sincronizacion.png)
 
 ### Paso a paso: sincronizar sin Internet (paquete .possync)
 
@@ -456,8 +456,6 @@ Si la tienda pasa muchos días sin Internet, puede llevar los datos a la nube en
 4. Elija la **Empresa** y las fechas **Desde** y **Hasta**, y pulse **Actualizar**.
 5. Verá las tarjetas **Ventas del periodo**, **Tiquetes**, **Anuladas** y **Sucursales**, el cuadro **Sincronización por sucursal** y
    las pestañas **Ventas por día**, **Ventas recientes**, **Cierres de caja** y **Existencias**.
-
-<!-- CAPTURA: Portal · Datos de las tiendas -->
 
 En el menú **Personal** del portal también tiene **Mi suscripción** (vigencia y pagos, sección 6), **Descargas** (instalador y manual)
 y **Mi cuenta**. Por ahora el portal es **solo de consulta**: los productos y precios se cambian en la administración de la tienda.
@@ -505,8 +503,6 @@ La tarjeta de pago aparece cuando faltan **15 días o menos** para el vencimient
 7. En la tienda, abra **Administración → Licencia** y pulse **Ya pagué, verificar**. Si el pago ya se aplicó, aparece "Pago recibido: la
    licencia está al día.", cambia la fecha **Vigente hasta** y la tarjeta desaparece. (Si no lo hace, la tienda lo verifica sola una vez
    al día.)
-
-<!-- CAPTURA: Administración · Licencia con la tarjeta Pagar mensualidad y el código QR -->
 
 ### Paso a paso: pagar desde el portal
 
@@ -562,8 +558,6 @@ Internet **una vez al día**; si no hay Internet, sigue funcionando con normalid
    Multicaja) y la fecha **Vigente hasta**.
 4. Para verificarla en cualquier momento (por ejemplo, después de renovar), pulse **Verificar ahora**.
 
-<!-- CAPTURA: Administración · Licencia con la licencia vigente -->
-
 #### Paso a paso: pasar la licencia a otro computador
 
 1. En el computador viejo, abra **Administración → Licencia** y pulse **Liberar este equipo**.
@@ -610,7 +604,7 @@ BusinessPost se **actualiza solo**. Cuando hay una versión nueva, el servidor l
    minutos nadie podrá vender ni consultar.
 6. Al volver, abra **Administración → Actualizaciones** y verifique la **Versión instalada**.
 
-<!-- CAPTURA: Administración · Actualizaciones con una versión lista para instalar -->
+![Administración · Actualizaciones: la versión instalada y el estado de las actualizaciones.](imagenes/uso/adm-98-actualizaciones.png)
 
 #### Si algo falla
 

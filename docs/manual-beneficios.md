@@ -49,16 +49,12 @@ No necesita conocimientos técnicos. Si todavía no ha instalado el programa, em
 
 ### Tipo de negocio y funciones del negocio
 
-<!-- CAPTURA: instalador, pantalla "¿Qué tipo de negocio tienes?" con las seis tarjetas -->
-
 Al instalar, BusinessPost pregunta **"¿Qué tipo de negocio tienes?"** y usted elige una de seis tarjetas: Supermercado o
 minimercado, Fruver o carnicería, Droguería, Ropa/calzado/deportes, Ferretería/papelería/miscelánea u Otro tipo de negocio. Según
 lo que elija, el programa deja encendidas las funciones que ese negocio usa y crea unas **categorías de ejemplo** (por ejemplo, en
 droguería: Medicamentos, Cuidado personal, Primeros auxilios…).
 
 Después puede cambiar todo en **Administración → Configuración → Funciones del negocio**:
-
-<!-- CAPTURA: Administración → Configuración → pestaña "Funciones del negocio" con el tipo de negocio y los interruptores -->
 
 - **Tipo de negocio:** elija otro tipo y pulse **Cambiar el tipo de negocio**. Los interruptores vuelven a los valores recomendados
   para ese tipo.
@@ -87,7 +83,7 @@ Vea qué elegir en [Recomendaciones por tipo de negocio](#3-recomendaciones-por-
 
 ### Ventas en la caja
 
-<!-- CAPTURA: pantalla de la caja con una venta en curso y la barra de atajos (F3, F4, F6, F8, F9, F10) -->
+![La caja con una venta en curso: promociones aplicadas solas y los botones con su tecla (F3, F4, F6, Supr, F8, F9, F7 y F10).](imagenes/uso/caja-07-venta-con-productos-y-promociones.png)
 
 | Función | Lo que gana |
 |---|---|
@@ -110,7 +106,7 @@ Vea qué elegir en [Recomendaciones por tipo de negocio](#3-recomendaciones-por-
 
 ### Turnos y cierres de caja
 
-<!-- CAPTURA: pantalla "Cerrar turno" de la caja con el conteo por denominaciones -->
+![Cerrar turno: conteo ciego del efectivo por valor y de los demás medios de pago.](imagenes/uso/caja-40-cerrar-turno-conteo.png)
 
 - **Abrir turno:** el cajero cuenta la base del cajón por denominaciones. Queda claro con cuánto empezó.
 - **Cerrar turno a ciegas:** el cajero cuenta el efectivo y escribe el total de los demás medios **sin ver lo esperado**. El
@@ -124,7 +120,7 @@ desapercibidas.
 
 ### Inventario
 
-<!-- CAPTURA: Administración → Inventario → Existencias con el filtro "Solo bajo el mínimo" -->
+![Existencias con el filtro «Solo bajo el mínimo»: los productos que hay que pedir.](imagenes/uso/adm-21-existencias-bajo-el-minimo.png)
 
 | Función (menú **Inventario**) | Lo que gana |
 |---|---|
@@ -151,7 +147,7 @@ pagos a proveedores.
 
 ### Promociones
 
-<!-- CAPTURA: Administración → Clientes y promociones → Promociones, detalle de una promoción con la pestaña "Simular" -->
+![Promoción · Simular: una venta de ejemplo calculada con el mismo motor de la caja.](imagenes/uso/adm-69-promocion-simular.png)
 
 En **Clientes y promociones → Promociones** (con la función **Promociones** encendida) puede crear cinco tipos:
 
@@ -182,7 +178,7 @@ por cliente en los reportes solo aparece si el cliente autorizó).
 
 ### Reportes y tablero
 
-<!-- CAPTURA: Administración → Tablero con "Ventas de hoy", "Ventas por hora" y "Requiere atención" -->
+![Tablero: ventas netas, tiquetes, ticket promedio, utilidad bruta, ventas por hora y lo más vendido.](imagenes/uso/adm-02-tablero.png)
 
 - El **Tablero** muestra las ventas de hoy, las ventas por hora, los más vendidos y un recuadro **Requiere atención** con lo
   pendiente: cierres con diferencia por revisar, productos bajo el mínimo, alertas de backups, incidentes de la auditoría y
@@ -221,7 +217,7 @@ Si un cobro aprobado no terminó en venta, aparece en **Cobros por revisar** par
 Necesita la función **Báscula y PLU** encendida (viene así en Supermercado y en Fruver o carnicería). Si está apagada, la caja no
 lee la báscula y en el producto no salen el PLU, "Se vende por báscula" ni la tara.
 
-<!-- CAPTURA: Administración → Cajas e impresoras → Báscula de una caja, con el peso en vivo -->
+![Cajas e impresoras · Báscula de la caja con la prueba de peso en vivo.](imagenes/uso/integ-03-bascula.png)
 
 - **Báscula etiquetadora** (sección de carnes o fruver): imprime una etiqueta con el peso o el precio y la caja la lee como un
   código de barras. En el producto se registra el **PLU de báscula**.
@@ -235,8 +231,6 @@ lee la báscula y en el producto no salen el PLU, "Se vende por báscula" ni la 
 **Lo que gana:** cobra exactamente lo que pesa, sin errores de digitación, y sabe cuándo un peso fue digitado a mano.
 
 ### Nube y portal
-
-<!-- CAPTURA: portal BusinessPost → Operación → Datos de las tiendas -->
 
 - Cada venta sube a la nube en cuanto hay Internet. Puede forzarlo en **Administración → Sincronización → Sincronizar ahora**.
 - En el **portal web** de BusinessPost (desde cualquier celular o computador) usted ve **Datos de las tiendas**: ventas por día,
