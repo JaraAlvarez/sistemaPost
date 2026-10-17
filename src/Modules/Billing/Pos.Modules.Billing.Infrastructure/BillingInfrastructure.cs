@@ -60,6 +60,7 @@ internal sealed class BillingModelContributor : IModelContributor
             b.Property(x => x.Id).ValueGeneratedNever();
             b.Property(x => x.DocumentType).HasUpperSnakeConversion();
             b.Ignore(x => x.UsagePercent);
+            b.Property(x => x.Environment).HasUpperSnakeConversion();
             b.Ignore(x => x.Remaining);
             b.HasControlColumns();
             b.HasXminConcurrency();
@@ -76,6 +77,8 @@ internal sealed class BillingModelContributor : IModelContributor
             b.Ignore(x => x.HasCredentials);
             b.Ignore(x => x.IsVerified);
             b.Ignore(x => x.CanSend);
+            b.Ignore(x => x.RangesStale);
+            b.Property(x => x.RangesEnvironment).HasConversion(new UpperSnakeEnumConverter<FiscalEnvironment>());
             b.Ignore(x => x.HeldBefore);
             b.HasControlColumns();
             b.HasXminConcurrency();
@@ -162,7 +165,8 @@ internal sealed class FiscalDocumentStore(PosDbContext context) : IFiscalDocumen
         var held = HeldQuery(heldBefore, environment);
         var other = await held.CountAsync(d => d.Environment != environment, cancellationToken);
         var before = await held.CountAsync(d => d.Environment == environment, cancellationToken);
-        return new FiscalHeldCount(before, other);
+        var review = await held.CountAsync(d => d.Attempts > 0 || d.Status == FiscalStatus.Submitting, cancellationToken);
+        return new FiscalHeldCount(before, other, review);
     }
 
     public async Task<IReadOnlyList<FiscalDocument>> ListHeldAsync(DateTimeOffset? heldBefore, FiscalEnvironment environment, CancellationToken cancellationToken) =>
@@ -789,8 +793,9 @@ internal sealed partial class FiscalQueueWorker(
         await using var scope = scopes.CreateAsyncScope();
         if (installation.CompanyId is not { } companyId
             || await scope.ServiceProvider.GetRequiredService<IBillingSettingsStore>().GetAsync(companyId, cancellationToken) is not
-                { CanSend: true } configured
-            || (configured.LastSyncAt is { } last && time.GetUtcNow() - last < TimeSpan.FromHours(Math.Max(1, options.RangeSyncHours))))
+                { Mode: not BillingMode.Off, IsVerified: true } configured
+            // N2: con rangos de otro ambiente (o sin rangos) se sincroniza ya; si no, cada ⚙️ 24 h.
+            || (!configured.RangesStale && configured.LastSyncAt is { } last && time.GetUtcNow() - last < TimeSpan.FromHours(Math.Max(1, options.RangeSyncHours))))
         {
             return;
         }

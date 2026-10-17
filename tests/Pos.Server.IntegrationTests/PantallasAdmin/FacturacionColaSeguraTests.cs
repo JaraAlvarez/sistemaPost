@@ -70,7 +70,7 @@ public class FacturacionColaSeguraTests
         (await VerifyAsync(shop.Owner)).Ok.ShouldBeTrue();
         await SendAsync<BillingSettingsDto>(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "EVERY_SALE", environment = "PRODUCTION" });
         var held = await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings");
-        (held.HeldDocuments, held.HeldOtherEnvironment).ShouldBe((1, 1));
+        (held.HeldDocuments, held.HeldOtherEnvironment, held.HeldInReview, held.RangesSyncRequired).ShouldBe((1, 1, 1, true));
         (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/send")).ShouldBe(0);
         var submissions = factory.Fiscal.Submissions.Count;
         await DueNowAsync(shop);
@@ -78,14 +78,40 @@ public class FacturacionColaSeguraTests
         factory.Fiscal.Submissions.Count.ShouldBe(submissions);
         (await ForSourceAsync(shop, sandbox.Sale.Id)).Status.ShouldBe("CONTINGENCY");
 
-        // Una venta nueva en PRODUCCIÓN sí sale, con su ambiente.
+        // N2: sin rangos de PRODUCCIÓN no sale nada (los de pruebas nunca sirven); la lista y la asignación son del ambiente vigente.
         var production = await SellAsync(shop);
         await DueNowAsync(shop);
+        (await ProcessAsync(shop)).StoppedBecause.ShouldBe("NOT_CONFIGURED");
+        (await GetAsync<List<FiscalRangeDto>>(shop.Owner, "/api/v1/billing/ranges")).ShouldBeEmpty();
+        var sandboxRange = await shop.Catalog.ScalarAsync<Guid>("SELECT id FROM billing.fiscal_numbering_ranges WHERE environment = 'SANDBOX' LIMIT 1");
+        await RawAsync(shop.Owner, HttpMethod.Put, $"/api/v1/billing/ranges/{sandboxRange}/assignment", new { branchId = shop.Catalog.Setup.BranchId })
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.RANGE_OTHER_ENVIRONMENT");
+        var productionRanges = await PostAsync<List<FiscalRangeDto>>(shop.Owner, "/api/v1/billing/ranges/sync");
+        productionRanges.Count.ShouldBe(4);
+        foreach (var range in productionRanges)
+        {
+            await AssignAsync(shop, range.Id, shop.Catalog.Setup.BranchId);
+        }
+
+        (await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings")).RangesSyncRequired.ShouldBeFalse();
+
+        // Ahora la venta en PRODUCCIÓN sale, con un rango de PRODUCCIÓN.
+        await DueNowAsync(shop);
         (await ProcessAsync(shop)).Accepted.ShouldBe(1);
+        (await shop.Catalog.ScalarAsync<string>(
+                $"SELECT r.environment FROM billing.fiscal_documents f JOIN billing.fiscal_numbering_ranges r ON r.id = f.numbering_range_id WHERE f.source_id = '{production.Sale.Id}'"))
+            .ShouldBe("PRODUCTION");
+        (await CountAsync(shop, "SELECT count(*) FROM billing.fiscal_documents f JOIN billing.fiscal_numbering_ranges r ON r.id = f.numbering_range_id WHERE f.environment <> r.environment"))
+            .ShouldBe(0);
         factory.Fiscal.LastConnection!.Environment.ShouldBe(Pos.Modules.Billing.Domain.FiscalEnvironment.Production);
         (await shop.Catalog.ScalarAsync<string>($"SELECT environment FROM billing.fiscal_documents WHERE source_id = '{production.Sale.Id}'")).ShouldBe("PRODUCTION");
 
-        // El de SANDBOX se marca no enviado; la conciliación lo muestra.
+        // N1: el de SANDBOX ya se intentó enviar (contingencia): queda "en revisión", "No enviar" no lo toca.
+        (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/discard")).ShouldBe(0);
+        (await ForSourceAsync(shop, sandbox.Sale.Id)).Status.ShouldBe("CONTINGENCY");
+
+        // Uno de SANDBOX que nunca se intentó sí se marca no enviado; la conciliación lo muestra.
+        await shop.Catalog.ExecuteAsync($"UPDATE billing.fiscal_documents SET attempts = 0 WHERE source_id = '{sandbox.Sale.Id}'");
         (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/discard")).ShouldBe(1);
         (await ForSourceAsync(shop, sandbox.Sale.Id)).Status.ShouldBe("NOT_SENT");
         var today = DateOnly.FromDateTime(DateTime.Now);
@@ -111,10 +137,14 @@ public class FacturacionColaSeguraTests
             await AssignAsync(shop, range.Id, shop.Catalog.Setup.BranchId);
         }
 
-        (await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings")).HeldDocuments.ShouldBe(1);
+        (await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings")).ShouldSatisfyAllConditions(
+            s => s.HeldDocuments.ShouldBe(1), s => s.HeldInReview.ShouldBe(1));
 
-        // Anular la venta emite nota crédito (la factura estaba "en envío"); luego "No enviar" deja la factura NO ENVIADA.
+        // Anular la venta emite nota crédito (la factura estaba "en envío"). Reclamada, "No enviar" no la toca (N1); consultada y vuelta a
+        // pendiente (nunca llegó al proveedor), sí: la factura queda NO ENVIADA.
         await shop.AuthorizedAsync<SaleReceiptDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Sale.Id}/void", new { reason = "Cliente desistió" });
+        (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/discard")).ShouldBe(0);
+        await shop.Catalog.ExecuteAsync($"UPDATE billing.fiscal_documents SET status = 'PENDING', attempts = 0 WHERE source_id = '{sale.Sale.Id}' AND source = 'SALE'");
         (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/discard")).ShouldBe(1);
 
         // La nota no se aplaza para siempre: queda NO ENVIADA, con alerta en la auditoría, y nada sale al proveedor.
@@ -123,6 +153,30 @@ public class FacturacionColaSeguraTests
         (await ForSourceAsync(shop, sale.Sale.Id, "SALE_VOID")).Status.ShouldBe("NOT_SENT");
         factory.Fiscal.CreditNotes.ShouldBeEmpty();
         (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_DOCUMENT_NOT_SENT'")).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Rotar_llaves_en_el_mismo_ambiente_no_retiene_lo_que_esta_en_cola()
+    {
+        await using var factory = new ElectronicBillingServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        await shop.OpenSessionAsync();
+        await EnableAsync(shop);
+
+        factory.Fiscal.Offline = true;
+        var sale = await SellAsync(shop);
+        (await ProcessAsync(shop)).StoppedBecause.ShouldBe("CONTINGENCY");
+        factory.Fiscal.Offline = false;
+
+        (await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/credentials/rotate", new
+        {
+            username = "otra@correo.co", password = "Otra-Clave-1", clientId = "cliente-10", clientSecret = "secreto-nuevo",
+        })).Ok.ShouldBeTrue();
+        (await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings")).ShouldSatisfyAllConditions(
+            s => s.HeldDocuments.ShouldBe(0), s => s.Mode.ShouldBe("EVERY_SALE"), s => s.CredentialHint.ShouldBe("ot***@correo.co"));
+        await DueNowAsync(shop);
+        (await ProcessAsync(shop)).Accepted.ShouldBe(1);
+        (await ForSourceAsync(shop, sale.Sale.Id)).Status.ShouldBe("ACCEPTED");
     }
 
     [Fact]

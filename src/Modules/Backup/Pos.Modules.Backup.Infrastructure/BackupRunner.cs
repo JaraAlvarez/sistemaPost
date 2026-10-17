@@ -90,6 +90,13 @@ internal sealed class FolderDestination(string path, string? volumeLabel) : IDes
 
     private void EnsureAvailable()
     {
+        // N5: el nombre de un equipo de red puede cambiar de dirección: antes de cada copia se vuelve a exigir un equipo de la red local.
+        if (BackupFolderProbe.IsUnc(path)
+            && BackupFolderProbe.NetworkHostProblem(BackupFolderProbe.HostOf(path), host => System.Net.Dns.GetHostAddresses(host)) is { } problem)
+        {
+            throw new DestinationUnavailableException(problem);
+        }
+
         if (string.IsNullOrWhiteSpace(volumeLabel) || path.StartsWith(@"\\", StringComparison.Ordinal))
         {
             return;
@@ -787,11 +794,11 @@ internal sealed class BackupOperations(
         // PB9: UNA comprobación a la vez por carpeta. Si una anterior sigue colgada (red caída), se espera esa misma en vez de abrir otro
         // hilo; el probe recibe un token que vence con el tiempo máximo, y el registro se quita cuando de verdad termina.
         var key = $"{folderKind}|{path?.Trim().ToUpperInvariant()}|{volumeLabel?.Trim().ToUpperInvariant()}|{allowSameVolume}";
-        var running = RunningChecks.GetOrAdd(key, _ => StartCheck(key, path, volumeLabel, folderKind, allowSameVolume));
+        var lazy = RunningChecks.GetOrAdd(key, k => new Lazy<Task<BackupFolderProbeResult>>(() => StartCheck(k, path, volumeLabel, folderKind, allowSameVolume)));
         try
         {
-            var result = await running.WaitAsync(CheckTimeout, cancellationToken);
-            RunningChecks.TryRemove(new KeyValuePair<string, Task<BackupFolderProbeResult>>(key, running)); // nunca reutilizar un resultado viejo
+            var result = await lazy.Value.WaitAsync(CheckTimeout, cancellationToken);
+            RunningChecks.TryRemove(new KeyValuePair<string, Lazy<Task<BackupFolderProbeResult>>>(key, lazy)); // nunca reutilizar un resultado viejo
             return new BackupFolderCheckDto(result.Ok, result.Message, result.FullPath, result.VolumeLabel, result.FreeBytes);
         }
         catch (TimeoutException)
@@ -801,7 +808,7 @@ internal sealed class BackupOperations(
         }
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<BackupFolderProbeResult>> RunningChecks =
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<BackupFolderProbeResult>>> RunningChecks =
         new(StringComparer.Ordinal);
 
     private Task<BackupFolderProbeResult> StartCheck(string key, string? path, string? volumeLabel, BackupFolderKind kind, bool allowSameVolume)
@@ -819,7 +826,16 @@ internal sealed class BackupOperations(
                 return new BackupFolderProbeResult(false, "La carpeta no respondió a tiempo.", null, null, null);
             }
         });
-        _ = task.ContinueWith(_ => RunningChecks.TryRemove(key, out var _), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        // Se quita SOLO la entrada de esta comprobación (otra posterior con la misma llave no se toca).
+        _ = task.ContinueWith(
+            _ =>
+            {
+                if (RunningChecks.TryGetValue(key, out var entry) && entry.IsValueCreated && ReferenceEquals(entry.Value, task))
+                {
+                    RunningChecks.TryRemove(new KeyValuePair<string, Lazy<Task<BackupFolderProbeResult>>>(key, entry));
+                }
+            },
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         return task;
     }
 

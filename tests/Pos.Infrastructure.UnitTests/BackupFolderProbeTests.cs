@@ -126,6 +126,37 @@ public sealed class BackupFolderProbeTests : IDisposable
     }
 
     [Fact]
+    public async Task Si_la_carpeta_LOCAL_aun_no_existe_se_compara_con_su_ancestro_mas_cercano()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // N3: servidor recién instalado: la LOCAL no existe todavía, pero el disco y la ruta se resuelven desde su ancestro existente.
+        var futureLocal = Path.Combine(_root, "nuevo", "backups", "local");
+        var sameDisk = Directory.CreateDirectory(Path.Combine(_root, "otra")).FullName;
+        (await BackupFolderProbe.CheckAsync(sameDisk, null, futureLocal, BackupFolderKind.External, allowSameVolume: false, Ct)).Message.ShouldContain("mismo disco");
+        Directory.CreateDirectory(Path.Combine(_root, "nuevo"));
+        (await BackupFolderProbe.CheckAsync(Path.Combine(_root, "nuevo", "backups"), null, futureLocal, BackupFolderKind.External, allowSameVolume: true, Ct))
+            .Ok.ShouldBeTrue();
+
+        // Un alias (junction) del ancestro que apunta adentro de la LOCAL futura se descubre igual.
+        var alias = Path.Combine(_root, "alias-nuevo");
+        using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{alias}\" \"{Path.Combine(_root, "nuevo")}\"")
+               {
+                   UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true,
+               })!)
+        {
+            await mklink.WaitForExitAsync(Ct);
+        }
+
+        (await BackupFolderProbe.CheckAsync(Path.Combine(alias, "backups", "local", "copia"), null, futureLocal, BackupFolderKind.External, true, Ct))
+            .Ok.ShouldBeFalse();
+        Directory.Delete(alias);
+    }
+
+    [Fact]
     public async Task Un_archivo_no_es_una_carpeta_y_la_etiqueta_del_disco_debe_coincidir()
     {
         var file = Path.Combine(_root, "archivo.txt");

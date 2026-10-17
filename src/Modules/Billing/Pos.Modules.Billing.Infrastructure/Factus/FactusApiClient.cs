@@ -51,6 +51,7 @@ internal sealed partial class FactusApiClient(
             return FactusQueryResult<FactusSession>.From(NotConfigured());
 
         var lease = await tokens.GetAsync(options, forcePasswordGrant: true, cancellationToken, FactusTokenManager.VerificationSlot);
+        tokens.Forget(options, FactusTokenManager.VerificationSlot); // N4: el token de la verificación no se reutiliza: no se guarda
         return lease.Failure is { } failure
             ? FactusQueryResult<FactusSession>.From(failure)
             : FactusQueryResult<FactusSession>.Found(new FactusSession(lease.ExpiresAt), 200);

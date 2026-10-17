@@ -94,6 +94,25 @@ nuevo queda permitido con la licencia restringida (R10 sin cambios).
 | PA6 | El freno de 10 s es por juego de llaves: otras llaves candidatas no esperan |
 | R10 | Con licencia RESTRINGIDA: `ReleaseFiscalBacklogCommand`, `VerifyBillingConnectionCommand` y `RetryFiscalDocumentCommand` permitidos; `DiscardFiscalBacklogCommand` y `RotateProviderCredentialsCommand`, no |
 
+### Ronda 4
+
+| Punto | Qué se hizo |
+|---|---|
+| N2 | `fiscal_numbering_ranges.environment`: cada ambiente tiene sus rangos (llave única y asignación por ambiente). La sincronización, la lista, la asignación (`BILLING.RANGE_OTHER_ENVIRONMENT`), las alertas y la selección del rango usan solo el ambiente vigente. `provider_settings.ranges_environment`: la cola no envía hasta sincronizar los rangos del ambiente vigente (la tarjeta lo avisa con "Sincronizar rangos"; el trabajador sincroniza solo) |
+| N1 | Rotar llaves en el MISMO ambiente no mueve el corte (solo el cambio de ambiente). "No enviar" excluye lo ya intentado (`attempts > 0`) o reclamado: queda **en revisión** ("consulte el estado en Factus") y se cuenta aparte (`HeldInReview`) |
+| N3 | Si la carpeta LOCAL aún no existe, la ruta real y el disco se resuelven desde su ancestro existente más cercano |
+| N4 | Además del freno por llaves, máximo 5 verificaciones por minuto por empresa; el token de la verificación no se guarda en memoria |
+| N5 | Antes de cada copia a una carpeta de red se vuelve a exigir un equipo de la red local (el nombre pudo cambiar de dirección) |
+| N6 | `Lazy` en `GetOrAdd` y `TryRemove(KeyValuePair)` en las comprobaciones de carpeta en curso |
+| N7 | El procesador compara el ambiente del documento con el de la conexión antes de reclamarlo (segunda defensa) |
+| N8 | El vencimiento del crédito se cuenta desde la fecha real de emisión (la del envío, `FiscalHeader.SubmittedOn`), con los mismos días de plazo |
+| PB6 | Una nota sin rango de numeración por más de 72 h deja de reintentarse (error sin próximo intento) con alerta crítica `FISCAL_RANGE_MISSING`; se reintenta a mano |
+| PB10 | Si no se puede resolver la ruta real de la carpeta o de la LOCAL, se rechaza con un mensaje claro |
+
+**Nota de despliegue:** la V2026.10.060 cambió de checksum en cada ronda. Una BD de **desarrollo** que ya aplicó una versión anterior se
+recrea (`dev-db.ps1`) o se borra su fila en `system.schema_migrations` (y lo que creó) antes de migrar. En producción no hay ninguna
+(ver `docs/notas-de-version.md`).
+
 ## 3. Pruebas
 
 - Unitarias: reglas de `BillingProviderSettings` (verificación, `CanSend`, atraso, falla transitoria, cambio de llaves), `NOT_SENT`, el

@@ -144,6 +144,12 @@ public class FactusConexionTests
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFY_TOO_SOON");
         (await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/verify-candidate", Credentials(WrongPassword)))
             .Ok.ShouldBeFalse();
+
+        // N4: además, como máximo 5 verificaciones por minuto por empresa, aunque sean llaves distintas.
+        (await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/verify-candidate", Credentials("Otra-1"))).Ok.ShouldBeFalse();
+        (await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/verify-candidate", Credentials("Otra-2"))).Ok.ShouldBeFalse();
+        await RawAsync(shop.Owner, HttpMethod.Post, "/api/v1/billing/settings/verify-candidate", Credentials("Otra-3"))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFY_TOO_SOON");
     }
 
     [Fact]

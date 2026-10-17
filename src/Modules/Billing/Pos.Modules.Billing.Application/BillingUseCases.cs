@@ -101,8 +101,11 @@ public interface IFiscalReadModel
         Guid companyId, DateTimeOffset overdueBefore, DateTimeOffset? heldBefore, FiscalEnvironment? environment, CancellationToken cancellationToken);
 }
 
-/// <summary>Atraso retenido: del ambiente vigente de antes de conectar, y de otro ambiente.</summary>
-public sealed record FiscalHeldCount(int BeforeConnection, int OtherEnvironment)
+/// <summary>
+/// Atraso retenido: del ambiente vigente de antes de conectar, y de otro ambiente. <c>InReview</c> (incluido en los anteriores): ya se
+/// intentaron enviar o están reclamados; "No enviar" no los toca (N1).
+/// </summary>
+public sealed record FiscalHeldCount(int BeforeConnection, int OtherEnvironment, int InReview)
 {
     public int Total => BeforeConnection + OtherEnvironment;
 }

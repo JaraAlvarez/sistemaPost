@@ -78,6 +78,27 @@ public class FiscalApplicationTests
     }
 
     [Fact]
+    public void El_freno_de_verificaciones_es_por_llaves_y_como_maximo_5_por_minuto()
+    {
+        var time = new ManualTime(new DateTimeOffset(2026, 10, 17, 10, 0, 0, TimeSpan.Zero));
+        var throttle = new FiscalVerifyThrottle(TimeSpan.FromSeconds(10), time);
+        var company = Guid.NewGuid();
+
+        throttle.TryEnter(company, "a").ShouldBeTrue();
+        throttle.TryEnter(company, "a").ShouldBeFalse(); // mismas llaves antes de 10 s
+        for (var i = 0; i < 4; i++)
+        {
+            throttle.TryEnter(company, $"otra-{i}").ShouldBeTrue();
+        }
+
+        throttle.TryEnter(company, "otra-5").ShouldBeFalse(); // 6.ª en el mismo minuto, aunque sean otras llaves (N4)
+        throttle.TryEnter(Guid.NewGuid(), "a").ShouldBeTrue(); // otra empresa no espera
+        time.Now = time.Now.AddMinutes(1);
+        throttle.TryEnter(company, "otra-5").ShouldBeTrue();
+        new FiscalVerifyThrottle(TimeSpan.Zero, time).TryEnter(company, "a").ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Verificar_la_conexion_con_el_proveedor_nulo_y_el_simulado()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -146,7 +146,9 @@ public sealed record BillingSettingsDto(
     string? LastVerificationMessage = null,
     int HeldDocuments = 0,
     DateTimeOffset? AutoDisabledAt = null,
-    int HeldOtherEnvironment = 0);
+    int HeldOtherEnvironment = 0,
+    int HeldInReview = 0,
+    bool RangesSyncRequired = false);
 
 /// <summary>
 /// Resultado de "Verificar conexión" con el proveedor. <c>Transient</c>: el fallo fue de red o del proveedor (no de las credenciales); no

@@ -323,6 +323,13 @@ public class NumberingAndSettingsTests
         FiscalNumberingRange.Select(all, Branch, null, FiscalDocumentType.SupportDocument, Today).ShouldBeNull();
         FiscalNumberingRange.Select(all, Guid.NewGuid(), null, FiscalDocumentType.InvoiceElectronic, Today).ShouldBeNull();
         FiscalNumberingRange.Select(null!, Branch, null, FiscalDocumentType.InvoiceElectronic, Today).ShouldBeNull();
+
+        // N2: un rango de pruebas nunca numera producción, y uno de producción solo se elige en producción.
+        FiscalNumberingRange.Select(all, Branch, Terminal, FiscalDocumentType.InvoiceElectronic, Today, FiscalEnvironment.Production).ShouldBeNull();
+        var production = FiscalNumberingRange.Create(Guid.NewGuid(), Company, "FACTUS", Data("R3"), Now, FiscalEnvironment.Production);
+        production.Assign(Branch, Terminal);
+        FiscalNumberingRange.Select([.. all, production], Branch, Terminal, FiscalDocumentType.InvoiceElectronic, Today, FiscalEnvironment.Production)
+            .ShouldBe(production);
     }
 
     [Fact]
@@ -403,6 +410,12 @@ public class NumberingAndSettingsTests
         settings.RecordVerification(Now.AddMinutes(1), ok: true, "ok").ShouldBeTrue();
         (settings.BacklogCutoff, settings.HeldBefore, settings.CanSend).ShouldBe(((DateTimeOffset?)Now.AddMinutes(1), (DateTimeOffset?)Now.AddMinutes(1), false));
         settings.Configure(BillingMode.EverySale, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        // N2: sin rangos sincronizados del ambiente vigente no se envía.
+        (settings.RangesStale, settings.CanSend).ShouldBe((true, false));
+        settings.RecordSync(Now, "Factus caído", FiscalEnvironment.Sandbox);
+        settings.CanSend.ShouldBeFalse();
+        settings.RecordSync(Now, null, FiscalEnvironment.Sandbox);
         settings.CanSend.ShouldBeTrue();
 
         // Sin red después de verificar: se conserva la verificación (PA9); un rechazo de credenciales sí la quita y detiene la cola.
@@ -421,7 +434,7 @@ public class NumberingAndSettingsTests
     }
 
     [Fact]
-    public void Verificar_en_otro_ambiente_o_con_otras_llaves_mueve_el_corte_del_atraso()
+    public void Verificar_en_otro_ambiente_mueve_el_corte_del_atraso_y_rotar_llaves_no()
     {
         var settings = BillingProviderSettings.Create(Company, "FACTUS");
         settings.SetCredentials([1], Now, "ti***@correo.co");
@@ -434,9 +447,10 @@ public class NumberingAndSettingsTests
         settings.RecordVerification(Now.AddHours(1), ok: true, "ok");
         (settings.BacklogCutoff, settings.BacklogEnvironment, settings.BacklogReleased).ShouldBe(((DateTimeOffset?)Now.AddHours(1), (FiscalEnvironment?)FiscalEnvironment.Production, false));
 
-        // Otras llaves (cambio verificado): también.
+        // N1: rotar llaves en el MISMO ambiente no mueve el corte; los rangos del ambiente anterior ya no sirven.
         settings.ReplaceVerifiedCredentials([7], Now.AddHours(2), "ot***@correo.co", "ok");
-        settings.BacklogCutoff.ShouldBe(Now.AddHours(2));
+        settings.BacklogCutoff.ShouldBe(Now.AddHours(1));
+        settings.RangesStale.ShouldBeTrue();
 
         // El documento electrónico guarda su ambiente; el interno no.
         FiscalDocument.Issue(
@@ -477,6 +491,28 @@ public class NumberingAndSettingsTests
         pending.Events[^1].EventType.ShouldBe("NOT_SENT");
         pending.DiscardBacklog("otra vez", Now, user, Guid.NewGuid).ShouldBeFalse();
         pending.Retry(Now, user, Guid.NewGuid).Error.ShouldBe(BillingErrors.NotRetryable);
+
+        // N1: lo reclamado (o ya intentado) queda en revisión: "No enviar" no lo toca; una nota que no aplica sí se marca (PB6).
+        var claimed = FiscalDocument.Issue(
+            Guid.NewGuid(), Company,
+            new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-000002", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                "222222222222", null, 10_000m, 1_900m, 11_900m),
+            electronic: true, Now, user, Guid.NewGuid);
+        claimed.Claim(Now, TimeSpan.FromMinutes(5)).IsSuccess.ShouldBeTrue();
+        claimed.InReview.ShouldBeTrue();
+        claimed.DiscardBacklog("No enviar", Now, user, Guid.NewGuid).ShouldBeFalse();
+        claimed.MarkNotApplicable("No aplica", Now, Guid.NewGuid);
+        claimed.Status.ShouldBe(FiscalStatus.NotSent);
+
+        // PB6: una nota detenida (p. ej. sin rango demasiado tiempo) queda con error y sin próximo intento, y se puede reintentar a mano.
+        var note = FiscalDocument.Issue(
+            Guid.NewGuid(), Company,
+            new FiscalIssue(FiscalSource.SaleVoid, Guid.NewGuid(), "C1-000003", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                "222222222222", null, 10_000m, 1_900m, 11_900m),
+            electronic: true, Now, user, Guid.NewGuid);
+        note.Stall("NO_RANGE_LIMIT", "Sin rango", Now, Guid.NewGuid);
+        (note.Status, note.NextAttemptAt).ShouldBe((FiscalStatus.Error, (DateTimeOffset?)null));
+        note.Retry(Now, user, Guid.NewGuid).IsSuccess.ShouldBeTrue();
     }
 
     [Theory]

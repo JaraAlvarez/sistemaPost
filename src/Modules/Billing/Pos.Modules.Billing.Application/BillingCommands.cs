@@ -18,7 +18,12 @@ internal static class BillingGuards
     public static readonly Error SetupRequired = Error.BusinessRule("SETUP.REQUIRED", "Complete primero la configuración inicial (POST /api/v1/setup).");
 
     public static Error TooSoon(FiscalVerifyThrottle throttle) => Error.BusinessRule(
-        "BILLING.VERIFY_TOO_SOON", $"Espere unos segundos: la conexión se prueba como máximo una vez cada {throttle.Interval.TotalSeconds:0} segundos.");
+        "BILLING.VERIFY_TOO_SOON",
+        $"Espere unos segundos: la conexión se prueba como máximo una vez cada {throttle.Interval.TotalSeconds:0} segundos por juego de llaves y "
+        + $"{FiscalVerifyThrottle.PerMinute} veces por minuto.");
+
+    public static readonly Error RangeOtherEnvironment = Error.BusinessRule(
+        "BILLING.RANGE_OTHER_ENVIRONMENT", "Ese rango es de otro ambiente del proveedor: asigne un rango del ambiente vigente (sincronice los rangos).");
 
     public const string AutoDisabledNotice = "La facturación electrónica quedó apagada: conéctela en Facturación → Configuración.";
 }
@@ -171,7 +176,8 @@ internal sealed class GetBillingSettingsHandler(
         return new BillingSettingsDto(
             configured?.Provider ?? provider.Name, provider.Name, mode.Db(), (configured?.Environment ?? FiscalEnvironment.Sandbox).Db(), configured?.HasCredentials ?? false,
             configured?.CredentialsUpdatedAt, configured?.LastSyncAt, configured?.LastSyncError, configured?.CredentialHint, configured?.LastVerifiedAt,
-            configured?.LastVerificationOk, configured?.LastVerificationMessage, held.Total, configured?.AutoDisabledAt, held.OtherEnvironment);
+            configured?.LastVerificationOk, configured?.LastVerificationMessage, held.Total, configured?.AutoDisabledAt, held.OtherEnvironment, held.InReview,
+            configured is { RangesStale: true, HasCredentials: true });
     }
 }
 
@@ -402,7 +408,7 @@ internal sealed class VerifyCandidateCredentialsHandler(
 /// <summary>
 /// "Cambiar llaves" (PA6): prueba las llaves candidatas en el ambiente vigente SIN guardarlas (fuera de la transacción); solo si el proveedor
 /// las acepta se guardan (cifradas, en una transacción corta) y la facturación sigue en su modo. Si fallan no se toca nada (<c>Ok = false</c>).
-/// Las llaves nuevas mueven el corte del atraso (los documentos de antes esperan "Enviar ahora").
+/// En el mismo ambiente NO se mueve el corte del atraso (N1): lo que está en cola sigue saliendo.
 /// </summary>
 public sealed record RotateProviderCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret)
     : ICommand<FiscalConnectionVerificationDto>, ISelfTransactedCommand
@@ -506,7 +512,7 @@ internal static class CandidateCheck
 internal static class HeldDocuments
 {
     public static async Task<FiscalHeldCount> CountAsync(IFiscalDocumentStore documents, BillingProviderSettings? settings, CancellationToken cancellationToken) =>
-        settings is null ? new FiscalHeldCount(0, 0) : await documents.CountHeldAsync(settings.HeldBefore, settings.Environment, cancellationToken);
+        settings is null ? new FiscalHeldCount(0, 0, 0) : await documents.CountHeldAsync(settings.HeldBefore, settings.Environment, cancellationToken);
 }
 
 /// <summary>
@@ -549,9 +555,9 @@ internal sealed class ReleaseFiscalBacklogHandler(IBillingSettingsStore store, I
 }
 
 /// <summary>
-/// "No enviar" el atraso retenido (PA1, PB1, PB7): los documentos de antes de conectar y los de OTRO ambiente (pendientes, con error, en
-/// contingencia o reclamados) quedan NOT_SENT y la cola no los vuelve a tomar. IRREVERSIBLE. Devuelve cuántos. No se permite con la licencia
-/// restringida.
+/// "No enviar" el atraso retenido (PA1, PB1): los documentos de antes de conectar y los de OTRO ambiente que NUNCA se intentaron enviar
+/// quedan NOT_SENT y la cola no los vuelve a tomar. IRREVERSIBLE. Los ya intentados o reclamados quedan "en revisión" (N1): pudieron llegar
+/// al proveedor y hay que consultarlos en Factus. Devuelve cuántos se marcaron. No se permite con la licencia restringida.
 /// </summary>
 public sealed record DiscardFiscalBacklogCommand : ICommand<int>;
 
@@ -596,7 +602,8 @@ internal sealed class DiscardFiscalBacklogHandler(
 
 public sealed record ListFiscalRangesQuery : IQuery<IReadOnlyList<FiscalRangeDto>>;
 
-internal sealed class ListFiscalRangesHandler(IFiscalRangeStore ranges, ISettingsReader settings, IInstallationContext installation, IClock clock)
+internal sealed class ListFiscalRangesHandler(
+    IFiscalRangeStore ranges, IBillingSettingsStore store, ISettingsReader settings, IInstallationContext installation, IClock clock)
     : IQueryHandler<ListFiscalRangesQuery, IReadOnlyList<FiscalRangeDto>>
 {
     public async Task<Result<IReadOnlyList<FiscalRangeDto>>> Handle(ListFiscalRangesQuery request, CancellationToken cancellationToken)
@@ -609,7 +616,9 @@ internal sealed class ListFiscalRangesHandler(IFiscalRangeStore ranges, ISetting
         var context = new SettingContext(companyId);
         var percent = await settings.GetAsync(BillingSettings.RangeAlertPercent, context, cancellationToken);
         var days = await settings.GetAsync(BillingSettings.RangeAlertDays, context, cancellationToken);
+        var environment = (await store.GetAsync(companyId, cancellationToken))?.Environment ?? FiscalEnvironment.Sandbox;
         return (await ranges.ListAsync(cancellationToken))
+            .Where(r => r.Environment == environment) // N2: solo los del ambiente vigente
             .Select(r => r.ToDto(clock.Today, percent, days))
             .OrderBy(r => r.DocumentType, StringComparer.Ordinal).ThenBy(r => r.Prefix, StringComparer.Ordinal).ThenBy(r => r.From)
             .ToList();
@@ -623,7 +632,8 @@ internal sealed class ListFiscalRangesHandler(IFiscalRangeStore ranges, ISetting
 public sealed record AssignFiscalRangeCommand(Guid RangeId, Guid? BranchId, Guid? PosTerminalId) : ICommand<FiscalRangeDto>;
 
 internal sealed class AssignFiscalRangeHandler(
-    IFiscalRangeStore ranges, ISettingsReader settings, IInstallationContext installation, IAuditWriter audit, IUnitOfWork unitOfWork, IClock clock)
+    IFiscalRangeStore ranges, IBillingSettingsStore store, ISettingsReader settings, IInstallationContext installation, IAuditWriter audit,
+    IUnitOfWork unitOfWork, IClock clock)
     : ICommandHandler<AssignFiscalRangeCommand, FiscalRangeDto>
 {
     public async Task<Result<FiscalRangeDto>> Handle(AssignFiscalRangeCommand request, CancellationToken cancellationToken)
@@ -649,9 +659,15 @@ internal sealed class AssignFiscalRangeHandler(
             return BillingErrors.InvalidAssignment;
         }
 
-        // Libera el lugar primero (índice único por sucursal, caja y tipo) y luego asigna.
+        // N2: solo se asignan rangos del ambiente vigente.
+        if (request.BranchId is not null && range.Environment != ((await store.GetAsync(companyId, cancellationToken))?.Environment ?? FiscalEnvironment.Sandbox))
+        {
+            return BillingGuards.RangeOtherEnvironment;
+        }
+
+        // Libera el lugar primero (índice único por ambiente, sucursal, caja y tipo) y luego asigna.
         var displaced = (await ranges.ListAsync(cancellationToken))
-            .Where(r => r.Id != range.Id && r.IsActive && request.BranchId is not null && r.BranchId == request.BranchId
+            .Where(r => r.Id != range.Id && r.IsActive && r.Environment == range.Environment && request.BranchId is not null && r.BranchId == request.BranchId
                         && r.PosTerminalId == request.PosTerminalId && r.DocumentType == range.DocumentType)
             .ToList();
         foreach (var other in displaced)
@@ -734,8 +750,9 @@ internal sealed class GetFiscalAlertsHandler(
         var attention = await readModel.AttentionAsync(
             companyId, clock.UtcNow.AddHours(-hours), configured?.HeldBefore, configured?.Environment, cancellationToken);
         var today = clock.Today;
+        var environment = configured?.Environment ?? FiscalEnvironment.Sandbox;
         var rangeAlerts = (await ranges.ListAsync(cancellationToken))
-            .Where(r => r.BranchId is not null && r.NeedsAlert(today, percent, days))
+            .Where(r => r.Environment == environment && r.BranchId is not null && r.NeedsAlert(today, percent, days))
             .Select(r => new FiscalRangeAlertDto(
                 r.Id, r.Prefix, r.DocumentType.Db(), r.UsagePercent, r.ValidTo,
                 !r.IsUsableOn(today) ? "El rango está agotado o vencido: la facturación queda pendiente."

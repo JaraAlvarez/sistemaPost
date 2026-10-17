@@ -67,6 +67,14 @@
                     <small class="d-block">Rangos sincronizados: @Format.Date(settings.LastSyncAt)@(settings.LastSyncError is { Length: > 0 } e ? " · " + e : "")</small>
                 }
             </MudAlert>
+            @if (settings.RangesSyncRequired)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
+                    Faltan los rangos de numeración de @Ambiente(settings.Environment).ToLowerInvariant(): hasta sincronizarlos no se envía nada (nunca se
+                    usan los de otro ambiente).
+                    <MudButton Size="Size.Small" Class="ml-2" Disabled="_busy" OnClick="SincronizarRangosAsync">Sincronizar rangos</MudButton>
+                </MudAlert>
+            }
             <div class="d-flex flex-wrap align-center gap-2 mt-3">
                 <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="ProbarAsync" StartIcon="@Icons.Material.Outlined.WifiTethering">Volver a probar</MudButton>
                 <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => _cambiando = !_cambiando)" StartIcon="@Icons.Material.Outlined.Key">Cambiar llaves</MudButton>
@@ -207,6 +215,13 @@
                 {
                     <span> @settings.HeldOtherEnvironment de OTRO ambiente: nunca se envían en este; solo se pueden marcar como no enviados.</span>
                 }
+                @if (settings.HeldInReview > 0)
+                {
+                    <small class="d-block mt-1">
+                        <b>@settings.HeldInReview en revisión:</b> ya se intentaron enviar (o el envío quedó a medias) y pudieron llegar a Factus. Consulte
+                        su estado en el panel de Factus; «No enviar» no los toca.
+                    </small>
+                }
                 <small class="d-block mt-1">
                     No se envían solos. <b>Enviar ahora</b>: Factus no recibe la fecha de la venta, así que se emitirán <b>con la fecha de hoy</b>. La
                     DIAN fija un plazo para transmitir (consúltelo con su contador): fuera de él o con datos viejos pueden ser rechazados.
@@ -217,8 +232,11 @@
                     {
                         <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => EnviarAtrasoAsync(antes))">Enviar ahora</MudButton>
                     }
-                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
-                               OnClick="@(() => NoEnviarAtrasoAsync(settings.HeldDocuments))">No enviar</MudButton>
+                    @if (settings.HeldDocuments - settings.HeldInReview > 0)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                                   OnClick="@(() => NoEnviarAtrasoAsync(settings.HeldDocuments - settings.HeldInReview))">No enviar</MudButton>
+                    }
                 </div>
             </MudAlert>
         }
@@ -352,6 +370,19 @@
             Snackbar.Add($"Conectado, pero no se pudieron traer los rangos: {ex.Texto}. Use «Sincronizar desde Factus» en la pestaña Rangos.", Severity.Warning);
             return null;
         }
+    }
+
+    private async Task SincronizarRangosAsync()
+    {
+        _busy = true;
+        if (await SincronizarAsync() is { } n)
+        {
+            Snackbar.Add($"{n} rango(s) sincronizado(s): asígnelos a cada sucursal en la pestaña Rangos.", Severity.Success);
+        }
+
+        await Cambio.InvokeAsync();
+        await CargarAsync();
+        _busy = false;
     }
 
     private async Task ProbarAsync()

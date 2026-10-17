@@ -53,7 +53,11 @@ public sealed class FiscalConnectionFactory(IBillingSettingsStore store, IFiscal
 /// </summary>
 public sealed class FiscalVerifyThrottle(TimeSpan interval, TimeProvider time)
 {
+    /// <summary>Máximo de verificaciones por empresa en un minuto, aunque sean llaves distintas (N4).</summary>
+    public const int PerMinute = 5;
+
     private readonly Dictionary<(Guid Company, string Key), DateTimeOffset> _last = [];
+    private readonly Dictionary<Guid, Queue<DateTimeOffset>> _recent = [];
     private readonly Lock _gate = new();
 
     public TimeSpan Interval => interval;
@@ -74,6 +78,18 @@ public sealed class FiscalVerifyThrottle(TimeSpan interval, TimeProvider time)
                 return false;
             }
 
+            var recent = _recent.TryGetValue(companyId, out var queue) ? queue : _recent[companyId] = new Queue<DateTimeOffset>();
+            while (recent.Count > 0 && now - recent.Peek() >= TimeSpan.FromMinutes(1))
+            {
+                recent.Dequeue();
+            }
+
+            if (recent.Count >= PerMinute)
+            {
+                return false;
+            }
+
+            recent.Enqueue(now);
             _last[(companyId, key)] = now;
             return true;
         }
@@ -104,6 +120,9 @@ public sealed class FiscalDocumentProcessor(
     /// <summary>Espera antes de volver a buscar rango o la aceptación de la factura relacionada.</summary>
     public static readonly TimeSpan DeferDelay = TimeSpan.FromMinutes(15);
 
+    /// <summary>Una nota sin rango de numeración no se aplaza para siempre (PB6): pasado este tiempo se detiene con alerta crítica.</summary>
+    public static readonly TimeSpan NoteWithoutRangeLimit = TimeSpan.FromHours(72);
+
     private IReadOnlyDictionary<string, string>? _codes;
 
     /// <summary>Procesa el documento; devuelve el resultado del proveedor o <c>null</c> si no se envió.</summary>
@@ -111,6 +130,13 @@ public sealed class FiscalDocumentProcessor(
     {
         ArgumentNullException.ThrowIfNull(connection);
         var document = await documents.GetAsync(documentId, cancellationToken);
+
+        // N7: segunda defensa: un documento de otro ambiente nunca sale (la cola ya los excluye).
+        if (document is not null && document.Environment != connection.Environment)
+        {
+            return null;
+        }
+
         var now = clock.UtcNow;
         var claimed = document?.Claim(now, ClaimLease);
         if (document is null || claimed!.IsFailure)
@@ -119,7 +145,21 @@ public sealed class FiscalDocumentProcessor(
         }
 
         // Rango vigente de la sucursal/caja (RN-FE-05).
-        var range = FiscalNumberingRange.Select(await ranges.ListAsync(cancellationToken), document.BranchId, document.PosTerminalId, document.DocumentType, clock.Today);
+        var range = FiscalNumberingRange.Select(
+            await ranges.ListAsync(cancellationToken), document.BranchId, document.PosTerminalId, document.DocumentType, clock.Today, connection.Environment);
+        if (range is null && document.DocumentType is FiscalDocumentType.CreditNote or FiscalDocumentType.AdjustmentNote
+            && now - document.IssuedAt > NoteWithoutRangeLimit)
+        {
+            var stalled = $"{document.DocumentType.Db()} {document.SourceNumber} lleva más de {NoteWithoutRangeLimit.TotalHours:0} h sin rango de numeración: se "
+                + "detiene el reintento automático. Asigne un rango y reinténtelo a mano.";
+            document.Stall("NO_RANGE_LIMIT", stalled, now, ids.NewId);
+            await audit.WriteAsync(
+                new AuditEntry("billing", "FISCAL_RANGE_MISSING", nameof(FiscalDocument), document.Id, document.AuditLabel, stalled, Severity: AuditSeverity.Critical),
+                cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return null;
+        }
+
         if (range is null)
         {
             var detail = $"No hay rango de numeración vigente de {document.DocumentType.Db()} para la sucursal: sincronice y asigne los rangos del proveedor.";
@@ -143,8 +183,7 @@ public sealed class FiscalDocumentProcessor(
                 && await documents.GetAsync(relatedId, cancellationToken) is { Status: FiscalStatus.NotSent or FiscalStatus.Cancelled } related)
             {
                 // PB6: la factura (o documento soporte) que corrige no se envió nunca: la nota no aplica y no se aplaza para siempre.
-                document.DiscardBacklog(
-                    $"No aplica: el documento que corrige ({related.SourceNumber}) quedó {related.Status.Db()}.", now, null, ids.NewId);
+                document.MarkNotApplicable($"No aplica: el documento que corrige ({related.SourceNumber}) quedó {related.Status.Db()}.", now, ids.NewId);
                 await audit.WriteAsync(
                     new AuditEntry("billing", "FISCAL_DOCUMENT_NOT_SENT", nameof(FiscalDocument), document.Id, document.AuditLabel,
                         $"{document.DocumentType.Db()} {document.SourceNumber} no se envía: el documento que corrige quedó {related.Status.Db()}.",
@@ -242,7 +281,7 @@ public sealed class FiscalDocumentProcessor(
         }
 
         var numbering = new FiscalNumbering(range.Id, range.ProviderRangeId, range.Prefix, range.ResolutionNumber);
-        var header = FiscalDraftBuilder.Header(document, numbering, issuer.Issuer, issuer.Establishment);
+        var header = FiscalDraftBuilder.Header(document, numbering, issuer.Issuer, issuer.Establishment, submittedOn: clock.Today);
         if (document.Source is FiscalSource.Purchase or FiscalSource.PurchaseVoid)
         {
             var purchase = await sources.GetPurchaseAsync(document.SourceId, cancellationToken);
@@ -376,7 +415,8 @@ public sealed class FiscalRangeService(
             return Error.BusinessRule("BILLING.RANGE_SYNC_FAILED", $"No se pudieron sincronizar los rangos: {message}");
         }
 
-        var all = (await ranges.ListAsync(cancellationToken)).ToList();
+        // N2: cada ambiente tiene sus rangos (el mismo id del proveedor puede existir en pruebas y en producción).
+        var all = (await ranges.ListAsync(cancellationToken)).Where(r => r.Environment == connection.Environment).ToList();
         var existing = all.Where(r => r.Provider == provider.Name).ToDictionary(r => r.ProviderRangeId, StringComparer.Ordinal);
         var created = 0;
         foreach (var data in result.Ranges)
@@ -387,7 +427,7 @@ public sealed class FiscalRangeService(
             }
             else
             {
-                var range = FiscalNumberingRange.Create(ids.NewId(), companyId, provider.Name, data, now);
+                var range = FiscalNumberingRange.Create(ids.NewId(), companyId, provider.Name, data, now, connection.Environment);
                 ranges.Add(range);
                 all.Add(range);
                 created++;
@@ -402,10 +442,10 @@ public sealed class FiscalRangeService(
                 now);
         }
 
-        configured.RecordSync(now, null);
+        configured.RecordSync(now, null, connection.Environment == configured.Environment ? connection.Environment : null);
         await audit.WriteAsync(
             new AuditEntry("billing", "FISCAL_RANGES_SYNCED", "FiscalNumberingRange", null, provider.Name,
-                $"Rangos sincronizados con {provider.Name}: {result.Ranges.Count} informados, {created} nuevos, {existing.Count} retirados."),
+                $"Rangos de {connection.Environment.Db()} sincronizados con {provider.Name}: {result.Ranges.Count} informados, {created} nuevos, {existing.Count} retirados."),
             cancellationToken);
 
         var company = new SettingContext(companyId);

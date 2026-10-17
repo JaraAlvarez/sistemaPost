@@ -441,15 +441,49 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
     public bool DiscardBacklog(string reason, DateTimeOffset now, Guid? userId, Func<Guid> newId)
     {
         ArgumentNullException.ThrowIfNull(newId);
-        if (!IsElectronic || Status is not (FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency or FiscalStatus.Submitting))
+        // N1: lo que ya se intentó enviar o está reclamado pudo llegar al proveedor: queda "en revisión" (consultar en Factus), no se descarta.
+        if (!IsElectronic || InReview || Status is not (FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency))
         {
             return false;
         }
 
+        MarkNotSent(reason, now, userId, newId);
+        return true;
+    }
+
+    /// <summary>Ya se intentó enviar o está reclamado: pudo llegar al proveedor; hay que consultar su estado antes de decidir (N1).</summary>
+    public bool InReview => Attempts > 0 || Status == FiscalStatus.Submitting;
+
+    /// <summary>
+    /// La nota (crédito o de ajuste) no aplica porque el documento que corrige quedó NO ENVIADO o cancelado (PB6): queda NOT_SENT aunque la
+    /// esté procesando la cola.
+    /// </summary>
+    public void MarkNotApplicable(string reason, DateTimeOffset now, Func<Guid> newId)
+    {
+        ArgumentNullException.ThrowIfNull(newId);
+        if (IsElectronic && Status is FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency or FiscalStatus.Submitting)
+        {
+            MarkNotSent(reason, now, null, newId);
+        }
+    }
+
+    /// <summary>
+    /// Se detiene el reintento automático (PB6): el documento queda con error, sin próximo intento, hasta que alguien lo reintente a mano
+    /// (p. ej. una nota sin rango de numeración durante demasiado tiempo).
+    /// </summary>
+    public void Stall(string code, string detail, DateTimeOffset now, Func<Guid> newId)
+    {
+        ArgumentNullException.ThrowIfNull(newId);
+        Status = FiscalStatus.Error;
+        NextAttemptAt = null;
+        _events.Add(FiscalDocumentEvent.Create(newId(), code, detail, null, now, null));
+    }
+
+    private void MarkNotSent(string reason, DateTimeOffset now, Guid? userId, Func<Guid> newId)
+    {
         Status = FiscalStatus.NotSent;
         NextAttemptAt = null;
         _events.Add(FiscalDocumentEvent.Create(newId(), "NOT_SENT", reason, null, now, userId));
-        return true;
     }
 
     /// <summary>Reintento manual de un documento electrónico pendiente, con error, en contingencia o rechazado.</summary>

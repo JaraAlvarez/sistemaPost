@@ -46,6 +46,9 @@ public sealed class FiscalNumberingRange : AggregateRoot<Guid>, ICompanyOwned, I
 
     public DateTimeOffset SyncedAt { get; private set; }
 
+    /// <summary>Ambiente del proveedor del que vino el rango (N2): un rango de pruebas nunca numera documentos de producción.</summary>
+    public FiscalEnvironment Environment { get; private set; } = FiscalEnvironment.Sandbox;
+
     public string AuditLabel => $"Rango {Prefix} {RangeFrom}-{RangeTo} ({DocumentType})";
 
     /// <summary>Porcentaje usado del rango (0–100).</summary>
@@ -53,11 +56,12 @@ public sealed class FiscalNumberingRange : AggregateRoot<Guid>, ICompanyOwned, I
 
     public long Remaining => RangeTo - CurrentNumber;
 
-    public static FiscalNumberingRange Create(Guid id, Guid companyId, string provider, FiscalProviderRange data, DateTimeOffset now)
+    public static FiscalNumberingRange Create(
+        Guid id, Guid companyId, string provider, FiscalProviderRange data, DateTimeOffset now, FiscalEnvironment environment = FiscalEnvironment.Sandbox)
     {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
-        var range = new FiscalNumberingRange(id, companyId, provider) { ProviderRangeId = data.ProviderRangeId };
+        var range = new FiscalNumberingRange(id, companyId, provider) { ProviderRangeId = data.ProviderRangeId, Environment = environment };
         range.Refresh(data, now);
         return range;
     }
@@ -120,10 +124,13 @@ public sealed class FiscalNumberingRange : AggregateRoot<Guid>, ICompanyOwned, I
     /// <summary>
     /// Elige el rango para emitir: primero el asignado a la caja, luego el de toda la sucursal; activo, vigente y con números.
     /// </summary>
+    /// <remarks>Solo rangos del <paramref name="environment"/> del documento (N2).</remarks>
     public static FiscalNumberingRange? Select(
-        IEnumerable<FiscalNumberingRange> ranges, Guid branchId, Guid? posTerminalId, FiscalDocumentType type, DateOnly date)
+        IEnumerable<FiscalNumberingRange> ranges, Guid branchId, Guid? posTerminalId, FiscalDocumentType type, DateOnly date,
+        FiscalEnvironment environment = FiscalEnvironment.Sandbox)
     {
-        var candidates = (ranges ?? []).Where(r => r.BranchId == branchId && r.DocumentType == type && r.IsUsableOn(date)).ToList();
+        var candidates = (ranges ?? [])
+            .Where(r => r.Environment == environment && r.BranchId == branchId && r.DocumentType == type && r.IsUsableOn(date)).ToList();
         return candidates.FirstOrDefault(r => posTerminalId is not null && r.PosTerminalId == posTerminalId)
             ?? candidates.Where(r => r.PosTerminalId is null).OrderBy(r => r.ValidTo ?? DateOnly.MaxValue).FirstOrDefault();
     }
@@ -177,10 +184,17 @@ public sealed class BillingProviderSettings : ICompanyOwned
 
     public bool BacklogReleased { get; private set; }
 
-    /// <summary>Ambiente y llaves con que se fijó el corte: verificar en otro ambiente o con otras llaves lo mueve a ese momento (PB1).</summary>
+    /// <summary>
+    /// Ambiente con que se fijó el corte: verificar en OTRO ambiente lo mueve a ese momento (PB1). Rotar llaves en el mismo ambiente no lo
+    /// mueve (N1): los documentos en cola de ese ambiente siguen saliendo.
+    /// </summary>
     public FiscalEnvironment? BacklogEnvironment { get; private set; }
 
-    public DateTimeOffset? BacklogCredentialsAt { get; private set; }
+    /// <summary>Ambiente de la última sincronización correcta de rangos (N2): sin rangos del ambiente vigente no se envía.</summary>
+    public FiscalEnvironment? RangesEnvironment { get; private set; }
+
+    /// <summary>Hay que (re)sincronizar los rangos: nunca se hizo o fue en otro ambiente.</summary>
+    public bool RangesStale => RangesEnvironment != Environment;
 
     /// <summary>La migración V2026.10.060 la apagó por estar encendida sin verificación: el tablero lo avisa hasta que se conecte.</summary>
     public DateTimeOffset? AutoDisabledAt { get; private set; }
@@ -191,7 +205,7 @@ public sealed class BillingProviderSettings : ICompanyOwned
     public bool IsVerified => HasCredentials && LastVerificationOk == true;
 
     /// <summary>La cola envía SOLO con el modo encendido y la conexión verificada (PA1). Con OFF no sale nada, ni lo que ya estaba en cola.</summary>
-    public bool CanSend => Mode != BillingMode.Off && IsVerified;
+    public bool CanSend => Mode != BillingMode.Off && IsVerified && !RangesStale;
 
     /// <summary>Los documentos emitidos antes de este momento esperan la decisión de la administración (nulo: no hay atraso retenido).</summary>
     public DateTimeOffset? HeldBefore => BacklogReleased ? null : BacklogCutoff;
@@ -266,13 +280,12 @@ public sealed class BillingProviderSettings : ICompanyOwned
         LastVerifiedAt = now;
         LastVerificationOk = ok;
         LastVerificationMessage = message is { Length: > 500 } ? message[..500] : message;
-        if (ok && (BacklogCutoff is null || BacklogEnvironment != Environment || BacklogCredentialsAt != CredentialsUpdatedAt))
+        if (ok && (BacklogCutoff is null || BacklogEnvironment != Environment))
         {
-            // Primera verificación correcta, o con otro ambiente u otras llaves: lo emitido antes espera la decisión de la administración.
+            // Primera verificación correcta, o en otro ambiente: lo emitido antes espera la decisión de la administración.
             BacklogCutoff = now;
             BacklogReleased = false;
             BacklogEnvironment = Environment;
-            BacklogCredentialsAt = CredentialsUpdatedAt;
         }
 
         return true;
@@ -318,8 +331,16 @@ public sealed class BillingProviderSettings : ICompanyOwned
     }
 
     /// <summary>Resultado de la última sincronización de rangos (el error se recorta).</summary>
-    public void RecordSync(DateTimeOffset now, string? error)
+    /// <param name="now">Momento de la sincronización.</param>
+    /// <param name="error">Error del proveedor, o <c>null</c> si salió bien.</param>
+    /// <param name="environment">Ambiente sincronizado (solo cuenta si salió bien).</param>
+    public void RecordSync(DateTimeOffset now, string? error, FiscalEnvironment? environment = null)
     {
+        if (error is null && environment is { } synced)
+        {
+            RangesEnvironment = synced;
+        }
+
         LastSyncAt = now;
         LastSyncError = error is { Length: > 500 } ? error[..500] : error;
     }

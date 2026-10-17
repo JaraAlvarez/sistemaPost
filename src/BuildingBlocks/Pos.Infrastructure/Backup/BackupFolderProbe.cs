@@ -137,24 +137,31 @@ public static class BackupFolderProbe
             return Fail("No existe la carpeta ni su carpeta superior. Créela primero en el disco o en el equipo de la red.", full, label, free);
         }
 
-        // Ruta REAL (junctions, puntos de montaje, subst, recursos del propio equipo) comparada con la de la LOCAL.
-        if (OperatingSystem.IsWindows() && Directory.Exists(local))
+        // Ruta REAL (junctions, puntos de montaje, subst, recursos del propio equipo) comparada con la de la LOCAL. Si la LOCAL aún no existe
+        // (servidor recién instalado), se resuelve su ancestro existente más cercano y se le agrega el resto de la ruta (N3).
+        if (OperatingSystem.IsWindows())
         {
-            var realLocal = FinalPath(local, guidVolume: false);
+            var (localAnchor, localRest) = NearestExisting(local);
+            var realAnchor = localAnchor is null ? null : FinalPath(localAnchor, guidVolume: false);
             var realTarget = FinalPath(target, guidVolume: false);
-            if (realLocal is not null && realTarget is not null)
+            if (realAnchor is null || realTarget is null)
             {
-                var realCandidate = exists ? realTarget : Path.Combine(realTarget, Path.GetFileName(full));
-                if (IsSameOrInside(Path.TrimEndingDirectorySeparator(realCandidate), Path.TrimEndingDirectorySeparator(realLocal)))
-                {
-                    return Fail(LocalMessage, full, label, free);
-                }
+                // PB10: sin la ruta real no se puede descartar un alias de la LOCAL.
+                return Fail("No se pudo resolver la ruta real de la carpeta (o la de la carpeta de los backups del servidor): revise los permisos o use "
+                    + "otra carpeta.", full, label, free);
+            }
+
+            var realLocal = Path.TrimEndingDirectorySeparator(localRest.Length == 0 ? realAnchor : Path.Combine(realAnchor, localRest));
+            var realCandidate = exists ? realTarget : Path.Combine(realTarget, Path.GetFileName(full));
+            if (IsSameOrInside(Path.TrimEndingDirectorySeparator(realCandidate), realLocal))
+            {
+                return Fail(LocalMessage, full, label, free);
             }
 
             if (kind == BackupFolderKind.External && !allowSameVolume)
             {
                 var targetVolume = VolumeOf(FinalPath(target, guidVolume: true));
-                var localVolume = VolumeOf(FinalPath(local, guidVolume: true));
+                var localVolume = VolumeOf(FinalPath(localAnchor!, guidVolume: true));
                 if (targetVolume is null || localVolume is null)
                 {
                     return Fail("No se pudo identificar el disco de la carpeta (o el de la carpeta de los backups del servidor): use otro disco o carpeta.",
@@ -327,6 +334,20 @@ public static class BackupFolderProbe
     private static bool IsSameOrInside(string candidate, string local) =>
         string.Equals(candidate, local, StringComparison.OrdinalIgnoreCase)
         || candidate.StartsWith(local + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Ancestro existente más cercano de una carpeta y el resto de la ruta desde él (vacío si la carpeta existe).</summary>
+    private static (string? Anchor, string Remainder) NearestExisting(string directory)
+    {
+        var current = directory;
+        var rest = new Stack<string>();
+        while (!string.IsNullOrEmpty(current) && !Directory.Exists(current))
+        {
+            rest.Push(Path.GetFileName(current));
+            current = Path.GetDirectoryName(current);
+        }
+
+        return (string.IsNullOrEmpty(current) ? null : current, rest.Count == 0 ? string.Empty : Path.Combine([.. rest]));
+    }
 
     /// <summary>Volumen de una ruta final con GUID (<c>\\?\Volume{…}\carpeta</c> → <c>\\?\Volume{…}</c>).</summary>
     private static string? VolumeOf(string? finalPath)

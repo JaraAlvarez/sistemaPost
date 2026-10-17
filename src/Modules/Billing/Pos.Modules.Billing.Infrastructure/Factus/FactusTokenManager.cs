@@ -52,6 +52,9 @@ internal sealed partial class FactusTokenManager(IHttpClientFactory httpClientFa
         }
     }
 
+    /// <summary>Suelta el espacio de token de un propósito (las llaves candidatas no dejan tokens en memoria, N4).</summary>
+    public void Forget(FactusOptions options, string purpose) => _slots.TryRemove(options.CredentialKey + "|" + purpose, out _);
+
     /// <summary>Marca como vencido el token que recibió un 401 (si otro hilo ya lo renovó, no hace nada).</summary>
     public async Task InvalidateAsync(FactusOptions options, string rejectedToken, CancellationToken cancellationToken)
     {
