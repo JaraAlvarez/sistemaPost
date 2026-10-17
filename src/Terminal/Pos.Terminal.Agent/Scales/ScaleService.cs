@@ -88,7 +88,8 @@ public sealed record ScaleOutcome(ScaleWeightDto? Weight, string? ErrorCode, str
 /// cierra ni se reabre el puerto); con otros parámetros la prueba toma el puerto y la venta espera a que termine. La prueba se cierra
 /// sola tras <see cref="AgentOptions.ScaleTestIdleTimeout"/> sin lecturas (con un temporizador).</para>
 /// <para>Retorno a cero (D1): el agente anota la última vez que vio la báscula vacía; después de una pesada aceptada
-/// (<see cref="MarkAccepted"/>) un vigilante lee la báscula hasta verla vacía (<see cref="ScaleEmptyMonitor"/>).</para>
+/// (<see cref="MarkAccepted"/>) un vigilante lee la báscula hasta verla vacía (<see cref="ScaleEmptyMonitor"/>). Vacía = el BRUTO dentro de
+/// la banda de cero: con tara manual o de la báscula el neto en cero no cuenta (BB1).</para>
 /// </summary>
 public sealed class ScaleService : IDisposable
 {
@@ -109,14 +110,18 @@ public sealed class ScaleService : IDisposable
     private readonly ILogger<ScaleService> _logger;
     private readonly string _file;
     private readonly TimeSpan _testIdle;
-    private readonly Queue<(Guid Id, DateTimeOffset At)> _recent = new();
+    private readonly Queue<(Guid Id, long Seq)> _recent = new();
+    private readonly System.Diagnostics.Stopwatch _uptime = System.Diagnostics.Stopwatch.StartNew();
     private ScaleSettings? _settings;
     private ScaleChannel? _live;
     private ScaleChannel? _test;
     private ITimer? _testTimer;
-    private DateTimeOffset _lastAt;
-    private DateTimeOffset? _lastEmptyAt;
-    private DateTimeOffset? _acceptedAt;
+    private long _seq;
+    private long? _lastEmptySeq;
+    private long? _acceptedSeq;
+    private TimeSpan _acceptedTick;
+    private long? _lastOkSeq;
+    private TimeSpan _lastOkTick;
 
     public ScaleService(
         IScaleConnectionFactory connections, ScaleSigner signer, TimeProvider time, IOptions<AgentOptions> options, IHostEnvironment environment,
@@ -143,8 +148,34 @@ public sealed class ScaleService : IDisposable
     /// <summary>Hay una prueba ("Probar báscula") abierta.</summary>
     public bool Testing => _test is not null;
 
-    /// <summary>Se agregó una pesada y el agente todavía no ha visto la báscula vacía (el vigilante sigue leyendo).</summary>
-    public bool AwaitingEmpty => _live is not null && _acceptedAt is { } accepted && (_lastEmptyAt is not { } empty || empty <= accepted);
+    /// <summary>Arranque del agente: el orden de las lecturas firmadas usa este identificador y la secuencia, nunca la hora (BB4).</summary>
+    public Guid BootId { get; } = Guid.NewGuid();
+
+    /// <summary>Tiempo máximo que el vigilante sigue leyendo después de una pesada aceptada (⚙️ 10 min, BB8).</summary>
+    public static readonly TimeSpan MonitorAfterAccepted = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Después de cualquier lectura con peso (aun antes de que la caja confirme la línea) el vigilante sigue leyendo un rato: si el cajero
+    /// cambia el producto A por B antes de la siguiente lectura de la pantalla, el paso por la báscula vacía igual queda anotado (BB8).
+    /// </summary>
+    public static readonly TimeSpan MonitorAfterReading = TimeSpan.FromSeconds(15);
+
+    /// <summary>El vigilante debe leer: hay una pesada (aceptada o recién leída) y el agente todavía no ha visto la báscula vacía después.</summary>
+    public bool AwaitingEmpty
+    {
+        get
+        {
+            if (_live is null)
+            {
+                return false;
+            }
+
+            var now = _uptime.Elapsed;
+            var afterAccepted = _acceptedSeq is { } accepted && !EmptiedAfter(accepted) && now - _acceptedTick < MonitorAfterAccepted;
+            var afterReading = _lastOkSeq is { } ok && !EmptiedAfter(ok) && now - _lastOkTick < MonitorAfterReading;
+            return afterAccepted || afterReading;
+        }
+    }
 
     public static IReadOnlyList<ScaleDriverInfo> DriverInfos { get; } = [.. ScaleDrivers.All.Select(d => new ScaleDriverInfo(
         d.Code, d.Name, d.Defaults.BaudRate, d.Defaults.DataBits, d.Defaults.Parity.ToString().ToUpperInvariant(), d.Defaults.StopBits,
@@ -261,20 +292,21 @@ public sealed class ScaleService : IDisposable
     }
 
     /// <summary>
-    /// La caja agregó la línea con la lectura <paramref name="readingId"/>: desde su hora, la siguiente pesada exige ver la báscula vacía
-    /// (D1). Devuelve false si la lectura no es de este agente o ya es muy vieja.
+    /// La caja agregó la línea con la lectura <paramref name="readingId"/>: desde esa lectura, la siguiente pesada exige ver la báscula
+    /// vacía (D1). Devuelve false si la lectura no es de este agente o ya es muy vieja.
     /// </summary>
     public bool MarkAccepted(Guid readingId)
     {
         lock (_recent)
         {
-            foreach (var (id, at) in _recent)
+            foreach (var (id, seq) in _recent)
             {
                 if (id == readingId)
                 {
-                    if (_acceptedAt is not { } previous || at > previous)
+                    if (_acceptedSeq is not { } previous || seq > previous)
                     {
-                        _acceptedAt = at;
+                        _acceptedSeq = seq;
+                        _acceptedTick = _uptime.Elapsed;
                     }
 
                     return true;
@@ -285,8 +317,11 @@ public sealed class ScaleService : IDisposable
         return false;
     }
 
-    /// <summary>La caja eliminó la última línea pesada (para volver a pesar): ya no hace falta retirar el producto.</summary>
-    public void ReleaseAccepted() => _acceptedAt = null;
+    /// <summary>
+    /// El servidor liberó el retorno a cero de la caja (se eliminó la última pesada o un supervisor reinició la báscula): la caja lo
+    /// confirma con el servidor antes de llamar aquí, así el agente y el servidor quedan de acuerdo.
+    /// </summary>
+    public void ReleaseAccepted() => _acceptedSeq = null;
 
     /// <summary>
     /// "Probar báscula": abre una prueba con <paramref name="settings"/> (sin guardarla ni cambiar la báscula en uso) y lee una vez.
@@ -305,7 +340,7 @@ public sealed class ScaleService : IDisposable
         try
         {
             CloseTestLocked();
-            var test = _test = new ScaleChannel(target) { LastUsed = _time.GetUtcNow() };
+            var test = _test = new ScaleChannel(target) { LastUsed = _time.GetTimestamp() };
 
             // Mismo puerto con otros parámetros: la prueba toma el puerto (la venta espera a que termine).
             if (_live is { } live && SamePort(live.Target, target) && !SameConnection(live.Target, target))
@@ -434,7 +469,7 @@ public sealed class ScaleService : IDisposable
 
     private void TouchTest(ScaleChannel test)
     {
-        test.LastUsed = _time.GetUtcNow();
+        test.LastUsed = _time.GetTimestamp();
         _testTimer?.Change(_testIdle, Timeout.InfiniteTimeSpan);
     }
 
@@ -460,7 +495,7 @@ public sealed class ScaleService : IDisposable
 
         try
         {
-            if (_test is { } test && _time.GetUtcNow() - test.LastUsed >= _testIdle - TimeSpan.FromMilliseconds(50))
+            if (_test is { } test && _time.GetElapsedTime(test.LastUsed) >= _testIdle - TimeSpan.FromMilliseconds(50))
             {
                 CloseTestLocked();
             }
@@ -544,8 +579,9 @@ public sealed class ScaleService : IDisposable
                 {
                     if (target.Mode == ScaleReadMode.Request)
                     {
-                        var wait = MinRequestInterval - (_time.GetUtcNow() - channel.LastRequest);
-                        if (wait > TimeSpan.Zero)
+                        // Tiempos con el reloj monótono: un salto del reloj del equipo no deja al agente esperando (BB4).
+                        var wait = MinRequestInterval - _time.GetElapsedTime(channel.LastRequest);
+                        if (wait > TimeSpan.Zero && wait <= MinRequestInterval)
                         {
                             Thread.Sleep(wait);
                         }
@@ -553,22 +589,23 @@ public sealed class ScaleService : IDisposable
 
                     var (connection, used) = ConnectionFor(channel);
                     owner = used;
-                    channel.LastRequest = _time.GetUtcNow();
+                    channel.LastRequest = _time.GetTimestamp();
                     return ScaleProtocolReader.Read(connection, driver, target);
                 },
                 cancellationToken);
 
             var now = _time.GetUtcNow();
+            var tick = _time.GetTimestamp();
             var stable = reading.Stable && reading.Problem is null;
             if (!driver.ReportsStability && reading.WeightKg is { } gross)
             {
                 if (channel.LastGross != gross)
                 {
                     channel.LastGross = gross;
-                    channel.SameSince = now;
+                    channel.SameSince = tick;
                 }
 
-                stable = stable && now - channel.SameSince >= SoftwareStableWindow;
+                stable = stable && _time.GetElapsedTime(channel.SameSince, tick) >= SoftwareStableWindow;
             }
 
             var dto = Build(reading, stable, channel.TareKg, target.ZeroBandKg, now);
@@ -612,34 +649,46 @@ public sealed class ScaleService : IDisposable
     /// </summary>
     private ScaleWeightDto Track(ScaleWeightDto dto)
     {
-        var at = dto.At > _lastAt ? dto.At : _lastAt.AddMilliseconds(1);
-        _lastAt = at;
-        if (dto.WeightKg is { } net && IsEmpty(net, _live!.Target.ZeroBandKg))
+        // BB4: la hora es la del reloj (sin "máximo guardado" que deje la caja trabada si el reloj salta); el orden lo da la secuencia.
+        var seq = ++_seq;
+        var live = _live!.Target;
+
+        // BB1: vacía es el BRUTO dentro de la banda de cero (también con deriva negativa). Con tara (Ins o la tecla de la báscula) el neto da
+        // 0 aunque el producto siga encima; si la trama ya viene neta, no trae el bruto real y no se marca vacía.
+        if (dto.GrossKg is { } gross0 && !dto.ScaleNet && IsEmpty(gross0, live.ZeroBandKg))
         {
-            _lastEmptyAt = at;
+            _lastEmptySeq = seq;
+        }
+        else if (dto.GrossKg is not null)
+        {
+            _lastOkSeq = seq;
+            _lastOkTick = _uptime.Elapsed;
         }
 
-        var readingId = Guid.CreateVersion7(at);
-        var emptied = _acceptedAt is not { } accepted || _lastEmptyAt is { } empty && empty > accepted;
+        var readingId = Guid.CreateVersion7(dto.At);
+        var emptied = _acceptedSeq is not { } accepted || EmptiedAfter(accepted);
         lock (_recent)
         {
-            _recent.Enqueue((readingId, at));
+            _recent.Enqueue((readingId, seq));
             while (_recent.Count > RecentReadings)
             {
                 _recent.Dequeue();
             }
         }
 
+        // BB7: la báscula simulada nunca se firma (el servidor no aceptaría un peso inventado).
         SignedScaleReading? signed = null;
-        if (_signer.TerminalId is { } terminalId && dto.GrossKg is { } gross && dto.WeightKg is { } weight)
+        if (!live.Simulated && _signer.TerminalId is { } terminalId && dto.GrossKg is { } gross && dto.WeightKg is { } weight)
         {
             var payload = new ScaleReadingPayload(
-                terminalId, readingId, at, gross, dto.TareKg, weight, dto.Stable, dto.ScaleNet, dto.Status, _lastEmptyAt, emptied);
+                terminalId, readingId, dto.At, BootId, seq, gross, dto.TareKg, weight, dto.Stable, dto.ScaleNet, dto.Status, _lastEmptySeq, emptied);
             signed = _signer.Sign(payload.Format());
         }
 
-        return dto with { At = at, ReadingId = readingId, EmptiedSinceLastAccepted = emptied, SignedReading = signed };
+        return dto with { ReadingId = readingId, EmptiedSinceLastAccepted = emptied, SignedReading = signed };
     }
+
+    private bool EmptiedAfter(long seq) => _lastEmptySeq is { } empty && empty > seq;
 
     private void Load()
     {
@@ -682,11 +731,11 @@ public sealed class ScaleService : IDisposable
 
         public decimal? LastGross { get; set; }
 
-        public DateTimeOffset SameSince { get; set; }
+        public long SameSince { get; set; }
 
-        public DateTimeOffset LastRequest { get; set; }
+        public long LastRequest { get; set; }
 
-        public DateTimeOffset LastUsed { get; set; }
+        public long LastUsed { get; set; }
 
         public void Close()
         {

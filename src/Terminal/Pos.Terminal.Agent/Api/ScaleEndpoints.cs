@@ -127,6 +127,13 @@ public static class ScaleEndpoints
             return rejection;
         }
 
+        // BB6: además de lo que exige todo el agente (equipo local y Host local, LocalRequestGuard), vincular solo se acepta desde la
+        // interfaz de la caja (Origin permitido): un programa del equipo o una página cualquiera no puede cambiar la clave.
+        if (http.Request.Headers.Origin.ToString().Length == 0)
+        {
+            return AgentEndpoints.Problem(HttpStatusCode.Forbidden, LocalRequestGuard.OriginNotAllowed, "La báscula se vincula desde la pantalla de la caja.");
+        }
+
         if (request!.TerminalId == Guid.Empty)
         {
             return AgentEndpoints.Problem(HttpStatusCode.BadRequest, AgentEndpoints.InvalidRequest, "Indique la caja que se vincula.");

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Sales.Contracts;
+using Pos.Server.IntegrationTests.Phase7;
 using Pos.SharedKernel.Measurement;
 using static Pos.Server.IntegrationTests.Phase2.ApiClient;
 using static Pos.Server.IntegrationTests.Phase7.SalesScenario;
@@ -9,14 +10,15 @@ using static Pos.Server.IntegrationTests.Phase7.SalesScenario;
 namespace Pos.Server.IntegrationTests.Phase7C;
 
 /// <summary>
-/// Hace de agente de la caja en las pruebas del servidor (D3): crea su clave, la registra en el servidor como lo hace "Guardar" en
-/// Configuración → Cajas y firma las lecturas con el mismo formato que el agente real. Su reloj avanza un segundo por lectura.
+/// Hace de agente de la caja en las pruebas del servidor (D3): crea su clave, la registra en el servidor como lo hace "Vincular báscula"
+/// en la pantalla de venta (sesión de la caja con autorización del supervisor, BB2) y firma las lecturas con el mismo formato que el agente
+/// real: hora del reloj (por defecto la del servidor), arranque y secuencia creciente.
 /// </summary>
 public sealed class ScaleAgentDouble : IDisposable
 {
     private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-    private DateTimeOffset _clock = new(2026, 10, 17, 12, 0, 0, TimeSpan.Zero);
-    private DateTimeOffset? _lastEmpty;
+    private long _seq;
+    private long? _lastEmptySeq;
 
     public ScaleAgentDouble(Guid terminalId) => TerminalId = terminalId;
 
@@ -24,54 +26,63 @@ public sealed class ScaleAgentDouble : IDisposable
 
     public Guid KeyId { get; } = Guid.NewGuid();
 
-    public DateTimeOffset Clock => _clock;
+    /// <summary>Arranque del agente (cambiarlo simula un reinicio: la secuencia empieza de nuevo).</summary>
+    public Guid BootId { get; private set; } = Guid.NewGuid();
 
-    /// <summary>Configura la báscula de la caja y registra la clave (vincular).</summary>
-    public static async Task<ScaleAgentDouble> PairAsync(HttpClient owner)
+    /// <summary>Desfase del reloj del agente frente al reloj real (salto del reloj del equipo).</summary>
+    public TimeSpan ClockOffset { get; set; }
+
+    /// <summary>Configura la báscula de la caja (administración) y la vincula desde la caja con el supervisor.</summary>
+    public static async Task<ScaleAgentDouble> PairAsync(SalesScenario shop)
     {
-        var terminal = (await GetAsync<List<TerminalDto>>(owner, "/api/v1/organization/terminals")).Single();
-        var url = $"/api/v1/organization/terminals/{terminal.Id}/scale";
-        await SendAsync<TerminalScaleDto>(owner, HttpMethod.Put, url, new
+        ArgumentNullException.ThrowIfNull(shop);
+        var terminal = (await GetAsync<List<TerminalDto>>(shop.Owner, "/api/v1/organization/terminals")).Single();
+        await SendAsync<TerminalScaleDto>(shop.Owner, HttpMethod.Put, $"/api/v1/organization/terminals/{terminal.Id}/scale", new
         {
             enabled = true, driver = "TOLEDO_8217", port = "COM3", stableWaitSeconds = 3, emptyWaitSeconds = 5, allowManualWeight = true,
         });
         var agent = new ScaleAgentDouble(terminal.Id);
-        await agent.RegisterKeyAsync(owner);
+        await agent.RegisterKeyAsync(shop);
         return agent;
     }
 
-    /// <summary>Registra la clave pública en el servidor (lo que hace "Guardar" en el computador de la caja).</summary>
-    public async Task RegisterKeyAsync(HttpClient owner)
+    /// <summary>Cuerpo de <c>PUT …/scale/reading-key</c> con la clave pública de este agente.</summary>
+    public object KeyBody => new { keyId = KeyId, publicKey = Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo()) };
+
+    /// <summary>Registra la clave pública desde la caja (sesión de caja; el cajero pide la autorización del supervisor).</summary>
+    public async Task RegisterKeyAsync(SalesScenario shop)
     {
-        var linked = await SendAsync<TerminalScaleDto>(owner, HttpMethod.Put, $"/api/v1/organization/terminals/{TerminalId}/scale/reading-key", new
-        {
-            keyId = KeyId, publicKey = Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo()),
-        });
+        ArgumentNullException.ThrowIfNull(shop);
+        var linked = await shop.AuthorizedAsync<TerminalScaleDto>(HttpMethod.Put, $"/api/v1/organization/terminals/{TerminalId}/scale/reading-key", KeyBody);
         linked.ReadingKeyId.ShouldBe(KeyId);
     }
 
     /// <summary>La caja de las pruebas envía la versión de la interfaz que firma las lecturas (BN10).</summary>
     public static void UseCurrentClient(HttpClient cashier)
     {
+        ArgumentNullException.ThrowIfNull(cashier);
         cashier.DefaultRequestHeaders.Remove(PosClientBuild.Header);
         cashier.DefaultRequestHeaders.Add(PosClientBuild.Header, PosClientBuild.SignedScaleReadings.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    /// <summary>La báscula quedó vacía (el agente lo vio) en este instante.</summary>
-    public void Empty()
+    /// <summary>El agente vio la báscula vacía (una lectura con el bruto en la banda de cero).</summary>
+    public void Empty() => _lastEmptySeq = ++_seq;
+
+    /// <summary>El agente se reinició: otro arranque, la secuencia empieza de nuevo y todavía no ha visto la báscula vacía.</summary>
+    public void Restart()
     {
-        _clock = _clock.AddMilliseconds(500);
-        _lastEmpty = _clock;
+        BootId = Guid.NewGuid();
+        _seq = 0;
+        _lastEmptySeq = null;
     }
 
     /// <summary>Una lectura firmada (cuerpo <c>scale</c> de la línea) y su contenido.</summary>
     public (object Body, ScaleReadingPayload Payload) Read(
         decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, DateTimeOffset? at = null, Guid? terminalId = null, ECDsa? key = null)
     {
-        _clock = _clock.AddSeconds(1);
         var payload = new ScaleReadingPayload(
-            terminalId ?? TerminalId, Guid.CreateVersion7(), at ?? _clock, grossKg, tareKg, grossKg - tareKg, stable, net, stable ? "OK" : "UNSTABLE", _lastEmpty,
-            true);
+            terminalId ?? TerminalId, Guid.CreateVersion7(), at ?? DateTimeOffset.UtcNow + ClockOffset, BootId, ++_seq, grossKg, tareKg, grossKg - tareKg, stable,
+            net, stable ? "OK" : "UNSTABLE", _lastEmptySeq, true);
         return (Sign(payload, key), payload);
     }
 

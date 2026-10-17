@@ -100,7 +100,13 @@ internal sealed class GetTerminalScaleHandler(IOrganizationStore store) : IQuery
 /// </summary>
 public sealed record SetTerminalScaleKeyCommand(Guid PosTerminalId, Guid KeyId, string PublicKey) : ICommand<TerminalScaleDto>;
 
-internal sealed class SetTerminalScaleKeyHandler(IOrganizationStore store, Pos.SharedKernel.Time.IClock clock) : ICommandHandler<SetTerminalScaleKeyCommand, TerminalScaleDto>
+internal sealed class SetTerminalScaleKeyHandler(
+    IOrganizationStore store,
+    Pos.SharedKernel.Time.IClock clock,
+    Pos.Application.Abstractions.Security.ICurrentUser current,
+    Pos.Application.Abstractions.Security.IClientContext client,
+    Pos.Application.Abstractions.Security.IAuthorizationScope authorization,
+    Pos.Application.Abstractions.Auditing.IAuditWriter audit) : ICommandHandler<SetTerminalScaleKeyCommand, TerminalScaleDto>
 {
     public async Task<Result<TerminalScaleDto>> Handle(SetTerminalScaleKeyCommand request, CancellationToken cancellationToken)
     {
@@ -110,13 +116,62 @@ internal sealed class SetTerminalScaleKeyHandler(IOrganizationStore store, Pos.S
             return OrganizationErrors.TerminalNotFound;
         }
 
+        // BB2: el agente no tiene una credencial propia que el servidor pueda verificar (la del equipo vive en el navegador de la caja).
+        // Por eso solo se vincula desde ESA caja: una sesión de caja (PIN) abierta en el equipo emparejado de esa caja (o en el propio
+        // servidor si es Caja Única). Un administrador desde otro equipo, o con un token robado de la administración, no puede registrar
+        // su propia clave.
+        var fromThisTerminal = current.IsTerminalSession && current.PosTerminalId == terminal.Id
+            && (client.PosTerminalId == terminal.Id || (client.IsLocal && client.DeviceId is null));
+        if (!fromThisTerminal)
+        {
+            return Error.Forbidden(
+                "ORGANIZATION.SCALE_LINK_TERMINAL",
+                "La báscula se vincula desde la pantalla de venta de esa misma caja (F1 → Vincular báscula), con la autorización de un supervisor.");
+        }
+
         if (await store.GetTerminalScaleAsync(terminal.Id, cancellationToken) is not { } scale)
         {
             return Error.BusinessRule("ORGANIZATION.SCALE_NOT_CONFIGURED", "Guarde primero la báscula de la caja y luego vincúlela.");
         }
 
+        var changed = scale.ReadingKeyId is not null;
         var set = scale.SetReadingKey(request.KeyId, request.PublicKey, clock.UtcNow);
-        return set.IsFailure ? set.Error : scale.ToDto(configured: true);
+        if (set.IsFailure)
+        {
+            return set.Error;
+        }
+
+        await audit.WriteAsync(
+            new Pos.Application.Abstractions.Auditing.AuditEntry(
+                "organization", "SCALE_KEY_LINKED", nameof(TerminalScale), scale.Id, $"Báscula de la caja {terminal.Code}",
+                changed
+                    ? $"La clave de la báscula de la caja {terminal.Code} cambió (se volvió a vincular): las lecturas firmadas con la anterior ya no valen."
+                    : $"Báscula de la caja {terminal.Code} vinculada con su agente.",
+                AuthorizedBy: authorization.Current?.AuthorizedBy, Severity: Pos.Application.Abstractions.Auditing.AuditSeverity.Warning),
+            cancellationToken);
+        return scale.ToDto(configured: true);
+    }
+}
+
+/// <summary>Básculas cuya clave se vinculó o cambió en los últimos 7 días (BB2: alerta visible en el Tablero, además de la auditoría).</summary>
+public sealed record ListScaleKeyChangesQuery : IQuery<IReadOnlyList<ScaleKeyChangeDto>>;
+
+internal sealed class ListScaleKeyChangesHandler(IOrganizationStore store, Pos.SharedKernel.Time.IClock clock)
+    : IQueryHandler<ListScaleKeyChangesQuery, IReadOnlyList<ScaleKeyChangeDto>>
+{
+    public async Task<Result<IReadOnlyList<ScaleKeyChangeDto>>> Handle(ListScaleKeyChangesQuery request, CancellationToken cancellationToken)
+    {
+        var since = clock.UtcNow.AddDays(-7);
+        var changes = new List<ScaleKeyChangeDto>();
+        foreach (var terminal in await store.ListTerminalsAsync(null, cancellationToken))
+        {
+            if (await store.GetTerminalScaleAsync(terminal.Id, cancellationToken) is { ReadingKeySetAt: { } at } && at >= since)
+            {
+                changes.Add(new ScaleKeyChangeDto(terminal.Id, terminal.Code, at));
+            }
+        }
+
+        return changes;
     }
 }
 

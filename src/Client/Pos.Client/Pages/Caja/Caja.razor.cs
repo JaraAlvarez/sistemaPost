@@ -123,6 +123,7 @@ public sealed partial class Caja
     private ScaleRead? _pesoLectura;
     private CancellationTokenSource? _pesoCts;
     private decimal _pesoDigitado;
+    private bool _pesoRetirar;
 
     [Inject]
     private ApiClient Api { get; set; } = default!;
@@ -431,6 +432,7 @@ public sealed partial class Caja
         _pesoProducto = producto;
         _pesoProductoId = productId;
         _pesoLectura = null;
+        _pesoRetirar = false;
         _pesoMensaje = "Leyendo la báscula…";
         _pesoTono = "info";
         _panel = Panel.Pesando;
@@ -464,6 +466,7 @@ public sealed partial class Caja
                 {
                     retirarDesde ??= ahora;
                     (_pesoMensaje, _pesoTono) = ("Retire el producto de la báscula", "alerta");
+                    _pesoRetirar = true;
                     if (ahora - retirarDesde > TimeSpan.FromSeconds(config.EmptyWaitSeconds))
                     {
                         TerminarPesaje("La báscula no quedó vacía después de la pesada anterior: no se agregó. Retire el producto y vuelva a registrarlo.");
@@ -474,7 +477,7 @@ public sealed partial class Caja
                 {
                     // La báscula responde, pero el agente no está vinculado con esta caja: el servidor no aceptaría el peso.
                     BasculaSinRespuesta(
-                        "La báscula de esta caja no está vinculada: en el computador de la caja abra Configuración → Cajas e impresoras → Báscula y guarde.",
+                        "La báscula de esta caja no está vinculada: pulse F1 → Vincular báscula (con la autorización de un supervisor).",
                         config.AllowManualWeight);
                     return;
                 }
@@ -551,6 +554,70 @@ public sealed partial class Caja
         {
             await AgentScale.TareAsync(clear: true);
         }
+    }
+
+    /// <summary>Si el servidor ya no espera que se retire el producto, el agente tampoco (BN1).</summary>
+    private async Task SincronizarRetornoACeroAsync()
+    {
+        try
+        {
+            if (!(await Api.GetAsync<Pos.Modules.Sales.Contracts.ScaleInterlockDto>("api/v1/sales/scale/interlock")).AwaitingEmpty)
+            {
+                await AgentScale.ReleaseAcceptedAsync();
+            }
+        }
+        catch (ApiException)
+        {
+            // Sin respuesta del servidor: se deja como está (el servidor es el que decide al pesar).
+        }
+    }
+
+    /// <summary>
+    /// "Reiniciar báscula" (BB5): con permiso o la autorización de un supervisor (queda auditado), libera la espera de "retire el producto"
+    /// en el servidor y luego en el agente.
+    /// </summary>
+    private async Task ReiniciarBasculaAsync()
+    {
+        _pesoCts?.Cancel();
+        _panel = Panel.None;
+        await RunAsync(async grant =>
+        {
+            var estado = await Api.SendAsync<Pos.Modules.Sales.Contracts.ScaleInterlockDto>(HttpMethod.Post, "api/v1/sales/scale/reset", null, grant);
+            if (!estado.AwaitingEmpty)
+            {
+                await AgentScale.ReleaseAcceptedAsync();
+            }
+
+            Snackbar.Add("Báscula reiniciada: ya puede pesar el siguiente producto.", Severity.Info);
+        });
+    }
+
+    /// <summary>
+    /// "Vincular báscula" (D3/BB2): en ESTA caja, el agente crea la clave que firma las lecturas y el servidor registra la pública. Exige el
+    /// permiso o la autorización de un supervisor; el servidor solo lo acepta desde la sesión de esta caja en su propio equipo.
+    /// </summary>
+    private async Task VincularBasculaAsync()
+    {
+        if (Session.Me?.PosTerminalId is not { } caja)
+        {
+            return;
+        }
+
+        _panel = Panel.None;
+        await RunAsync(async grant =>
+        {
+            var (vinculo, error) = await AgentScale.PairAsync(caja);
+            if (vinculo is null)
+            {
+                Snackbar.Add(error ?? "El agente de esta caja no respondió.", Severity.Error);
+                return;
+            }
+
+            await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(
+                HttpMethod.Put, $"api/v1/organization/terminals/{caja}/scale/reading-key", new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, grant);
+            var aviso = await Scale.LoadAsync(caja);
+            Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
+        });
     }
 
     /// <summary>Esc durante la pesada: la tara manual tomada para ella se quita (D2).</summary>
@@ -803,15 +870,16 @@ public sealed partial class Caja
             return;
         }
 
-        // BN1: si se elimina la última pesada de la báscula (para volver a pesar), ya no hace falta retirar el producto de la báscula.
-        var ultimaPesada = _sale.ActiveLines.LastOrDefault(l => l.WeightSource == "SCALE")?.Id == line;
+        // BN1: eliminar la última pesada de la caja (para volver a pesar) libera el retorno a cero en el servidor; la caja libera también el
+        // agente SOLO si el servidor lo liberó (si la última pesada fue otra, p. ej. en otra venta, los dos siguen esperando).
+        var pesada = _sale.ActiveLines.Any(l => l.Id == line && l.WeightSource == "SCALE");
         await RunAsync(async grant =>
         {
             _sale = await Api.PostAsync<Sale>($"api/v1/sales/{_sale.Id}/lines/{line}/void", null, grant);
             _selected = _sale.ActiveLines.LastOrDefault()?.Id;
-            if (ultimaPesada)
+            if (pesada)
             {
-                await AgentScale.ReleaseAcceptedAsync();
+                await SincronizarRetornoACeroAsync();
             }
         });
     }
@@ -1268,8 +1336,9 @@ public sealed partial class Caja
     {
         _scCts?.Cancel();
         _scCts?.Dispose();
+        // La pesada en curso solo se cancela: su bucle todavía puede usar el token (un CTS desechado haría fallar el siguiente Cancel y F10).
         _pesoCts?.Cancel();
-        _pesoCts?.Dispose();
+        _pesoCts = null;
         _scCts = null;
         _sc = null;
         _scQr = null;

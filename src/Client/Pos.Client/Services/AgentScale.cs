@@ -72,7 +72,7 @@ public sealed class AgentScale(ApiClient api)
 
         var aviso = await PushAsync(config);
         return aviso ?? (config is { Enabled: true, ReadingKeyId: null }
-            ? "la báscula de esta caja no está vinculada (el servidor no aceptará sus pesos): un administrador debe guardarla en Configuración → Cajas e impresoras desde este computador."
+            ? "la báscula de esta caja no está vinculada (el servidor no aceptará sus pesos): pulse F1 → Vincular báscula (con un supervisor)."
             : null);
     }
 

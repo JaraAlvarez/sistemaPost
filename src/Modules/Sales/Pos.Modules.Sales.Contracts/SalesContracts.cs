@@ -20,6 +20,7 @@ public static class SalesPermissions
     public const string WarrantyRefund = "sales.refund.warranty";
     public const string SaleReprint = "sales.sale.reprint";
     public const string SaleView = "sales.sale.view";
+    public const string ScaleReset = "sales.scale.reset";
 
     public static IEnumerable<PermissionDefinition> All =>
     [
@@ -35,6 +36,7 @@ public static class SalesPermissions
         new(WarrantyRefund, "Reintegrar dinero por garantía (excepción legal, solo el propietario)", isSensitive: true),
         new(SaleReprint, "Reimprimir el tiquete de una venta (marcado COPIA)", isSensitive: false),
         new(SaleView, "Consultar ventas, cambios y reportes de ventas", isSensitive: false),
+        new(ScaleReset, "Reiniciar la báscula de la caja: libera la espera de «retire el producto» (admite autorización de supervisor)", isSensitive: true),
     ];
 }
 
@@ -78,6 +80,9 @@ public sealed record SaleLineDto(
 /// La interfaz la reenvía tal como la entregó el agente; el servidor toma el peso, la tara y el retorno a cero de ahí, nunca del cliente.
 /// </summary>
 public sealed record ScaleReadingInfo(string Payload, string Signature);
+
+/// <summary>Retorno a cero de la báscula de la caja en el servidor: <c>AwaitingEmpty</c> = la siguiente pesada exige retirar el producto.</summary>
+public sealed record ScaleInterlockDto(bool AwaitingEmpty);
 
 /// <summary>
 /// Versión mínima de la interfaz de caja que el servidor acepta para pesar (Fase 7-C, BN10): la interfaz envía la cabecera

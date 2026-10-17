@@ -6,33 +6,40 @@ namespace Pos.SharedKernel.Measurement;
 /// Lectura de la báscula FIRMADA por el agente de la caja (Fase 7-C, decisión D3 de la revisión): el agente la arma con lo que leyó del
 /// puerto serie, la firma con la clave de la caja (ECDSA P-256 + SHA-256; la clave privada nunca sale del agente) y la interfaz la
 /// reenvía al servidor sin poder cambiarla. El texto firmado es canónico (campos separados por <c>|</c>, cultura invariante):
-/// <c>BP-SCALE-1|caja|lectura|hora-ms|bruto|tara|neto|estable|neto-de-báscula|estado|vacía-ms|vacía-desde-la-aceptada</c>.
+/// <c>BP-SCALE-2|caja|lectura|hora-ms|arranque|secuencia|bruto|tara|neto|estable|neto-de-báscula|estado|secuencia-vacía|vacía-desde-la-aceptada</c>.
+/// <para>El orden entre lecturas NO usa la hora (el reloj del equipo puede saltar): usa <see cref="BootId"/> (cambia cada vez que arranca
+/// el agente) y <see cref="Seq"/> (contador que solo crece mientras el agente está encendido). La hora solo sirve para descartar
+/// lecturas demasiado viejas o del futuro frente al reloj del servidor.</para>
 /// </summary>
 /// <param name="TerminalId">Caja con la que se vinculó el agente.</param>
 /// <param name="ReadingId">Identificador único de la lectura (nonce): el servidor no acepta dos veces la misma.</param>
-/// <param name="At">Hora de la lectura en el reloj del agente (creciente: nunca retrocede dentro del agente).</param>
+/// <param name="At">Hora de la lectura en el reloj del agente.</param>
+/// <param name="BootId">Arranque del agente.</param>
+/// <param name="Seq">Número de la lectura dentro del arranque (creciente).</param>
 /// <param name="GrossKg">Lo que marcó la báscula.</param>
 /// <param name="TareKg">Tara manual del agente (tecla Ins).</param>
 /// <param name="NetKg">Bruto menos la tara manual.</param>
 /// <param name="Stable">El peso estaba quieto.</param>
-/// <param name="ScaleNet">La báscula ya descontó una tara (trama neta).</param>
+/// <param name="ScaleNet">La báscula ya descontó una tara (trama neta): el "bruto" de la trama no es el bruto real.</param>
 /// <param name="Status">OK, UNSTABLE, ZERO, NEGATIVE, OVERLOAD o ERROR.</param>
-/// <param name="LastEmptyAt">Última vez (reloj del agente) que el agente vio la báscula vacía (peso dentro de la banda de cero).</param>
+/// <param name="LastEmptySeq">Secuencia (en este arranque) de la última lectura con la báscula vacía: |bruto| ≤ peso mínimo.</param>
 /// <param name="EmptiedSinceLastAccepted">El agente vio la báscula vacía después de la última pesada que la caja agregó.</param>
 public sealed record ScaleReadingPayload(
     Guid TerminalId,
     Guid ReadingId,
     DateTimeOffset At,
+    Guid BootId,
+    long Seq,
     decimal GrossKg,
     decimal TareKg,
     decimal NetKg,
     bool Stable,
     bool ScaleNet,
     string Status,
-    DateTimeOffset? LastEmptyAt,
+    long? LastEmptySeq,
     bool EmptiedSinceLastAccepted)
 {
-    public const string Version = "BP-SCALE-1";
+    public const string Version = "BP-SCALE-2";
 
     /// <summary>Algoritmo de la firma (texto informativo para la configuración).</summary>
     public const string Algorithm = "ECDSA_P256_SHA256";
@@ -43,44 +50,48 @@ public sealed record ScaleReadingPayload(
         TerminalId.ToString("D", CultureInfo.InvariantCulture),
         ReadingId.ToString("D", CultureInfo.InvariantCulture),
         At.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
+        BootId.ToString("D", CultureInfo.InvariantCulture),
+        Seq.ToString(CultureInfo.InvariantCulture),
         Kg(GrossKg),
         Kg(TareKg),
         Kg(NetKg),
         Stable ? "1" : "0",
         ScaleNet ? "1" : "0",
         Status,
-        LastEmptyAt is { } empty ? empty.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture) : "-",
+        LastEmptySeq is { } empty ? empty.ToString(CultureInfo.InvariantCulture) : "-",
         EmptiedSinceLastAccepted ? "1" : "0");
 
     public static ScaleReadingPayload? TryParse(string? text)
     {
         var parts = text?.Split('|');
-        if (parts is not { Length: 12 } || parts[0] != Version
+        if (parts is not { Length: 14 } || parts[0] != Version
             || !Guid.TryParseExact(parts[1], "D", out var terminal) || !Guid.TryParseExact(parts[2], "D", out var reading)
             || !long.TryParse(parts[3], NumberStyles.None, CultureInfo.InvariantCulture, out var at)
-            || ParseKg(parts[4]) is not { } gross || ParseKg(parts[5]) is not { } tare || ParseKg(parts[6]) is not { } net
-            || parts[7] is not ("0" or "1") || parts[8] is not ("0" or "1") || parts[11] is not ("0" or "1")
-            || parts[9] is not ("OK" or "UNSTABLE" or "ZERO" or "NEGATIVE" or "OVERLOAD" or "ERROR"))
+            || !Guid.TryParseExact(parts[4], "D", out var boot)
+            || !long.TryParse(parts[5], NumberStyles.None, CultureInfo.InvariantCulture, out var seq)
+            || ParseKg(parts[6]) is not { } gross || ParseKg(parts[7]) is not { } tare || ParseKg(parts[8]) is not { } net
+            || parts[9] is not ("0" or "1") || parts[10] is not ("0" or "1") || parts[13] is not ("0" or "1")
+            || parts[11] is not ("OK" or "UNSTABLE" or "ZERO" or "NEGATIVE" or "OVERLOAD" or "ERROR"))
         {
             return null;
         }
 
-        DateTimeOffset? lastEmpty = null;
-        if (parts[10] != "-")
+        long? lastEmpty = null;
+        if (parts[12] != "-")
         {
-            if (!long.TryParse(parts[10], NumberStyles.None, CultureInfo.InvariantCulture, out var empty))
+            if (!long.TryParse(parts[12], NumberStyles.None, CultureInfo.InvariantCulture, out var empty))
             {
                 return null;
             }
 
-            lastEmpty = DateTimeOffset.FromUnixTimeMilliseconds(empty);
+            lastEmpty = empty;
         }
 
         try
         {
             return new ScaleReadingPayload(
-                terminal, reading, DateTimeOffset.FromUnixTimeMilliseconds(at), gross, tare, net, parts[7] == "1", parts[8] == "1", parts[9], lastEmpty,
-                parts[11] == "1");
+                terminal, reading, DateTimeOffset.FromUnixTimeMilliseconds(at), boot, seq, gross, tare, net, parts[9] == "1", parts[10] == "1", parts[11],
+                lastEmpty, parts[13] == "1");
         }
         catch (ArgumentOutOfRangeException)
         {

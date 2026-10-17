@@ -7,14 +7,13 @@ namespace Pos.Modules.Sales.Domain;
 /// <summary>
 /// Retorno a cero de la báscula de una caja, en el SERVIDOR (Fase 7-C, decisiones D1 y D3 de la revisión; tabla
 /// <c>sales.scale_interlocks</c>): la última lectura firmada que se aceptó para una línea y si después hay que ver la báscula vacía.
-/// Vive por caja (no por venta ni por pantalla): recargar la página o empezar otra venta no lo borra. Las horas son del RELOJ DEL
-/// AGENTE (nunca se comparan con el reloj del servidor).
+/// Vive por caja (no por venta ni por pantalla): recargar la página o empezar otra venta no lo borra.
+/// <para>BB4: el orden entre lecturas usa el arranque del agente y su secuencia (nunca la hora, que puede saltar). Si el agente se
+/// reinició (otro arranque), basta que haya visto la báscula vacía desde que arrancó. La hora de la lectura solo se compara con el reloj
+/// del servidor para rechazar lecturas viejas o del futuro (⚙️ 5 min); no se guarda ningún máximo que deje la caja trabada.</para>
 /// </summary>
 public sealed class ScaleInterlock : Entity<Guid>
 {
-    /// <summary>Una lectura más vieja que la última aceptada en más de este tiempo (reloj del agente) se rechaza (⚙️ 30 s).</summary>
-    public static readonly TimeSpan MaxBacklog = TimeSpan.FromSeconds(30);
-
     // El Id es la caja (pos_terminal_id).
     private ScaleInterlock(Guid id)
         : base(id)
@@ -25,8 +24,14 @@ public sealed class ScaleInterlock : Entity<Guid>
 
     public Guid? LastReadingId { get; private set; }
 
-    /// <summary>Hora (reloj del agente) de la última lectura aceptada.</summary>
+    /// <summary>Hora (reloj del agente) de la última lectura aceptada (informativa).</summary>
     public DateTimeOffset? LastReadingAt { get; private set; }
+
+    /// <summary>Arranque del agente de la última lectura aceptada.</summary>
+    public Guid? LastBootId { get; private set; }
+
+    /// <summary>Secuencia (en ese arranque) de la última lectura aceptada.</summary>
+    public long? LastSeq { get; private set; }
 
     public decimal? LastGrossKg { get; private set; }
 
@@ -37,20 +42,29 @@ public sealed class ScaleInterlock : Entity<Guid>
     /// <summary>Se agregó una pesada y todavía no llega una lectura firmada que muestre la báscula vacía después de ella.</summary>
     public bool AwaitingEmpty { get; private set; }
 
+    /// <summary>Última limpieza de las lecturas viejas de esta caja (BB10).</summary>
+    public DateTimeOffset? LastPurgeAt { get; private set; }
+
     public DateTimeOffset UpdatedAt { get; private set; }
 
     public static ScaleInterlock Start(Guid posTerminalId, Guid companyId, DateTimeOffset now) => new(posTerminalId) { CompanyId = companyId, UpdatedAt = now };
 
-    /// <summary>¿Se puede agregar una línea con esta lectura? (antigüedad por el reloj del agente y retorno a cero).</summary>
-    public Result Check(ScaleReadingPayload reading)
+    /// <summary>¿Se puede agregar una línea con esta lectura? (hora frente al servidor, orden en el agente y retorno a cero).</summary>
+    public Result Check(ScaleReadingPayload reading, DateTimeOffset serverNow, TimeSpan maxSkew)
     {
         ArgumentNullException.ThrowIfNull(reading);
-        if (LastReadingAt is { } last && reading.At < last - MaxBacklog)
+        if ((reading.At - serverNow).Duration() > maxSkew)
         {
             return SalesErrors.ScaleReadingStale;
         }
 
-        if (AwaitingEmpty && (reading.LastEmptyAt is not { } empty || LastReadingAt is not { } accepted || empty <= accepted))
+        var sameBoot = LastBootId == reading.BootId;
+        if (sameBoot && LastSeq is { } last && reading.Seq <= last)
+        {
+            return SalesErrors.ScaleReadingStale;
+        }
+
+        if (AwaitingEmpty && (reading.LastEmptySeq is not { } empty || (sameBoot && LastSeq is { } accepted && empty <= accepted)))
         {
             return SalesErrors.ScaleNotEmptied;
         }
@@ -63,7 +77,9 @@ public sealed class ScaleInterlock : Entity<Guid>
     {
         ArgumentNullException.ThrowIfNull(reading);
         LastReadingId = reading.ReadingId;
-        LastReadingAt = LastReadingAt is { } last && last > reading.At ? last : reading.At;
+        LastReadingAt = reading.At;
+        LastBootId = reading.BootId;
+        LastSeq = reading.Seq;
         LastGrossKg = reading.GrossKg;
         LastSaleId = saleId;
         LastSaleLineId = saleLineId;
@@ -81,6 +97,27 @@ public sealed class ScaleInterlock : Entity<Guid>
 
         AwaitingEmpty = false;
         UpdatedAt = now;
+        return true;
+    }
+
+    /// <summary>"Reiniciar báscula" (BB5, con supervisor y auditoría): libera el retorno a cero de la caja.</summary>
+    public bool Reset(DateTimeOffset now)
+    {
+        var was = AwaitingEmpty;
+        AwaitingEmpty = false;
+        UpdatedAt = now;
+        return was;
+    }
+
+    /// <summary>¿Toca limpiar las lecturas viejas de la caja? (una vez al día como máximo).</summary>
+    public bool PurgeDue(DateTimeOffset now)
+    {
+        if (LastPurgeAt is { } last && now - last < TimeSpan.FromDays(1))
+        {
+            return false;
+        }
+
+        LastPurgeAt = now;
         return true;
     }
 }
@@ -109,6 +146,10 @@ public sealed class ScaleReadingRecord : Entity<Guid>
 
     public DateTimeOffset AgentAt { get; private set; }
 
+    public Guid BootId { get; private set; }
+
+    public long Seq { get; private set; }
+
     public decimal GrossKg { get; private set; }
 
     public decimal TareKg { get; private set; }
@@ -133,6 +174,8 @@ public sealed class ScaleReadingRecord : Entity<Guid>
             SaleLineId = saleLineId,
             KeyId = keyId,
             AgentAt = reading.At,
+            BootId = reading.BootId,
+            Seq = reading.Seq,
             GrossKg = reading.GrossKg,
             TareKg = reading.TareKg,
             NetKg = reading.NetKg,

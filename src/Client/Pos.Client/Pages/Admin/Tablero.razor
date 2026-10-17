@@ -171,6 +171,7 @@
     private sealed record Alerta(int Cantidad, string Texto, string Href, string Icono, string Tono);
 
     private DashboardDto? _data;
+    private List<Pos.Modules.Organization.Contracts.ScaleKeyChangeDto> _basculas = [];
     private bool _loading = true;
     private bool _puedeVer;
     private string? _error;
@@ -192,6 +193,9 @@
             }
 
             Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
+            _basculas = Session.Has("organization.terminal.manage")
+                ? await Api.GetAsync<List<Pos.Modules.Organization.Contracts.ScaleKeyChangeDto>>("api/v1/organization/terminals/scale-key-changes")
+                : [];
             _error = null;
         }
         catch (ApiException ex)
@@ -251,6 +255,13 @@
         if (backups > 0 && Session.Has("backup.backup.view"))
         {
             yield return new(backups, "alerta(s) de backups", "/admin/backups", Icons.Material.Outlined.Backup, "error");
+        }
+
+        // BB2: vincular o cambiar la clave de la báscula de una caja cambia quién puede firmar los pesos: se muestra aquí 7 días.
+        foreach (var bascula in _basculas)
+        {
+            yield return new(1, $"La clave de la báscula de la caja {bascula.TerminalCode} cambió ({bascula.ChangedAt.ToLocalTime():dd/MM HH:mm}): revise la auditoría si no fue usted.",
+                "/admin/auditoria", Icons.Material.Outlined.Scale, "advertencia");
         }
 
         var solicitudes = data.DataRequestsDueSoon;

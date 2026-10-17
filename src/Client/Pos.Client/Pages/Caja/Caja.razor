@@ -687,7 +687,13 @@ else
                 <MudText Typo="Typo.caption" Class="d-block mt-2">
                     @(pesando.UnitPrice is { } precioPeso ? $"{Format.Money(precioPeso)} por {UnidadPeso(pesando.BaseUnitCode)}" : "Sin precio")@(pesando.TareGrams > 0 ? $" · tara {pesando.TareGrams} g" : "")
                 </MudText>
-                <div class="acciones"><MudButton OnClick="CerrarPanel">Cancelar <kbd class="ml-2">Esc</kbd></MudButton></div>
+                <div class="acciones">
+                    @if (_pesoRetirar)
+                    {
+                        <MudButton Variant="Variant.Outlined" OnClick="ReiniciarBasculaAsync">Reiniciar báscula (supervisor)</MudButton>
+                    }
+                    <MudButton OnClick="CerrarPanel">Cancelar <kbd class="ml-2">Esc</kbd></MudButton>
+                </div>
             </div>
         </div>
     }
@@ -732,12 +738,19 @@ else
                     @if (Scale.Enabled)
                     {
                         <div><kbd>Enter</kbd>Producto de báscula: lee el peso solo al registrarlo</div>
-                        <div><kbd>Ins</kbd>Tara manual de la báscula (bolsa o bandeja)</div>
+                        <div><kbd>Ins</kbd>Tara manual de la báscula (bolsa o bandeja; se quita al agregar la línea o con Esc)</div>
                     }
                     <div><kbd>Esc</kbd>Cerrar la lista, la ventana o volver de un panel</div>
                     <div><kbd>F1</kbd>Esta ayuda</div>
                 </div>
-                <div class="acciones"><MudButton OnClick="CerrarPanel" autofocus>Entendido</MudButton></div>
+                <div class="acciones">
+                    @if (Scale.Config is { Configured: true, Enabled: true, FeatureEnabled: true })
+                    {
+                        <MudButton Variant="Variant.Outlined" OnClick="VincularBasculaAsync">@(Scale.Config.ReadingKeyId is null ? "Vincular báscula" : "Volver a vincular báscula")</MudButton>
+                        <MudButton Variant="Variant.Outlined" OnClick="ReiniciarBasculaAsync">Reiniciar báscula</MudButton>
+                    }
+                    <MudButton OnClick="CerrarPanel" autofocus>Entendido</MudButton>
+                </div>
             </div>
         </div>
     }

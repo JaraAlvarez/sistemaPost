@@ -39,7 +39,11 @@ public static class SalesErrors
         "SALES.SCALE_READING_REUSED", "Esa lectura de la báscula ya se usó en otra línea: vuelva a registrar el producto para pesarlo de nuevo.");
 
     public static readonly Error ScaleReadingStale = Error.BusinessRule(
-        "SALES.SCALE_READING_STALE", "La lectura de la báscula es anterior a la última pesada: vuelva a registrar el producto para pesarlo de nuevo.");
+        "SALES.SCALE_READING_STALE",
+        "La lectura de la báscula es vieja o tiene otra hora: vuelva a registrar el producto. Si se repite, revise la fecha y hora del computador de la caja.");
+
+    public static readonly Error ScaleConcurrent = Error.Conflict(
+        "SALES.SCALE_CONCURRENT", "Otra pesada de esta caja se registró al mismo tiempo: vuelva a registrar el producto.");
 
     public static readonly Error ScaleNotEmptied = Error.BusinessRule(
         "SALES.SCALE_NOT_EMPTIED", "Retire el producto de la báscula: después de cada pesada la báscula debe quedar vacía antes de pesar el siguiente.");

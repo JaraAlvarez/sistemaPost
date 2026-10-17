@@ -75,6 +75,12 @@ public sealed class SalesModule : IModule
                         WeightSource: r.WeightSource, Scale: r.Scale), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.ExpiredSell, allowSupervisor: true)
             .WithSummary("Agrega un producto con existencias de un lote vencido: permiso o autorización de supervisor (RN-SAL-18)");
+        group.MapGet("/scale/interlock", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetScaleInterlockQuery(), ct)).ToHttpResult())
+            .RequirePermission(SalesPermissions.SaleCreate)
+            .WithSummary("Retorno a cero de la báscula de esta caja según el servidor (la siguiente pesada exige retirar el producto)");
+        group.MapPost("/scale/reset", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ResetScaleInterlockCommand(), ct)).ToHttpResult())
+            .RequirePermission(SalesPermissions.ScaleReset, allowSupervisor: true)
+            .WithSummary("Reiniciar báscula: libera el retorno a cero de esta caja (permiso o supervisor; auditado)");
         group.MapPost("/{saleId:guid}/lines/manual-weight", async (Guid saleId, ManualWeightRequest r, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, null, null, WeightKg: r.WeightKg, WeightSource: WeightSources.Manual,
                     AuthorizeManualWeight: true), ct)).ToHttpResult())

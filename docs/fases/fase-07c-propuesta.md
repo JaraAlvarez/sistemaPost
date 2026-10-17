@@ -274,3 +274,26 @@ abierta desde antes de la actualización, debe recargarla (Ctrl+F5).
 
 **Pruebas:** agente 142/142 · Sales 88/88 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · ArchitectureTests 23/23 ·
 Database.Tests 80/80 · integración `Phase7C` 12/12 y `Phase7` 9/9.
+
+## Tercera revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.050** (orden de las lecturas por arranque y secuencia; limpieza de lecturas). Formato firmado `BP-SCALE-2`.
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BB1 · Vacía por el neto | "Vacía" es el **bruto** dentro de la banda de cero (\|bruto\| ≤ peso mínimo, también con deriva negativa). Con tara manual (Ins) o la tara física de la báscula (trama neta `N`/`NT`) el neto en cero **no** cuenta; si la trama no trae el bruto real, no se marca vacía. |
+| BB2 · Quién vincula | El agente no tiene una credencial que el servidor pueda verificar (la del equipo vive en el navegador de la caja), así que se aplicó la opción (b): `PUT …/scale/reading-key` solo se acepta desde una **sesión de caja de esa misma caja** (su equipo emparejado o el propio servidor en Caja Única), con el permiso nuevo `organization.scale.link` o la **autorización de un supervisor** (código y PIN; el POS no maneja TOTP, así que no aplica). Un administrador desde otro equipo o con un token robado de la administración recibe `ORGANIZATION.SCALE_LINK_TERMINAL`. Queda en la auditoría (`SCALE_KEY_LINKED`, con quién autorizó) y el **Tablero** muestra "La clave de la báscula de la caja X cambió" durante 7 días. Se vincula en la caja: **F1 → Vincular báscula**. |
+| BB3 · Clave del agente | La clave privada se cifra con DPAPI de la **cuenta del agente** (SYSTEM en el servicio), sin entropía fija, y el archivo tiene permisos solo para SYSTEM, Administradores y esa cuenta (sin herencia). |
+| BB4 · Reloj | El servidor exige \|hora de la lectura − hora del servidor\| ≤ **5 min ⚙️** (`sales.scale_reading_max_skew_seconds`) y rechaza lecturas del futuro. El orden entre lecturas usa el **arranque y la secuencia** del agente, nunca la hora: un salto del reloj no deja la caja trabada. Si el agente se reinicia, basta con ver la báscula vacía desde que arrancó. El agente usa el reloj monótono para sus esperas. |
+| BB5 · Reiniciar báscula | **F1 → Reiniciar báscula** (o el botón en el aviso "Retire el producto"): permiso nuevo `sales.scale.reset` o supervisor, auditado `SALE_SCALE_RESET`; libera el retorno a cero en el servidor y luego en el agente. |
+| BN1 · Coherencia | Al eliminar una pesada, la caja consulta al servidor (`GET /sales/scale/interlock`) y solo libera el agente si el servidor liberó (si la última pesada fue otra, en otra venta, los dos siguen esperando). |
+| BB6 · Vincular en el agente | Además de la protección de todo el agente (equipo y Host locales, orígenes permitidos), `POST /scale/pairing` exige el `Origin` de la interfaz de la caja. |
+| BB7 · Simulador | Las lecturas de la báscula simulada nunca se firman. |
+| BB8 · Vigilante | Después de una pesada aceptada el vigilante lee hasta 10 min ⚙️; además vigila 15 s después de cualquier lectura con peso, así que cambiar A por B antes de que la caja confirme la línea no deja el aviso "Retire el producto" sin motivo. |
+| BB9 · Doble envío | La misma lectura enviada dos veces a la vez: la segunda recibe 409 (`SALES.SCALE_READING_REUSED` o `SALES.SCALE_CONCURRENT`), nunca 500. |
+| BB10 · Limpieza | Las lecturas firmadas se guardan 90 días: al pesar, una vez al día por caja, se borran las más viejas (no hay una tarea de mantenimiento general en el servidor de la tienda). |
+| BN8 · Tara | Queda aceptado y documentado: la tara manual se quita al agregar la línea, con Esc y con Ins sobre la báscula vacía. |
+| Caja · F10 | `NuevoSistecredito` desechaba el `CancellationTokenSource` de la pesada sin dejarlo en nulo: el siguiente `Cancel()` fallaba (F10 dejaba de abrir el cobro y volver a pesar mostraba "Ocurrió un error inesperado"). Ahora solo se cancela y queda en nulo. A 1366×768 el botón «Confirmar cobro» queda fijo abajo de la columna de cobro (que se desplaza). |
+
+**Pruebas:** agente 147/147 · Sales 89/89 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · Identity 33/33 ·
+ArchitectureTests 23/23 · Database.Tests 80/80 · integración `Phase7C` 13/13, `Phase7` 9/9 y `Phase3` 24/24.

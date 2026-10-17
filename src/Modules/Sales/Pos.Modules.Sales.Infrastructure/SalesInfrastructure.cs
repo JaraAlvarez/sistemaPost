@@ -153,6 +153,9 @@ internal sealed class SalesStore(PosDbContext context) : ISalesStore
     public Task<bool> ScaleReadingUsedAsync(Guid readingId, CancellationToken cancellationToken) =>
         context.Set<ScaleReadingRecord>().AnyAsync(x => x.Id == readingId, cancellationToken);
 
+    public Task PurgeScaleReadingsAsync(Guid posTerminalId, DateTimeOffset before, CancellationToken cancellationToken) =>
+        context.Set<ScaleReadingRecord>().Where(x => x.PosTerminalId == posTerminalId && x.RecordedAt < before).ExecuteDeleteAsync(cancellationToken);
+
     public Task<Sale?> GetSaleAsync(Guid id, CancellationToken cancellationToken) =>
         Sales().SingleOrDefaultAsync(s => s.Id == id, cancellationToken);
 
@@ -439,6 +442,10 @@ internal sealed class SalesConstraintErrors : IConstraintErrorProvider
         ["ux_sales__terminal_open"] = SalesErrors.OpenSaleExists,
         ["ux_customer_returns__draft"] = Error.Conflict("SALES.EXCHANGE_IN_PROGRESS", "La venta ya tiene un cambio en curso: cóbrelo o cancélelo antes de iniciar otro."),
         ["ck_sale_lines__returned"] = SalesErrors.ExchangeQuantityExceeded,
+
+        // BB9: dos envíos de la misma lectura al mismo tiempo: el segundo choca con la clave primaria (409, no 500).
+        ["pk_scale_readings"] = SalesErrors.ScaleReadingReused,
+        ["pk_scale_interlocks"] = SalesErrors.ScaleConcurrent,
     };
 }
 

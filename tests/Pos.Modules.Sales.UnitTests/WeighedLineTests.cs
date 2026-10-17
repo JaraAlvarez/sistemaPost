@@ -15,11 +15,14 @@ public class WeighedLineTests
         [], Guid.NewGuid(), null, true, true, false, true, [], IsSoldByScale: true, TareGrams: tareGrams);
 
     private static readonly Guid Caja = Guid.NewGuid();
+    private static readonly Guid Boot = Guid.NewGuid();
+    private static readonly TimeSpan Window = TimeSpan.FromMinutes(5);
 
-    /// <summary>Lectura del agente (ya verificada): bruto, tara manual, trama neta de la báscula y estable.</summary>
+    /// <summary>Lectura del agente (ya verificada): bruto, tara manual, trama neta de la báscula, estable, orden en el agente y última vacía.</summary>
     private static ScaleReadingPayload Reading(
-        decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, DateTimeOffset? at = null, DateTimeOffset? lastEmptyAt = null) =>
-        new(Caja, Guid.NewGuid(), at ?? Now, grossKg, tareKg, grossKg - tareKg, stable, net, stable ? "OK" : "UNSTABLE", lastEmptyAt, true);
+        decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, DateTimeOffset? at = null, long seq = 1, long? lastEmptySeq = null,
+        Guid? boot = null) =>
+        new(Caja, Guid.NewGuid(), at ?? Now, boot ?? Boot, seq, grossKg, tareKg, grossKg - tareKg, stable, net, stable ? "OK" : "UNSTABLE", lastEmptySeq, true);
 
     private static Pos.SharedKernel.Results.Result<(decimal Quantity, string Source)> Scale(CatalogSaleItem item, decimal grossKg, decimal tareKg = 0m, bool net = false) =>
         AddLineHandler.WeighedQuantity(item, grossKg - tareKg, WeightSources.Scale, manualAuthorized: false, scaleLabel: false, Reading(grossKg, tareKg, net));
@@ -94,33 +97,61 @@ public class WeighedLineTests
     {
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
         var line = Guid.NewGuid();
-        interlock.Check(Reading(1.2m)).IsSuccess.ShouldBeTrue();
-        interlock.Accept(Reading(1.2m, at: Now), Guid.NewGuid(), line, Now);
+        interlock.Check(Reading(1.2m, seq: 10), Now, Window).IsSuccess.ShouldBeTrue();
+        interlock.Accept(Reading(1.2m, seq: 10), Guid.NewGuid(), line, Now);
 
         // D1: sin ver la báscula vacía se rechaza, pese lo mismo o pese otra cosa (el tomate encima de la carne).
-        interlock.Check(Reading(1.2m, at: Now.AddSeconds(5))).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
-        interlock.Check(Reading(1.8m, at: Now.AddSeconds(5))).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
-        interlock.Check(Reading(0.8m, at: Now.AddSeconds(5), lastEmptyAt: Now.AddSeconds(-1))).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
+        interlock.Check(Reading(1.2m, seq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
+        interlock.Check(Reading(1.8m, seq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
+        interlock.Check(Reading(0.8m, seq: 12, lastEmptySeq: 9), Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
 
         // Vacía después de la pesada (aunque fuera un paso rápido por cero): vale, también con el mismo peso.
-        interlock.Check(Reading(1.2m, at: Now.AddSeconds(5), lastEmptyAt: Now.AddMilliseconds(300))).IsSuccess.ShouldBeTrue();
+        interlock.Check(Reading(1.2m, seq: 13, lastEmptySeq: 11), Now, Window).IsSuccess.ShouldBeTrue();
 
-        // Una lectura vieja (reloj del agente) no vale.
-        interlock.Check(Reading(1.2m, at: Now - ScaleInterlock.MaxBacklog - TimeSpan.FromSeconds(1), lastEmptyAt: Now.AddSeconds(1)))
-            .Error.ShouldBe(SalesErrors.ScaleReadingStale);
+        // Una lectura anterior (o la misma) a la aceptada en el agente no vale.
+        interlock.Check(Reading(1.2m, seq: 10, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
     }
 
     [Fact]
-    public void Eliminar_la_ultima_pesada_libera_el_retorno_a_cero_y_otra_linea_no()
+    public void La_hora_solo_se_compara_con_el_servidor_y_un_salto_del_reloj_del_agente_no_traba_la_caja()
+    {
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        interlock.Accept(Reading(1.2m, at: Now, seq: 10), Guid.NewGuid(), Guid.NewGuid(), Now);
+
+        // BB4: vieja o del futuro frente al reloj del servidor (⚙️ 5 min): no vale.
+        interlock.Check(Reading(0.5m, at: Now.AddMinutes(-6), seq: 12, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
+        interlock.Check(Reading(0.5m, at: Now.AddMinutes(6), seq: 12, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
+
+        // El reloj del agente se atrasó 3 minutos (dentro de la ventana): el orden lo da la secuencia, la caja sigue pesando.
+        interlock.Check(Reading(0.5m, at: Now.AddMinutes(-3), seq: 12, lastEmptySeq: 11), Now, Window).IsSuccess.ShouldBeTrue();
+
+        // El agente se reinició (otro arranque): basta que haya visto la báscula vacía desde que arrancó.
+        var reboot = Guid.NewGuid();
+        interlock.Check(Reading(0.5m, seq: 1, boot: reboot), Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
+        interlock.Check(Reading(0.5m, seq: 3, lastEmptySeq: 2, boot: reboot), Now, Window).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Eliminar_la_ultima_pesada_o_reiniciar_la_bascula_libera_el_retorno_a_cero()
     {
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
         var line = Guid.NewGuid();
-        interlock.Accept(Reading(1.2m), Guid.NewGuid(), line, Now);
+        interlock.Accept(Reading(1.2m, seq: 1), Guid.NewGuid(), line, Now);
 
         interlock.Release(Guid.NewGuid(), Now).ShouldBeFalse();
         interlock.AwaitingEmpty.ShouldBeTrue();
         interlock.Release(line, Now).ShouldBeTrue();
-        interlock.Check(Reading(1.2m, at: Now.AddSeconds(2))).IsSuccess.ShouldBeTrue();
+        interlock.Check(Reading(1.2m, seq: 2), Now, Window).IsSuccess.ShouldBeTrue();
+
+        // BB5: "Reiniciar báscula" libera aunque la última pesada no se elimine.
+        interlock.Accept(Reading(1.2m, seq: 2), Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.Reset(Now).ShouldBeTrue();
+        interlock.Check(Reading(1.2m, seq: 3), Now, Window).IsSuccess.ShouldBeTrue();
+
+        // BB10: la limpieza de lecturas viejas va una vez al día.
+        interlock.PurgeDue(Now).ShouldBeTrue();
+        interlock.PurgeDue(Now.AddHours(5)).ShouldBeFalse();
+        interlock.PurgeDue(Now.AddDays(1)).ShouldBeTrue();
     }
 
     [Theory]

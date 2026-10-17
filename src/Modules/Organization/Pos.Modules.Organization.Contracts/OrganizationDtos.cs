@@ -74,6 +74,9 @@ public sealed record TerminalScaleDto(
     Guid? ReadingKeyId = null,
     DateTimeOffset? ReadingKeySetAt = null);
 
+/// <summary>Báscula cuya clave se vinculó o cambió hace poco (alerta del Tablero).</summary>
+public sealed record ScaleKeyChangeDto(Guid PosTerminalId, string TerminalCode, DateTimeOffset ChangedAt);
+
 /// <summary><c>PUT /organization/terminals/{id}/scale/reading-key</c>: clave pública con la que el agente de esa caja firma las lecturas.</summary>
 public sealed record ScaleReadingKeyRequest(Guid KeyId, string PublicKey);
 

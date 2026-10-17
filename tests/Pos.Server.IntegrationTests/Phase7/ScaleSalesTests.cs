@@ -35,7 +35,7 @@ public class ScaleSalesTests
 
         // Se vincula con el agente de la caja (aquí, un doble que firma igual) y la caja envía la versión actual de la interfaz.
         using var agent = new Phase7C.ScaleAgentDouble(terminal.Id);
-        await agent.RegisterKeyAsync(shop.Owner);
+        await agent.RegisterKeyAsync(shop);
         Phase7C.ScaleAgentDouble.UseCurrentClient(shop.Cashier);
 
         // El tomate se vende por báscula con bolsa de 20 g.

@@ -163,7 +163,11 @@ internal sealed class AddLineHandler(
 
                 verified = checkedReading.Value;
                 interlock = await store.GetScaleInterlockAsync(scope.PosTerminalId, cancellationToken);
-                if (interlock?.Check(verified.Reading) is { IsFailure: true } blocked)
+                var skew = await settings.GetAsync(
+                    SalesSettings.ScaleReadingMaxSkewSeconds, new SettingContext(sale.CompanyId, sale.BranchId, scope.PosTerminalId), cancellationToken);
+                var blocked = (interlock ?? ScaleInterlock.Start(scope.PosTerminalId, sale.CompanyId, clock.UtcNow))
+                    .Check(verified.Reading, clock.UtcNow, TimeSpan.FromSeconds(skew));
+                if (blocked.IsFailure)
                 {
                     return blocked.Error;
                 }
@@ -213,6 +217,12 @@ internal sealed class AddLineHandler(
             }
 
             interlock.Accept(verified.Reading, sale.Id, line.Value.Id, now);
+            if (interlock.PurgeDue(now))
+            {
+                // BB10: las lecturas firmadas se guardan 90 días (auditoría); la limpieza va con la pesada, una vez al día por caja.
+                await store.PurgeScaleReadingsAsync(scope.PosTerminalId, now.AddDays(-90), cancellationToken);
+            }
+
             store.Add(ScaleReadingRecord.Of(
                 verified.Reading, request.Scale!.Payload, request.Scale.Signature, verified.KeyId, sale.CompanyId, sale.Id, line.Value.Id, now));
         }
