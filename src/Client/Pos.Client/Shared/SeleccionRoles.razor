@@ -1,0 +1,49 @@
+@using Pos.Modules.Identity.Contracts
+
+@* Roles de la empresa como casillas, cada uno con su descripción (Usuarios: alta y detalle). Modifica el conjunto Seleccion en sitio. *@
+
+<div class="seleccion-roles" role="group" aria-label="Roles">
+    @foreach (var role in Roles)
+    {
+        <div class="d-flex align-start">
+            <MudCheckBox T="bool" Value="@Seleccion.Contains(role.Id)" ValueChanged="@(v => Cambiar(role.Id, v))" Disabled="SoloLectura" Dense="true"
+                         aria-label="@role.Name" />
+            <div class="pt-1">
+                <MudText Typo="Typo.body2"><b>@role.Name</b>@(role.IsSystem ? null : " · rol propio")</MudText>
+                @if (!string.IsNullOrWhiteSpace(role.Description))
+                {
+                    <MudText Typo="Typo.caption" Class="d-block" Style="color: var(--mud-palette-text-secondary)">@role.Description</MudText>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<RoleDto> Roles { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public HashSet<Guid> Seleccion { get; set; } = [];
+
+    [Parameter]
+    public bool SoloLectura { get; set; }
+
+    /// <summary>Avisa al padre (p. ej. para habilitar «Guardar roles»).</summary>
+    [Parameter]
+    public EventCallback Cambio { get; set; }
+
+    private async Task Cambiar(Guid roleId, bool marcado)
+    {
+        if (marcado)
+        {
+            Seleccion.Add(roleId);
+        }
+        else
+        {
+            Seleccion.Remove(roleId);
+        }
+
+        await Cambio.InvokeAsync();
+    }
+}

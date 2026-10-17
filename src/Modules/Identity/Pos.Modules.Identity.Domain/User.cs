@@ -264,6 +264,9 @@ public sealed class User : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, I
 
     public void Unlock() => ClearLock();
 
+    /// <summary>Tras cambiar con éxito su contraseña o su PIN (habiendo dado la actual), los intentos fallidos vuelven a cero.</summary>
+    public void ResetFailedAttempts() => ClearLock();
+
     public void Activate()
     {
         Status = UserStatus.Active;

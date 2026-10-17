@@ -21,7 +21,7 @@ public static class IdentityInfrastructureRegistration
 
         services.AddSingleton<IPermissionEvaluator, PermissionEvaluator>();
         services.AddSingleton<ISessionAuthenticator, SessionAuthenticator>();
-        services.AddSingleton<ISessionRevoker, SessionRevoker>();
+        services.AddScoped<ISessionRevoker, SessionRevoker>();
         services.AddSingleton<IIdentityState, IdentityState>();
         services.AddScoped<ISupervisorAuthorization, SupervisorAuthorization>();
         services.TryAddScoped<ICurrentSecurityVersion, NoSecurityVersion>();

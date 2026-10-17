@@ -252,7 +252,7 @@ internal sealed class CloneRoleHandler(IIdentityStore store, RoleRules rules, II
 
 public sealed record UpdateRoleCommand(Guid RoleId, string Name, string? Description, IReadOnlyList<string> Permissions) : ICommand<RoleDto>;
 
-internal sealed class UpdateRoleHandler(IIdentityStore store, RoleRules rules) : ICommandHandler<UpdateRoleCommand, RoleDto>
+internal sealed class UpdateRoleHandler(IIdentityStore store, RoleRules rules, PrivilegeGuard guard) : ICommandHandler<UpdateRoleCommand, RoleDto>
 {
     public async Task<Result<RoleDto>> Handle(UpdateRoleCommand request, CancellationToken cancellationToken)
     {
@@ -260,6 +260,18 @@ internal sealed class UpdateRoleHandler(IIdentityStore store, RoleRules rules) :
         if (role is null)
         {
             return IdentityErrors.RoleNotFound;
+        }
+
+        if (role.IsSystem)
+        {
+            return IdentityErrors.SystemRoleImmutable;
+        }
+
+        // UR1: quitar permisos a un rol degrada a quienes lo tienen.
+        var allowed = await guard.CanChangeRoleAsync(role, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed.Error;
         }
 
         var check = await rules.CheckAsync(null, request.Permissions, cancellationToken);
@@ -281,7 +293,7 @@ internal sealed class UpdateRoleHandler(IIdentityStore store, RoleRules rules) :
 
 public sealed record DeleteRoleCommand(Guid RoleId) : ICommand;
 
-internal sealed class DeleteRoleHandler(IIdentityStore store) : ICommandHandler<DeleteRoleCommand>
+internal sealed class DeleteRoleHandler(IIdentityStore store, PrivilegeGuard guard) : ICommandHandler<DeleteRoleCommand>
 {
     public async Task<Result> Handle(DeleteRoleCommand request, CancellationToken cancellationToken)
     {
@@ -294,6 +306,13 @@ internal sealed class DeleteRoleHandler(IIdentityStore store) : ICommandHandler<
         if (role.IsSystem)
         {
             return IdentityErrors.SystemRoleImmutable;
+        }
+
+        // UR1: borrar el rol degrada a quienes lo tienen.
+        var allowed = await guard.CanChangeRoleAsync(role, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed;
         }
 
         // Borrado lógico: las asignaciones quedan, pero un rol borrado ya no concede permisos.
@@ -347,10 +366,31 @@ internal sealed class ListSessionsHandler(ISessionStore sessions, IClock clock) 
 
 public sealed record RevokeSessionCommand(Guid SessionId) : ICommand, IAllowedWhenRestricted;
 
-internal sealed class RevokeSessionHandler(ISessionStore sessions, ICurrentUser current, IAuditWriter audit) : ICommandHandler<RevokeSessionCommand>
+internal sealed class RevokeSessionHandler(
+    ISessionStore sessions, IIdentityStore store, PrivilegeGuard guard, IAuthorizationScope authorization, ICurrentUser current, IAuditWriter audit)
+    : ICommandHandler<RevokeSessionCommand>
 {
     public async Task<Result> Handle(RevokeSessionCommand request, CancellationToken cancellationToken)
     {
+        // UR3: no se cierra la sesión de quien tiene más poder. Con autorización de supervisor, quien actúa es el supervisor.
+        if (await sessions.GetActiveSessionUserAsync(request.SessionId, cancellationToken) is not { } ownerId)
+        {
+            return IdentityErrors.SessionNotFound;
+        }
+
+        if (await store.GetUserAsync(ownerId, cancellationToken) is { } owner)
+        {
+            var supervisor = authorization.Current?.AuthorizedBy;
+            var allowed = await guard.CanManageAsync(owner, cancellationToken, supervisor ?? current.UserId);
+            if (allowed.IsFailure)
+            {
+                // Con autorización de supervisor no se listan permisos: quien lo ve en la caja es el cajero.
+                return supervisor is null
+                    ? allowed
+                    : Error.Forbidden(IdentityErrors.TargetOutranks.Code, "El supervisor que autorizó no puede cerrar la sesión de esa persona.");
+            }
+        }
+
         if (!await sessions.RevokeAsync(request.SessionId, current.UserId, "REVOKED_BY_ADMIN", cancellationToken))
         {
             return IdentityErrors.SessionNotFound;

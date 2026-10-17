@@ -1,7 +1,11 @@
 using System.Collections.Concurrent;
 using Dapper;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
+using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Security;
+using Pos.Infrastructure.Persistence;
 using Pos.Modules.Identity.Application;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
@@ -166,15 +170,40 @@ internal sealed class SessionAuthenticator(NpgsqlDataSource dataSource, IClock c
     }
 }
 
-internal sealed class SessionRevoker(NpgsqlDataSource dataSource, IClock clock) : ISessionRevoker
+/// <summary>
+/// Cierra las sesiones de un equipo revocado o reemplazado (en la transacción del caso de uso) y deja en la auditoría a QUIÉNES se les
+/// cerró. Por diseño no aplica la jerarquía: revocar un equipo protege la tienda aunque en él haya una sesión de un superior
+/// (docs/fases/pantallas-faltantes-propuesta.md, DU-19).
+/// </summary>
+internal sealed class SessionRevoker(PosDbContext context, IClock clock, IAuditWriter audit) : ISessionRevoker
 {
     public async Task<int> RevokeByDeviceAsync(Guid deviceId, string reason, CancellationToken cancellationToken = default)
     {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await connection.ExecuteAsync(new CommandDefinition(
-            "UPDATE identity.user_sessions SET revoked_at = @now, revoked_reason = @reason WHERE device_id = @deviceId AND revoked_at IS NULL",
+        await context.Database.OpenConnectionAsync(cancellationToken);
+        var users = (await context.Database.GetDbConnection().QueryAsync<string>(new CommandDefinition(
+            """
+            WITH revoked AS (
+                UPDATE identity.user_sessions SET revoked_at = @now, revoked_reason = @reason
+                WHERE device_id = @deviceId AND revoked_at IS NULL
+                RETURNING user_id)
+            SELECT u.display_name || ' (' || u.username || ')' FROM revoked r JOIN identity.users u ON u.id = r.user_id
+            """,
             new { now = clock.UtcNow, reason, deviceId },
-            cancellationToken: cancellationToken));
+            context.Database.CurrentTransaction?.GetDbTransaction(),
+            cancellationToken: cancellationToken))).ToList();
+
+        if (users.Count > 0)
+        {
+            var names = string.Join(", ", users.Distinct(StringComparer.Ordinal).Order(StringComparer.CurrentCulture));
+            var why = reason == "DEVICE_REPLACED" ? "reemplazado" : "revocado";
+            await audit.WriteAsync(
+                new AuditEntry("identity", "USER_SESSIONS_REVOKED", "Device", deviceId, null,
+                    $"Se cerraron {users.Count} sesiones del equipo ({why}): {names}.",
+                    Severity: AuditSeverity.Warning),
+                cancellationToken);
+        }
+
+        return users.Count;
     }
 }
 

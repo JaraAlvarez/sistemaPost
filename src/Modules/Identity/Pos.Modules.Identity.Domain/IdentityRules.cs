@@ -53,8 +53,22 @@ public static partial class IdentityRules
         return Error.None;
     }
 
-    /// <summary>PIN numérico de la longitud configurada, sin dígitos repetidos (1111) ni secuencias (1234, 9876).</summary>
-    public static Error CheckPin(string pin, int length)
+    /// <summary>
+    /// PINs muy usados que se rechazan aunque no sean secuencias ni repeticiones (lista corta incrustada, PU7): pares alternos, la columna
+    /// central del teclado, años y fechas típicas.
+    /// </summary>
+    private static readonly HashSet<string> CommonPins = new(StringComparer.Ordinal)
+    {
+        "1212", "2121", "1122", "2211", "1313", "1010", "2020", "6969", "2580", "0852", "1004", "1001", "2000", "2001", "1999", "1990",
+        "1369", "1478", "3698", "1590", "7531", "1357", "2468", "0007", "5683",
+        "121212", "112233", "123123", "147258", "159753", "258036", "101010", "111222", "123321", "696969", "007007",
+    };
+
+    /// <summary>
+    /// PIN numérico de la longitud configurada, sin dígitos repetidos (1111), secuencias (1234, 9876), PINs muy comunes (1212, 2580) ni
+    /// igual al código de caja (<paramref name="posCode"/>).
+    /// </summary>
+    public static Error CheckPin(string pin, int length, string? posCode = null)
     {
         if (string.IsNullOrEmpty(pin) || pin.Length != length || !pin.All(char.IsAsciiDigit))
         {
@@ -68,8 +82,45 @@ public static partial class IdentityRules
             return Error.Validation("IDENTITY.PIN_TOO_SIMPLE", "El PIN no puede ser una secuencia ni repetir el mismo dígito.");
         }
 
+        if (CommonPins.Contains(pin))
+        {
+            return Error.Validation("IDENTITY.PIN_TOO_COMMON", "Ese PIN es demasiado común (como 1212 o 2580): elija otro.");
+        }
+
+        if (posCode is not null && string.Equals(pin, posCode.Trim(), StringComparison.Ordinal))
+        {
+            return Error.Validation("IDENTITY.PIN_EQUALS_POS_CODE", "El PIN no puede ser igual al código de caja.");
+        }
+
         return Error.None;
     }
+
+    /// <summary>
+    /// Código de caja con el que un usuario define o cambia su propio PIN (DU-03): si ya tiene uno, se conserva (solo un administrador lo
+    /// cambia); si no, debe elegir uno válido.
+    /// </summary>
+    public static Result<string> ResolveOwnPosCode(string? currentPosCode, string? requestedPosCode)
+    {
+        var requested = string.IsNullOrWhiteSpace(requestedPosCode) ? null : requestedPosCode.Trim();
+        if (currentPosCode is not null)
+        {
+            return requested is null || requested == currentPosCode ? currentPosCode : IdentityErrors.PosCodeChangeRequiresAdmin;
+        }
+
+        if (requested is null)
+        {
+            return IdentityErrors.PosCodeRequired;
+        }
+
+        return IsValidPosCode(requested) ? requested : IdentityErrors.InvalidPosCode;
+    }
+
+    /// <summary>
+    /// DU-07: ¿dejaría la empresa sin Propietario activo? <paramref name="isActiveOwner"/>: hoy es Propietario activo;
+    /// <paramref name="remainsOwner"/>: lo sigue siendo tras el cambio; <paramref name="otherActiveOwners"/>: los demás Propietarios activos.
+    /// </summary>
+    public static Error CheckOwnerRemains(bool isActiveOwner, bool remainsOwner, int otherActiveOwners) =>
+        isActiveOwner && !remainsOwner && otherActiveOwners == 0 ? IdentityErrors.LastOwner : Error.None;
 
     // Fase 13-B (D13B-09): también un correo (el Propietario entra con el correo de su cuenta del portal).
     [GeneratedRegex("^[a-z0-9._@+-]{3,120}$", RegexOptions.CultureInvariant)]
@@ -124,6 +175,27 @@ public static class IdentityErrors
 
     public static readonly Error LastAdministrator = Error.BusinessRule(
         "IDENTITY.LAST_ADMINISTRATOR", "Debe quedar al menos un Propietario o Administrador activo.");
+
+    public static readonly Error LastAdministratorLockout = Error.BusinessRule(
+        "IDENTITY.LAST_ADMINISTRATOR_LOCKOUT",
+        "Es el último Propietario o Administrador: no se le puede negar administrar usuarios, roles ni sesiones (nadie podría deshacerlo).");
+
+    public static readonly Error LastOwner = Error.BusinessRule(
+        "IDENTITY.LAST_OWNER", "Debe quedar al menos un Propietario activo: asigne el rol Propietario a otro usuario antes de quitárselo a este.");
+
+    public static readonly Error TargetOutranks = Error.Forbidden(
+        "IDENTITY.TARGET_OUTRANKS", "No puede gestionar a un usuario que tiene permisos que usted no tiene (por ejemplo, el Propietario).");
+
+    public static readonly Error PosCodeRequired =
+        Error.Validation("IDENTITY.POS_CODE_REQUIRED", "Elija su código de caja (3 a 6 dígitos) para definir el PIN.");
+
+    public static readonly Error PosCodeChangeRequiresAdmin = Error.Validation(
+        "IDENTITY.POS_CODE_CHANGE_REQUIRES_ADMIN", "Su código de caja solo lo cambia un administrador desde Usuarios → Restablecer PIN.");
+
+    public static readonly Error CurrentPinInvalid = Error.Validation("IDENTITY.CURRENT_PIN_INVALID", "El PIN actual no es correcto.");
+
+    public static readonly Error UseChangePin =
+        Error.BusinessRule("IDENTITY.USE_CHANGE_PIN", "Para su propio PIN use «Cambiar PIN de caja» en su menú de usuario.");
 
     public static readonly Error PrivilegeEscalation = Error.Forbidden(
         "IDENTITY.PRIVILEGE_ESCALATION", "No puede conceder permisos que usted no tiene.");

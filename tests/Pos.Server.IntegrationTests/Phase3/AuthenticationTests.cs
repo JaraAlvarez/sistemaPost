@@ -117,8 +117,10 @@ public class AuthenticationTests
         await scenario.CreateUserAsync("gerente", "GERENTE");
         var manager = await scenario.LocalClientAsync("gerente");
 
+        // Desde la jerarquía (docs/fases/pantallas-faltantes-propuesta.md, PU1) ni siquiera llega a la regla del último administrador:
+        // el Propietario tiene permisos que el gerente no tiene.
         await manager.PostAsync($"/api/v1/identity/users/{scenario.Setup.OwnerUserId}/deactivate", null, Ct)
-            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "IDENTITY.LAST_ADMINISTRATOR");
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
 
         // RN-SEC-05: no puede asignar un rol con permisos que él no tiene, ni crear uno.
         var target = await scenario.CreateUserAsync("nuevo", null);

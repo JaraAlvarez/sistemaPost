@@ -74,12 +74,20 @@ public sealed class IdentityModule : IModule
             .WithSummary("Perfil y permisos efectivos del usuario de la sesión");
 
         group.MapPost("/change-password", async (ChangePasswordCommand command, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(command, ct)).ToHttpResult())
+                (await d.Send(command, ct)).ToAuthNoContent())
             .RequireAuthenticatedUser()
-            .AllowWhilePasswordChangeRequired();
+            .AllowWhilePasswordChangeRequired()
+            .RequireRateLimiting(AuthRateLimits.Login);
 
-        group.MapPost("/change-pin", async (ChangePinCommand command, IDispatcher d, CancellationToken ct) => (await d.Send(command, ct)).ToHttpResult())
-            .RequireAuthenticatedUser();
+        group.MapPost("/change-pin", async (ChangePinCommand command, IDispatcher d, CancellationToken ct) => (await d.Send(command, ct)).ToAuthNoContent())
+            .RequireAuthenticatedUser()
+            .RequireRateLimiting(AuthRateLimits.Login)
+            .WithSummary("Cambia el propio PIN (con el actual) o lo define por primera vez (con la contraseña y, si falta, el código de caja)");
+
+        group.MapGet("/credentials", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetMyCredentialsQuery(), ct)).ToHttpResult())
+            .RequireAuthenticatedUser()
+            .AllowWhilePasswordChangeRequired()
+            .WithSummary("Código de caja, si tiene PIN, y las longitudes de PIN y contraseña que exige la empresa");
 
         group.MapPost("/authorizations", async (CreateAuthorizationCommand command, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(command, ct)).ToAuthResult(StatusCodes.Status201Created))
@@ -95,7 +103,7 @@ public sealed class IdentityModule : IModule
             .WithSummary("Catálogo de permisos");
 
         group.MapGet("/roles", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListRolesQuery(), ct)).ToHttpResult())
-            .RequirePermission(IdentityPermissions.PermissionView)
+            .RequireAnyPermission(IdentityPermissions.PermissionView, IdentityPermissions.RoleManage)
             .WithSummary("Roles de la empresa con sus permisos");
 
         group.MapPost("/roles", async (CreateRoleCommand command, IDispatcher d, CancellationToken ct) =>
@@ -197,6 +205,12 @@ public static class AuthRateLimits
 internal static class AuthOutcomeHttp
 {
     /// <summary>Un intento fallido se confirma en la BD (contador, bloqueo) y responde con su error.</summary>
+    /// <summary>Como <see cref="ToAuthResult{T}"/>, pero el éxito responde 204 (cambios de contraseña o PIN).</summary>
+    public static IResult ToAuthNoContent(this Result<AuthOutcome<AuthDone>> result) =>
+        result.IsFailure ? result.Error.ToProblem()
+        : result.Value.Error is { } error ? error.ToProblem()
+        : TypedResults.NoContent();
+
     public static IResult ToAuthResult<T>(this Result<AuthOutcome<T>> result, int successStatus = StatusCodes.Status200OK)
         where T : class
     {

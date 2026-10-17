@@ -1,0 +1,148 @@
+@page "/cambiar-pin"
+@layout EmptyLayout
+@using Pos.Modules.Identity.Contracts
+@inject ApiClient Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+@* DU-03/DU-09 (docs/fases/pantallas-faltantes-propuesta.md): cada usuario cambia su PIN de caja con el actual o, si aún no tiene,
+   lo define confirmando su contraseña (y eligiendo su código de caja si tampoco tiene). *@
+
+<PageTitle>PIN de caja · BusinessPost</PageTitle>
+
+<PantallaAcceso Titulo="@(_estado?.HasPin == false ? "Defina su PIN de caja" : "Cambie su PIN de caja")" Ayuda="@AyudaGeneral()">
+    @if (!Session.IsSignedIn)
+    {
+        <Redirigir A="/ingresar" />
+    }
+    else if (_estado is null)
+    {
+        @if (_error is null)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mt-4" />
+        }
+    }
+    else
+    {
+        <EditForm Model="this" OnSubmit="GuardarAsync">
+            @if (_estado.HasPin)
+            {
+                <MudTextField @bind-Value="_actual" Label="PIN actual" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" AutoFocus="true"
+                              InputMode="InputMode.numeric" autocomplete="off" MaxLength="6" Class="mt-2" />
+            }
+            else
+            {
+                <MudTextField @bind-Value="_clave" Label="Su contraseña" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" AutoFocus="true"
+                              autocomplete="current-password" HelperText="Para confirmar que es usted." Class="mt-2" />
+            }
+
+            @if (_estado.PosCode is null)
+            {
+                <MudTextField @bind-Value="_codigo" Label="Código de caja" Variant="Variant.Outlined" Immediate="true" InputMode="InputMode.numeric" MaxLength="6" Class="mt-3"
+                              HelperText="De 3 a 6 dígitos. Con él entra a la caja; no puede estar usado por otro usuario."
+                              Error="@(_codigo is { Length: > 0 } && !CodigoValido)" ErrorText="Use de 3 a 6 dígitos." />
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="mt-3">Código de caja: <b>@_estado.PosCode</b></MudText>
+            }
+
+            <MudTextField @bind-Value="_nuevo" Label="Nuevo PIN" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" InputMode="InputMode.numeric"
+                          autocomplete="off" MaxLength="@_estado.PinLength" Class="mt-3" HelperText="@AyudaPin()" Error="@(_nuevo is { Length: > 0 } && !PinCompleto)" />
+            <MudTextField @bind-Value="_repetir" Label="Repita el nuevo PIN" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" InputMode="InputMode.numeric"
+                          autocomplete="off" MaxLength="@_estado.PinLength" Class="mt-3"
+                          Error="@(_repetir is { Length: > 0 } && _repetir != _nuevo)" ErrorText="No coincide con el nuevo PIN." />
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true" Class="mt-5"
+                       Disabled="@(!PuedeGuardar)" StartIcon="@Icons.Material.Outlined.Pin">
+                @(_estado.HasPin ? "Cambiar PIN" : "Guardar PIN")
+            </MudButton>
+            <MudButton Variant="Variant.Text" FullWidth="true" Class="mt-2" Href="/admin">Volver</MudButton>
+        </EditForm>
+    }
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-4" role="alert">@_error</MudAlert>
+    }
+</PantallaAcceso>
+
+@code {
+    private CredentialStatusDto? _estado;
+    private string? _actual, _clave, _codigo, _nuevo, _repetir, _error;
+    private bool _busy;
+
+    private bool CodigoValido => _codigo is { Length: >= 3 and <= 6 } && _codigo.All(char.IsAsciiDigit);
+
+    private bool PinCompleto => _estado is not null && _nuevo is { } pin && pin.Length == _estado.PinLength && pin.All(char.IsAsciiDigit);
+
+    private bool PuedeGuardar =>
+        !_busy && _estado is not null && PinCompleto && _repetir == _nuevo
+        && (_estado.HasPin ? !string.IsNullOrEmpty(_actual) : !string.IsNullOrEmpty(_clave))
+        && (_estado.PosCode is not null || CodigoValido);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Session.IsSignedIn)
+        {
+            return;
+        }
+
+        try
+        {
+            _estado = await Api.GetAsync<CredentialStatusDto>("api/v1/auth/credentials");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+    }
+
+    private string AyudaGeneral() => _estado switch
+    {
+        null => "Cargando…",
+        { HasPin: true } => "Escriba su PIN actual y el nuevo. Lo usa para entrar a la caja y para autorizar como supervisor.",
+        _ => "Aún no tiene PIN de caja. Confirme su contraseña y elija el PIN con el que entrará a la caja.",
+    };
+
+    private string AyudaPin()
+    {
+        var length = _estado?.PinLength ?? 4;
+        return (_nuevo?.Length ?? 0) switch
+        {
+            0 => $"Exactamente {length} dígitos, sin secuencias (1234), repeticiones (1111), PINs comunes (1212, 2580) ni su código de caja.",
+            var n when n < length => $"Faltan {length - n} dígitos.",
+            _ => PinCompleto ? "Longitud correcta." : "Use solo dígitos.",
+        };
+    }
+
+    private async Task GuardarAsync()
+    {
+        if (!PuedeGuardar)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await Api.PostAsync("api/v1/auth/change-pin", new
+            {
+                currentPin = _estado!.HasPin ? _actual : null,
+                newPin = _nuevo,
+                posCode = _estado.PosCode is null ? _codigo : null,
+                currentPassword = _estado.HasPin ? null : _clave,
+            });
+            Snackbar.Add(_estado.HasPin ? "PIN de caja cambiado." : "PIN de caja guardado. Ya puede entrar a la caja con su código y su PIN.", Severity.Success);
+            Navigation.NavigateTo("/admin");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

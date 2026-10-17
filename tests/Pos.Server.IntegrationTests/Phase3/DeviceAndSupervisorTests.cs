@@ -82,9 +82,11 @@ public class DeviceAndSupervisorTests
         var (terminal, _) = await scenario.PairTerminalAsync(scenario.Setup.PosTerminalId);
         await SecurityScenario.PosLoginAsync(terminal, "200", "5937");
 
-        // Objetivo: la sesión de backoffice de otro usuario, que la cajera no puede cerrar sin supervisor.
-        var target = factory.CreateClient();
-        var targetLogin = await LoginAsync(target, OwnerUsername, OwnerPassword);
+        // Objetivo: la sesión de backoffice de otro cajero, que la cajera no puede cerrar sin supervisor. (Desde la jerarquía, UR3,
+        // el supervisor no podría cerrar la del Propietario, que tiene más permisos que él.)
+        await scenario.CreateUserAsync("cajero2", "CASHIER");
+        var target = await scenario.LocalClientAsync("cajero2");
+        var targetLogin = new { User = await GetAsync<MeDto>(target, "/api/v1/auth/me") };
         var revokeUrl = $"/api/v1/identity/sessions/{targetLogin.User.SessionId}/revoke";
 
         var denied = await terminal.PostAsync(revokeUrl, null, Ct);
