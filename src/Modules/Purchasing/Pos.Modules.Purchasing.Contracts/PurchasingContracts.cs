@@ -364,3 +364,18 @@ public sealed record SuggestedOrderLineRequest(
 
 /// <summary>Orden de compra en borrador creada desde el pedido sugerido (<c>Total</c> solo con inventory.cost.view).</summary>
 public sealed record SuggestedOrderDto(Guid OrderId, string Number, Guid SupplierId, string SupplierName, Guid WarehouseId, int LineCount, decimal? Total);
+/// <summary>Línea recibida de una compra: unidades base recibidas (cajas × factor) menos las devueltas al proveedor.</summary>
+public sealed record ReceivedPurchaseLine(Guid ProductId, decimal BaseQuantity);
+
+/// <summary>Compra vista por otros módulos (p. ej. para imprimir las etiquetas de lo que llegó). <c>Status</c>: DRAFT, POSTED o VOIDED.</summary>
+public sealed record ReceivedPurchase(Guid Id, string Number, string Status, string SupplierInvoiceNumber, DateOnly InvoiceDate, IReadOnlyList<ReceivedPurchaseLine> Lines);
+
+/// <summary>Consulta de compras recibidas para otros módulos.</summary>
+public interface IPurchaseReceipts
+{
+    /// <summary>
+    /// Compra de la sucursal por su número interno (sin distinguir mayúsculas) o por su Id. No busca por la factura del proveedor: ese
+    /// número se repite entre proveedores. Null si no existe en esa sucursal.
+    /// </summary>
+    Task<ReceivedPurchase?> FindAsync(string numberOrId, Guid branchId, CancellationToken cancellationToken = default);
+}

@@ -91,8 +91,11 @@ public static class EscPosEncoder
                     output.AddRange(Text(new string(separator.Character, options.Columns), options.CodePage));
                     output.Add(Lf);
                     break;
-                case BarcodeElement barcode:
+                case BarcodeElement { Symbology: null } barcode:
                     output.AddRange(Barcode128(barcode.Data));
+                    break;
+                case BarcodeElement barcode:
+                    output.AddRange(Barcode(barcode, options));
                     break;
                 case QrElement qr:
                     output.AddRange(Qr(qr.Data));
@@ -154,6 +157,77 @@ public static class EscPosEncoder
         var payload = Encoding.ASCII.GetBytes("{B" + ToAscii(data ?? string.Empty));
         var length = (byte)Math.Min(payload.Length, 255);
         return [Esc, 0x61, 1, Gs, 0x68, 80, Gs, 0x77, 2, Gs, 0x48, 2, Gs, 0x6B, 73, length, .. payload.Take(length), Lf, Esc, 0x61, 0];
+    }
+
+    /// <summary>
+    /// Puntos imprimibles del papel (203 ppp): 58 mm = 384 puntos; 80 mm = 512 (72 mm de área útil en la mayoría de las impresoras económicas,
+    /// conservador frente a los 576 de las que imprimen todo el ancho).
+    /// </summary>
+    public static int PaperDots(PrinterOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return options.Columns <= TicketLayout.Columns58Mm ? 384 : 512;
+    }
+
+    /// <summary>Simbología normalizada (mayúsculas, sin espacios ni guiones): EAN13, EAN8 o, cualquier otra, CODE128.</summary>
+    public static string NormalizeSymbology(string? symbology) =>
+        (symbology ?? string.Empty).Trim().ToUpperInvariant().Replace("-", string.Empty, StringComparison.Ordinal).Replace("_", string.Empty, StringComparison.Ordinal) switch
+        {
+            BarcodeElement.Ean13 => BarcodeElement.Ean13,
+            BarcodeElement.Ean8 => BarcodeElement.Ean8,
+            _ => BarcodeElement.Code128,
+        };
+
+    /// <summary>
+    /// Código con simbología explícita: EAN-13 (GS k 67) y EAN-8 (GS k 68) si los dígitos son válidos; si no, CODE128 (subconjunto C cuando
+    /// es numérico de largo par). El ancho del módulo (GS w) es el mayor de 3 o 2 puntos que cabe en el papel con las zonas en blanco; si
+    /// ni con 2 cabe, se imprime el texto del código (más vale legible a mano que barras cortadas).
+    /// </summary>
+    private static byte[] Barcode(BarcodeElement barcode, PrinterOptions options)
+    {
+        var data = ToAscii(barcode.Data ?? string.Empty).Trim();
+        var digits = data.Length > 0 && data.All(char.IsAsciiDigit);
+        var symbology = NormalizeSymbology(barcode.Symbology);
+        byte system;
+        byte[] payload;
+        int modules;
+        if (symbology == BarcodeElement.Ean13 && digits && data.Length == 13 && ValidGtin(data))
+        {
+            (system, payload, modules) = (67, Encoding.ASCII.GetBytes(data), 95 + 18);
+        }
+        else if (symbology == BarcodeElement.Ean8 && digits && data.Length == 8 && ValidGtin(data))
+        {
+            (system, payload, modules) = (68, Encoding.ASCII.GetBytes(data), 67 + 14);
+        }
+        else if (digits && data.Length % 2 == 0)
+        {
+            var pairs = Enumerable.Range(0, data.Length / 2).Select(i => (byte)(((data[2 * i] - '0') * 10) + (data[(2 * i) + 1] - '0')));
+            (system, payload, modules) = (73, [.. Encoding.ASCII.GetBytes("{C"), .. pairs], (11 * (2 + (data.Length / 2))) + 13 + 20);
+        }
+        else
+        {
+            (system, payload, modules) = (73, Encoding.ASCII.GetBytes("{B" + data), (11 * (2 + data.Length)) + 13 + 20);
+        }
+
+        var dots = PaperDots(options);
+        var width = modules * 3 <= dots ? 3 : modules * 2 <= dots ? 2 : 0;
+        if (width == 0 || payload.Length > 255 || data.Length == 0)
+        {
+            return [Esc, 0x61, 1, .. Encoding.ASCII.GetBytes(data), Lf, Esc, 0x61, 0];
+        }
+
+        return [Esc, 0x61, 1, Gs, 0x68, 80, Gs, 0x77, (byte)width, Gs, 0x48, 2, Gs, 0x6B, system, (byte)payload.Length, .. payload, Lf, Esc, 0x61, 0];
+    }
+
+    private static bool ValidGtin(string digits)
+    {
+        var sum = 0;
+        for (var i = 0; i < digits.Length - 1; i++)
+        {
+            sum += (digits[digits.Length - 2 - i] - '0') * (i % 2 == 0 ? 3 : 1);
+        }
+
+        return (10 - (sum % 10)) % 10 == digits[^1] - '0';
     }
 
     /// <summary>GS ( k: código QR modelo 2, tamaño de módulo 6, corrección de errores M.</summary>
