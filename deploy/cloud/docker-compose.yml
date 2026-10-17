@@ -84,6 +84,8 @@ services:
       Payments__PublicBaseUrl: ${PAYMENTS_PUBLIC_BASE_URL:-}
       # Portal → Descargas (Fase 13-B): manifiesto que dice cuál es la última versión (vacío = <portal>/updates/stable.json).
       Downloads__ManifestUrl: ${DOWNLOADS_MANIFEST_URL:-}
+      # Manual en PDF en la misma carpeta /updates (vacío = el portal ofrece "Imprimir / Guardar como PDF").
+      Downloads__ManualPdfFileName: ${DOWNLOADS_MANUAL_PDF:-}
       TZ: America/Bogota
       # Registros: información propia; el detalle de ASP.NET Core y EF Core solo desde advertencias.
       Serilog__MinimumLevel__Default: Information

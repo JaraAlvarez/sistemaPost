@@ -194,3 +194,31 @@ public class ArgumentosInnoTests
         ArgumentosInno.Desinstalar(false, "d.log").ShouldContain("/BORRARDATOS=no");
     }
 }
+
+/// <summary>‑‑capturar (capturas del manual de instalación): solo funciona en maqueta, nunca durante una instalación de verdad.</summary>
+public class ArgumentosCapturaTests
+{
+    [Fact]
+    public void Solo_en_maqueta_y_con_un_archivo_png()
+    {
+        var captura = ArgumentosCaptura.Leer(["--maqueta", "--pantalla", "licencia", "--capturar", "salida/03-licencia.png", "--esperar", "4000"]);
+        captura.ShouldNotBeNull();
+        captura.Archivo.ShouldBe(Path.GetFullPath("salida/03-licencia.png"));
+        captura.EsperaMs.ShouldBe(4000);
+
+        ArgumentosCaptura.Leer(["--capturar", "x.png"]).ShouldBeNull();
+        ArgumentosCaptura.Leer(["--desinstalar", "--capturar", "x.png"]).ShouldBeNull();
+        ArgumentosCaptura.Leer(["--maqueta", "--capturar", "x.exe"]).ShouldBeNull();
+        ArgumentosCaptura.Leer(["--maqueta", "--capturar"]).ShouldBeNull();
+        ArgumentosCaptura.Leer(["--maqueta"]).ShouldBeNull();
+    }
+
+    [Fact]
+    public void La_espera_tiene_un_valor_por_defecto_y_un_maximo()
+    {
+        ArgumentosCaptura.Leer(["--maqueta", "--capturar", "x.png"])!.EsperaMs.ShouldBe(ArgumentosCaptura.EsperaPorDefecto);
+        ArgumentosCaptura.Leer(["--maqueta", "--capturar", "x.png", "--esperar", "999999"])!.EsperaMs.ShouldBe(ArgumentosCaptura.EsperaMaxima);
+        ArgumentosCaptura.Leer(["--maqueta", "--capturar", "x.png", "--esperar", "-5"])!.EsperaMs.ShouldBe(0);
+        ArgumentosCaptura.Leer(["--maqueta", "--capturar", "x.png", "--esperar", "abc"])!.EsperaMs.ShouldBe(ArgumentosCaptura.EsperaPorDefecto);
+    }
+}

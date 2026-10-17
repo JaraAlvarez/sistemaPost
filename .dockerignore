@@ -15,6 +15,7 @@ publish/
 docs/
 # Excepción: el manual de instalación se incrusta en el servidor de la nube (página Descargas).
 !docs/manual-instalacion.md
+!docs/imagenes/instalacion/*.png
 tests/
 tools/
 http/

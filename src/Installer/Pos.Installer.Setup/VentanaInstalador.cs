@@ -76,6 +76,11 @@ internal sealed partial class VentanaInstalador : Form
             }
         };
         core.NewWindowRequested += (_, args) => args.Handled = true;
+        if (_opciones.Maqueta && _opciones.Captura is { } captura)
+        {
+            core.NavigationCompleted += async (_, _) => await CapturarAsync(captura);
+        }
+
         core.Navigate(Origen + "instalador.html");
     }
 
@@ -123,6 +128,23 @@ internal sealed partial class VentanaInstalador : Form
                 break;
         }
     });
+
+    /// <summary>Solo con ‑‑maqueta: guarda la pantalla como PNG (capturas del manual de instalación) y cierra la ventana.</summary>
+    private async Task CapturarAsync(Logica.ArgumentosCaptura captura)
+    {
+        try
+        {
+            await Task.Delay(captura.EsperaMs);
+            Directory.CreateDirectory(Path.GetDirectoryName(captura.Archivo)!);
+            await using var archivo = File.Create(captura.Archivo);
+            await _web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, archivo);
+        }
+        finally
+        {
+            _puedeCerrar = true;
+            Close();
+        }
+    }
 
     private string? ElegirBackup()
     {

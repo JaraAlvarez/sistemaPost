@@ -23,9 +23,11 @@
   </ItemGroup>
 
   <!-- Fase 13-B (D13B-06): el manual de instalación vive en docs/ (una sola fuente) y se incrusta al compilar para la página
-       /descargas/manual. La imagen de Docker copia ese archivo (ver Dockerfile y .dockerignore). -->
+       /descargas/manual. La imagen de Docker copia ese archivo y las capturas (ver Dockerfile y .dockerignore). -->
   <ItemGroup>
     <EmbeddedResource Include="..\..\..\docs\manual-instalacion.md" Link="Docs\manual-instalacion.md" LogicalName="Pos.Cloud.Host.Docs.manual-instalacion.md" />
+    <!-- Capturas del manual (docs/imagenes/instalacion/*.png), servidas en /descargas/manual/imagenes/{nombre}. -->
+    <EmbeddedResource Include="..\..\..\docs\imagenes\instalacion\*.png" Link="Docs\imagenes\%(Filename)%(Extension)" LogicalName="Pos.Cloud.Host.Docs.imagenes.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

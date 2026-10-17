@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Pos.Installer.Setup.Logica;
 using Pos.Installer.Setup.Servicios;
 
 namespace Pos.Installer.Setup;
@@ -8,6 +9,7 @@ namespace Pos.Installer.Setup;
 ///   (sin argumentos)       instalar: usa el paquete clásico BusinessPost-Paquete.exe que está junto al programa (o ‑‑paquete ruta)
 ///   ‑‑desinstalar          desinstalación premium (lo registra la instalación en "Aplicaciones instaladas")
 ///   ‑‑maqueta              recorre las pantallas sin instalar ni desinstalar nada (revisión del diseño; no pide permisos)
+///   ‑‑maqueta ‑‑pantalla X ‑‑capturar f.png [‑‑esperar ms]   guarda la pantalla X como imagen y se cierra (capturas del manual)
 /// Códigos de salida: 0 = normal · 3 = este equipo no tiene WebView2 (el paquete descargable abre entonces el asistente clásico) ·
 ///                    4 = el usuario no dio permisos de administrador.
 /// </summary>
@@ -49,7 +51,7 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         // ‑‑maqueta ‑‑pantalla <nombre>: abre directo en una pantalla (revisión del diseño).
         var pantalla = Array.FindIndex(args, a => string.Equals(a, "--pantalla", StringComparison.OrdinalIgnoreCase)) is var p and >= 0 && p + 1 < args.Length ? args[p + 1] : null;
-        Application.Run(new VentanaInstalador(new Opciones(desinstalar, maqueta, paquete, pantalla)));
+        Application.Run(new VentanaInstalador(new Opciones(desinstalar, maqueta, paquete, pantalla, ArgumentosCaptura.Leer(args))));
         return SinWebView2 ? SalidaSinWebView2 : 0;
     }
 }

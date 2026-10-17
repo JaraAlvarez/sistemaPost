@@ -195,6 +195,7 @@ internal static class CloudHostSetup
 
         app.MapPortalAccountEndpoints();
         app.MapPortalGoogleEndpoints();
+        app.MapInstallManualImages();
         app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
         return app;
     }
