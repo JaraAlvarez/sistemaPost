@@ -228,6 +228,18 @@ internal sealed class LicensingStore(CloudDbContext context) : ILicensingStore
     public Task<Subscription?> GetSubscriptionAsync(Guid id, CancellationToken cancellationToken) =>
         context.Set<Subscription>().SingleOrDefaultAsync(s => s.Id == id, cancellationToken);
 
+    public async Task<Subscription?> LockSubscriptionAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM licensing.subscriptions WHERE id = {id} FOR UPDATE", cancellationToken);
+        if (context.ChangeTracker.Entries<Subscription>().FirstOrDefault(e => e.Entity.Id == id) is { } tracked)
+        {
+            await tracked.ReloadAsync(cancellationToken);
+            return tracked.Entity;
+        }
+
+        return await context.Set<Subscription>().SingleOrDefaultAsync(s => s.Id == id, cancellationToken);
+    }
+
     public Task<Subscription?> GetCurrentSubscriptionAsync(Guid organizationId, CancellationToken cancellationToken) =>
         context.Set<Subscription>().SingleOrDefaultAsync(s => s.OrganizationId == organizationId && s.Status != SubscriptionStatus.Cancelled, cancellationToken);
 

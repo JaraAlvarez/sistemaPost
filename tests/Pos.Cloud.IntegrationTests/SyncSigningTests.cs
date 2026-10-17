@@ -32,7 +32,8 @@ public sealed class SyncPackagesCloudServerFactory : CloudServerFactory
 
     public string CloudPublicKey { get; }
 
-    protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings => [new("Sync:PrivateKeyPath", _keyFile)];
+    protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
+        [new("Sync:PrivateKeyPath", _keyFile), new("Sync:MaxUploadsPer10Minutes", "1000")];
 
     public override async ValueTask DisposeAsync()
     {
@@ -114,7 +115,124 @@ public class SyncSigningTests(SyncPackagesCloudFixture cloud) : IClassFixture<Sy
         // Liberado el equipo, sus paquetes ya no se aplican.
         (await pos.DeactivateAsync("Cambio de computador", Ct)).Succeeded.ShouldBeTrue();
         (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale("y", DateTimeOffset.UtcNow)), cloud.Factory.CloudPublicKey, storeKey)))
+            .Error.Code.ShouldBe(SyncErrors.ReleasedInstallation.Code);
+        (await UploadAsync(SyncPackage.Seal(Batch(Guid.CreateVersion7(), Sale("z", DateTimeOffset.UtcNow)), cloud.Factory.CloudPublicKey, storeKey)))
             .Error.Code.ShouldBe(SyncErrors.UnknownInstallation.Code);
+    }
+
+    [Fact]
+    public async Task Rotar_la_clave_se_audita_y_la_anterior_se_acepta_siete_dias()
+    {
+        var (pos, _) = await ActivatedAsync();
+        var installation = pos.Identity.InstallationId;
+        using var first = SyncSigning.GenerateKey();
+        using var second = SyncSigning.GenerateKey();
+        await RegisterOnlineAsync(pos, first);
+        await RegisterOnlineAsync(pos, second);
+        (await ScalarAsync<long>($"SELECT count(*) FROM audit.audit_log WHERE action = 'SYNC_KEY_ROTATED' AND entity_id = '{installation}'")).ShouldBe(1);
+
+        // Un paquete exportado antes de rotar (firmado con la anterior) se acepta…
+        var old = await UploadAsync(SyncPackage.Seal(Batch(installation, Sale(Guid.CreateVersion7().ToString(), DateTimeOffset.UtcNow)), cloud.Factory.CloudPublicKey, first));
+        old.IsSuccess.ShouldBeTrue(old.IsFailure ? old.Error.Message : null);
+        old.Value.Unverified.ShouldBeFalse();
+
+        // …pero no después de 7 días.
+        await ExecuteAsync($"UPDATE sync.installation_keys SET rotated_at = now() - interval '8 days' WHERE installation_id = '{installation}'");
+        (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale("w", DateTimeOffset.UtcNow)), cloud.Factory.CloudPublicKey, first)))
+            .Error.Code.ShouldBe(SyncErrors.WrongSigner.Code);
+    }
+
+    [Fact]
+    public async Task Los_paquetes_sin_verificar_se_verifican_o_se_descartan_cuando_hay_clave_y_la_clave_se_puede_reiniciar()
+    {
+        var (pos, customer) = await ActivatedAsync();
+        var installation = pos.Identity.InstallationId;
+        using var storeKey = SyncSigning.GenerateKey();
+
+        // Antes de registrar clave: uno firmado (se podrá verificar) y uno sin firma (versión anterior: solo se puede descartar).
+        var signedSale = Guid.CreateVersion7().ToString();
+        var unsignedSale = Guid.CreateVersion7().ToString();
+        (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale(signedSale, DateTimeOffset.UtcNow.AddMinutes(-3))), cloud.Factory.CloudPublicKey, storeKey)))
+            .Value.Unverified.ShouldBeTrue();
+        (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale(unsignedSale, DateTimeOffset.UtcNow.AddMinutes(-3))), cloud.Factory.CloudPublicKey)))
+            .Value.Unverified.ShouldBeTrue();
+        var signedBatch = await ScalarAsync<Guid>($"SELECT batch_id FROM sync.documents WHERE doc_id = '{signedSale}'");
+        var unsignedBatch = await ScalarAsync<Guid>($"SELECT batch_id FROM sync.documents WHERE doc_id = '{unsignedSale}'");
+
+        // Sin clave registrada todavía no se puede verificar.
+        (await AsSuperadminAsync(d => d.Send(new VerifySyncBatchCommand(signedBatch), Ct))).Error.Code.ShouldBe(SyncErrors.CannotVerify.Code);
+
+        await RegisterOnlineAsync(pos, storeKey);
+        var data = (await AsSuperadminAsync(d => d.Send(new GetStoreDataQuery(customer.OrganizationId, Today, Today), Ct))).Value;
+        data.Installations.Single(i => i.InstallationId == installation).Unverified.ShouldBe(2);
+        data.Installations.Single(i => i.InstallationId == installation).KeyRegistered.ShouldBeTrue();
+        data.UnverifiedBatches!.Single(b => b.BatchId == signedBatch).MatchesKey.ShouldBeTrue();
+        data.UnverifiedBatches!.Single(b => b.BatchId == unsignedBatch).HasSignature.ShouldBeFalse();
+
+        (await AsSuperadminAsync(d => d.Send(new VerifySyncBatchCommand(signedBatch), Ct))).IsSuccess.ShouldBeTrue();
+        (await ScalarAsync<string>($"SELECT signature_status FROM sync.batches WHERE id = '{signedBatch}'")).ShouldBe("VERIFIED");
+        (await AsSuperadminAsync(d => d.Send(new VerifySyncBatchCommand(unsignedBatch), Ct))).Error.Code.ShouldBe(SyncErrors.CannotVerify.Code);
+
+        (await AsSuperadminAsync(d => d.Send(new DiscardSyncBatchCommand(unsignedBatch), Ct))).Value.ShouldBe(1);
+        (await ScalarAsync<long>($"SELECT count(*) FROM sync.documents WHERE doc_id = '{unsignedSale}'")).ShouldBe(0);
+        (await ScalarAsync<string>($"SELECT signature_status FROM sync.batches WHERE id = '{unsignedBatch}'")).ShouldBe("DISCARDED");
+        (await ScalarAsync<long>($"SELECT count(*) FROM audit.audit_log WHERE action = 'SYNC_BATCH_DISCARDED' AND entity_id = '{unsignedBatch}'")).ShouldBe(1);
+
+        // Reiniciar la clave: sus paquetes vuelven a quedar sin verificar hasta que registre otra.
+        (await AsSuperadminAsync(d => d.Send(new ResetSyncSigningKeyCommand(installation, "Se restauró la tienda en otro equipo"), Ct))).IsSuccess.ShouldBeTrue();
+        (await ScalarAsync<object>($"SELECT public_key FROM sync.installation_keys WHERE installation_id = '{installation}'")).ShouldBe(DBNull.Value);
+        (await UploadAsync(SyncPackage.Seal(Batch(installation, Sale(Guid.CreateVersion7().ToString(), DateTimeOffset.UtcNow)), cloud.Factory.CloudPublicKey, storeKey)))
+            .Value.Unverified.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Ventas_recientes_se_ordenan_por_la_fecha_de_la_venta_y_no_por_la_version()
+    {
+        var (pos, customer) = await ActivatedAsync();
+        using var client = cloud.Factory.CreateClient();
+        var now = DateTimeOffset.UtcNow;
+
+        // La venta vieja se anuló después (versión más nueva), pero sigue siendo la más vieja.
+        var oldSale = Sale(Guid.CreateVersion7().ToString(), now.AddMinutes(-1), "VOIDED");
+        using var oldData = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            number = "S-VIEJA", status = "VOIDED", branch = "Principal", total = 1m, completedAt = now.AddDays(-2), businessDate = Today,
+        }, SyncJson.Options));
+        using var newData = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            number = "S-NUEVA", status = "COMPLETED", branch = "Principal", total = 2m, completedAt = now.AddHours(-1), businessDate = Today,
+        }, SyncJson.Options));
+        var batch = new SyncBatch(Guid.CreateVersion7(), pos.Identity.InstallationId, now, "1.0.0",
+        [
+            oldSale with { Data = oldData.RootElement.Clone() },
+            new SyncItem(SyncKinds.Sale, Guid.CreateVersion7().ToString(), now.AddHours(-1), Today, newData.RootElement.Clone()),
+        ]);
+        await PortalApi.EnsureAsync(await SendAsync(client, batch, pos.Token!, pos.Identity.Fingerprint), HttpStatusCode.OK);
+
+        var recent = (await AsSuperadminAsync(d => d.Send(new GetStoreDataQuery(customer.OrganizationId, Today, Today), Ct))).Value.RecentSales;
+        recent.Select(r => r.Number).ShouldBe(["S-NUEVA", "S-VIEJA"]);
+        recent[1].CompletedAt!.Value.ShouldBe(now.AddDays(-2), TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void El_limite_de_cargas_por_usuario_corta_en_el_maximo_de_la_ventana()
+    {
+        var clock = new MutableClock(DateTimeOffset.UtcNow);
+        var throttle = new SyncUploadThrottle(clock, maxUploads: 2);
+        var user = Guid.CreateVersion7();
+        throttle.TryAcquire(user).ShouldBeTrue();
+        throttle.TryAcquire(user).ShouldBeTrue();
+        throttle.TryAcquire(user).ShouldBeFalse();
+        throttle.TryAcquire(Guid.CreateVersion7()).ShouldBeTrue(); // otro usuario
+        clock.UtcNow = clock.UtcNow.AddMinutes(11);
+        throttle.TryAcquire(user).ShouldBeTrue();
+    }
+
+    private sealed class MutableClock(DateTimeOffset now) : Pos.SharedKernel.Time.IClock
+    {
+        public DateTimeOffset UtcNow { get; set; } = now;
+
+        public TimeZoneInfo BusinessTimeZone => TimeZoneInfo.Utc;
     }
 
     [Fact]
@@ -141,7 +259,10 @@ public class SyncSigningTests(SyncPackagesCloudFixture cloud) : IClassFixture<Sy
         (await ScalarAsync<string>($"SELECT data->>'status' FROM sync.documents WHERE doc_id = '{saleId}'")).ShouldBe("VOIDED");
     }
 
-    private async Task<Pos.SharedKernel.Results.Result<UploadResultDto>> UploadAsync(byte[] package)
+    private Task<Pos.SharedKernel.Results.Result<UploadResultDto>> UploadAsync(byte[] package) =>
+        AsSuperadminAsync(d => d.Send(new UploadPackageCommand(package), Ct));
+
+    private async Task<T> AsSuperadminAsync<T>(Func<IDispatcher, Task<T>> action)
     {
         await using var scope = cloud.Factory.Services.CreateAsyncScope();
         // La sesión activa del superadministrador (la abrió el fixture): el verificador de permisos la consulta.
@@ -157,7 +278,24 @@ public class SyncSigningTests(SyncPackagesCloudFixture cloud) : IClassFixture<Sy
                 new Claim(PortalClaims.Role, PortalRoles.Superadmin), new Claim(ClaimTypes.Name, "Superadministrador"),
             ],
             "Test")));
-        return await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send(new UploadPackageCommand(package), Ct);
+        return await action(scope.ServiceProvider.GetRequiredService<IDispatcher>());
+    }
+
+    private async Task<(Pos.License.Simulator.SimulatedPos Pos, LicensedCustomer Customer)> ActivatedAsync()
+    {
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var pos = cloud.Factory.NewPos(customer.Nit);
+        await pos.RefreshPublicKeysAsync(Ct);
+        (await pos.ActivateAsync(customer.License.Key, Ct)).Succeeded.ShouldBeTrue();
+        return (pos, customer);
+    }
+
+    private async Task RegisterOnlineAsync(Pos.License.Simulator.SimulatedPos pos, Key key)
+    {
+        using var client = cloud.Factory.CreateClient();
+        var batch = Batch(pos.Identity.InstallationId, Sale(Guid.CreateVersion7().ToString(), DateTimeOffset.UtcNow.AddMinutes(-5)));
+        await PortalApi.EnsureAsync(await SendAsync(client, batch, pos.Token!, pos.Identity.Fingerprint, SyncSigning.PublicOf(key),
+            SyncSigning.KeyProof(key, pos.Identity.InstallationId, batch.BatchId)), HttpStatusCode.OK);
     }
 
     private static SyncBatch Batch(Guid installation, SyncItem item) => new(Guid.CreateVersion7(), installation, DateTimeOffset.UtcNow, "1.0.0", [item]);

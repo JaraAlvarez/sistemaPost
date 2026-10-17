@@ -1,5 +1,5 @@
 -- =====================================================================================================
--- V2026.10.013 · licensing · Endurecimiento del pago en línea (revisión W1–W3 y hallazgos bajos,
+-- V2026.10.014 · licensing · Endurecimiento del pago en línea (revisión W1–W3 y hallazgos bajos,
 -- docs/fases/fase-sync-pagos-endurecimiento.md §2).
 --
 --   · payment_orders.result_token: 128 bits aleatorios de la página de regreso /pagar/resultado/<referencia>/<token> (la referencia

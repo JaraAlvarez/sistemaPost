@@ -148,6 +148,12 @@ public class SyncApiTests
         Should.Throw<SyncPackageException>(() => SyncPackage.OpenSigned(package, cloudKey, maxBytes: 100_000)).Message.ShouldContain("MiB");
         Should.Throw<SyncPackageException>(() => SyncPackage.OpenSigned(package, cloudKey, maxItems: 2)).Message.ShouldContain("máximo");
         SyncPackage.OpenSigned(package, cloudKey).Batch.Items.Count.ShouldBe(3);
+
+        // Un solo dato de más de 1 MiB se rechaza mientras se lee.
+        using var huge = System.Text.Json.JsonDocument.Parse("{\"relleno\": \"" + new string('B', SyncLimits.MaxItemBytes + 10) + "\"}");
+        var big = SyncPackage.Seal(new SyncBatch(Guid.CreateVersion7(), Guid.CreateVersion7(), DateTimeOffset.UtcNow, "1.0.0",
+            [new SyncItem(SyncKinds.Product, Guid.CreateVersion7().ToString(), DateTimeOffset.UtcNow, null, huge.RootElement.Clone())]), cloudPublic);
+        Should.Throw<SyncPackageException>(() => SyncPackage.OpenSigned(big, cloudKey)).Message.ShouldContain("KiB");
         cloudKey.Dispose();
     }
 

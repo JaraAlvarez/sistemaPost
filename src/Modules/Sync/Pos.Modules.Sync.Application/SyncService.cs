@@ -157,7 +157,15 @@ public sealed class SyncService(
             return null;
         }
 
-        var (batch, positions) = await BuildAsync(exported: true, MaxPackageItems, cancellationToken);
+        // La nube no abre paquetes de más de 128 MiB descomprimidos (S3): si no cabe, se exportan menos datos y el resto va en el siguiente.
+        var limit = MaxPackageItems;
+        var (batch, positions) = await BuildAsync(exported: true, limit, cancellationToken);
+        while (batch.Items.Count > 1 && System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(batch, SyncJson.Options).LongLength > SyncLimits.MaxPackageBytes * 9 / 10)
+        {
+            limit = batch.Items.Count / 2;
+            (batch, positions) = await BuildAsync(exported: true, limit, cancellationToken);
+        }
+
         var content = SyncPackage.Seal(batch, publicKey, signer.Key);
         foreach (var (kind, position) in positions)
         {

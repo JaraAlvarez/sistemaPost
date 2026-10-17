@@ -165,8 +165,8 @@ public interface IPaymentStore
     /// </summary>
     Task<IReadOnlyList<Guid>> GetOrderIdsToReconcileAsync(int limit, DateTimeOffset recheckSince, CancellationToken cancellationToken);
 
-    /// <summary>¿Hubo un evento con firma inválida de esa IP desde <paramref name="since"/>? (limita la auditoría Warning por IP).</summary>
-    Task<bool> HasRecentRejectedEventAsync(System.Net.IPAddress? ip, DateTimeOffset since, CancellationToken cancellationToken);
+    /// <summary>Eventos con firma inválida de esa IP desde <paramref name="since"/> (limita la auditoría y las filas guardadas por IP).</summary>
+    Task<int> CountRecentRejectedEventsAsync(System.Net.IPAddress? ip, DateTimeOffset since, CancellationToken cancellationToken);
 
     Task<int> CountRecentPendingOrdersAsync(Guid subscriptionId, DateTimeOffset since, CancellationToken cancellationToken);
 

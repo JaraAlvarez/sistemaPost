@@ -367,6 +367,16 @@ public sealed class Subscription : AggregateRoot<Guid>, IHasAuditLabel
             CurrentPeriodEnd = currentEnd - (grantedEnd - grantedStart);
         }
 
+        // El fin (y con él la gracia, que se cuenta desde el fin) nunca queda antes del inicio del periodo.
+        if (CurrentPeriodStart is { } start && CurrentPeriodEnd is { } end && end < start)
+        {
+            CurrentPeriodEnd = start;
+        }
+        else if (CurrentPeriodStart is null && CurrentPeriodEnd is not null)
+        {
+            CurrentPeriodStart = CurrentPeriodEnd;
+        }
+
         var old = Status;
         if (Status != SubscriptionStatus.Suspended)
         {

@@ -91,6 +91,7 @@ public static class PersistenceRegistration
         services.AddScoped<IShortTransactions, ShortTransactions>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<IOutbox, Outbox.Outbox>();
+        services.AddScoped<ISyncOutboxRedaction, Outbox.SyncOutboxRedaction>();
         services.AddScoped<InboxStore>();
         services.AddScoped<IDocumentNumberAllocator, DocumentNumberAllocator>();
         services.AddScoped<IDocumentSeriesProvisioner, DocumentSeriesProvisioner>();

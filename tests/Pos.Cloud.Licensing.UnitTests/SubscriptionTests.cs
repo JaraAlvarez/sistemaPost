@@ -155,6 +155,14 @@ public class SubscriptionTests
             .IsSuccess.ShouldBeTrue();
         other.CurrentPeriodEnd.ShouldBe(afterManual - (end2 - start2));
 
+        // Descontar más de lo que queda no deja el fin (ni la gracia) antes del inicio.
+        var shortened = Paid();
+        var current = (shortened.CurrentPeriodStart!.Value, shortened.CurrentPeriodEnd!.Value);
+        shortened.RevertRenewal("WOMPI tx-9 BP-2026-000009", Start.AddYears(-3), Start.AddYears(-1), null, null, "La pasarela anuló el pago", At(Start.AddDays(1)))
+            .IsSuccess.ShouldBeTrue();
+        shortened.CurrentPeriodEnd.ShouldBe(current.Item1);
+        shortened.GraceUntil.ShouldBeGreaterThanOrEqualTo(shortened.CurrentPeriodStart!.Value);
+
         // Cancelada: no se revierte.
         var cancelled = Paid();
         cancelled.Cancel("El cliente cerró el negocio", Now).IsSuccess.ShouldBeTrue();

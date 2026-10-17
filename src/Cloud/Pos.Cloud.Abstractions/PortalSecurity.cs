@@ -51,6 +51,12 @@ public static class CloudPermissions
     /// <summary>Cargar un paquete .possync exportado por una tienda sin Internet.</summary>
     public const string SyncPackageUpload = "sync.package.upload";
 
+    /// <summary>
+    /// Verificar o descartar paquetes cargados sin verificar la firma y reiniciar la clave de firma de una tienda (revisión S2; solo
+    /// superadministrador).
+    /// </summary>
+    public const string SyncPackageReview = "sync.package.review";
+
     /// <summary>Ver los pagos en línea, los enlaces de pago y los precios; "Consultar ahora" una orden en la pasarela (Fase 12-C).</summary>
     public const string PaymentView = "licensing.payment.view";
 
@@ -74,7 +80,7 @@ public static class CloudPermissions
     private static readonly HashSet<string> SuperadminPermissions =
     [
         DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease,
-        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload, PaymentView, PaymentManage,
+        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload, SyncPackageReview, PaymentView, PaymentManage,
         PriceManage, DownloadView,
     ];
 
@@ -219,4 +225,15 @@ public interface IPosInstallationAuthenticator
     /// existe, fue liberada o su licencia no está activa.
     /// </summary>
     Task<PosInstallationIdentity?> FindAsync(Guid installationId, CancellationToken cancellationToken);
+
+    /// <summary>Por qué <see cref="FindAsync"/> no devuelve la instalación (<see cref="PosInstallationInactiveReasons"/>); nulo si está activa.</summary>
+    Task<string?> InactiveReasonAsync(Guid installationId, CancellationToken cancellationToken);
+}
+
+/// <summary>Motivos por los que una instalación no recibe paquetes.</summary>
+public static class PosInstallationInactiveReasons
+{
+    public const string NotFound = "NOT_FOUND";
+    public const string Released = "RELEASED";
+    public const string LicenseInactive = "LICENSE_INACTIVE";
 }

@@ -127,10 +127,10 @@ internal sealed class PaymentStore(CloudDbContext context) : IPaymentStore
             .Take(limit)
             .ToListAsync(cancellationToken);
 
-    public Task<bool> HasRecentRejectedEventAsync(System.Net.IPAddress? ip, DateTimeOffset since, CancellationToken cancellationToken) =>
+    public Task<int> CountRecentRejectedEventsAsync(System.Net.IPAddress? ip, DateTimeOffset since, CancellationToken cancellationToken) =>
         ip is null
-            ? context.Set<PaymentEvent>().AnyAsync(e => e.SignatureValid == false && e.SourceIp == null && e.ReceivedAt >= since, cancellationToken)
-            : context.Set<PaymentEvent>().AnyAsync(e => e.SignatureValid == false && e.SourceIp == ip && e.ReceivedAt >= since, cancellationToken);
+            ? context.Set<PaymentEvent>().CountAsync(e => e.SignatureValid == false && e.SourceIp == null && e.ReceivedAt >= since, cancellationToken)
+            : context.Set<PaymentEvent>().CountAsync(e => e.SignatureValid == false && e.SourceIp == ip && e.ReceivedAt >= since, cancellationToken);
 
     public Task<int> CountRecentPendingOrdersAsync(Guid subscriptionId, DateTimeOffset since, CancellationToken cancellationToken) =>
         context.Set<PaymentOrder>().CountAsync(

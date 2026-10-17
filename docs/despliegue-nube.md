@@ -246,6 +246,10 @@ docker compose ps && curl -s https://licencias.midominio.com/health
 docker image prune -f
 ```
 
+**Orden con las tiendas: primero la nube, después las tiendas.** La nube nueva acepta a las tiendas viejas (lotes sin clave de firma,
+paquetes `POSSYNC1`), pero una tienda nueva puede depender de la nube nueva (p. ej. paquetes `POSSYNC2` firmados, cabeceras de la clave de
+firma). Actualice el contenedor, verifique `/health` y el portal, y solo entonces publique el manifiesto de la versión de las tiendas (§16).
+
 Las migraciones son solo hacia adelante: para volver atrás, restaure el respaldo previo con la versión anterior del código
 (`git checkout <tag>`, `docker compose build`, `restore.sh`). Actualice PostgreSQL y Caddy con `docker compose pull && docker compose up -d`
 (solo versiones menores de PostgreSQL 18; un cambio de versión mayor se hace con volcado y restauración).
@@ -395,6 +399,26 @@ Reglas de seguridad (revisión R4):
    borrarlo después es lo esperado: lo vence el bucket).
 7. **Espacio:** revise el espacio del VPS con `docker system df -v` y `df -h`, y ajuste `--expire-days` del paso 4 si hace falta.
 
+**Integridad de la subida:** la tienda envía `Content-MD5` en cada `PUT` (S3 y MinIO lo exigen para subir a un bucket con object lock, y
+rechazan el objeto si llegó distinto). Si un proveedor S3 exige además `x-amz-checksum-*` (SHA-256), queda pendiente agregarlo en
+`S3Storage`.
+
+**Migrar tiendas configuradas con `readwrite` y prefijo vacío** (guía anterior). Hasta migrarlas, esas tiendas pueden leer y borrar los
+backups de las demás:
+
+1. Por cada tienda, cree su política y su usuario como en el paso 5 (`tienda-<NIT>-<sucursal>`). Si el usuario ya existe, adjúntele la
+   política nueva y quite la vieja: `mc admin policy detach local readwrite --user <usuario>`.
+2. Mueva sus objetos a su carpeta (como administrador; la tienda escribía en `pos-backups/<id de la instalación>/`):
+   ```bash
+   docker compose exec minio mc mv --recursive local/pos-backups/<id-instalación>/ local/pos-backups/<NIT>-<sucursal>/<id-instalación>/
+   ```
+   El id de la instalación es la carpeta de 32 caracteres que ya existe en el bucket (`mc ls local/pos-backups/`).
+3. En la tienda, edite el destino S3: `prefix` = `<NIT>-<sucursal>` y, si cambió, la `accessKey`/`secretKey`. Pruebe el destino.
+4. El bucket viejo sin object lock no se puede convertir: para tener object lock cree uno nuevo con `--with-lock` (paso 4), copie los
+   objetos (`mc mirror`) y cambie el `bucket` en las tiendas.
+5. Las copias que la tienda tenía registradas con la ubicación vieja (`<id>/archivo`) ya no existen ahí: la retención las da por eliminadas
+   (404) sin error.
+
 Recuperar un backup desde la nube en un equipo nuevo: descárguelo con el usuario administrador (`https://backups.<DOMINIO>` no expone la
 consola; use `docker compose exec minio mc cp local/pos-backups/<NIT>-<sucursal>/<id>/<archivo>.posbak /tmp/` y cópielo) y siga
 [guia-recuperacion.md](guia-recuperacion.md). Una versión anterior (borrada o sobrescrita) se lista con `mc ls --versions` y se baja con
@@ -487,6 +511,12 @@ docker compose up -d
 3. **Usuarios Cliente:** en el portal, Usuarios → rol **Cliente** y la **cuenta** del cliente. Entra con contraseña y autenticador como
    los demás y solo ve las empresas de esa cuenta (ventas, cierres, existencias y cargar paquetes).
 4. Las migraciones `V2026.10.006` (rol Cliente) y `V2026.10.007` (esquema `sync`) se aplican solas al actualizar (§10).
+5. **Firma de los paquetes (revisión S2):** cada tienda registra su clave de firma la primera vez que sincroniza EN LÍNEA con la versión
+   nueva. Desde entonces sus paquetes deben venir firmados con ella. Los paquetes de una tienda que aún no la registró se cargan
+   «sin verificar» y aparecen en **Datos de las tiendas → Paquetes sin verificar**: el superadministrador los verifica (cuando la tienda ya
+   registró la clave que los firmó) o los descarta. Si una tienda se restauró en otro equipo o la clave quedó expuesta, use **Reiniciar
+   clave** en su sucursal. Migraciones `V2026.10.013` a `V2026.10.015`: se aplican solas; **actualice la nube antes que las tiendas**
+   (§10).
 
 ## 18. Dentro de un dominio existente con Caddy (businesspost.tutiendanueva.com)
 

@@ -40,6 +40,10 @@ public class SyncOutboxRedactionTests
         await Should.ThrowAsync<InvalidOperationException>(() => storage.DeleteAsync("900123456-S01/abc/archivo.posbak", Ct));
         denied.Requests.ShouldAllBe(r => r.Method == HttpMethod.Delete && r.RequestUri!.AbsolutePath == "/pos-backups/900123456-S01/abc/archivo.posbak");
 
+        var skewed = new S3Storage(new HttpClient(new StatusHandler(HttpStatusCode.Forbidden, "RequestTimeTooSkewed")),
+            new S3Settings("https://backups.test", "us-east-1", "pos-backups", "tienda", "secreto"), TimeProvider.System);
+        (await Should.ThrowAsync<InvalidOperationException>(() => skewed.TryDeleteAsync("x/archivo.posbak", Ct))).Message.ShouldContain("hora");
+
         var allowed = new S3Storage(new HttpClient(new StatusHandler(HttpStatusCode.NoContent)),
             new S3Settings("https://backups.test", "us-east-1", "pos-backups", "tienda", "secreto"), TimeProvider.System);
         (await allowed.TryDeleteAsync("x/archivo.posbak", Ct)).ShouldBeTrue();
@@ -64,14 +68,14 @@ public class SyncOutboxRedactionTests
         public string? Address { get; set; }
     }
 
-    private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler
+    private sealed class StatusHandler(HttpStatusCode status, string code = "AccessDenied") : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests.Add(request);
-            return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent("<Error><Code>AccessDenied</Code></Error>") });
+            return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent($"<Error><Code>{code}</Code></Error>") });
         }
     }
 }

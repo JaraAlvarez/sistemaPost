@@ -291,6 +291,20 @@ public class CustomersApiTests
 
         // ...pero queda marcada para que su copia en la nube se reemplace sin el nombre (revisión S1).
         (await shop.Catalog.ScalarAsync<bool>($"SELECT customer_redacted_at IS NOT NULL FROM sales.sales WHERE id = '{sale.Id}'")).ShouldBeTrue();
+
+        // V2026.10.102: los titulares suprimidos antes de esta versión también quedan marcados al actualizar.
+        await shop.Catalog.ExecuteAsync($"UPDATE sales.sales SET customer_redacted_at = NULL WHERE id = '{sale.Id}'");
+        await shop.Catalog.ExecuteAsync(Pos.Server.Migrations.ScriptCatalog.Default.Versioned
+            .Single(m => m.Name.StartsWith("V2026.10.102__", StringComparison.Ordinal)).Sql);
+        (await shop.Catalog.ScalarAsync<bool>($"SELECT customer_redacted_at IS NOT NULL FROM sales.sales WHERE id = '{sale.Id}'")).ShouldBeTrue();
+
+        // Y los cambios del tercero que ya estaban en el outbox SYNC pierden el nombre, la identificación y el texto de búsqueda.
+        (await shop.Catalog.ScalarAsync<long>(
+                $"SELECT count(*) FROM system.outbox_messages WHERE type = 'sync.entity_changed.v1' AND payload->>'id' = '{laura.PartyId}' AND payload::text ILIKE '%laura%'"))
+            .ShouldBe(0);
+        (await shop.Catalog.ScalarAsync<long>(
+                $"SELECT count(*) FROM system.outbox_messages WHERE type = 'sync.entity_changed.v1' AND payload->>'id' = '{laura.PartyId}' AND payload->>'redacted' = 'true'"))
+            .ShouldBeGreaterThan(0);
         (await shop.Catalog.ScalarAsync<string>("SELECT severity FROM audit.audit_log WHERE action = 'CUSTOMER_ANONYMIZED'")).ShouldBe("WARNING");
     }
 }

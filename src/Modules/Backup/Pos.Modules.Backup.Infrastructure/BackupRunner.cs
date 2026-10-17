@@ -113,7 +113,7 @@ internal sealed class FolderDestination(string path, string? volumeLabel) : IDes
 /// la carpeta de la tienda en el bucket (<c>&lt;NIT&gt;-&lt;sucursal&gt;</c>, despliegue-nube.md §14) y la política de su usuario la limita a ella.
 /// La tienda no puede borrar (política sin <c>s3:Delete*</c>, object lock): la retención en S3 la aplica el ciclo de vida del bucket.
 /// </summary>
-internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDestinationClient
+internal sealed partial class S3Destination(S3Storage storage, string keyPrefix, ILogger? logger = null) : IDestinationClient
 {
     /// <summary>
     /// Prefijo de las claves: la carpeta del destino (sin barras sobrantes ni segmentos <c>.</c>/<c>..</c>) más el id de la instalación, para
@@ -142,8 +142,21 @@ internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDest
         return key;
     }
 
-    /// <summary>Si el almacenamiento niega el borrado (403), la copia vence por el ciclo de vida del bucket: se da por eliminada en la tienda.</summary>
-    public Task DeleteAsync(string location, CancellationToken cancellationToken) => storage.TryDeleteAsync(location, cancellationToken);
+    /// <summary>
+    /// Si la política niega el borrado (403 <c>AccessDenied</c>), la copia vence por el ciclo de vida del bucket: se da por eliminada en la tienda
+    /// con una advertencia. Un 403 por credenciales o reloj falla y la copia NO se marca eliminada (se reintenta).
+    /// </summary>
+    public async Task DeleteAsync(string location, CancellationToken cancellationToken)
+    {
+        if (!await storage.TryDeleteAsync(location, cancellationToken) && logger is not null)
+        {
+            LogDeleteDenied(logger, location);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "El almacenamiento S3 no permite borrar {Location} (política sin s3:Delete*): lo vencerá el ciclo de vida del bucket")]
+    private static partial void LogDeleteDenied(ILogger logger, string location);
 
     public async Task<string?> TestAsync(CancellationToken cancellationToken)
     {
@@ -386,7 +399,7 @@ internal sealed partial class BackupRunner(
             DestinationKinds.S3 => new S3Destination(
                 new S3Storage(S3Http, new S3Settings(destination.Endpoint!, destination.Region ?? "us-east-1", destination.Bucket!,
                     destination.AccessKey!, secret ?? string.Empty), time),
-                KeyPrefix(destination.Prefix)),
+                KeyPrefix(destination.Prefix), logger),
             _ => new FolderDestination(destination.Path!, destination.Kind == DestinationKinds.External ? destination.VolumeLabel : null),
         };
     }

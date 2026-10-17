@@ -34,8 +34,14 @@ public static class SyncLimits
     /// <summary>Datos por paquete <c>.possync</c>.</summary>
     public const int MaxPackageItems = 200_000;
 
-    /// <summary>Bytes del lote descomprimido dentro de un paquete (protege contra una "bomba" gzip).</summary>
-    public const long MaxPackageBytes = 512L * 1024 * 1024;
+    /// <summary>
+    /// Bytes del lote descomprimido dentro de un paquete (protege contra una "bomba" gzip). La tienda arma paquetes más chicos que esto; si
+    /// no caben, exporta menos datos y el resto sale en el paquete siguiente.
+    /// </summary>
+    public const long MaxPackageBytes = 128L * 1024 * 1024;
+
+    /// <summary>Bytes de UN dato (venta, cierre, saldo o producto) en JSON.</summary>
+    public const int MaxItemBytes = 1024 * 1024;
 }
 
 /// <summary>
@@ -193,6 +199,9 @@ public static class SyncPackage
     private static readonly AeadAlgorithm Aead = AeadAlgorithm.ChaCha20Poly1305;
     private static readonly byte[] Info = Encoding.ASCII.GetBytes("pos-sync-package-v1");
 
+    /// <summary>Opciones de lectura por máximo de datos (se reutilizan: casi siempre es <see cref="SyncLimits.MaxPackageItems"/>).</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, JsonSerializerOptions> ReadOptions = new();
+
     public sealed record Header(
         [property: JsonPropertyName("format")] string Format,
         [property: JsonPropertyName("installationId")] Guid InstallationId,
@@ -262,7 +271,7 @@ public static class SyncPackage
         using var key = DeriveKey(cloudPrivateKey, sender, headerBytes);
         var plain = Aead.Decrypt(key, Base64Url.DecodeFromChars(header.Nonce), headerBytes, package[(newline + 1)..])
             ?? throw new SyncPackageException("El paquete no se pudo abrir: fue alterado o no es para esta nube.");
-        var batch = Decompress(plain, maxBytes) ?? throw new SyncPackageException("El paquete está vacío.");
+        var batch = Decompress(plain, maxBytes, maxItems) ?? throw new SyncPackageException("El paquete está vacío.");
         if (batch.Items is null || batch.Items.Count > maxItems)
         {
             throw new SyncPackageException($"El paquete supera el máximo de {maxItems} datos.");
@@ -324,19 +333,65 @@ public static class SyncPackage
         return output.ToArray();
     }
 
-    /// <summary>Descomprime y deserializa en flujo, sin pasar de <paramref name="maxBytes"/> descomprimidos.</summary>
-    private static SyncBatch? Decompress(byte[] data, long maxBytes)
+    /// <summary>
+    /// Descomprime y deserializa en flujo, sin pasar de <paramref name="maxBytes"/> descomprimidos; los datos se cuentan y se mide cada uno
+    /// MIENTRAS se leen (no se arma la lista completa para contarla después).
+    /// </summary>
+    private static SyncBatch? Decompress(byte[] data, long maxBytes, int maxItems)
     {
         using var input = new LimitedReadStream(new GZipStream(new MemoryStream(data), CompressionMode.Decompress), maxBytes);
+        var options = ReadOptions.GetOrAdd(maxItems, static max =>
+        {
+            var created = new JsonSerializerOptions(SyncJson.Options);
+            created.Converters.Add(new LimitedItemsConverter(max, SyncLimits.MaxItemBytes));
+            return created;
+        });
         try
         {
-            return JsonSerializer.Deserialize<SyncBatch>(input, SyncJson.Options);
+            return JsonSerializer.Deserialize<SyncBatch>(input, options);
         }
         catch (Exception ex) when (ex is JsonException or InvalidDataException)
         {
             throw new SyncPackageException("El contenido del paquete no es un lote válido.");
         }
     }
+}
+
+/// <summary>
+/// Lee la lista de datos de un paquete uno por uno: falla en cuanto pasa del máximo de datos o un dato pasa del máximo de bytes (revisión S3).
+/// </summary>
+internal sealed class LimitedItemsConverter(int maxItems, int maxItemBytes) : JsonConverter<IReadOnlyList<SyncItem>>
+{
+    public override IReadOnlyList<SyncItem> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            throw new JsonException("Se esperaba la lista de datos.");
+        }
+
+        var items = new List<SyncItem>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (items.Count >= maxItems)
+            {
+                throw new SyncPackageException($"El paquete supera el máximo de {maxItems} datos.");
+            }
+
+            var start = reader.TokenStartIndex;
+            using var item = JsonDocument.ParseValue(ref reader);
+            if (reader.BytesConsumed - start > maxItemBytes)
+            {
+                throw new SyncPackageException($"Un dato del paquete supera {maxItemBytes / 1024} KiB.");
+            }
+
+            items.Add(item.RootElement.Deserialize<SyncItem>(SyncJson.Options) ?? throw new JsonException("Dato vacío."));
+        }
+
+        return items;
+    }
+
+    public override void Write(Utf8JsonWriter writer, IReadOnlyList<SyncItem> value, JsonSerializerOptions options) =>
+        JsonSerializer.Serialize(writer, value, SyncJson.Options);
 }
 
 /// <summary>Flujo de solo lectura que falla al pasar de un máximo de bytes (contenido descomprimido de un paquete, revisión S3).</summary>

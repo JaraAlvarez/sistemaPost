@@ -67,6 +67,12 @@ public interface ILicensingStore
 
     Task<Subscription?> GetSubscriptionAsync(Guid id, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Bloquea la fila de la suscripción hasta el fin de la transacción y la lee de nuevo (dos pagos o un pago y una acción del portal a la
+    /// vez no se pisan).
+    /// </summary>
+    Task<Subscription?> LockSubscriptionAsync(Guid id, CancellationToken cancellationToken);
+
     /// <summary>La suscripción no cancelada de la empresa (hay como máximo una).</summary>
     Task<Subscription?> GetCurrentSubscriptionAsync(Guid organizationId, CancellationToken cancellationToken);
 

@@ -359,6 +359,9 @@ internal sealed class HandlePaymentEventHandler(
     /// <summary>Ventana en la que se audita a lo sumo un evento rechazado por IP (el resto solo queda en el registro de eventos).</summary>
     public static readonly TimeSpan RejectedAuditWindow = TimeSpan.FromMinutes(10);
 
+    /// <summary>Eventos rechazados que se guardan por IP y por hora; los demás solo reciben 401.</summary>
+    public const int MaxRejectedPerIpPerHour = 100;
+
     public async Task<Result<Outcome<PaymentEventReceipt>>> Handle(HandlePaymentEventCommand request, CancellationToken cancellationToken)
     {
         if (!gateway.IsConfigured)
@@ -378,8 +381,14 @@ internal sealed class HandlePaymentEventHandler(
 
         if (!parsed.SignatureValid)
         {
-            // Firma inválida: solo metadatos (nunca el cuerpo, que puede venir de cualquiera) y a lo sumo una auditoría por IP cada 10 min.
-            var audited = !await store.HasRecentRejectedEventAsync(request.SourceIp, now - RejectedAuditWindow, cancellationToken);
+            // Firma inválida: solo metadatos (nunca el cuerpo, que puede venir de cualquiera), a lo sumo una auditoría por IP cada 10 min y
+            // a lo sumo ⚙️ 100 filas por IP por hora (después solo se responde 401: nadie llena la tabla, que es de solo inserción).
+            if (await store.CountRecentRejectedEventsAsync(request.SourceIp, now - TimeSpan.FromHours(1), cancellationToken) >= MaxRejectedPerIpPerHour)
+            {
+                return Outcome.Fail<PaymentEventReceipt>(PaymentErrors.InvalidSignature);
+            }
+
+            var audited = await store.CountRecentRejectedEventsAsync(request.SourceIp, now - RejectedAuditWindow, cancellationToken) == 0;
             var rejected = PaymentEvent.Webhook(
                 ids.NewId(), now, false, parsed.EventType, parsed.Transaction, parsed.Environment, PaymentText.RejectedMetadata(request.Body),
                 parsed.RejectionReason, request.SourceIp);
@@ -452,7 +461,8 @@ public sealed class PaymentApplier(ILicensingStore licensing, LicensingOptions o
     {
         ArgumentNullException.ThrowIfNull(order);
         ArgumentNullException.ThrowIfNull(transaction);
-        var subscription = (await licensing.GetSubscriptionAsync(order.SubscriptionId, cancellationToken))!;
+        // La suscripción se bloquea (SELECT … FOR UPDATE): el evento, la conciliación o una renovación manual simultánea esperan su turno.
+        var subscription = (await licensing.LockSubscriptionAsync(order.SubscriptionId, cancellationToken))!;
         var organization = (await licensing.GetOrganizationAsync(order.OrganizationId, cancellationToken))!;
 
         // Renovación automática: la hace el usuario técnico (como los vencimientos), con la referencia de Wompi.

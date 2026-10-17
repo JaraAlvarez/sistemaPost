@@ -309,7 +309,8 @@ public static class SyncInfrastructureRegistration
     public static void Register(IServiceCollection services)
     {
         services.AddSingleton(sp => Read(sp.GetRequiredService<IConfiguration>()));
-        services.AddSingleton<ISyncSigner>(sp => new SyncSigningKeyStore(Path.Combine(DataRoot(sp), "config", "sync-signing.key")));
+        services.AddSingleton<ISyncSigner>(sp =>
+            new SyncSigningKeyStore(Path.Combine(DataRoot(sp), "config", "sync-signing.key"), sp.GetRequiredService<ILogger<SyncSigningKeyStore>>()));
         services.AddSingleton<ISyncCloud>(sp =>
         {
             var options = sp.GetRequiredService<SyncOptions>();
@@ -376,14 +377,16 @@ public static class SyncInfrastructureRegistration
 /// <summary>
 /// Clave Ed25519 de la instalación (revisión S2) en <c>{DataRoot}\config\sync-signing.key</c>: se crea la primera vez y se guarda protegida
 /// con DPAPI de la máquina, como la clave de los backups. Fuera de Windows queda en claro y la protegen solo los permisos del archivo
-/// (ver <see cref="ProtectedSecret"/>).
+/// (ver <see cref="ProtectedSecret"/>). Se escribe de forma atómica (archivo temporal + reemplazo). Si el archivo no se puede leer (DPAPI de
+/// otra máquina tras restaurar en otro equipo, archivo dañado) se genera una clave nueva con una advertencia, en vez de fallar en cada ciclo:
+/// la nube la registra como rotación en la siguiente sincronización en línea.
 /// </summary>
-internal sealed class SyncSigningKeyStore(string keyFile) : ISyncSigner, IDisposable
+internal sealed partial class SyncSigningKeyStore(string keyFile, ILogger<SyncSigningKeyStore> logger) : ISyncSigner, IDisposable
 {
     // Identificador criptográfico interno y estable: cambiarlo dejaría ilegible la clave ya guardada.
     public const string Purpose = "PosSupermercado.Sync.SigningKey.v1";
 
-    private readonly Lazy<Key> _key = new(() => LoadOrCreate(keyFile), LazyThreadSafetyMode.ExecutionAndPublication);
+    private readonly Lazy<Key> _key = new(() => LoadOrCreate(keyFile, logger), LazyThreadSafetyMode.ExecutionAndPublication);
 
     public Key Key => _key.Value;
 
@@ -397,19 +400,39 @@ internal sealed class SyncSigningKeyStore(string keyFile) : ISyncSigner, IDispos
         }
     }
 
-    private static Key LoadOrCreate(string file)
+    internal static Key LoadOrCreate(string file, ILogger logger)
     {
         if (File.Exists(file))
         {
-            var stored = File.ReadAllBytes(file);
-            return SyncSigning.ImportPrivate(OperatingSystem.IsWindows() ? ProtectedSecret.UnprotectBytes(stored, Purpose) : stored);
+            try
+            {
+                var stored = File.ReadAllBytes(file);
+                return SyncSigning.ImportPrivate(OperatingSystem.IsWindows() ? ProtectedSecret.UnprotectBytes(stored, Purpose) : stored);
+            }
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException or ArgumentException or IOException)
+            {
+                LogUnreadable(logger, file, ex);
+            }
         }
 
         var key = SyncSigning.GenerateKey();
         var raw = SyncSigning.ExportPrivate(key);
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        File.WriteAllBytes(file, OperatingSystem.IsWindows() ? ProtectedSecret.ProtectBytes(raw, Purpose) : raw);
-        System.Security.Cryptography.CryptographicOperations.ZeroMemory(raw);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            var temporary = file + ".tmp";
+            File.WriteAllBytes(temporary, OperatingSystem.IsWindows() ? ProtectedSecret.ProtectBytes(raw, Purpose) : raw);
+            File.Move(temporary, file, overwrite: true);
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(raw);
+        }
+
         return key;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "La clave de firma de la sincronización ({File}) no se pudo leer; se genera una nueva y la nube la registrará en la próxima sincronización en línea")]
+    private static partial void LogUnreadable(ILogger logger, string file, Exception exception);
 }

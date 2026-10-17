@@ -260,7 +260,8 @@ internal sealed class ExportCustomerDataHandler(
 public sealed record AnonymizeCustomerCommand(Guid PartyId, string Reason) : ICommand<CustomerDto>, IAllowedWhenRestricted;
 
 internal sealed class AnonymizeCustomerHandler(
-    ICustomerStore store, IPartyRegistry parties, CustomerService service, ICustomerSaleRedaction sales, IAuditWriter audit, IClock clock)
+    ICustomerStore store, IPartyRegistry parties, CustomerService service, ICustomerSaleRedaction sales, ISyncOutboxRedaction outbox, IAuditWriter audit,
+    IClock clock)
     : ICommandHandler<AnonymizeCustomerCommand, CustomerDto>
 {
     public async Task<Result<CustomerDto>> Handle(AnonymizeCustomerCommand request, CancellationToken cancellationToken)
@@ -297,6 +298,11 @@ internal sealed class AnonymizeCustomerHandler(
 
         customer.Anonymize(clock.UtcNow);
         var redacted = await sales.RedactCustomerAsync(customer.PartyId, clock.UtcNow, cancellationToken);
+
+        // Los cambios del tercero y del cliente ya guardados en el outbox SYNC llevan nombre, identificación, texto de búsqueda y contacto:
+        // se borran sus valores (el cambio de esta supresión se escribe después, ya anonimizado).
+        await outbox.RedactAsync("parties.parties", customer.PartyId, cancellationToken);
+        await outbox.RedactAsync("customers.customers", customer.PartyId, cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("customers", "CUSTOMER_ANONYMIZED", nameof(Customer), customer.PartyId, customer.AuditLabel,
                 $"Datos del titular suprimidos: {request.Reason!.Trim()} ({redacted} venta(s) se reenvían a la nube sin el nombre).",
