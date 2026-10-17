@@ -45,11 +45,35 @@ public class ScaleSigningTests
         return client.SendAsync(request, Ct);
     }
 
-    private static async Task<ScalePairingDto> PairedAsync(HttpClient client)
+    /// <summary>Prepara una clave pendiente (sin confirmar).</summary>
+    private static async Task<ScalePairingDto> PreparedAsync(HttpClient client)
     {
         var response = await PairAsync(client);
         response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
         return (await response.Content.ReadFromJsonAsync<ScalePairingDto>(Json, Ct))!;
+    }
+
+    private static Task<HttpResponseMessage> CommitAsync(HttpClient client, Guid keyId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/scale/pairing/commit") { Content = Body(new ScalePairingCommitRequest(keyId)) };
+        request.Headers.Add("Origin", UiOrigin);
+        return client.SendAsync(request, Ct);
+    }
+
+    /// <summary>Vincula del todo: prepara la clave y, como si el servidor la hubiera registrado, la confirma.</summary>
+    private static async Task<ScalePairingDto> PairedAsync(HttpClient client)
+    {
+        var pairing = await PreparedAsync(client);
+        (await CommitAsync(client, pairing.KeyId)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        return pairing;
+    }
+
+    private static bool Verifies(ScalePairingDto pairing, SignedScaleReading signed)
+    {
+        using var key = ECDsa.Create();
+        key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(pairing.PublicKey), out _);
+        return key.VerifyData(Encoding.UTF8.GetBytes(signed.Payload), Convert.FromBase64String(signed.Signature), HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
     }
 
     private static async Task AcceptAsync(HttpClient client, Guid readingId) =>
@@ -76,11 +100,13 @@ public class ScaleSigningTests
         pairing.TerminalId.ShouldBe(Terminal);
 
         // BB3: la clave privada va cifrada con DPAPI de la cuenta del agente y el archivo solo lo leen SYSTEM, Administradores y esa cuenta.
-        var file = Path.Combine(rig.Agent.Root, "scale-signing.json");
+        var file = Path.Combine(rig.Agent.Root, "keys", "scale-signing.json");
         File.ReadAllText(file).ShouldContain("dpapi-user:");
+        File.Exists(file + ".tmp").ShouldBeFalse();
         if (OperatingSystem.IsWindows())
         {
             OnlyAgentAndAdministrators(file).ShouldBeTrue();
+            OnlyAgentAndAdministrators(Path.GetDirectoryName(file)!).ShouldBeTrue();
         }
 
         var first = await WeightAsync(rig.Client);
@@ -110,9 +136,12 @@ public class ScaleSigningTests
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private static bool OnlyAgentAndAdministrators(string file)
+    private static bool OnlyAgentAndAdministrators(string path)
     {
-        var rules = new FileInfo(file).GetAccessControl().GetAccessRules(true, true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>().ToList();
+        var rules = (Directory.Exists(path)
+                ? new DirectoryInfo(path).GetAccessControl().GetAccessRules(true, true, typeof(SecurityIdentifier))
+                : new FileInfo(path).GetAccessControl().GetAccessRules(true, true, typeof(SecurityIdentifier)))
+            .Cast<FileSystemAccessRule>().ToList();
         using var me = WindowsIdentity.GetCurrent();
         var allowed = new[] { new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), me.User! };
         return rules.Count > 0 && rules.All(r => allowed.Contains(r.IdentityReference) && !r.IsInherited);
@@ -136,6 +165,85 @@ public class ScaleSigningTests
         var reading = await WeightAsync(client);
         reading.WeightKg.ShouldBe(0.7m);
         reading.SignedReading.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Vincular_sin_confirmar_deja_la_caja_pesando_con_la_clave_vigente()
+    {
+        // BK1: el agente prepara la clave nueva, pero el registro en el servidor falla o se cancela (no llega la confirmación).
+        var folder = TempDirectory();
+        var settings = new Dictionary<string, string?> { ["Agent:ScaleConfigFile"] = Path.Combine(folder, "scale.json") };
+        try
+        {
+            ScalePairingDto current;
+            await using (var rig = await Rig.StartAsync(Toledo, settings, pair: false))
+            {
+                rig.Device.Set(0.7m);
+                current = await PairedAsync(rig.Client);
+
+                var abandoned = await PreparedAsync(rig.Client);
+                var reading = (await WeightAsync(rig.Client)).SignedReading!;
+                (reading.KeyId, Verifies(current, reading)).ShouldBe((current.KeyId, true));
+
+                // Otro intento reemplaza la pendiente anterior: confirmar la primera ya no vale.
+                var retry = await PreparedAsync(rig.Client);
+                (await CommitAsync(rig.Client, abandoned.KeyId)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+                (await WeightAsync(rig.Client)).SignedReading!.KeyId.ShouldBe(current.KeyId);
+
+                // Una página sin el Origin de la interfaz no puede confirmar.
+                var local = await rig.Client.PostAsync("/scale/pairing/commit", Body(new ScalePairingCommitRequest(retry.KeyId)), Ct);
+                local.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+                _ = await PreparedAsync(rig.Client);
+            }
+
+            // Reinicio del agente con una pendiente sin confirmar: se descarta y sigue la vigente.
+            await using var again = await Rig.StartAsync(Toledo, settings, pair: false);
+            again.Device.Set(0.7m);
+            var after = (await WeightAsync(again.Client)).SignedReading!;
+            (after.KeyId, Verifies(current, after)).ShouldBe((current.KeyId, true));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task La_clave_del_formato_anterior_se_borra_al_arrancar()
+    {
+        // BK3: el archivo viejo (DPAPI de máquina con entropía fija, fuera de "keys") se borra y la caja queda sin vincular.
+        var folder = TempDirectory();
+        Directory.CreateDirectory(folder);
+        var legacy = Path.Combine(folder, "scale-signing.json");
+        File.WriteAllText(legacy, "{\"terminalId\":\"" + Terminal + "\",\"keyId\":\"" + Guid.NewGuid() + "\",\"privateKey\":\"dpapi:AAAA\"}");
+        try
+        {
+            await using var rig = await Rig.StartAsync(Toledo, new Dictionary<string, string?> { ["Agent:ScaleConfigFile"] = Path.Combine(folder, "scale.json") }, pair: false);
+            File.Exists(legacy).ShouldBeFalse();
+            (await rig.Client.GetFromJsonAsync<ScaleStatusDto>("/scale/status", Json, Ct))!.PairedTerminalId.ShouldBeNull();
+            rig.Device.Set(0.7m);
+            (await WeightAsync(rig.Client)).SignedReading.ShouldBeNull();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Bascula_generica_con_tara_fisica_marcada_como_neta_no_cuenta_como_vacia()
+    {
+        // BK4: la báscula genérica envía "NET 0.000 kg" con la tara de su tecla: no es el bruto y no cuenta como vacía.
+        var port = new ScriptedContinuous { Frame = "  1.200 kg" };
+        await using var rig = await Rig.StartAsync(new ScaleSettings { Driver = "GENERIC", Port = "COM7", TimeoutMs = 300 }, factory: new ContinuousPorts(port));
+        await AcceptAsync(rig.Client, (await WeightAsync(rig.Client)).ReadingId!.Value);
+
+        port.Frame = "NET   0.000 kg";
+        var net = await WeightAsync(rig.Client);
+        (net.ScaleNet, net.EmptiedSinceLastAccepted).ShouldBe((true, false));
+
+        port.Frame = "      0.000 kg";
+        (await WeightAsync(rig.Client)).EmptiedSinceLastAccepted.ShouldBeTrue();
     }
 
     [Fact]
@@ -459,6 +567,37 @@ public class ScaleSigningTests
     }
 
     private sealed class ScriptedPorts(ScriptedToledo port) : IScaleConnectionFactory
+    {
+        public IScaleConnection Open(ScaleTarget target) => port;
+    }
+
+    /// <summary>Báscula en modo continuo que envía siempre la trama que diga la prueba.</summary>
+    private sealed class ScriptedContinuous : IScaleConnection
+    {
+        public string Frame { get; set; } = "0.000 kg";
+
+        public void Write(ReadOnlySpan<byte> data)
+        {
+        }
+
+        public int Read(byte[] buffer, int timeoutMs)
+        {
+            Thread.Sleep(5);
+            var bytes = Encoding.ASCII.GetBytes(Frame + "\r\n");
+            bytes.CopyTo(buffer, 0);
+            return bytes.Length;
+        }
+
+        public void DiscardInput()
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class ContinuousPorts(ScriptedContinuous port) : IScaleConnectionFactory
     {
         public IScaleConnection Open(ScaleTarget target) => port;
     }

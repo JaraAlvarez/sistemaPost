@@ -37,7 +37,8 @@ internal sealed class GetScaleInterlockHandler(TerminalResolver terminals, ISale
 public sealed record ResetScaleInterlockCommand : ICommand<ScaleInterlockDto>, IAllowedWhenRestricted;
 
 internal sealed class ResetScaleInterlockHandler(
-    TerminalResolver terminals, ISalesStore store, IClock clock, IAuditWriter audit, IAuthorizationScope authorization)
+    TerminalResolver terminals, ISalesStore store, IClock clock, IAuditWriter audit, IAuthorizationScope authorization,
+    Pos.Modules.Organization.Contracts.ITerminalDirectory directory)
     : ICommandHandler<ResetScaleInterlockCommand, ScaleInterlockDto>
 {
     public async Task<Result<ScaleInterlockDto>> Handle(ResetScaleInterlockCommand request, CancellationToken cancellationToken)
@@ -50,8 +51,9 @@ internal sealed class ResetScaleInterlockHandler(
 
         var interlock = await store.GetScaleInterlockAsync(scope.Value.PosTerminalId, cancellationToken);
         var released = interlock?.Reset(clock.UtcNow) ?? false;
+        var code = (await directory.GetAsync(scope.Value.PosTerminalId, cancellationToken))?.Code ?? scope.Value.PosTerminalId.ToString();
         await audit.WriteAsync(
-            new AuditEntry("sales", "SALE_SCALE_RESET", nameof(ScaleInterlock), scope.Value.PosTerminalId, $"Báscula de la caja {scope.Value.PosTerminalId}",
+            new AuditEntry("sales", "SALE_SCALE_RESET", nameof(ScaleInterlock), scope.Value.PosTerminalId, $"Báscula de la caja {code}",
                 released
                     ? "Báscula reiniciada: se liberó la espera de retirar el producto de la pesada anterior."
                     : "Báscula reiniciada (no había una pesada esperando que se retirara el producto).",

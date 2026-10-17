@@ -43,7 +43,9 @@ public static class ScaleEndpoints
         app.MapPost("/scale/test/tare", TestTareAsync).WithSummary("Tara de la prueba abierta; { \"clear\": true } la quita");
         app.MapPost("/scale/test/stop", TestStopAsync).WithSummary("Cierra la prueba: la báscula en uso sigue igual");
         app.MapPost("/scale/pairing", PairAsync)
-            .WithSummary("Vincula el agente con una caja: crea la clave que firma las lecturas y devuelve la pública para registrarla en el servidor");
+            .WithSummary("Prepara una clave PENDIENTE para vincular la caja (la vigente sigue firmando) y devuelve la pública para registrarla en el servidor");
+        app.MapPost("/scale/pairing/commit", CommitAsync)
+            .WithSummary("El servidor ya registró la clave pendiente: el agente la activa y la guarda (sin esto, la pendiente se descarta)");
         app.MapPost("/scale/accepted", AcceptedAsync)
             .WithSummary("La caja agregó la línea con esta lectura (la siguiente pesada exige ver la báscula vacía) o, con release, eliminó la última");
         app.MapPost("/scale/simulator", SimulateAsync).WithSummary("Solo desarrollo: cambia el peso de la báscula simulada");
@@ -119,19 +121,21 @@ public static class ScaleEndpoints
         return TypedResults.NoContent();
     }
 
+    /// <summary>
+    /// BB6: además de lo que exige todo el agente (equipo local y Host local, LocalRequestGuard), vincular solo se acepta desde la interfaz de
+    /// la caja (Origin permitido): un programa del equipo o una página cualquiera no puede preparar ni activar una clave.
+    /// </summary>
+    private static IResult? FromUiOnly(HttpContext http) =>
+        http.Request.Headers.Origin.ToString().Length == 0
+            ? AgentEndpoints.Problem(HttpStatusCode.Forbidden, LocalRequestGuard.OriginNotAllowed, "La báscula se vincula desde la pantalla de la caja.")
+            : null;
+
     private static async Task<IResult> PairAsync(HttpContext http, ScaleSigner signer, IOptions<AgentOptions> options, CancellationToken ct)
     {
         var (request, rejection) = await AgentEndpoints.ReadAsync<ScalePairingRequest>(http, options.Value, ct);
-        if (rejection is not null)
+        if ((rejection ?? FromUiOnly(http)) is { } denied)
         {
-            return rejection;
-        }
-
-        // BB6: además de lo que exige todo el agente (equipo local y Host local, LocalRequestGuard), vincular solo se acepta desde la
-        // interfaz de la caja (Origin permitido): un programa del equipo o una página cualquiera no puede cambiar la clave.
-        if (http.Request.Headers.Origin.ToString().Length == 0)
-        {
-            return AgentEndpoints.Problem(HttpStatusCode.Forbidden, LocalRequestGuard.OriginNotAllowed, "La báscula se vincula desde la pantalla de la caja.");
+            return denied;
         }
 
         if (request!.TerminalId == Guid.Empty)
@@ -139,9 +143,23 @@ public static class ScaleEndpoints
             return AgentEndpoints.Problem(HttpStatusCode.BadRequest, AgentEndpoints.InvalidRequest, "Indique la caja que se vincula.");
         }
 
+        // BK1/BB6: la clave nueva queda PENDIENTE; la vigente sigue firmando hasta que el servidor confirme.
+        return TypedResults.Ok(signer.Prepare(request.TerminalId));
+    }
+
+    private static async Task<IResult> CommitAsync(HttpContext http, ScaleSigner signer, IOptions<AgentOptions> options, CancellationToken ct)
+    {
+        var (request, rejection) = await AgentEndpoints.ReadAsync<ScalePairingCommitRequest>(http, options.Value, ct);
+        if ((rejection ?? FromUiOnly(http)) is { } denied)
+        {
+            return denied;
+        }
+
         try
         {
-            return TypedResults.Ok(signer.Pair(request.TerminalId));
+            return signer.Commit(request!.KeyId)
+                ? TypedResults.NoContent()
+                : AgentEndpoints.Problem(HttpStatusCode.NotFound, AgentEndpoints.InvalidRequest, "No hay una clave pendiente con ese identificador: vuelva a vincular la báscula.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
         {

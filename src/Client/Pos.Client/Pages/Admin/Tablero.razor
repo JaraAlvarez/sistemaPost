@@ -193,9 +193,7 @@
             }
 
             Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
-            _basculas = Session.Has("organization.terminal.manage")
-                ? await Api.GetAsync<List<Pos.Modules.Organization.Contracts.ScaleKeyChangeDto>>("api/v1/organization/terminals/scale-key-changes")
-                : [];
+            await CargarBasculasAsync();
             _error = null;
         }
         catch (ApiException ex)
@@ -208,6 +206,25 @@
         }
 
         _loading = false;
+    }
+
+    /// <summary>BK7: las alertas de báscula van aparte: si fallan, el Tablero se muestra igual (sin ellas).</summary>
+    private async Task CargarBasculasAsync()
+    {
+        _basculas = [];
+        if (!Session.Has("organization.terminal.manage"))
+        {
+            return;
+        }
+
+        try
+        {
+            _basculas = await Api.GetAsync<List<Pos.Modules.Organization.Contracts.ScaleKeyChangeDto>>("api/v1/organization/terminals/scale-key-changes");
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException or System.Text.Json.JsonException)
+        {
+            // Sin las alertas de báscula: el resto del Tablero sigue.
+        }
     }
 
     private string Saludo()
@@ -260,8 +277,11 @@
         // BB2: vincular o cambiar la clave de la báscula de una caja cambia quién puede firmar los pesos: se muestra aquí 7 días.
         foreach (var bascula in _basculas)
         {
-            yield return new(1, $"La clave de la báscula de la caja {bascula.TerminalCode} cambió ({bascula.ChangedAt.ToLocalTime():dd/MM HH:mm}): revise la auditoría si no fue usted.",
-                "/admin/auditoria", Icons.Material.Outlined.Scale, "advertencia");
+            yield return bascula is { Linked: true, ChangedAt: { } cambio }
+                ? new(1, $"La clave de la báscula de la caja {bascula.TerminalCode} cambió ({cambio.ToLocalTime():dd/MM HH:mm}): revise la auditoría si no fue usted.",
+                    "/admin/auditoria", Icons.Material.Outlined.Scale, "advertencia")
+                : new(1, $"La báscula de la caja {bascula.TerminalCode} no está vinculada: en esa caja, F1 → Vincular báscula (con un supervisor).",
+                    "/admin/cajas", Icons.Material.Outlined.Scale, "advertencia");
         }
 
         var solicitudes = data.DataRequestsDueSoon;

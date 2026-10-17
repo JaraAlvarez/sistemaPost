@@ -27,8 +27,17 @@ public sealed class ScaleInterlock : Entity<Guid>
     /// <summary>Hora (reloj del agente) de la última lectura aceptada (informativa).</summary>
     public DateTimeOffset? LastReadingAt { get; private set; }
 
+    /// <summary>Máximo de arranques retirados que se recuerdan por caja.</summary>
+    public const int MaxRetiredBoots = 20;
+
     /// <summary>Arranque del agente de la última lectura aceptada.</summary>
     public Guid? LastBootId { get; private set; }
+
+    /// <summary>
+    /// BK2: arranques del agente que ya fueron reemplazados por uno posterior (con una pesada aceptada). Una lectura de un arranque
+    /// retirado nunca vale: el agente que la firmó ya se reinició.
+    /// </summary>
+    public Guid[] RetiredBootIds { get; private set; } = [];
 
     /// <summary>Secuencia (en ese arranque) de la última lectura aceptada.</summary>
     public long? LastSeq { get; private set; }
@@ -55,6 +64,11 @@ public sealed class ScaleInterlock : Entity<Guid>
         ArgumentNullException.ThrowIfNull(reading);
         if ((reading.At - serverNow).Duration() > maxSkew)
         {
+            return SalesErrors.ScaleClockSkew;
+        }
+
+        if (RetiredBootIds.Contains(reading.BootId))
+        {
             return SalesErrors.ScaleReadingStale;
         }
 
@@ -78,6 +92,11 @@ public sealed class ScaleInterlock : Entity<Guid>
         ArgumentNullException.ThrowIfNull(reading);
         LastReadingId = reading.ReadingId;
         LastReadingAt = reading.At;
+        if (LastBootId is { } previous && previous != reading.BootId && !RetiredBootIds.Contains(previous))
+        {
+            RetiredBootIds = [.. RetiredBootIds.Append(previous).TakeLast(MaxRetiredBoots)];
+        }
+
         LastBootId = reading.BootId;
         LastSeq = reading.Seq;
         LastGrossKg = reading.GrossKg;

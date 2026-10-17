@@ -58,9 +58,9 @@ public class ScaleReviewTests
 
         // BB4: una lectura vieja o del futuro frente al reloj del servidor (⚙️ 5 min) no vale.
         await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.5m, agent.Read(0.5m, at: DateTimeOffset.UtcNow.AddMinutes(-10)).Body))
-            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_READING_STALE");
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_CLOCK_SKEW");
         await RawAsync(shop.Cashier, HttpMethod.Post, lines, Line(0.5m, agent.Read(0.5m, at: DateTimeOffset.UtcNow.AddMinutes(10)).Body))
-            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_READING_STALE");
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_CLOCK_SKEW");
 
         // M7: el cajero tomó la tara manual de una bandeja de 50 g: se descuenta esa y NO además la bolsa del producto (20 g).
         var (meat, _) = agent.Read(1.250m, tareKg: 0.050m);
@@ -114,12 +114,17 @@ public class ScaleReviewTests
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{next.Id}/lines", Line(0.640m, agent.Read(0.640m).Body))
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_NOT_EMPTIED");
 
-        // El agente se reinició (otro arranque): basta con ver la báscula vacía desde que arrancó.
+        // El agente se reinició (otro arranque): basta con ver la báscula vacía desde que arrancó. Una lectura que el arranque anterior
+        // firmó y nadie usó (R2) nunca vale después (BK2).
+        agent.Empty();
+        var (beforeRestart, _) = agent.Read(0.640m);
         agent.Restart();
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{next.Id}/lines", Line(0.640m, agent.Read(0.640m).Body))
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_NOT_EMPTIED");
         agent.Empty();
         (await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{next.Id}/lines", Line(0.640m, agent.Read(0.640m).Body))).Lines[^1].Quantity.ShouldBe(0.620m);
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{next.Id}/lines", Line(0.640m, beforeRestart))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_READING_STALE");
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM sales.scale_readings")).ShouldBe(5);
     }
 
@@ -128,7 +133,18 @@ public class ScaleReviewTests
     {
         await using var factory = new CashServerFactory();
         var shop = await SalesScenario.CreateAsync(factory);
-        using var old = await ScaleAgentDouble.PairAsync(shop);
+        var terminal = (await GetAsync<List<TerminalDto>>(shop.Owner, "/api/v1/organization/terminals")).Single();
+        await SendAsync<TerminalScaleDto>(shop.Owner, HttpMethod.Put, $"/api/v1/organization/terminals/{terminal.Id}/scale", new
+        {
+            enabled = true, driver = "TOLEDO_8217", port = "COM3", stableWaitSeconds = 3, emptyWaitSeconds = 5, allowManualWeight = true,
+        });
+
+        // BK3: báscula activa sin vincular: el Tablero lo avisa.
+        (await GetAsync<List<ScaleKeyChangeDto>>(shop.Owner, "/api/v1/organization/terminals/scale-key-changes")).Single()
+            .ShouldBe(new ScaleKeyChangeDto(terminal.Id, terminal.Code, null, Linked: false));
+
+        using var old = new ScaleAgentDouble(terminal.Id);
+        await old.RegisterKeyAsync(shop);
         var url = $"/api/v1/organization/terminals/{old.TerminalId}/scale/reading-key";
         using var stranger = new ScaleAgentDouble(old.TerminalId);
 
@@ -141,13 +157,18 @@ public class ScaleReviewTests
         await RawAsync(shop.Cashier, HttpMethod.Put, url, new { keyId = Guid.NewGuid(), publicKey = "AAAA" }, await shop.GrantAsync(denied))
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "ORGANIZATION.INVALID_SCALE_KEY");
 
-        // Volver a vincular (con supervisor) rota la clave: la anterior deja de valer.
-        using var renewed = new ScaleAgentDouble(old.TerminalId);
-        await renewed.RegisterKeyAsync(shop);
+        // BK1: los intentos fallidos (sin supervisor, clave inválida) no cambiaron la clave: la caja sigue pesando con la vigente.
         ScaleAgentDouble.UseCurrentClient(shop.Cashier);
         await shop.OpenSessionAsync();
         var sale = await shop.StartAsync();
         var lines = $"/api/v1/sales/{sale.Id}/lines";
+        (await PostAsync<SaleDto>(shop.Cashier, lines, new { code = "TOMATE", weightKg = 0.3m, weightSource = "SCALE", scale = old.Read(0.3m).Body }))
+            .Lines[^1].Quantity.ShouldBe(0.3m);
+
+        // Volver a vincular (con supervisor) rota la clave: la anterior deja de valer.
+        using var renewed = new ScaleAgentDouble(old.TerminalId);
+        await renewed.RegisterKeyAsync(shop);
+        renewed.Empty();
         await RawAsync(shop.Cashier, HttpMethod.Post, lines, new { code = "TOMATE", weightKg = 0.5m, weightSource = "SCALE", scale = old.Read(0.5m).Body })
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "SALES.SCALE_READING_REQUIRED");
         (await PostAsync<SaleDto>(shop.Cashier, lines, new { code = "TOMATE", weightKg = 0.5m, weightSource = "SCALE", scale = renewed.Read(0.5m).Body }))
@@ -156,6 +177,32 @@ public class ScaleReviewTests
         // Auditado (con quién autorizó) y visible en el Tablero: "La clave de la báscula de la caja X cambió".
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'SCALE_KEY_LINKED' AND authorized_by IS NOT NULL")).ShouldBe(2);
         (await GetAsync<List<ScaleKeyChangeDto>>(shop.Owner, "/api/v1/organization/terminals/scale-key-changes")).Single().PosTerminalId.ShouldBe(old.TerminalId);
+    }
+
+    [Fact]
+    public async Task Vincular_desde_otro_equipo_de_caja_no_vale_aunque_tenga_sesion_de_caja()
+    {
+        // BB2: Multicaja con dos equipos emparejados (caja 1 y caja 2). Desde la sesión de caja del equipo de la caja 2 (con el permiso del
+        // Propietario) no se puede vincular la báscula de la caja 1; desde el equipo de la caja 1, sí.
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        var caja1 = scenario.Setup.PosTerminalId;
+        var caja2 = (await PostAsync<TerminalDto>(scenario.Owner, $"/api/v1/organization/branches/{scenario.Setup.BranchId}/terminals",
+            new { code = "C02", name = "Caja 2" }, HttpStatusCode.Created)).Id;
+        await SendAsync<TerminalScaleDto>(scenario.Owner, HttpMethod.Put, $"/api/v1/organization/terminals/{caja1}/scale", new
+        {
+            enabled = true, driver = "CAS", port = "COM4", stableWaitSeconds = 3, emptyWaitSeconds = 5, allowManualWeight = true,
+        });
+        using var agent = new ScaleAgentDouble(caja1);
+        var url = $"/api/v1/organization/terminals/{caja1}/scale/reading-key";
+
+        var (otherDevice, _) = await scenario.PairTerminalAsync(caja2, ip: "192.168.1.22", hostname: "CAJA-02", fingerprint: 'b');
+        await SecurityScenario.PosLoginAsync(otherDevice, OwnerPosCode, OwnerPin);
+        await RawAsync(otherDevice, HttpMethod.Put, url, agent.KeyBody).ShouldFailWithAsync(HttpStatusCode.Forbidden, "ORGANIZATION.SCALE_LINK_TERMINAL");
+
+        var (ownDevice, _) = await scenario.PairTerminalAsync(caja1, ip: "192.168.1.21", hostname: "CAJA-01", fingerprint: 'a');
+        await SecurityScenario.PosLoginAsync(ownDevice, OwnerPosCode, OwnerPin);
+        (await SendAsync<TerminalScaleDto>(ownDevice, HttpMethod.Put, url, agent.KeyBody)).ReadingKeyId.ShouldBe(agent.KeyId);
     }
 
     [Fact]

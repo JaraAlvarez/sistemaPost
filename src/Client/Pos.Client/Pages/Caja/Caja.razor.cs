@@ -427,7 +427,7 @@ public sealed partial class Caja
     /// </summary>
     private async Task PesarAsync(ScanResult producto, Guid productId)
     {
-        _pesoCts?.Cancel();
+        CancelarPesada();
         var cts = _pesoCts = new CancellationTokenSource();
         _pesoProducto = producto;
         _pesoProductoId = productId;
@@ -465,7 +465,8 @@ public sealed partial class Caja
                 if (lectura.IsOk && !lectura.EmptiedSinceLastAccepted)
                 {
                     retirarDesde ??= ahora;
-                    (_pesoMensaje, _pesoTono) = ("Retire el producto de la báscula", "alerta");
+                    // BB1: con la trama neta (tara puesta con la tecla de la báscula) el agente no puede ver la báscula vacía.
+                    (_pesoMensaje, _pesoTono) = (lectura.ScaleNet ? "Quite la tara de la báscula (tecla de tara) para continuar" : "Retire el producto de la báscula", "alerta");
                     _pesoRetirar = true;
                     if (ahora - retirarDesde > TimeSpan.FromSeconds(config.EmptyWaitSeconds))
                     {
@@ -476,9 +477,7 @@ public sealed partial class Caja
                 else if (lectura.IsOk && lectura.SignedReading is null)
                 {
                     // La báscula responde, pero el agente no está vinculado con esta caja: el servidor no aceptaría el peso.
-                    BasculaSinRespuesta(
-                        "La báscula de esta caja no está vinculada: pulse F1 → Vincular báscula (con la autorización de un supervisor).",
-                        config.AllowManualWeight);
+                    BasculaSinRespuesta("Báscula no vinculada: vincule con F1 → Vincular báscula (con la autorización de un supervisor).", config.AllowManualWeight);
                     return;
                 }
                 else if (lectura.IsOk && lectura.SignedReading is { } firmada && lectura.WeightKg - tara > 0m)
@@ -528,12 +527,17 @@ public sealed partial class Caja
                 }
 
                 await InvokeAsync(StateHasChanged);
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 await Task.Delay(150, cts.Token);
             }
         }
-        catch (TaskCanceledException)
+        catch (Exception ex) when (ex is TaskCanceledException or ObjectDisposedException)
         {
-            // El cajero canceló con Esc.
+            // El cajero canceló con Esc (o empezó otra pesada / abrió el cobro, que cancelan y desechan esta).
         }
     }
 
@@ -578,7 +582,7 @@ public sealed partial class Caja
     /// </summary>
     private async Task ReiniciarBasculaAsync()
     {
-        _pesoCts?.Cancel();
+        CancelarPesada();
         _panel = Panel.None;
         await RunAsync(async grant =>
         {
@@ -604,8 +608,17 @@ public sealed partial class Caja
         }
 
         _panel = Panel.None;
+        var url = $"api/v1/organization/terminals/{caja}/scale/reading-key";
         await RunAsync(async grant =>
         {
+            // BK1: primero el permiso o la autorización del supervisor. Sin el permiso, esta consulta sin clave hace que el servidor pida
+            // el supervisor (RunAsync muestra el panel y repite con la autorización) ANTES de tocar el agente.
+            if (grant is null && !Session.Has("organization.scale.link"))
+            {
+                await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(HttpMethod.Put, url, new { });
+            }
+
+            // El agente prepara una clave PENDIENTE (la vigente sigue firmando); solo se activa si el servidor la registró.
             var (vinculo, error) = await AgentScale.PairAsync(caja);
             if (vinculo is null)
             {
@@ -614,10 +627,25 @@ public sealed partial class Caja
             }
 
             await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(
-                HttpMethod.Put, $"api/v1/organization/terminals/{caja}/scale/reading-key", new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, grant);
+                HttpMethod.Put, url, new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, grant);
+            if (await AgentScale.CommitPairingAsync(vinculo.KeyId) is { } fallo)
+            {
+                Snackbar.Add($"El servidor registró la clave, pero el agente no la activó: {fallo} Vuelva a vincular la báscula.", Severity.Error);
+                return;
+            }
+
             var aviso = await Scale.LoadAsync(caja);
             Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
         });
+    }
+
+    /// <summary>Detiene la pesada en curso: primero Cancel y luego Dispose (su bucle revisa la cancelación antes de usar el token).</summary>
+    private void CancelarPesada()
+    {
+        var cts = _pesoCts;
+        _pesoCts = null;
+        cts?.Cancel();
+        cts?.Dispose();
     }
 
     /// <summary>Esc durante la pesada: la tara manual tomada para ella se quita (D2).</summary>
@@ -1336,9 +1364,7 @@ public sealed partial class Caja
     {
         _scCts?.Cancel();
         _scCts?.Dispose();
-        // La pesada en curso solo se cancela: su bucle todavía puede usar el token (un CTS desechado haría fallar el siguiente Cancel y F10).
-        _pesoCts?.Cancel();
-        _pesoCts = null;
+        CancelarPesada();
         _scCts = null;
         _sc = null;
         _scQr = null;
@@ -1645,7 +1671,7 @@ public sealed partial class Caja
 
         _panel = Panel.None;
         _pending = null;
-        _pesoCts?.Cancel();
+        CancelarPesada();
         NuevoSistecredito();
         await FocusScannerAsync();
     }

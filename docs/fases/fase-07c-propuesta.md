@@ -297,3 +297,28 @@ Migración POS **V2026.10.050** (orden de las lecturas por arranque y secuencia;
 
 **Pruebas:** agente 147/147 · Sales 89/89 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · Identity 33/33 ·
 ArchitectureTests 23/23 · Database.Tests 80/80 · integración `Phase7C` 13/13, `Phase7` 9/9 y `Phase3` 24/24.
+
+## Cuarta revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.051** (arranques retirados del agente; invalida las claves de báscula registradas antes).
+
+> **Aviso para la caja y el manual (BK4):** **No use la tecla de tara de la báscula; use Ins en la caja.** Con la tara puesta en la
+> báscula, muchas básculas (la genérica y algunas Toledo o CAS) envían el peso neto sin avisarlo y la caja puede creer que la báscula
+> quedó vacía. Si la báscula sí lo avisa (Toledo `N`, CAS `NT`, genérica `NET`/`N.W.`/`NT`), la caja muestra "Quite la tara de la
+> báscula (tecla de tara) para continuar". El aviso también sale en Configuración → Cajas e impresoras → Báscula.
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BK1 · Vincular sin dejar la caja sin pesar | Primero el permiso o la autorización del supervisor (sin el permiso, la caja hace una consulta sin clave para que el servidor pida el supervisor antes de tocar el agente). Luego el agente prepara una clave **pendiente** (`POST /scale/pairing`, solo en memoria; la vigente sigue firmando), la caja la registra en el servidor y solo si el servidor la aceptó la activa (`POST /scale/pairing/commit`). Si el registro falla o se cancela, la pendiente se descarta (con otro intento o al reiniciar el agente) y la caja sigue pesando con la clave vigente. |
+| BK2 · Arranques anteriores | El servidor guarda por caja los últimos 20 arranques del agente reemplazados por uno posterior (`retired_boot_ids`): una lectura de un arranque retirado nunca vale (`SALES.SCALE_READING_STALE`). Se descartó "rechazar si la hora es anterior": un salto del reloj podría trabar la caja. Límite: un arranque que nunca tuvo una pesada aceptada no queda retirado (sus lecturas igual exigen la ventana de 5 min, el retorno a cero y el nonce). |
+| BK3 · Claves viejas | El agente borra al arrancar la clave del formato anterior (`dpapi:` con entropía fija). La migración 051 invalida las claves registradas antes: cada caja vuelve a vincular con F1 → Vincular báscula; la caja avisa "Báscula no vinculada: vincule con F1" y el Tablero muestra "La báscula de la caja X no está vinculada". La clave va en la carpeta `agent\keys` con permisos solo para SYSTEM, Administradores y la cuenta del agente (BK5); el `.tmp` se borra antes de crearlo. |
+| BK4 · Tara física | Aviso en la configuración y aquí; la báscula genérica reconoce `NET`, `N.W.` y `NT` como peso neto. |
+| BB1 · Mensaje | Con la trama neta, el aviso dice "Quite la tara de la báscula (tecla de tara) para continuar". |
+| BB4 · Mensajes | `SALES.SCALE_CLOCK_SKEW`: "El reloj de la caja está desfasado (más de 5 minutos frente al servidor): revise la fecha y hora del computador de la caja". `SALES.SCALE_READING_STALE`: lectura fuera de orden. |
+| BB5 · Auditoría | "Reiniciar báscula" muestra el código de la caja. |
+| BK6/BK7 · Tablero | La lista de básculas se arma con dos consultas (sin una por caja) y, si falla, el Tablero se muestra igual. |
+| Caja · CTS | La pesada se detiene con `Cancel` y luego `Dispose`; el bucle revisa la cancelación antes de usar el token. |
+| BB2(b) · Riesgo residual aceptado | La clave pública viaja por la interfaz de la caja (JavaScript) entre el agente y el servidor. Alguien con acceso a esa pantalla podría registrar otra clave, pero solo con una sesión de caja de esa misma caja y la autorización de un supervisor presente; queda auditado y a la vista en el Tablero. |
+
+**Pruebas:** agente 150/150 · Sales 90/90 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · Identity 33/33 · ArchitectureTests 23/23 · Database.Tests 80/80 · integración `Phase7` 9/9, `Phase3` 24/24 y `Phase7C` 14/14 (incluye vincular desde el equipo de otra caja en Multicaja,
+arranque retirado, clave vigente tras un intento fallido y alerta de báscula sin vincular).

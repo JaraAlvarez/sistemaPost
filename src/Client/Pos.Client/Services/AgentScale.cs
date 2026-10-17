@@ -72,7 +72,7 @@ public sealed class AgentScale(ApiClient api)
 
         var aviso = await PushAsync(config);
         return aviso ?? (config is { Enabled: true, ReadingKeyId: null }
-            ? "la báscula de esta caja no está vinculada (el servidor no aceptará sus pesos): pulse F1 → Vincular báscula (con un supervisor)."
+            ? "Báscula no vinculada: vincule con F1 → Vincular báscula (con un supervisor). Mientras tanto el servidor no acepta sus pesos."
             : null);
     }
 
@@ -120,6 +120,22 @@ public sealed class AgentScale(ApiClient api)
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             return (null, "No se pudo hablar con el agente de esta caja para vincular la báscula.");
+        }
+    }
+
+    /// <summary>
+    /// BK1: el servidor ya registró la clave pendiente: el agente la activa. Devuelve el error, o nulo si quedó activa.
+    /// </summary>
+    public static async Task<string?> CommitPairingAsync(Guid keyId)
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync("scale/pairing/commit", new { keyId }, ApiClient.Json);
+            return response.IsSuccessStatusCode ? null : await ProblemAsync(response);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return "No se pudo hablar con el agente de esta caja.";
         }
     }
 

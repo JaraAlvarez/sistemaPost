@@ -119,8 +119,8 @@ public class WeighedLineTests
         interlock.Accept(Reading(1.2m, at: Now, seq: 10), Guid.NewGuid(), Guid.NewGuid(), Now);
 
         // BB4: vieja o del futuro frente al reloj del servidor (⚙️ 5 min): no vale.
-        interlock.Check(Reading(0.5m, at: Now.AddMinutes(-6), seq: 12, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
-        interlock.Check(Reading(0.5m, at: Now.AddMinutes(6), seq: 12, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
+        interlock.Check(Reading(0.5m, at: Now.AddMinutes(-6), seq: 12, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleClockSkew);
+        interlock.Check(Reading(0.5m, at: Now.AddMinutes(6), seq: 12, lastEmptySeq: 11), Now, Window).Error.ShouldBe(SalesErrors.ScaleClockSkew);
 
         // El reloj del agente se atrasó 3 minutos (dentro de la ventana): el orden lo da la secuencia, la caja sigue pesando.
         interlock.Check(Reading(0.5m, at: Now.AddMinutes(-3), seq: 12, lastEmptySeq: 11), Now, Window).IsSuccess.ShouldBeTrue();
@@ -129,6 +129,26 @@ public class WeighedLineTests
         var reboot = Guid.NewGuid();
         interlock.Check(Reading(0.5m, seq: 1, boot: reboot), Now, Window).Error.ShouldBe(SalesErrors.ScaleNotEmptied);
         interlock.Check(Reading(0.5m, seq: 3, lastEmptySeq: 2, boot: reboot), Now, Window).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Una_lectura_de_un_arranque_anterior_del_agente_nunca_vale()
+    {
+        // BK2: R1 y R2 del arranque A; R1 se acepta. El agente se reinicia (arranque B) y se acepta una pesada de B. R2 (de A) ya no vale,
+        // aunque diga que vio la báscula vacía y su hora esté dentro de la ventana.
+        var bootA = Guid.NewGuid();
+        var bootB = Guid.NewGuid();
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        var r1 = Reading(1.0m, seq: 1, boot: bootA);
+        var r2 = Reading(0.7m, seq: 3, lastEmptySeq: 2, boot: bootA);
+        interlock.Accept(r1, Guid.NewGuid(), Guid.NewGuid(), Now);
+
+        var fromB = Reading(0.5m, seq: 2, lastEmptySeq: 1, boot: bootB);
+        interlock.Check(fromB, Now, Window).IsSuccess.ShouldBeTrue();
+        interlock.Accept(fromB, Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.RetiredBootIds.ShouldBe([bootA]);
+
+        interlock.Check(r2, Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
     }
 
     [Fact]

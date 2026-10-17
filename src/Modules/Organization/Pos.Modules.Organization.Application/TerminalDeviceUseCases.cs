@@ -153,7 +153,10 @@ internal sealed class SetTerminalScaleKeyHandler(
     }
 }
 
-/// <summary>Básculas cuya clave se vinculó o cambió en los últimos 7 días (BB2: alerta visible en el Tablero, además de la auditoría).</summary>
+/// <summary>
+/// Alertas de báscula del Tablero: clave vinculada o cambiada en los últimos 7 días (BB2, además de la auditoría) y básculas activas sin
+/// vincular (BK3). Dos consultas (cajas y básculas), sin una por caja (BK6).
+/// </summary>
 public sealed record ListScaleKeyChangesQuery : IQuery<IReadOnlyList<ScaleKeyChangeDto>>;
 
 internal sealed class ListScaleKeyChangesHandler(IOrganizationStore store, Pos.SharedKernel.Time.IClock clock)
@@ -162,12 +165,22 @@ internal sealed class ListScaleKeyChangesHandler(IOrganizationStore store, Pos.S
     public async Task<Result<IReadOnlyList<ScaleKeyChangeDto>>> Handle(ListScaleKeyChangesQuery request, CancellationToken cancellationToken)
     {
         var since = clock.UtcNow.AddDays(-7);
+        var scales = (await store.ListTerminalScalesAsync(cancellationToken)).ToDictionary(s => s.PosTerminalId);
         var changes = new List<ScaleKeyChangeDto>();
         foreach (var terminal in await store.ListTerminalsAsync(null, cancellationToken))
         {
-            if (await store.GetTerminalScaleAsync(terminal.Id, cancellationToken) is { ReadingKeySetAt: { } at } && at >= since)
+            if (!scales.TryGetValue(terminal.Id, out var scale))
+            {
+                continue;
+            }
+
+            if (scale.ReadingKeySetAt is { } at && at >= since)
             {
                 changes.Add(new ScaleKeyChangeDto(terminal.Id, terminal.Code, at));
+            }
+            else if (scale.Enabled && scale.ReadingKeyId is null && terminal.Status == "ACTIVE")
+            {
+                changes.Add(new ScaleKeyChangeDto(terminal.Id, terminal.Code, null, Linked: false));
             }
         }
 

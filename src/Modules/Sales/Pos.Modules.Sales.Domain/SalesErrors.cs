@@ -40,7 +40,11 @@ public static class SalesErrors
 
     public static readonly Error ScaleReadingStale = Error.BusinessRule(
         "SALES.SCALE_READING_STALE",
-        "La lectura de la báscula es vieja o tiene otra hora: vuelva a registrar el producto. Si se repite, revise la fecha y hora del computador de la caja.");
+        "La lectura de la báscula está fuera de orden (es anterior a la última pesada o de antes de reiniciar el agente): vuelva a registrar el producto.");
+
+    public static readonly Error ScaleClockSkew = Error.BusinessRule(
+        "SALES.SCALE_CLOCK_SKEW",
+        "El reloj de la caja está desfasado (más de 5 minutos frente al servidor): revise la fecha y hora del computador de la caja.");
 
     public static readonly Error ScaleConcurrent = Error.Conflict(
         "SALES.SCALE_CONCURRENT", "Otra pesada de esta caja se registró al mismo tiempo: vuelva a registrar el producto.");

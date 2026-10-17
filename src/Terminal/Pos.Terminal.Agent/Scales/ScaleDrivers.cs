@@ -354,8 +354,16 @@ public sealed partial class GenericAsciiDriver : IScaleDriver
 
         var weight = decimal.Round(ScaleDrivers.ToKg(value, unit), 3);
         var unstable = UnstablePattern().IsMatch(text);
-        return new ScaleReading(weight, Stable: !unstable, Overload: overload, UnderZero: weight < 0m, CenterOfZero: weight == 0m);
+
+        // BK4: si la trama dice que el peso es neto ("NET", "N.W.", "NT"), la báscula tiene una tara puesta con su tecla: no es el bruto
+        // real y el agente no la toma como báscula vacía. Si la báscula no lo indica, no hay forma de saberlo (por eso el aviso "no use la
+        // tecla de tara de la báscula; use Ins en la caja").
+        var net = NetPattern().IsMatch(text);
+        return new ScaleReading(weight, Stable: !unstable, Overload: overload, UnderZero: weight < 0m, Net: net, CenterOfZero: weight == 0m);
     }
+
+    [GeneratedRegex(@"\bNET\b|\bN\.W\.?|\bNT\b", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex NetPattern();
 
     /// <summary>Último número (con signo opcional) y su unidad al final de la trama.</summary>
     [GeneratedRegex(@"(?<w>[-+]?\s*\d+(?:[.,]\d+)?)\s*(?<u>kg|lb|oz|g)?\s*[^0-9]*$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]

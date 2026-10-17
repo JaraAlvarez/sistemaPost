@@ -207,6 +207,10 @@
                 <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_bPesoMinimo" Label="Peso mínimo (g)" Min="0" Max="1000" HelperText="Menos que esto = báscula vacía" /></MudItem>
             </MudGrid>
             <MudCheckBox T="bool" @bind-Value="_bDigitar" Label="Si la báscula no responde, permitir digitar el peso (con permiso o supervisor)" />
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="my-2">
+                No use la tecla de tara de la báscula; use <b>Ins</b> en la caja. Con la tara puesta en la báscula, muchas básculas envían el peso
+                neto sin avisarlo y la caja puede creer que la báscula quedó vacía.
+            </MudAlert>
             <MudExpansionPanels Elevation="0" Class="my-2">
                 <MudExpansionPanel Text="Opciones avanzadas del puerto serie (técnico)">
                     <MudGrid Spacing="2">
