@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using MudBlazor;
 using Pos.Client.Services;
+using Pos.SharedKernel.Text;
+using SistecreditoPaymentDto = Pos.Modules.Cash.Contracts.SistecreditoPaymentDto;
 
 namespace Pos.Client.Pages.Caja;
 
@@ -37,6 +39,12 @@ public sealed partial class Caja
     private static readonly decimal[] Billetes = [5_000m, 10_000m, 20_000m, 50_000m, 100_000m];
 
     private static readonly TimeSpan IntervaloConexion = TimeSpan.FromSeconds(15);
+
+    /// <summary>Cada cuánto la caja pregunta por el cobro de Sistecrédito mientras el cliente confirma en su celular.</summary>
+    private static readonly TimeSpan IntervaloSistecredito = TimeSpan.FromSeconds(3);
+
+    /// <summary>Tipos de documento que acepta Sistecrédito en la caja (D7B-07).</summary>
+    private static readonly string[] TiposDocumento = ["CC", "CE", "NIT", "PA", "TI"];
 
     private sealed record PendingAction(ApiException Error, Func<Guid?, Task> Retry);
 
@@ -74,6 +82,13 @@ public sealed partial class Caja
     private decimal _amount;
     private string? _reference;
     private string _completionKey = Guid.NewGuid().ToString();
+
+    // Fase 7-B: cobro con Sistecrédito en curso.
+    private string _scTipo = "CC";
+    private string? _scDocumento;
+    private SistecreditoPaymentDto? _sc;
+    private string? _scQr;
+    private CancellationTokenSource? _scCts;
     private Receipt? _lastReceipt;
     private decimal? _lastChange;
     private List<SaleSummary> _held = [];
@@ -115,7 +130,7 @@ public sealed partial class Caja
     private decimal Pagado => _payments.Sum(p => p.Amount);
 
     /// <summary>Lo pagado más el valor escrito y aún no agregado (Enter/F10 lo toma con el medio seleccionado).</summary>
-    private decimal PagadoConEscrito => Pagado + (_payments.Count == 0 && _methodSelected is not null ? _amount : 0);
+    private decimal PagadoConEscrito => Pagado + (_payments.Count == 0 && _methodSelected is not null && !EsSistecredito(_methodSelected) ? _amount : 0);
 
     private bool HayLineas => _sale is not null && _sale.ActiveLines.Any();
 
@@ -817,6 +832,7 @@ public sealed partial class Caja
         }
 
         _payments.Clear();
+        NuevoSistecredito();
         _completionKey = Guid.NewGuid().ToString();
         _methodSelected = _methods.FirstOrDefault(m => m.AffectsCashDrawer) ?? (_methods.Count > 0 ? _methods[0] : null);
         _amount = _sale.AmountDue;
@@ -830,6 +846,22 @@ public sealed partial class Caja
         {
             _methodSelected = method;
             _amount = Math.Max(0, _sale!.AmountDue - Pagado);
+            if (EsSistecredito(method))
+            {
+                PrellenarDocumento();
+            }
+
+            return;
+        }
+
+        // Sistecrédito no se agrega a mano: entra solo cuando el cliente aprueba el cobro ("Generar cobro").
+        if (EsSistecredito(method))
+        {
+            if (_sc is null)
+            {
+                Snackbar.Add("Con Sistecrédito: escriba el documento del cliente y pulse «Generar cobro».", Severity.Info);
+            }
+
             return;
         }
 
@@ -914,6 +946,207 @@ public sealed partial class Caja
             _ = ImprimirAsync(receipt.Ticket);
         });
     }
+
+    // ------------------------------------------------------------------------------------------ Sistecrédito (Fase 7-B)
+
+    private static bool EsSistecredito(PaymentMethod? method) => method is not null && EnumText.Same(method.Kind, "SISTECREDITO");
+
+    /// <summary>Documento del cliente asignado a la venta, si es de un tipo que acepta Sistecrédito.</summary>
+    private void PrellenarDocumento()
+    {
+        if (_sc is null && string.IsNullOrWhiteSpace(_scDocumento) && _sale?.Customer is { Identification: { Length: > 0 } documento } cliente
+            && TiposDocumento.Contains(cliente.IdentificationType))
+        {
+            _scTipo = cliente.IdentificationType;
+            _scDocumento = documento;
+        }
+    }
+
+    /// <summary>Deja el panel listo para un cobro nuevo (deja de consultar el anterior: si el cliente igual aprueba, la revisión automática lo ve).</summary>
+    private void NuevoSistecredito()
+    {
+        _scCts?.Cancel();
+        _scCts?.Dispose();
+        _scCts = null;
+        _sc = null;
+        _scQr = null;
+        _scDocumento = null;
+        _scTipo = "CC";
+        PrellenarDocumento();
+    }
+
+    private async Task GenerarSistecreditoAsync()
+    {
+        if (_sale is null || _methodSelected is null || _amount <= 0)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_scDocumento))
+        {
+            Snackbar.Add("Escriba el número de documento del cliente.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _sc = await Api.PostAsync<SistecreditoPaymentDto>("api/v1/cash/sistecredito/payments", new
+            {
+                saleId = _sale.Id, amount = _amount, documentType = _scTipo, documentNumber = _scDocumento,
+            });
+            _offline = false;
+            await AplicarSistecreditoAsync();
+            if (_sc is { Status: "PENDING" } pendiente)
+            {
+                _scCts = new CancellationTokenSource();
+                _ = VigilarSistecreditoAsync(pendiente.Id, _scCts.Token);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, ex.Status == HttpStatusCode.UnprocessableEntity ? Severity.Warning : Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            _offline = true;
+            Snackbar.Add("Se perdió la conexión con el servidor de la tienda. Reintente.", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Estado en vivo: pregunta cada 3 s hasta que el cliente aprueba, Sistecrédito rechaza o la cajera cancela.</summary>
+    private async Task VigilarSistecreditoAsync(Guid attemptId, CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(IntervaloSistecredito, token);
+                SistecreditoPaymentDto estado;
+                try
+                {
+                    estado = await Api.PostAsync<SistecreditoPaymentDto>($"api/v1/cash/sistecredito/payments/{attemptId}/check");
+                }
+                catch (Exception ex) when (ex is ApiException or HttpRequestException)
+                {
+                    continue; // se reintenta en la siguiente vuelta
+                }
+
+                if (token.IsCancellationRequested || _sc?.Id != attemptId)
+                {
+                    return;
+                }
+
+                await InvokeAsync(async () =>
+                {
+                    _sc = estado;
+                    await AplicarSistecreditoAsync();
+                    StateHasChanged();
+                });
+                if (estado.Status != "PENDING")
+                {
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Se canceló el cobro o se cerró el panel.
+        }
+        catch (ObjectDisposedException)
+        {
+            // La pantalla se cerró.
+        }
+    }
+
+    /// <summary>Muestra el QR cuando llega la URL; si el cliente aprobó, agrega el pago y sigue con el cobro normal.</summary>
+    private async Task AplicarSistecreditoAsync()
+    {
+        if (_sc is not { } cobro)
+        {
+            return;
+        }
+
+        if (cobro.Status == "PENDING" && cobro.RedirectUrl is not null && _scQr is null)
+        {
+            try
+            {
+                var (_, type, content) = await Api.DownloadAsync($"api/v1/cash/sistecredito/payments/{cobro.Id}/qr");
+                _scQr = $"data:{type};base64,{Convert.ToBase64String(content)}";
+            }
+            catch (Exception ex) when (ex is ApiException or HttpRequestException)
+            {
+                // Sin QR se reintenta en la siguiente consulta.
+            }
+        }
+
+        if (cobro.Status != "APPROVED" || cobro.CompletedSaleId is not null || _methods.FirstOrDefault(EsSistecredito) is not { } medio)
+        {
+            return;
+        }
+
+        if (!_payments.Any(p => p.Reference == cobro.TransactionId))
+        {
+            _payments.Add(new PaymentLine(medio.Id, cobro.Amount, cobro.TransactionId));
+        }
+
+        Snackbar.Add($"Sistecrédito aprobó el crédito{(cobro.Installments is { } cuotas ? $" a {cuotas} cuotas" : "")}.", Severity.Success);
+        NuevoSistecredito();
+        if (_sale is not null && Pagado >= _sale.AmountDue)
+        {
+            await CobrarAsync();
+        }
+        else if (_sale is not null)
+        {
+            // Pago mixto: falta una parte, que se cobra con otro medio.
+            _methodSelected = _methods.FirstOrDefault(m => m.AffectsCashDrawer) ?? _methodSelected;
+            _amount = Math.Max(0, _sale.AmountDue - Pagado);
+        }
+    }
+
+    private async Task CancelarSistecreditoAsync()
+    {
+        if (_sc is not { } cobro)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _scCts?.Cancel();
+            _sc = await Api.PostAsync<SistecreditoPaymentDto>($"api/v1/cash/sistecredito/payments/{cobro.Id}/cancel");
+            if (_sc.Status == "APPROVED")
+            {
+                await AplicarSistecreditoAsync();
+            }
+            else
+            {
+                Snackbar.Add(
+                    _sc.Status == "REVIEW_REQUIRED" ? _sc.Message ?? "Cobro cancelado: la administración debe revisarlo." : "Cobro de Sistecrédito cancelado.",
+                    Severity.Info);
+                NuevoSistecredito();
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Warning);
+        }
+        catch (HttpRequestException)
+        {
+            _offline = true;
+            Snackbar.Add("Se perdió la conexión con el servidor de la tienda. Reintente.", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
 
     private async Task ImprimirAsync(JsonElement ticket)
     {
@@ -1040,6 +1273,7 @@ public sealed partial class Caja
 
         _panel = Panel.None;
         _pending = null;
+        NuevoSistecredito();
         await FocusScannerAsync();
     }
 
@@ -1175,6 +1409,7 @@ public sealed partial class Caja
         "TRANSFER" => Icons.Material.Outlined.AccountBalance,
         "WALLET" => Icons.Material.Outlined.QrCode2,
         "VOUCHER" => Icons.Material.Outlined.CardGiftcard,
+        "SISTECREDITO" => Icons.Material.Outlined.CreditScore,
         _ => method.AffectsCashDrawer ? Icons.Material.Outlined.Payments : Icons.Material.Outlined.Wallet,
     };
 
@@ -1208,6 +1443,8 @@ public sealed partial class Caja
     {
         await _stop.CancelAsync();
         _stop.Dispose();
+        _scCts?.Cancel();
+        _scCts?.Dispose();
         try
         {
             await Js.InvokeVoidAsync("pos.unregisterKeys");

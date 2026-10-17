@@ -13,6 +13,7 @@ using Pos.Modules.Cash.Application;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Cash.Infrastructure;
 using Pos.SharedKernel.Results;
+using QRCoder;
 
 namespace Pos.Modules.Cash.Api;
 
@@ -34,6 +35,12 @@ public sealed class CashModule : IModule
         services.AddScoped<OpenSalesGuard>();
         services.AddScoped<CashRegisterService>();
         services.AddScoped<ICashRegister>(sp => sp.GetRequiredService<CashRegisterService>());
+
+        // Fase 7-B: cobrar con Sistecrédito.
+        services.AddScoped<SistecreditoConnections>();
+        services.AddScoped<SistecreditoSettingsViews>();
+        services.AddScoped<SistecreditoReconciler>();
+        services.AddScoped<ISistecreditoPayments, SistecreditoPaymentsService>();
     }
 
     public void MapEndpoints(IEndpointRouteBuilder api)
@@ -58,6 +65,65 @@ public sealed class CashModule : IModule
             .WithSummary("Billetes y monedas para el arqueo por denominación");
 
         MapSessions(group.MapGroup("/sessions"));
+        MapSistecredito(group.MapGroup("/sistecredito"));
+    }
+
+    /// <summary>Fase 7-B: configuración (administración) y cobro en la caja con Sistecrédito.</summary>
+    private static void MapSistecredito(RouteGroupBuilder group)
+    {
+        group.MapGet("/settings", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetSistecreditoSettingsQuery(), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.PaymentMethodManage)
+            .WithSummary("Configuración de Sistecrédito (sin las llaves: solo si hay y sus últimos 4 caracteres)");
+        group.MapPut("/settings", async (SaveSistecreditoSettingsCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.PaymentMethodManage)
+            .WithSummary("Guarda las llaves (cifradas), el ambiente STAGING/PRODUCTION y el encendido; activa o inactiva el medio SISTECREDITO");
+        group.MapPost("/settings/verify", async (IDispatcher d, CancellationToken ct) => (await d.Send(new VerifySistecreditoCommand(), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.PaymentMethodManage)
+            .WithSummary("Verifica las llaves con Sistecrédito (requiere internet); detecta llaves del otro ambiente");
+        group.MapPost("/settings/disable", async (IDispatcher d, CancellationToken ct) => (await d.Send(new DisableSistecreditoCommand(), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.PaymentMethodManage)
+            .WithSummary("Apaga Sistecrédito e inactiva su medio de pago (las llaves se conservan cifradas)");
+
+        group.MapGet("/payments", async (string? status, int? limit, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListSistecreditoPaymentsQuery(status, limit), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.PaymentMethodManage)
+            .WithSummary("Cobros con Sistecrédito recientes (status=REVIEW_REQUIRED: los que requieren revisión)");
+        group.MapPost("/payments", async (StartSistecreditoPaymentCommand command, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.SessionOperate)
+            .WithSummary("Crea el cobro en Sistecrédito para la venta en curso (requiere internet) y devuelve la URL de pago para el QR");
+        group.MapGet("/payments/{attemptId:guid}", async (Guid attemptId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new GetSistecreditoPaymentQuery(attemptId), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.SessionOperate);
+        group.MapPost("/payments/{attemptId:guid}/check", async (Guid attemptId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new CheckSistecreditoPaymentCommand(attemptId), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.SessionOperate)
+            .WithSummary("Consulta el estado en Sistecrédito (la caja lo llama cada 3 s mientras espera)");
+        group.MapPost("/payments/{attemptId:guid}/cancel", async (Guid attemptId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new CancelSistecreditoPaymentCommand(attemptId), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.SessionOperate)
+            .WithSummary("Cancela el cobro en la caja (si el cliente ya aprobó, lo devuelve aprobado)");
+        group.MapPost("/payments/{attemptId:guid}/resolve", async (Guid attemptId, ReviewRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ResolveSistecreditoReviewCommand(attemptId, r.Note), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.PaymentMethodManage)
+            .WithSummary("Cierra un cobro que requiere revisión con una nota (p. ej. reversado en el portal de Sistecrédito)");
+
+        // El QR dibuja solo la URL GUARDADA del cobro (la que entregó Sistecrédito), nunca una dirección que llegue en la petición.
+        group.MapGet("/payments/{attemptId:guid}/qr", async (Guid attemptId, IDispatcher d, CancellationToken ct) =>
+            {
+                var result = await d.Send(new GetSistecreditoPaymentQuery(attemptId), ct);
+                if (result.IsFailure)
+                {
+                    return result.ToHttpResult();
+                }
+
+                return result.Value.RedirectUrl is { } url
+                    ? TypedResults.Text(PaymentQr.Svg(url), "image/svg+xml; charset=utf-8")
+                    : Result.Failure(Error.NotFound("CASH.SISTECREDITO_NO_LINK", "Sistecrédito todavía no entrega el enlace de pago.")).ToHttpResult();
+            })
+            .RequirePermission(CashPermissions.SessionOperate)
+            .WithSummary("Código QR (SVG) del enlace de pago de Sistecrédito, para que el cliente lo abra en su celular");
     }
 
     private static void MapSessions(RouteGroupBuilder group)
@@ -130,6 +196,17 @@ public sealed class CashModule : IModule
         result.IsSuccess && string.Equals(format, "text", StringComparison.OrdinalIgnoreCase)
             ? TypedResults.Text(result.Value.Text, "text/plain; charset=utf-8")
             : result.ToHttpResult();
+}
+
+/// <summary>Código QR como imagen SVG (mismo enfoque que el enlace de pago de la licencia, Fase 12-C).</summary>
+internal static class PaymentQr
+{
+    public static string Svg(string url)
+    {
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.M);
+        return new SvgQRCode(data).GetGraphic(6);
+    }
 }
 
 public sealed record UpdatePaymentMethodRequest(string Name, string? DianCode, bool RequiresReference, int SortOrder, bool IsActive);

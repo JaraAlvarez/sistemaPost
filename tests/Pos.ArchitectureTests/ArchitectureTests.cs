@@ -199,6 +199,7 @@ public class ArchitectureTests
             "Backup.SaveDestinationCommand",
             "Billing.RetryFiscalDocumentCommand",
             "Cash.CancelClosingCommand", "Cash.CloseSessionCommand", "Cash.RegisterMovementCommand", "Cash.ReviewSessionCommand", "Cash.StartClosingCommand",
+            "Cash.CancelSistecreditoPaymentCommand", "Cash.CheckSistecreditoPaymentCommand", "Cash.StartSistecreditoPaymentCommand",
             "Customers.AnonymizeCustomerCommand", "Customers.CloseDataRequestCommand", "Customers.CompleteCustomerCommand", "Customers.CreateCustomerCommand",
             "Customers.CreateDataRequestCommand", "Customers.ExportCustomerDataCommand", "Customers.QuickCreateCustomerCommand", "Customers.RecordConsentsCommand",
             "Expenses.CreateExpenseCommand", "Expenses.VoidExpenseCommand",

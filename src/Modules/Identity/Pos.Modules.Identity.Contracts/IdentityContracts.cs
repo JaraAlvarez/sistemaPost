@@ -112,7 +112,8 @@ public sealed record MeDto(
     IReadOnlyList<string> Permissions,
     int OpenIntegrityIncidents = 0,
     int BackupAlerts = 0,
-    LicenseSummaryDto? License = null);
+    LicenseSummaryDto? License = null,
+    int SistecreditoReviews = 0);
 
 public sealed record LoginResultDto(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeDto User);
 

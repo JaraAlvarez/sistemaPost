@@ -4,6 +4,7 @@ using Pos.Infrastructure.Persistence;
 using Pos.Modules.Cash.Application;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Cash.Domain;
+using Pos.Modules.Cash.Infrastructure.Sistecredito;
 using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Cash.Infrastructure;
@@ -154,5 +155,6 @@ public static class CashInfrastructureRegistration
         services.AddScoped<IPaymentMethodDirectory, PaymentMethodDirectory>();
         services.AddScoped<ICashLedger, CashLedger>();
         services.AddScoped<ICashReadModel, CashReadModel>();
+        SistecreditoInfrastructureRegistration.Register(services);
     }
 }

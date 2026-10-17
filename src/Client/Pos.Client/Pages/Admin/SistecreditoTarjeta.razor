@@ -1,0 +1,235 @@
+@* Fase 7-B (D7B-02): tarjeta de Sistecrédito en Configuración → Medios de pago. Las llaves del convenio de la tienda se guardan cifradas
+   en el servidor y nunca vuelven a la pantalla: solo se ve si hay y los últimos 4 caracteres de la llave de suscripción. *@
+@using Pos.Modules.Cash.Contracts
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+
+<MudPaper Outlined="true" Class="pa-4 mt-4">
+    <div class="d-flex flex-wrap align-center gap-2">
+        <MudIcon Icon="@Icons.Material.Outlined.QrCode2" />
+        <MudText Typo="Typo.h6">Sistecrédito</MudText>
+        @if (_settings is { } s)
+        {
+            <span class="etiqueta @(s.IsEnabled ? "promo" : "neutra")">@(s.IsEnabled ? "Activo en la caja" : "Inactivo")</span>
+            <span class="etiqueta neutra">@Ambiente(s.Environment)</span>
+        }
+    </div>
+    <MudText Typo="Typo.body2" Class="mt-1">
+        El cliente paga a cuotas con su crédito Sistecrédito: la caja genera un código QR, el cliente lo abre en su celular, elige las cuotas y
+        confirma con el código que le llega. La plata la paga Sistecrédito a la tienda (nunca pasa por BusinessPost). Necesita internet solo
+        en el momento del cobro.
+    </MudText>
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-2" Dense="true">@_error</MudAlert>
+    }
+
+    @if (_settings is { } settings)
+    {
+        @if (settings.LastVerifiedAt is not null)
+        {
+            <MudAlert Severity="@(settings.LastVerificationOk == true ? Severity.Success : Severity.Warning)" Class="mt-2" Dense="true">
+                @settings.LastVerificationMessage <small>(@Format.Date(settings.LastVerifiedAt))</small>
+            </MudAlert>
+        }
+
+        <MudGrid Class="mt-1">
+            <MudItem xs="12" md="4">
+                <MudTextField @bind-Value="_subscriptionKey" Label="Llave de suscripción (Subscription Key)" InputType="InputType.Password" Immediate="true"
+                              autocomplete="off" HelperText="@Guardada(settings)" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField @bind-Value="_applicationKey" Label="ApplicationKey" InputType="InputType.Password" Immediate="true" autocomplete="off"
+                              HelperText="@(settings.HasCredentials ? "Guardada. Déjela vacía para conservarla." : null)" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField @bind-Value="_applicationToken" Label="ApplicationToken" InputType="InputType.Password" Immediate="true" autocomplete="off"
+                              HelperText="@(settings.HasCredentials ? "Guardado. Déjelo vacío para conservarlo." : null)" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="string" @bind-Value="_environment" Label="Ambiente">
+                    <MudSelectItem T="string" Value="@("STAGING")">Pruebas (Staging)</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("PRODUCTION")">Producción</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="8" Class="d-flex align-center">
+                <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="@(_enabled ? "Activo en la caja" : "Inactivo en la caja")" />
+            </MudItem>
+        </MudGrid>
+        <MudText Typo="Typo.caption" Class="d-block mt-1">
+            Copie las llaves del correo de Sistecrédito. Si arrastra la etiqueta ("Key", "ID") no pasa nada: se guarda solo el código. Cada ambiente
+            tiene sus propias llaves.
+        </MudText>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarAsync">Guardar</MudButton>
+            <MudButton Variant="Variant.Outlined" Disabled="@(_busy || !settings.HasCredentials)" OnClick="VerificarAsync"
+                       StartIcon="@Icons.Material.Outlined.WifiTethering">Verificar conexión</MudButton>
+            @if (settings.IsEnabled)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DesactivarAsync">Desactivar</MudButton>
+            }
+        </div>
+
+        @if (_reviews.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-4">
+                <b>Cobros por revisar.</b> Sistecrédito los aprobó pero la venta no se completó en la caja. La plata del cliente no se pierde: complete
+                la venta o reverse el pago en el portal de Sistecrédito, y deje aquí una nota de lo que hizo.
+            </MudAlert>
+            <MudSimpleTable Dense="true" Class="mt-2">
+                <thead>
+                    <tr><th>Fecha</th><th>Transacción</th><th>Cliente</th><th class="num">Valor</th><th>Motivo</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var review in _reviews)
+                    {
+                        <tr>
+                            <td>@Format.Date(review.ReviewRequiredAt ?? review.StartedAt)</td>
+                            <td>@review.TransactionId</td>
+                            <td>@review.DocumentType @review.MaskedDocument</td>
+                            <td class="num">@Format.Money(review.Amount)</td>
+                            <td style="white-space: normal;">@review.Message</td>
+                            <td>
+                                @if (_resolving == review.Id)
+                                {
+                                    <MudTextField @bind-Value="_note" Label="¿Qué se hizo?" Immediate="true" Placeholder="Reversado en el portal de Sistecrédito" />
+                                    <MudButton Size="Size.Small" Disabled="_busy" OnClick="@(() => ResolverAsync(review.Id))">Guardar nota</MudButton>
+                                    <MudButton Size="Size.Small" OnClick="@(() => _resolving = null)">Cancelar</MudButton>
+                                }
+                                else
+                                {
+                                    <MudButton Size="Size.Small" OnClick="@(() => { _resolving = review.Id; _note = null; })">Marcar revisado</MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    }
+</MudPaper>
+
+@code {
+    private SistecreditoSettingsDto? _settings;
+    private List<SistecreditoPaymentDto> _reviews = [];
+    private string? _subscriptionKey, _applicationKey, _applicationToken, _error, _note;
+    private string _environment = "STAGING";
+    private bool _enabled, _busy;
+    private Guid? _resolving;
+
+    /// <summary>Al guardar o desactivar cambia el medio de pago SISTECREDITO: la tabla de medios se recarga.</summary>
+    [Parameter]
+    public EventCallback Cambio { get; set; }
+
+    protected override async Task OnInitializedAsync() => await CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        try
+        {
+            Aplicar(await Api.GetAsync<SistecreditoSettingsDto>("api/v1/cash/sistecredito/settings"));
+            _reviews = _settings!.PendingReviews > 0
+                ? [.. (await Api.GetAsync<List<SistecreditoPaymentDto>>("api/v1/cash/sistecredito/payments?status=REVIEW_REQUIRED")).Where(r => r.ReviewedAt is null)]
+                : [];
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+    }
+
+    private void Aplicar(SistecreditoSettingsDto settings)
+    {
+        _settings = settings;
+        _environment = EnumText.Normalize(settings.Environment) is { Length: > 0 } environment ? environment : "STAGING";
+        _enabled = settings.IsEnabled || !settings.HasCredentials;
+    }
+
+    private async Task GuardarAsync()
+    {
+        _busy = true;
+        try
+        {
+            Aplicar(await Api.PutAsync<SistecreditoSettingsDto>("api/v1/cash/sistecredito/settings", new
+            {
+                subscriptionKey = Vacio(_subscriptionKey), applicationKey = Vacio(_applicationKey), applicationToken = Vacio(_applicationToken),
+                environment = _environment, enabled = _enabled,
+            }));
+            _subscriptionKey = _applicationKey = _applicationToken = null;
+            Snackbar.Add(_settings!.IsEnabled ? "Sistecrédito guardado y activo en la caja. Pulse \"Verificar conexión\"." : "Sistecrédito guardado (inactivo).",
+                Severity.Success);
+            await Cambio.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task VerificarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.PostAsync<SistecreditoVerificationDto>("api/v1/cash/sistecredito/settings/verify");
+            Snackbar.Add(result.Message, result.Ok ? Severity.Success : Severity.Warning);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task DesactivarAsync()
+    {
+        _busy = true;
+        try
+        {
+            Aplicar(await Api.PostAsync<SistecreditoSettingsDto>("api/v1/cash/sistecredito/settings/disable"));
+            Snackbar.Add("Sistecrédito desactivado: ya no aparece en la caja.", Severity.Info);
+            await Cambio.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task ResolverAsync(Guid attemptId)
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync<SistecreditoPaymentDto>($"api/v1/cash/sistecredito/payments/{attemptId}/resolve", new { note = _note });
+            _resolving = null;
+            Snackbar.Add("Nota guardada: el cobro queda revisado.", Severity.Success);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private static string? Guardada(SistecreditoSettingsDto settings) =>
+        settings.HasCredentials ? $"Guardada (termina en {settings.KeyHint}). Déjela vacía para conservarla." : "Sin llaves todavía.";
+
+    private static string Ambiente(string environment) => EnumText.Same(environment, "PRODUCTION") ? "Producción" : "Pruebas (Staging)";
+
+    private static string? Vacio(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+}

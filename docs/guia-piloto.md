@@ -98,3 +98,40 @@ línea sin entrar al portal:
 Notas: la caja no muestra pagos (solo quien puede ver la licencia en la administración). Se necesita Internet en el equipo para pagar
 y verificar; mientras tanto la tienda sigue vendiendo con normalidad (en restringida, solo en las jornadas abiertas). Si la tarjeta no
 aparece, la licencia está al día o el pago en línea todavía no está habilitado: pague como siempre y avise a soporte.
+
+## 9. Cobrar con Sistecrédito
+
+Con Sistecrédito el cliente paga **a cuotas** con su crédito. La plata la paga Sistecrédito a la tienda (nunca pasa por BusinessPost).
+Hace falta el **convenio de aliado** de la tienda con Sistecrédito y sus llaves (unas de **pruebas / Staging** y otras de
+**producción**). Se necesita internet **solo en el momento del cobro**: sin internet se cobra con otro medio y la caja sigue vendiendo.
+
+**Configurarlo (administración, una vez):**
+
+1. **Administración → Configuración → Medios de pago → tarjeta Sistecrédito.**
+2. Pegue la **llave de suscripción**, la **ApplicationKey** y el **ApplicationToken** del correo de Sistecrédito (si se copia la etiqueta
+   "Key" o "ID", no pasa nada: se guarda solo el código). Elija el **ambiente** (Pruebas o Producción), deje **Activo en la caja** y
+   oprima **Guardar**. Las llaves quedan cifradas en el equipo y no se vuelven a mostrar.
+3. Oprima **Verificar conexión**. Si dice que las llaves **sí funcionan en el otro ambiente**, cambie el ambiente y guarde de nuevo.
+4. Desde ese momento el medio **Sistecrédito** aparece en la pantalla de cobro de la caja.
+
+**Cobrar en la caja:**
+
+1. F10 (Cobrar) → botón **Sistecrédito**. Escriba el valor (todo lo que falta o una parte, para pago mixto).
+2. Elija el tipo de documento (**CC** por defecto; también CE, NIT, PA, TI) y escriba el número. Si la venta tiene cliente asignado, el
+   documento ya aparece.
+3. Oprima **Generar cobro**. Sale un **código QR**: "Escanee con su celular, elija las cuotas y confirme con el código que le llega".
+4. La caja se actualiza sola cada pocos segundos. Cuando el cliente **aprueba**, el pago se agrega y la venta se completa (o, en pago
+   mixto, cobre el resto con otro medio). Si Sistecrédito **rechaza** o el cobro **vence**, la caja muestra el motivo: elija otro medio.
+5. **Cancelar** detiene la espera. Si el cliente igual aprueba después, el sistema lo detecta solo.
+
+**Cobros por revisar:** si Sistecrédito aprobó un cobro y la venta no se completó (por ejemplo, se canceló la venta o se cerró la
+pantalla), a los 15 minutos aparece el aviso **"cobro de Sistecrédito por revisar"** arriba de la administración. En la tarjeta de
+Sistecrédito están esos cobros: complete la venta o **reverse el pago en el portal de Sistecrédito**, y oprima **Marcar revisado** con
+una nota de lo que hizo. Las devoluciones de Sistecrédito se hacen en su portal; en el POS se registran como un cambio o reintegro normal.
+
+**En el cierre de caja**, Sistecrédito sale como un medio aparte (no es efectivo), igual que el datáfono: cuadre con las transacciones
+aprobadas del día.
+
+**Primera prueba (con llaves de Staging):** configure el ambiente **Pruebas**, verifique la conexión, haga una venta pequeña con el
+documento de prueba que dé Sistecrédito, apruébela en el celular y revise que la venta quede completada con la referencia de la
+transacción. Luego pruebe un rechazo y un "Cancelar". Solo después cambie a **Producción** con las llaves de producción.

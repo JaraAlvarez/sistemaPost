@@ -22,7 +22,8 @@ public sealed record MeInfo(
     IReadOnlyList<string> Permissions,
     int OpenIntegrityIncidents,
     int BackupAlerts,
-    LicenseSummary? License);
+    LicenseSummary? License,
+    int SistecreditoReviews = 0);
 
 public sealed record LoginResult(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeInfo User);
 
