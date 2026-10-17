@@ -180,6 +180,65 @@ internal sealed class CatalogQueries(PosDbContext context) : ICatalogQueries
             .ThenByDescending(r => r.Price.ValidFrom).Select(r => r.Price.ToDto(r.Code, now))];
     }
 
+    public async Task<IReadOnlyList<Guid>> FindLabelProductIdsAsync(LabelFilter filter, int limit, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        var products = context.Set<Product>().AsNoTracking().Where(p => p.Status == ProductStatus.Active);
+        switch (filter.Source)
+        {
+            case LabelSources.Category when filter.CategoryId is { } categoryId:
+                var categories = await SubtreeAsync(context, [categoryId], cancellationToken);
+                products = products.Where(p => categories.Contains(p.CategoryId));
+                break;
+            case LabelSources.PriceChanges when filter.Since is { } since:
+                var list = await context.Set<PriceList>().AsNoTracking().Where(l => l.IsDefault).Select(l => (Guid?)l.Id).FirstOrDefaultAsync(cancellationToken);
+                var now = filter.Now;
+                var branchId = filter.BranchId;
+                var changed = context.Set<ProductPrice>().Where(p => p.PriceListId == list && p.PackagingId == null
+                        && (p.BranchId == null || p.BranchId == branchId) && p.ValidFrom >= since && p.ValidFrom <= now)
+                    .Select(p => p.ProductId);
+                products = products.Where(p => changed.Contains(p.Id));
+                break;
+            case LabelSources.WithoutBarcode:
+                products = products.Where(p => !context.Set<ProductBarcode>().Any(b => b.ProductId == p.Id && b.PackagingId == null));
+                break;
+            default:
+                return [];
+        }
+
+        return await products.OrderBy(p => EF.Functions.Collate(p.Name, "es_co")).ThenBy(p => p.Sku).Select(p => p.Id).Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<LabelProductData>> GetLabelProductsAsync(
+        IReadOnlyCollection<Guid> productIds, Guid? branchId, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        if (productIds.Count == 0)
+        {
+            return [];
+        }
+
+        var products = await context.Set<Product>().AsNoTracking().Where(p => productIds.Contains(p.Id)).ToListAsync(cancellationToken);
+        var barcodes = (await context.Set<ProductBarcode>().AsNoTracking().Where(b => productIds.Contains(b.ProductId) && b.PackagingId == null)
+                .Select(b => new { b.ProductId, b.Code, b.IsPrimary }).ToListAsync(cancellationToken))
+            .GroupBy(b => b.ProductId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(b => b.IsPrimary).ThenBy(b => b.Code, StringComparer.Ordinal).First().Code);
+        var list = await context.Set<PriceList>().AsNoTracking().Where(l => l.IsDefault)
+            .Select(l => new { l.Id, l.PricesIncludeTax }).FirstOrDefaultAsync(cancellationToken);
+        var prices = list is null
+            ? []
+            : (await context.Set<ProductPrice>().AsNoTracking()
+                    .Where(p => p.PriceListId == list.Id && productIds.Contains(p.ProductId) && p.PackagingId == null
+                        && (p.BranchId == null || p.BranchId == branchId) && p.ValidFrom <= at && (p.ValidTo == null || p.ValidTo > at))
+                    .Select(p => new { p.ProductId, p.BranchId, p.Price })
+                    .ToListAsync(cancellationToken))
+                .GroupBy(r => r.ProductId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(r => r.BranchId is null ? 1 : 0).First().Price);
+        return [.. products.Select(p => new LabelProductData(
+            p.Id, p.Sku, p.Name, p.CategoryId, p.BrandId, p.BaseUnitCode, p.SaleMode, p.IsSoldByScale, p.NetContent, p.NetContentUnit, p.Status,
+            barcodes.GetValueOrDefault(p.Id), prices.TryGetValue(p.Id, out var price) ? price : null, list?.PricesIncludeTax ?? true))];
+    }
+
     private async Task<Dictionary<Guid, decimal>> EffectivePricesAsync(List<Guid> productIds, Guid? branchId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var list = await context.Set<PriceList>().AsNoTracking().Where(l => l.IsDefault).Select(l => (Guid?)l.Id).FirstOrDefaultAsync(cancellationToken);
@@ -257,6 +316,38 @@ internal sealed class CatalogReader(PosDbContext context) : ICatalogReader
                 .Where(p => context.Set<ProductBarcode>().Any(b => b.ProductId == p.Id && b.NormalizedCode == code && b.PackagingId == null))
                 .FirstOrDefaultAsync(cancellationToken);
         return product is null ? null : ToInfo(product);
+    }
+
+    public async Task<IReadOnlyDictionary<string, CatalogProductInfo>> FindByCodesAsync(
+        IReadOnlyCollection<string> skusOrBarcodes, CancellationToken cancellationToken = default)
+    {
+        var codes = skusOrBarcodes.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.Ordinal).ToList();
+        var result = new Dictionary<string, CatalogProductInfo>(StringComparer.Ordinal);
+        if (codes.Count == 0)
+        {
+            return result;
+        }
+
+        var skus = codes.Select(Product.NormalizeSku).Distinct().ToList();
+        var barcodes = codes.Select(Barcodes.NormalizeForLookup).Distinct().ToList();
+        var bySku = (await context.Set<Product>().AsNoTracking().Where(p => skus.Contains(p.Sku)).ToListAsync(cancellationToken))
+            .GroupBy(p => p.Sku).ToDictionary(g => g.Key, g => g.First());
+        var byBarcode = (await (from b in context.Set<ProductBarcode>().AsNoTracking()
+                                join p in context.Set<Product>().AsNoTracking() on b.ProductId equals p.Id
+                                where b.PackagingId == null && barcodes.Contains(b.NormalizedCode)
+                                select new { b.NormalizedCode, Product = p }).ToListAsync(cancellationToken))
+            .GroupBy(x => x.NormalizedCode).ToDictionary(g => g.Key, g => g.First().Product);
+        foreach (var code in codes)
+        {
+            // Igual que FindByCodeAsync: primero el SKU, luego el código de barras.
+            var product = bySku.GetValueOrDefault(Product.NormalizeSku(code)) ?? byBarcode.GetValueOrDefault(Barcodes.NormalizeForLookup(code));
+            if (product is not null)
+            {
+                result[code] = ToInfo(product);
+            }
+        }
+
+        return result;
     }
 
     public async Task<IReadOnlyList<Guid>> ListStockableProductIdsAsync(IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken = default)

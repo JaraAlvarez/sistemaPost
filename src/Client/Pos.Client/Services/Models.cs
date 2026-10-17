@@ -62,7 +62,11 @@ public sealed record CashMethodTotal(Guid PaymentMethodId, string Code, string N
 
 public sealed record CashSession(
     Guid Id, string Number, Guid PosTerminalId, string TerminalCode, string CashierName, DateOnly BusinessDate, DateTimeOffset OpenedAt, decimal OpeningFloat,
-    string Status, bool BlindCount, bool ExpectedHidden, decimal? ExpectedTotal, decimal? CountedTotal, decimal? Difference, IReadOnlyList<CashMethodTotal> Totals);
+    string Status, bool BlindCount, bool ExpectedHidden, decimal? ExpectedTotal, decimal? CountedTotal, decimal? Difference, IReadOnlyList<CashMethodTotal> Totals,
+    IReadOnlyList<SistecreditoNoUsado>? SistecreditoNotUsed = null);
+
+/// <summary>Crédito de Sistecrédito aprobado que no se usó en una venta de la jornada (la administración lo reversa en el portal).</summary>
+public sealed record SistecreditoNoUsado(Guid AttemptId, decimal Amount, string? TransactionId, string MaskedDocument, DateTimeOffset ReleasedAt, bool Reviewed);
 
 public sealed record CashReport(string Kind, string Number, decimal ExpectedTotal, decimal? CountedTotal, decimal? Difference, long? SealNo, string? SealCode, string Text);
 

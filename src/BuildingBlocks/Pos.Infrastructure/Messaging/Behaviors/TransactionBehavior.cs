@@ -9,7 +9,8 @@ namespace Pos.Infrastructure.Messaging.Behaviors;
 /// <summary>
 /// Envuelve cada COMANDO en una transacción: confirma si el resultado es exitoso y revierte si falla.
 /// Guarda lo pendiente (p. ej. auditoría explícita) antes de confirmar. Las violaciones de restricciones de la BD
-/// se devuelven como errores de negocio legibles. Las consultas no abren transacción.
+/// se devuelven como errores de negocio legibles. Las consultas no abren transacción, ni los comandos <see cref="ISelfTransactedCommand"/>
+/// (manejan sus propias transacciones cortas).
 /// </summary>
 internal sealed class TransactionBehavior<TRequest, TResponse>(
     PosDbContext context, ConstraintErrorTranslator translator, CommitCallbacks callbacks)
@@ -18,7 +19,8 @@ internal sealed class TransactionBehavior<TRequest, TResponse>(
     where TResponse : Result
 {
     private static readonly bool IsCommand = typeof(TRequest).GetInterfaces()
-        .Any(i => i == typeof(ICommand) || (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>)));
+        .Any(i => i == typeof(ICommand) || (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>)))
+        && !typeof(ISelfTransactedCommand).IsAssignableFrom(typeof(TRequest));
 
     public async Task<TResponse> Handle(TRequest request, RequestHandlerNext<TResponse> next, CancellationToken cancellationToken)
     {

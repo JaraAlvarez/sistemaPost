@@ -143,6 +143,22 @@ else
                                 </MudItem>
                             }
                         </MudGrid>
+                        @if (_session?.SistecreditoNotUsed is { Count: > 0 } noUsados)
+                        {
+                            var porReversar = noUsados.Where(n => !n.Reviewed).ToList();
+                            var revisados = noUsados.Where(n => n.Reviewed).ToList();
+                            <MudAlert Severity="@(porReversar.Count > 0 ? Severity.Warning : Severity.Info)" Dense="true" Class="mt-2">
+                                Créditos de Sistecrédito aprobados que NO se usaron en este turno (no son plata de la caja).
+                                @if (porReversar.Count > 0)
+                                {
+                                    <div>Por reversar en el portal de Sistecrédito: @string.Join(", ", porReversar.Select(n => $"{Format.Money(n.Amount)} ({n.MaskedDocument})")).</div>
+                                }
+                                @if (revisados.Count > 0)
+                                {
+                                    <div>Ya revisados por la administración: @string.Join(", ", revisados.Select(n => $"{Format.Money(n.Amount)} ({n.MaskedDocument})")).</div>
+                                }
+                            </MudAlert>
+                        }
                         <MudTextField @bind-Value="_closingNote" Label="Nota sobre la diferencia (si la hay)" Variant="Variant.Outlined" Immediate="true" Class="mt-2" Lines="2" />
                         <div class="acciones">
                             <MudButton OnClick="CancelarCierreAsync">Volver a vender</MudButton>
@@ -295,7 +311,7 @@ else
                                 <span>@_methods.First(m => m.Id == payment.PaymentMethodId).Name @(payment.Reference is null ? null : $"({payment.Reference})")</span>
                                 <span>
                                     <b>@Format.Money(payment.Amount)</b>
-                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" OnClick="@(() => _payments.Remove(payment))" aria-label="Quitar este pago" />
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" OnClick="@(() => QuitarPagoAsync(payment))" aria-label="Quitar este pago" />
                                 </span>
                             </div>
                         }
@@ -426,6 +442,12 @@ else
                             <span><b>@(held.HoldLabel ?? "Sin nombre")</b><small>@Format.Date(held.OpenedAt) · @held.CustomerName</small></span>
                             <span class="precio">@Format.Money(held.Total)</span>
                         </button>
+                        @if (_heldCredits.TryGetValue(held.Id, out var credito))
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning" Disabled="_busy" OnClick="@(() => NoUsarCreditoSuspendidaAsync(held))">
+                                No usar el crédito de Sistecrédito (@Format.Money(credito))
+                            </MudButton>
+                        }
                     }
                 </div>
             }

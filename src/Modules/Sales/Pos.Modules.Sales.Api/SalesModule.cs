@@ -125,9 +125,22 @@ public sealed class SalesModule : IModule
         group.MapPost("/{saleId:guid}/complete", async (
                     Guid saleId, CompleteRequest r, [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, IDispatcher d, FiscalTicketWait fiscal,
                     CancellationToken ct) =>
-                (await fiscal.SaleAsync(await d.Send(new CompleteSaleCommand(saleId, r.Payments, idempotencyKey), ct), ct)).ToHttpResult())
+                {
+                    await d.Send(new RecheckSalePaymentsCommand(saleId), ct); // Sistecrédito: fuera de la transacción de la venta
+                    var completed = await d.Send(new CompleteSaleCommand(saleId, r.Payments, idempotencyKey), ct);
+                    if (completed.IsSuccess)
+                    {
+                        await d.Send(new SettleSalePaymentsCommand(saleId), CancellationToken.None); // pendientes de Sistecrédito que quedaron
+                    }
+
+                    return (await fiscal.SaleAsync(completed, ct)).ToHttpResult();
+                })
             .RequirePermission(SalesPermissions.SaleCreate)
             .WithSummary("Cobra y completa en una transacción (idempotente con Idempotency-Key): número, kardex, caja, comprobante y tiquete; con la facturación electrónica espera ⚙️ hasta 3 s los datos fiscales");
+        group.MapPost("/{saleId:guid}/sistecredito/release", async (Guid saleId, ReleaseCreditRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ReleaseSistecreditoCreditCommand(saleId, r.TransactionId), ct)).ToHttpResult())
+            .RequirePermission(SalesPermissions.SaleCancel, allowSupervisor: true)
+            .WithSummary("«No usar este crédito»: el crédito de Sistecrédito aprobado no se usa en la venta (con autorización de supervisor) y queda en revisión para reversarlo");
         group.MapPost("/{saleId:guid}/void", async (Guid saleId, ReasonRequest r, IDispatcher d, FiscalTicketWait fiscal, CancellationToken ct) =>
                 (await fiscal.SaleAsync(await d.Send(new VoidSaleCommand(saleId, r.Reason), ct), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleVoid, allowSupervisor: true)
@@ -188,6 +201,9 @@ public sealed record CustomerRequest(Guid? PartyId, bool? InvoiceRequested = nul
 public sealed record HoldRequest(string? Label);
 
 public sealed record ReasonRequest(string Reason);
+
+/// <summary><c>TransactionId</c> vacío: todos los créditos aprobados de la venta.</summary>
+public sealed record ReleaseCreditRequest(string? TransactionId);
 
 public sealed record CompleteRequest(IReadOnlyList<PaymentRequest> Payments);
 

@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -27,6 +28,7 @@ public sealed class InventoryModule : IModule
         InventoryInfrastructureRegistration.Register(services);
         services.AddScoped<InventoryGuards>();
         services.AddScoped<AdjustmentPoster>();
+        services.AddScoped<StockPolicyWriter>();
         services.AddScoped<ICompanyInitializer, InventoryInitializer>();
         services.AddSingleton<ISettingDefinitionProvider, InventorySettingsProvider>();
         services.AddSingleton<IPermissionCatalogProvider, InventoryPermissionCatalog>();
@@ -60,9 +62,7 @@ public sealed class InventoryModule : IModule
         MapCounts(group.MapGroup("/counts"));
         MapTransfers(group.MapGroup("/transfers"));
 
-        group.MapPut("/policies", async (SetStockPolicyCommand command, IDispatcher d, CancellationToken ct) => (await d.Send(command, ct)).ToHttpResult())
-            .RequirePermission(InventoryPermissions.AdjustmentManage)
-            .WithSummary("Mínimo, máximo y punto de pedido de un producto en una bodega");
+        MapPolicies(group.MapGroup("/policies"));
 
         group.MapPost("/verification", async (IDispatcher d, CancellationToken ct) => (await d.Send(new VerifyStockCommand(), ct)).ToHttpResult())
             .RequirePermission(InventoryPermissions.StockVerify)
@@ -73,6 +73,42 @@ public sealed class InventoryModule : IModule
                 (await d.Send(command, ct)).ToHttpResult())
             .RequirePermission(InventoryPermissions.StockVerify)
             .WithSummary("Reconstruye un saldo desde su kardex (con motivo; auditado como crítico)");
+    }
+
+    /// <summary>Reabastecimiento: mínimos, máximos y punto de pedido (a mano, desde Excel o calculados por la venta promedio).</summary>
+    private static void MapPolicies(RouteGroupBuilder group)
+    {
+        group.MapGet("/", async (Guid productId, IDispatcher d, CancellationToken ct) => (await d.Send(new ListStockPoliciesQuery(productId), ct)).ToHttpResult())
+            .RequirePermission(InventoryPermissions.StockView)
+            .WithSummary("Mínimos y máximos de un producto en las bodegas de la sucursal");
+        group.MapPut("/", async (SetStockPolicyCommand command, IDispatcher d, CancellationToken ct) => (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(InventoryPermissions.PolicyManage)
+            .WithSummary("Mínimo, máximo y punto de pedido de un producto en una bodega");
+        group.MapGet("/import/template", () => Results.File(
+                Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(StockPolicyImportColumns.Template())).ToArray(),
+                "text/csv; charset=utf-8", "plantilla-minimos-maximos.csv"))
+            .RequirePermission(InventoryPermissions.PolicyManage)
+            .WithSummary("Plantilla CSV de mínimos y máximos (se abre en Excel)");
+        group.MapPost("/import", async (Guid? warehouseId, bool? apply, HttpRequest http, IDispatcher d, CancellationToken ct) =>
+            {
+                if (await UploadedFile.ReadAsync(http, ct) is not { } file)
+                {
+                    return UploadedFile.Missing().ToProblem();
+                }
+
+                await using var stream = file.OpenReadStream();
+                return (await d.Send(new ImportStockPoliciesCommand(warehouseId, file.FileName, stream, apply ?? false), ct)).ToHttpResult();
+            })
+            .DisableAntiforgery()
+            .RequirePermission(InventoryPermissions.PolicyManage)
+            .WithSummary("Mínimos y máximos desde Excel/CSV: con apply=false muestra la vista previa; con apply=true guarda si no hay errores");
+        group.MapGet("/suggestions", async (Guid warehouseId, int? days, int? leadTimeDays, int? coverageDays, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new SuggestMinimumsQuery(warehouseId, days ?? 30, leadTimeDays ?? 3, coverageDays ?? 7), ct)).ToHttpResult())
+            .RequirePermission(InventoryPermissions.PolicyManage)
+            .WithSummary("Mínimos sugeridos: venta diaria promedio de los últimos días × días de entrega (máximo: + días de cobertura)");
+        group.MapPost("/apply-minimums", async (ApplyMinimumsCommand command, IDispatcher d, CancellationToken ct) => (await d.Send(command, ct)).ToHttpResult())
+            .RequirePermission(InventoryPermissions.PolicyManage)
+            .WithSummary("Guarda los mínimos y máximos elegidos (conserva el punto de pedido)");
     }
 
     private static void MapReasons(RouteGroupBuilder group)

@@ -5,6 +5,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
+@inject Bodegas Bodegas
 @using Pos.Modules.Catalog.Contracts
 @using Pos.Modules.Inventory.Contracts
 @using Pos.Modules.Organization.Contracts
@@ -94,7 +95,7 @@
                             </MudItem>
                         }
                         <MudItem xs="6" sm="4">
-                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
+                            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>
                         <MudItem xs="6" sm="4">
                             <MudSelect T="string" @bind-Value="_netUnit" Label="Unidad del contenido" Clearable="true" ReadOnly="@(!PuedeEditar)">
@@ -136,7 +137,7 @@
                                 <MudTextField @bind-Value="_barcode" Label="Código de barras" Immediate="true" HelperText="Vacío = se genera uno interno" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
+                                <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
                             </MudItem>
                         }
                     </MudGrid>
@@ -278,7 +279,7 @@
                                 </MudSelect>
                                 @if (ImpuestoNuevoEsFijo)
                                 {
-                                    <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
+                                    <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
                                 }
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _nuevoImpuesto is null)" OnClick="AgregarImpuestoAsync">Agregar</MudButton>
                             </MudStack>
@@ -336,6 +337,53 @@
                                     </RowTemplate>
                                     <NoRecordsContent><EstadoVacio Mensaje="Sin existencias registradas en las bodegas de la sucursal." Compacto="true" /></NoRecordsContent>
                                 </MudTable>
+
+                                <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-6 mb-1">Mínimos y máximos</MudText>
+                                <MudText Typo="Typo.body2" Class="mb-3">
+                                    Cuando la existencia baja del <b>mínimo</b> (o llega al <b>punto de pedido</b>), el producto aparece en
+                                    <MudLink Href="/admin/reabastecimiento">Reabastecimiento</MudLink> con lo que falta para llegar al <b>máximo</b>.
+                                    Deje el máximo vacío si no lo usa; en ese caso se pide la <b>cantidad a pedir</b> o, sin ella, hasta el mínimo (o hasta
+                                    el punto de pedido si es mayor). Si usa punto de pedido, indique también el máximo o la cantidad a pedir.
+                                </MudText>
+                                @if (_politicas.Count == 0)
+                                {
+                                    <EstadoVacio Mensaje="No hay bodegas para mostrar." Compacto="true" />
+                                }
+                                else
+                                {
+                                    <MudSimpleTable Dense="true" Outlined="true">
+                                        <thead>
+                                            <tr><th>Bodega</th><th class="num">Mínimo</th><th class="num">Punto de pedido</th><th class="num">Máximo</th><th class="num">Cantidad a pedir</th><th></th></tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var fila in _politicas)
+                                            {
+                                                <tr>
+                                                    <td>@fila.Bodega</td>
+                                                    @if (PuedeMinimos)
+                                                    {
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.Minimo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Mínimo en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.Punto" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Punto de pedido en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.Maximo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Máximo en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.CantidadPedido" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Cantidad a pedir en {fila.Bodega}")" /></td>
+                                                        <td>
+                                                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || fila.Minimo is null)"
+                                                                       OnClick="@(() => GuardarPoliticaAsync(fila))">Guardar</MudButton>
+                                                        </td>
+                                                    }
+                                                    else
+                                                    {
+                                                        <td class="num">@Cantidad(fila.Minimo)</td>
+                                                        <td class="num">@Cantidad(fila.Punto)</td>
+                                                        <td class="num">@Cantidad(fila.Maximo)</td>
+                                                        <td class="num">@Cantidad(fila.CantidadPedido)</td>
+                                                        <td></td>
+                                                    }
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </MudSimpleTable>
+                                }
                             }
                         </MudTabPanel>
                     }
@@ -379,7 +427,7 @@
                     }
                 </MudSelect>
             }
-            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
             <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" MinDate="@DateTime.Today"
                            Clearable="true" HelperText="Vacío = rige desde ahora; con fecha queda programado" />
             <div class="acciones">
@@ -396,7 +444,7 @@
         <div class="panel" role="dialog" aria-modal="true" aria-labelledby="titulo-presentacion">
             <h2 id="titulo-presentacion">@(_presentacionId is null ? "Nueva presentación" : "Editar presentación")</h2>
             <MudTextField @bind-Value="_pNombre" Label="Nombre" Immediate="true" AutoFocus="true" MaxLength="60" HelperText="Ej.: Caja × 12, Paca × 6" />
-            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_pFactor" Label="@($"Unidades por empaque ({_unit})")" Min="0" />
+            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="_pFactor" Label="@($"Unidades por empaque ({_unit})")" Min="0" />
             <MudCheckBox T="bool" @bind-Value="_pVende" Label="Se vende en la caja" />
             <MudCheckBox T="bool" @bind-Value="_pCompra" Label="Se compra a proveedores" />
             @if (_presentacionId is null)
@@ -404,7 +452,7 @@
                 <MudTextField @bind-Value="_pCodigo" Label="Código de barras del empaque (opcional)" Immediate="true" />
                 @if (Session.Has("catalog.price.manage"))
                 {
-                    <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_pPrecio" Label="Precio del empaque (opcional, IVA incluido)" Min="0"
+                    <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="_pPrecio" Label="Precio del empaque (opcional, IVA incluido)" Min="0"
                                      HelperText="Se fija en la lista por defecto para todas las sucursales" />
                 }
             }
@@ -429,6 +477,7 @@
     private List<BranchDto> _branches = [];
     private List<PriceDto> _precios = [];
     private List<StockDto> _existencias = [];
+    private List<FilaPolitica> _politicas = [];
     private ProductDetailDto? _producto;
     private string? _clave;
     private bool _maestros, _loading = true, _busy, _cambiandoPrecio;
@@ -465,6 +514,26 @@
     private bool EsExistente => Id is not null && _producto is not null;
 
     private bool PuedeEditar => Session.Has("catalog.product.manage");
+
+    private bool PuedeMinimos => Session.Has("inventory.policy.manage");
+
+    private static string Cantidad(decimal? valor) => valor is { } v ? Format.Quantity(v) : "—";
+
+    /// <summary>Mínimo, punto de pedido y máximo del producto en una bodega (en edición). <c>CantidadPedido</c> se conserva al guardar.</summary>
+    private sealed class FilaPolitica
+    {
+        public Guid BodegaId { get; init; }
+
+        public string Bodega { get; init; } = "";
+
+        public decimal? Minimo { get; set; }
+
+        public decimal? Punto { get; set; }
+
+        public decimal? Maximo { get; set; }
+
+        public decimal? CantidadPedido { get; set; }
+    }
 
     private string Estado => _producto?.Status ?? "";
 
@@ -610,12 +679,63 @@
         try
         {
             _existencias = await Api.GetAsync<List<StockDto>>($"api/v1/inventory/stock?productId={id}");
+            var politicas = await Api.GetAsync<List<StockPolicyDto>>($"api/v1/inventory/policies?productId={id}");
+            await Bodegas.CargarAsync();
+            _politicas = [.. Bodegas.Elegibles.Select(b =>
+            {
+                var bodega = b.GetProperty("id").GetGuid();
+                var actual = politicas.FirstOrDefault(p => p.WarehouseId == bodega);
+                return new FilaPolitica
+                {
+                    BodegaId = bodega, Bodega = Bodegas.Etiqueta(b), Minimo = actual?.MinQuantity, Punto = actual?.ReorderPoint, Maximo = actual?.MaxQuantity,
+                    CantidadPedido = actual?.ReorderQuantity,
+                };
+            })];
             _errorExistencias = null;
         }
         catch (ApiException ex)
         {
             _errorExistencias = ex.Texto;
         }
+    }
+
+    private async Task GuardarPoliticaAsync(FilaPolitica fila)
+    {
+        if (Id is not { } id || fila.Minimo is not { } minimo)
+        {
+            return;
+        }
+
+        if (fila.Punto is not null && fila.Maximo is null && fila.CantidadPedido is null)
+        {
+            Snackbar.Add("Con punto de pedido indique también el máximo o la cantidad a pedir: si no, al llegar al punto el sugerido puede quedar en cero.",
+                Severity.Warning);
+            return;
+        }
+
+        if (fila.CantidadPedido is <= 0)
+        {
+            Snackbar.Add("La cantidad a pedir debe ser mayor que cero (o déjela vacía).", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await Api.PutAsync<StockPolicyDto>("api/v1/inventory/policies", new
+            {
+                warehouseId = fila.BodegaId, productId = id, minQuantity = minimo, maxQuantity = fila.Maximo, reorderPoint = fila.Punto,
+                reorderQuantity = fila.CantidadPedido,
+            });
+            Snackbar.Add($"Mínimo y máximo guardados en {fila.Bodega}.", Severity.Success);
+            await CargarExistenciasAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
     }
 
     /// <summary>Copia los datos del producto al formulario (o lo deja en blanco para uno nuevo).</summary>

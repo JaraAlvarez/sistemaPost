@@ -74,6 +74,10 @@ h1:focus, main:focus { outline: none; }
 .num, .cifra, .mud-table-cell.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 .num { text-align: right; white-space: nowrap; }
 .mud-simple-table td, .mud-table-cell { white-space: nowrap; }
+/* Las cifras de las tablas simples también van a la derecha (la regla de MudBlazor para sus celdas pesa más que .num). */
+.mud-simple-table table * tr > td.num, .mud-simple-table table * tr th.num { text-align: right; }
+/* Nombres largos (producto, categoría): se parten en dos líneas en vez de empujar las últimas columnas fuera de la tabla. */
+.mud-simple-table td.celda-texto, .mud-table-cell.celda-texto { white-space: normal; min-width: 140px; }
 kbd, .tecla {
     display: inline-flex; align-items: center; justify-content: center; min-width: 1.9em; height: 1.55em; padding: 0 .4em;
     font: 700 .72rem/1 var(--bp-fuente-cifras); letter-spacing: .02em; border-radius: 5px;
@@ -126,7 +130,10 @@ html[data-tema="oscuro"] .arranque-nombre span { color: #8B9CFF; }
 .bp-appbar-contexto { display: flex; align-items: center; gap: 6px; margin-left: 8px; min-width: 0; color: var(--mud-palette-text-secondary); font-size: .9rem; }
 .bp-appbar-sucursal { font-weight: 650; color: var(--mud-palette-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bp-appbar-empresa { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bp-usuario { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 4px; border-radius: 999px; cursor: pointer; min-height: 40px; }
+.bp-usuario {
+    display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 4px; border-radius: 999px; cursor: pointer; min-height: 40px;
+    border: 0; background: transparent; color: inherit; font: inherit;
+}
 .bp-usuario:hover { background: var(--mud-palette-action-default-hover); }
 .bp-avatar {
     width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
@@ -253,6 +260,13 @@ html[data-tema="oscuro"] .arranque-nombre span { color: #8B9CFF; }
 .mud-input-control { margin-bottom: 2px; }
 .mud-paper-outlined, .mud-paper { border-radius: var(--bp-radio-l); }
 .bp-contenido .mud-paper:not(.mud-table):not(.mud-popover):not(.mud-alert):not(.mud-tabs-tabbar):not(.mud-snackbar) { box-shadow: var(--bp-sombra-1); border: 1px solid var(--mud-palette-lines-default); }
+
+/* Lector del detalle de un conteo: código (crece), cantidad, ubicación, Registrar y el filtro, en una fila que se parte en pantallas angostas. */
+.conteo-lector { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bp-e3); }
+.conteo-lector-codigo { flex: 1 1 360px; min-width: 260px; }
+.conteo-lector-cantidad { flex: 0 0 140px; }
+.conteo-lector-ubicacion { flex: 0 1 200px; min-width: 160px; }
+.conteo-lector-filtro { flex: 0 1 240px; min-width: 200px; }
 
 /* Barra de filtros sobre las tablas. */
 .filtros { display: flex; flex-wrap: wrap; gap: var(--bp-e3); align-items: flex-end; margin-bottom: var(--bp-e4); }

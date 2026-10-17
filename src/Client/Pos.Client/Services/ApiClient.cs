@@ -71,6 +71,16 @@ public sealed class ApiClient(HttpClient http, SessionState session)
         return (name.Trim('"'), response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream", await response.Content.ReadAsByteArrayAsync());
     }
 
+    /// <summary>Descarga un archivo que se pide con datos en el cuerpo (p. ej. el PDF de etiquetas): nombre, tipo y contenido.</summary>
+    public async Task<(string FileName, string ContentType, byte[] Content)> DownloadPostAsync(string path, object body)
+    {
+        using var request = Request(HttpMethod.Post, path, body, null, null);
+        using var response = await http.SendAsync(request);
+        await EnsureAsync(response);
+        var name = response.Content.Headers.ContentDisposition?.FileNameStar ?? response.Content.Headers.ContentDisposition?.FileName ?? "archivo";
+        return (name.Trim('"'), response.Content.Headers.ContentType?.MediaType ?? "application/octet-stream", await response.Content.ReadAsByteArrayAsync());
+    }
+
     /// <summary>Sube un archivo (importaciones .xlsx o .csv) como multipart/form-data en el campo <c>file</c>.</summary>
     public async Task<T> UploadAsync<T>(string path, string fileName, byte[] content)
     {

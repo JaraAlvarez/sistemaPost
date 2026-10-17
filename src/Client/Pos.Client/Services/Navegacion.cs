@@ -37,11 +37,14 @@ public static class Navegacion
         new("Inventario", Icons.Material.Outlined.Inventory2,
         [
             new("Productos y precios", "/admin/productos", Icons.Material.Outlined.Sell, s => s.Has("catalog.product.view")),
+            new("Etiquetas", "/admin/etiquetas", Icons.Material.Outlined.Label, s => s.Has("catalog.product.view")),
             new("Existencias", "/admin/existencias", Icons.Material.Outlined.Warehouse, s => s.Has("inventory.stock.view")),
+            new("Reabastecimiento", "/admin/reabastecimiento", Icons.Material.Outlined.AddShoppingCart,
+                s => (s.Has("purchasing.purchase.view") && s.Feature(BusinessCatalog.Purchasing)) || s.Has("inventory.policy.manage")),
             new("Conteos", "/admin/conteos", Icons.Material.Outlined.FactCheck, s => s.Has("inventory.count.register")),
             new("Traslados", "/admin/traslados", Icons.Material.Outlined.LocalShipping, s => s.Has("inventory.stock.view")),
             new("Ajustes", "/admin/ajustes", Icons.Material.Outlined.Tune, s => s.Has("inventory.stock.view")),
-            new("Importar desde Excel", "/admin/importar", Icons.Material.Outlined.UploadFile, s => s.Has("catalog.import.run") || s.Has("inventory.adjustment.manage")),
+            new("Importar desde Excel", "/admin/importar", Icons.Material.Outlined.UploadFile, s => s.Has("catalog.import.run") || s.Has("inventory.adjustment.manage") || s.Has("inventory.policy.manage")),
         ]),
         new("Compras y proveedores", Icons.Material.Outlined.ShoppingCart,
         [
