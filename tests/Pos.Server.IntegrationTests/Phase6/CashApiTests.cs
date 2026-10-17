@@ -143,7 +143,7 @@ public class CashApiTests
         z.Difference.ShouldBe(-10_000m);
         z.CountedTotal.ShouldBe(expectedCash - 10_000m);
         z.SealNo.ShouldNotBeNull();
-        z.Text.ShouldContain($"SELLO #{z.SealNo}");
+        z.Text.ShouldContain($"CÓDIGO DE CONTROL #{z.SealNo}");
         z.Text.Split('\n').ShouldAllBe(l => l.Length <= 42);
 
         // El sello impreso corresponde a la bitácora (D6-08); un código distinto no.

@@ -17,7 +17,7 @@
     {
         <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2 aviso-actualizacion" ContentAlignment="HorizontalAlignment.Left">
             <div class="d-flex align-center flex-wrap gap-2">
-                <span><b>Nueva versión @_status.Str("availableVersion") disponible.</b> Se instala sola a las 02:00 sin jornadas abiertas.</span>
+                <span><b>Nueva versión @_status.Str("availableVersion") disponible.</b> Se instala sola a las 02:00, cuando no hay turnos de caja abiertos.</span>
                 <MudLink Href="/admin/actualizaciones">Ver novedades</MudLink>
                 @if (Session.Has("system.update.manage"))
                 {
@@ -35,7 +35,7 @@
             <h2>Actualizar a la versión @_status.Str("availableVersion")</h2>
             <MudText Typo="Typo.body2" Class="mb-2">
                 La actualización se instala en el próximo minuto y <b>reinicia el servidor</b>: durante uno o dos minutos nadie podrá vender ni
-                consultar. Antes de continuar, verifique que <b>todas las cajas estén cerradas</b> (sin jornadas abiertas) y que nadie esté vendiendo.
+                consultar. Antes de continuar, verifique que <b>todas las cajas estén cerradas</b> (sin turnos abiertos) y que nadie esté vendiendo.
             </MudText>
             <div class="acciones">
                 <MudButton OnClick="@(() => _confirmar = false)">Cancelar</MudButton>

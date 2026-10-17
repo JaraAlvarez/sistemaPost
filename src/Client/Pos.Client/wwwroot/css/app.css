@@ -622,3 +622,18 @@ html[data-tema="oscuro"] .etiqueta.promo { color: #86EFAC; }
 .consulta-precio { margin-top: 10px; font-size: clamp(40px, 6vw, 56px); font-weight: 800; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .consulta-precio small { display: block; font-size: .85rem; font-weight: 600; letter-spacing: 0; color: var(--mud-palette-text-secondary); }
 .consulta-detalle { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: .9rem; color: var(--mud-palette-text-secondary); }
+
+/* Avisos permanentes en una sola franja compacta (Shared/Avisos.razor). */
+.avisos-barra {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 6px 12px; border-radius: var(--bp-radio-m); font-size: .88rem;
+    background: rgba(var(--mud-palette-warning-rgb), .12); color: var(--mud-palette-text-primary); border: 1px solid rgba(var(--mud-palette-warning-rgb), .35);
+}
+.avisos-barra.grave { background: rgba(var(--mud-palette-error-rgb), .10); border-color: rgba(var(--mud-palette-error-rgb), .40); }
+.avisos-barra .mud-icon-root { color: var(--mud-palette-warning); flex: none; }
+.avisos-barra.grave .mud-icon-root { color: var(--mud-palette-error); }
+.avisos-lista { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.avisos-lista a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.avisos-separador { color: var(--mud-palette-text-secondary); }
+.avisos-detalle-boton { border: 0; background: transparent; color: var(--mud-palette-primary); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.avisos-detalle { margin: -6px 0 12px; padding: 8px 12px 8px 32px; font-size: .88rem; border-radius: var(--bp-radio-m); background: var(--mud-palette-background-gray); }
+.avisos-detalle li + li { margin-top: 4px; }

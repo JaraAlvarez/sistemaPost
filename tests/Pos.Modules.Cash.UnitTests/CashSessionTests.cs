@@ -210,7 +210,8 @@ public class CashSessionTests
         report.Withdrawals.Single().AuthorizedByName.ShouldBe("Carlos Supervisor");
         report.Difference.ShouldBe(-10_000m);
         report.Text.ShouldContain("REPORTE Z - CIERRE DE CAJA");
-        report.Text.ShouldContain("SELLO #1234 · 7F3A-91C2-0B44-E1D8");
+        report.Text.ShouldContain("CÓDIGO DE CONTROL #1234");
+        report.Text.ShouldContain("7F3A-91C2-0B44-E1D8");
         report.Text.ShouldContain("Fecha de negocio");
         report.Text.ShouldContain("2026-09-28");
         report.Text.ShouldContain("Faltante en monedas");
@@ -220,7 +221,7 @@ public class CashSessionTests
             Cash.Night, new BogotaClock());
         x.Text.ShouldContain("REPORTE X - PARCIAL");
         x.Text.ShouldContain("***");
-        x.Text.ShouldNotContain("SELLO");
+        x.Text.ShouldNotContain("CÓDIGO DE CONTROL");
         CashReports.Label("SUPPLIER_PAYMENT").ShouldBe("Pagos a proveedor");
         CashReports.Label("OTRO").ShouldBe("OTRO");
     }

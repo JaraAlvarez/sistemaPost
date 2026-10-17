@@ -134,21 +134,21 @@ public static class CashErrors
 
     public static readonly Error InvalidDenomination = Error.Validation("CASH.INVALID_DENOMINATION", "Denominación inválida: moneda de 3 letras y valor mayor que cero.");
 
-    public static readonly Error SessionNotFound = Error.NotFound("CASH.SESSION_NOT_FOUND", "La jornada de caja no existe.");
+    public static readonly Error SessionNotFound = Error.NotFound("CASH.SESSION_NOT_FOUND", "El turno de caja no existe.");
 
-    public static readonly Error NoOpenSession = Error.NotFound("CASH.NO_OPEN_SESSION", "No hay una jornada de caja abierta en esta caja.");
+    public static readonly Error NoOpenSession = Error.NotFound("CASH.NO_OPEN_SESSION", "No hay un turno de caja abierto en esta caja.");
 
     public static readonly Error SessionAlreadyOpen = Error.Conflict(
-        "CASH.SESSION_ALREADY_OPEN", "La caja ya tiene una jornada sin cerrar o el cajero ya tiene una jornada abierta (RN-CSH-01).");
+        "CASH.SESSION_ALREADY_OPEN", "La caja ya tiene un turno sin cerrar o el cajero ya tiene un turno abierto (RN-CSH-01).");
 
     public static readonly Error TerminalRequired = Error.Forbidden(
-        "CASH.TERMINAL_REQUIRED", "La jornada se abre desde la caja emparejada (entrada con código y PIN) o desde el equipo Caja Única (D6-09).");
+        "CASH.TERMINAL_REQUIRED", "El turno se abre desde la caja emparejada (entrada con código y PIN) o desde el equipo Caja Única (D6-09).");
 
-    public static readonly Error SessionNotOpen = Error.BusinessRule("CASH.SESSION_NOT_OPEN", "La jornada no está abierta: no admite movimientos (RN-CSH-02).");
+    public static readonly Error SessionNotOpen = Error.BusinessRule("CASH.SESSION_NOT_OPEN", "El turno no está abierto: no admite movimientos (RN-CSH-02).");
 
-    public static readonly Error InvalidStatus = Error.BusinessRule("CASH.INVALID_STATUS", "La jornada no está en un estado que permita esta acción.");
+    public static readonly Error InvalidStatus = Error.BusinessRule("CASH.INVALID_STATUS", "El turno no está en un estado que permita esta acción.");
 
-    public static readonly Error NotYourSession = Error.Forbidden("CASH.NOT_YOUR_SESSION", "La jornada es de otro cajero.");
+    public static readonly Error NotYourSession = Error.Forbidden("CASH.NOT_YOUR_SESSION", "El turno es de otro cajero.");
 
     public static readonly Error ReasonRequired = Error.Validation("CASH.REASON_REQUIRED", "Indique el motivo (de 5 a 300 caracteres).");
 
@@ -171,5 +171,5 @@ public static class CashErrors
     public static readonly Error ExpectedHidden = Error.Forbidden(
         "CASH.BLIND_COUNT", "El arqueo es ciego: lo esperado se conoce al confirmar el conteo (o con el permiso cash.report.view).");
 
-    public static readonly Error NotClosed = Error.BusinessRule("CASH.NOT_CLOSED", "El reporte Z existe cuando la jornada está cerrada.");
+    public static readonly Error NotClosed = Error.BusinessRule("CASH.NOT_CLOSED", "El reporte Z existe cuando el turno está cerrado.");
 }

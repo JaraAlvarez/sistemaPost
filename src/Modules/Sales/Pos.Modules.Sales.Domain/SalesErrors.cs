@@ -17,7 +17,7 @@ public static class SalesErrors
         "SALES.TERMINAL_REQUIRED", "Se vende desde una caja (entrada con código y PIN en la caja emparejada o en el equipo Caja Única).");
 
     public static readonly Error NoOpenCashSession = Error.BusinessRule(
-        "SALES.NO_OPEN_CASH_SESSION", "La caja no tiene una jornada abierta (o está en cierre): abra la jornada para vender (RN-SAL-01).");
+        "SALES.NO_OPEN_CASH_SESSION", "La caja no tiene un turno abierto (o está en cierre): abra el turno para vender (RN-SAL-01).");
 
     public static readonly Error OpenSaleExists = Error.Conflict(
         "SALES.OPEN_SALE_EXISTS", "La caja ya tiene una venta en curso: termínela, suspéndala o cancélela (GET /sales/current).");
@@ -73,7 +73,7 @@ public static class SalesErrors
         "SALES.ALREADY_COMPLETED", "La venta ya fue completada con otra clave de idempotencia.");
 
     public static readonly Error VoidNotAllowed = Error.BusinessRule(
-        "SALES.VOID_NOT_ALLOWED", "Solo se anula una venta completada, sin cambios de mercancía y con su jornada de caja abierta (RN-SAL-12).");
+        "SALES.VOID_NOT_ALLOWED", "Solo se anula una venta completada, sin cambios de mercancía y con su turno de caja abierto (RN-SAL-12).");
 
     public static readonly Error CustomerNotFound = Error.NotFound("SALES.CUSTOMER_NOT_FOUND", "El cliente no existe o está inactivo.");
 

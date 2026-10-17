@@ -23,7 +23,7 @@
             <MudSelectItem T="string" Value="@("")">Todos</MudSelectItem>
             <MudSelectItem T="string" Value="@("DRAFT")">Borrador</MudSelectItem>
             <MudSelectItem T="string" Value="@("PENDING_APPROVAL")">Pendiente de aprobación</MudSelectItem>
-            <MudSelectItem T="string" Value="@("POSTED")">Publicado</MudSelectItem>
+            <MudSelectItem T="string" Value="@("POSTED")">Aplicado</MudSelectItem>
             <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
         </MudSelect>
         <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
@@ -50,7 +50,7 @@
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
             <h2>Ajuste rápido</h2>
-            <MudText Typo="Typo.body2">Entrada inmediata al costo promedio para un producto que está físicamente pero el sistema no tiene. Queda en la auditoría y en el reporte de ajustes.</MudText>
+            <MudText Typo="Typo.body2">Para un producto que está en la tienda pero el sistema no tiene: entra de inmediato al costo promedio y queda en la auditoría.</MudText>
             <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
                 @foreach (var warehouse in Bodegas.Elegibles)
                 {
@@ -149,7 +149,7 @@
     {
         "DRAFT" => "Borrador",
         "PENDING_APPROVAL" => "Pendiente de aprobación",
-        "POSTED" => "Publicado",
+        "POSTED" => "Aplicado",
         "CANCELLED" => "Anulado",
         _ => status,
     };
@@ -223,7 +223,7 @@
                 quantity = _cantidad,
                 reason = _notas?.Trim() ?? "",
             });
-            Snackbar.Add($"Ajuste rápido {created.Str("number")} publicado.", Severity.Success);
+            Snackbar.Add($"Ajuste rápido {created.Str("number")} aplicado.", Severity.Success);
             _rapido = false;
             await CargarAsync();
         }

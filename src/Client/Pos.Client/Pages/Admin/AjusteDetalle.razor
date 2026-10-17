@@ -15,7 +15,7 @@
         {
             <MudButton Variant="Variant.Outlined" Href="/admin/ajustes">Cancelar</MudButton>
             <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(false))">Guardar borrador</MudButton>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(true))">Guardar y publicar</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(true))">Guardar y aplicar</MudButton>
         }
         else if (_ajuste.ValueKind == JsonValueKind.Object)
         {
@@ -28,13 +28,13 @@
             @if (Status == "DRAFT" && Session.Has("inventory.adjustment.manage"))
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("post"))">
-                    Publicar
+                    Aplicar ajuste
                 </MudButton>
             }
             @if (Status == "PENDING_APPROVAL" && Session.Has("inventory.adjustment.approve"))
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("approve"))">
-                    Aprobar y publicar
+                    Aprobar y aplicar
                 </MudButton>
             }
         }
@@ -208,7 +208,7 @@
 
             var texto = $"{Estado(Status)} · Bodega {Bodegas.Nombre(_ajuste.Str("warehouseId"))} · Motivo: {NombreMotivo(_ajuste.Str("reasonId"), _ajuste.Str("reasonCode"))} · "
                 + $"Fecha contable {Fecha(_ajuste.Str("businessDate"))}";
-            return _ajuste.Date("postedAt") is { } posted ? $"{texto} · Publicado {Format.Date(posted)}" : texto;
+            return _ajuste.Date("postedAt") is { } posted ? $"{texto} · Aplicado {Format.Date(posted)}" : texto;
         }
     }
 
@@ -255,7 +255,7 @@
     {
         "DRAFT" => "Borrador",
         "PENDING_APPROVAL" => "Pendiente de aprobación",
-        "POSTED" => "Publicado",
+        "POSTED" => "Aplicado",
         "CANCELLED" => "Anulado",
         _ => status,
     };
@@ -380,7 +380,7 @@
 
     private static string MensajePublicacion(JsonElement adjustment) => adjustment.Str("status") == "PENDING_APPROVAL"
         ? "El ajuste supera el umbral: quedó pendiente de aprobación por otro usuario."
-        : "Ajuste publicado en el kardex.";
+        : "Ajuste aplicado al inventario.";
 
     private async Task VerAsync(Guid id)
     {
@@ -437,7 +437,7 @@
     private static readonly Dictionary<string, (string Titulo, string Mensaje, string Accion)> Confirmaciones = new()
     {
         ["cancel"] = ("Anular ajuste", "El ajuste quedará anulado y no moverá el inventario.", "Anular"),
-        ["post"] = ("Publicar ajuste", "Las cantidades del ajuste se aplicarán al inventario (o quedará por aprobar si lo exige la política).", "Publicar"),
-        ["approve"] = ("Aprobar y publicar", "Las cantidades del ajuste se aplicarán al inventario.", "Aprobar y publicar"),
+        ["post"] = ("Aplicar ajuste", "Las cantidades del ajuste se aplicarán al inventario (o quedará por aprobar si lo exige la política).", "Aplicar"),
+        ["approve"] = ("Aprobar y aplicar", "Las cantidades del ajuste se aplicarán al inventario.", "Aprobar y aplicar"),
     };
 }

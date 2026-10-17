@@ -34,7 +34,7 @@
             }
             @if (Status == "IN_REVIEW" && Session.Has("inventory.count.approve"))
             {
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("approve", "Conteo aprobado: las diferencias quedaron en el kardex."))">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("approve", "Conteo aprobado: las diferencias se aplicaron al inventario."))">
                     Aprobar y ajustar
                 </MudButton>
             }
@@ -170,7 +170,7 @@
             @if (Status == "IN_REVIEW")
             {
                 <MudText Typo="Typo.caption" Class="d-block mt-2">
-                    Diferencia = contado − esperado (teórico congelado + movimientos posteriores). Al aprobar, las diferencias se llevan al kardex como ajuste de conteo.
+                    Diferencia = lo contado menos lo que dice el sistema. Al aprobar, el inventario queda con lo contado.
                 </MudText>
             }
         }
@@ -461,6 +461,6 @@
     private static readonly Dictionary<string, (string Titulo, string Mensaje, string Accion)> Confirmaciones = new()
     {
         ["cancel"] = ("Anular conteo", "El conteo quedará anulado y lo contado no se aplicará al inventario.", "Anular"),
-        ["approve"] = ("Aprobar conteo", "Las diferencias del conteo se aplicarán al inventario (kardex).", "Aprobar y ajustar"),
+        ["approve"] = ("Aprobar conteo", "Las diferencias del conteo se aplicarán al inventario.", "Aprobar y ajustar"),
     };
 }

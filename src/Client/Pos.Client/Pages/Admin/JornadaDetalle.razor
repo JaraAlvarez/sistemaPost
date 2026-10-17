@@ -29,8 +29,7 @@
                 <MudPaper Outlined="true" Class="pa-4 mb-4">
                     <MudText Typo="Typo.h6" HtmlTag="h2">Cerrar como supervisor</MudText>
                     <MudText Typo="Typo.body2" Class="mb-3">
-                        Para jornadas que el cajero dejó abiertas. Cuente el efectivo del cajón por denominación y escriba el total de los demás medios.
-                        El cierre es definitivo, queda para revisión y se audita como incidente crítico.
+                        Para turnos que el cajero dejó abiertos. Cuente el efectivo y escriba el total de los demás medios. El cierre es definitivo y queda para revisión.
                     </MudText>
                     <Conteo Denominaciones="_denominaciones" Cantidades="_conteo" OnChanged="@(() => StateHasChanged())" />
                     @if (_medios.Any(m => !m.AffectsCashDrawer))
@@ -72,7 +71,7 @@
                 </MudSimpleTable>
                 @if (_detalle.Bool("expectedHidden"))
                 {
-                    <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">Arqueo ciego: el valor esperado no se muestra mientras la jornada no esté cerrada.</MudAlert>
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">El valor esperado no se muestra mientras el turno esté abierto: así el conteo no se ajusta a lo que dice el sistema.</MudAlert>
                 }
                 @if (_detalle.Bool("closedBySupervisor"))
                 {
@@ -90,7 +89,7 @@
                 }
                 @if (_detalle.Str("zSealCode").Length > 0)
                 {
-                    <MudText Typo="Typo.caption">Sello Z n.º @_detalle.Str("zSealNo") · @_detalle.Str("zSealCode")</MudText>
+                    <MudText Typo="Typo.caption">Código de control del cierre: n.º @_detalle.Str("zSealNo") · @_detalle.Str("zSealCode") (prueba que el reporte no se alteró)</MudText>
                 }
             </MudPaper>
 
@@ -134,12 +133,12 @@
                         </MudSimpleTable>
                     </div>
                 </MudTabPanel>
-                <MudTabPanel Text="@(Cerrada ? "Reporte Z" : "Reporte X (parcial)")">
+                <MudTabPanel Text="@(Cerrada ? "Reporte Z (cierre)" : "Reporte X (parcial)")">
                     @if (_reporte is not null)
                     {
                         <MudStack Row="true" Justify="Justify.FlexEnd" Class="mb-2">
                             <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" Disabled="_imprimiendo" OnClick="ImprimirAsync"
-                                       title="Imprime en la impresora de tiquetes de la caja de esta jornada; necesita el agente de impresión en este equipo">Imprimir</MudButton>
+                                       title="Imprime en la impresora de tiquetes de la caja de este turno; necesita el agente de impresión en este equipo">Imprimir</MudButton>
                             <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="DescargarAsync">Descargar</MudButton>
                         </MudStack>
                         <div class="tiquete">@_reporte</div>
@@ -158,8 +157,8 @@
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Revisar la jornada @_detalle.Str("number")</h2>
-            <MudText Typo="Typo.body2" Class="mb-2">Diferencia: @Format.Money(Opcional(_detalle, "difference")). Deje constancia de lo que se decidió (p. ej. se descuenta al cajero o se corrige en la jornada siguiente).</MudText>
+            <h2>Revisar el turno @_detalle.Str("number")</h2>
+            <MudText Typo="Typo.body2" Class="mb-2">Diferencia: @Format.Money(Opcional(_detalle, "difference")). Anote lo que se decidió (p. ej. se descuenta al cajero o se corrige en el turno siguiente).</MudText>
             <MudTextField @bind-Value="_nota" Label="Nota de la revisión" Lines="3" Immediate="true" AutoFocus="true" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _revisar = false)">Cancelar</MudButton>
@@ -185,7 +184,7 @@
     [Parameter]
     public Guid Id { get; set; }
 
-    private string Titulo => _detalle.Str("number") is { Length: > 0 } number ? $"Jornada {number}" : "Jornada";
+    private string Titulo => _detalle.Str("number") is { Length: > 0 } number ? $"Turno {number}" : "Turno";
 
     private string? Subtitulo => _detalle.ValueKind == JsonValueKind.Object
         ? $"Caja {_detalle.Str("terminalCode")} · {_detalle.Str("cashierName")} · {Estado(_detalle.Str("status"))}"
@@ -302,7 +301,7 @@
         try
         {
             await Api.PostAsync<JsonElement>($"api/v1/cash/sessions/{Id}/supervisor-close", new { count, reason = _motivo });
-            Snackbar.Add("Jornada cerrada por supervisor. Queda pendiente de revisión.", Severity.Success);
+            Snackbar.Add("Turno cerrado por supervisor. Queda pendiente de revisión.", Severity.Success);
             _cerrar = false;
             await CargarDetalleAsync(Id);
         }

@@ -62,7 +62,7 @@
                     }
                     else
                     {
-                        <Tarjeta Titulo="Jornadas abiertas" Valor="@_data.Dec("openCashSessions").ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
+                        <Tarjeta Titulo="Turnos abiertos" Valor="@_data.Dec("openCashSessions").ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
                                  Href="@(Session.Has("cash.report.view") ? "/admin/jornadas" : null)" Detalle="cajas vendiendo ahora" />
                     }
                 </div>
@@ -141,7 +141,7 @@
                              Tono="@(_data.Dec("lotsExpiringSoon") > 0 ? "advertencia" : "neutro")" Detalle="en los próximos días" />
                     <Tarjeta Titulo="Anulados hoy" Valor="@today.Dec("voidedTickets").ToString("0")" Icono="@Icons.Material.Outlined.Block"
                              Tono="@(today.Dec("voidedTickets") > 0 ? "error" : "neutro")" Detalle="@($"hace una semana: {last.Dec("voidedTickets"):0}")" />
-                    <Tarjeta Titulo="Jornadas abiertas" Valor="@_data.Dec("openCashSessions").ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
+                    <Tarjeta Titulo="Turnos abiertos" Valor="@_data.Dec("openCashSessions").ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
                              Href="@(Session.Has("cash.report.view") ? "/admin/jornadas" : null)" Detalle="@($"{_data.Dec("closingsWithUnreviewedDifference"):0} cierre(s) con diferencia sin revisar")" />
                 </div>
                 <MudText Typo="Typo.caption" Class="d-block mt-3 texto-secundario">Datos generados a las @Format.Date(_data.Date("generatedAt")).</MudText>

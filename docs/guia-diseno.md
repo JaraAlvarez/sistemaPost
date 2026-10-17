@@ -220,3 +220,23 @@ Diseñada para **1024×768 a 1920×1080**, teclado, lector de código de barras 
 - Botones de solo icono con `aria-label` y descripción emergente.
 - Se respeta `prefers-reduced-motion` (sin animaciones).
 - Todo se puede operar con teclado: la caja por completo con las teclas de §7.
+
+## Vocabulario de las pantallas (Fase 17-D)
+
+Las pantallas hablan como el cajero y el encargado, no como el sistema. En el código y la API los nombres internos no cambian
+(`/admin/jornadas`, `cash_sessions`, `POSTED`).
+
+| No escribir | Escribir |
+|---|---|
+| Jornada | **Turno** (de caja) |
+| Contabilizar / Contabilizada (compra) | **Confirmar compra** / **Confirmada** |
+| Publicar / Publicado (ajuste), kardex | **Aplicar ajuste** / **Aplicado**, inventario |
+| Arqueo ciego | "Cuente el efectivo; el sistema no le muestra lo esperado" |
+| Sello | **Código de control** (prueba que el reporte no se alteró) |
+| Reporte Z / Reporte X | **Reporte Z (cierre)** / **Reporte X (parcial)** |
+| Credencial del equipo, huella del certificado | "el equipo queda desconectado", **código de seguridad del servidor** |
+
+- Los mensajes de error no muestran referencias internas ("(RN-CSH-05)", "(D6-09)"): `ApiException.Texto` las quita, y el código del
+  error solo aparece en los errores inesperados (`SYSTEM.*`).
+- Los avisos permanentes (licencia, backups, auditoría) van en **una franja compacta** (`Shared/Avisos.razor`) con "Ver detalle".
+- Textos de ayuda: una o dos frases; lo que el usuario no necesita para decidir, no se escribe.

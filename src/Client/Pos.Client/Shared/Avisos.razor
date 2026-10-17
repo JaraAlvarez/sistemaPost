@@ -1,20 +1,75 @@
-@* Avisos permanentes (licencia, backups, integridad) para quien puede verlos. *@
+@* Avisos permanentes (licencia, backups, integridad) en UNA franja compacta arriba del contenido: un resumen corto de cada aviso con su
+   enlace; "Ver detalle" despliega el texto completo. Antes eran varias cajas en todas las pantallas que empujaban el contenido hacia abajo. *@
 @inject SessionState Session
 
-@if (Session.Me is { } me)
+@if (Items.Count > 0)
 {
-    @foreach (var notice in me.License?.Notices ?? [])
+    var grave = Items.Any(i => i.Grave);
+    <div class="avisos-barra @(grave ? "grave" : null)" role="status">
+        <MudIcon Icon="@(grave ? Icons.Material.Outlined.ErrorOutline : Icons.Material.Outlined.WarningAmber)" Size="Size.Small" />
+        <span class="avisos-lista">
+            @for (var i = 0; i < Items.Count; i++)
+            {
+                var item = Items[i];
+                @if (i > 0)
+                {
+                    <span class="avisos-separador" aria-hidden="true">·</span>
+                }
+                <a href="@item.Href" title="@item.Detalle">@item.Corto</a>
+            }
+        </span>
+        <button type="button" class="avisos-detalle-boton" @onclick="@(() => _abierto = !_abierto)" aria-expanded="@(_abierto ? "true" : "false")">
+            @(_abierto ? "Ocultar" : "Ver detalle")
+        </button>
+    </div>
+    @if (_abierto)
     {
-        <MudAlert Severity="@(notice.Severity switch { "CRITICAL" => Severity.Error, "WARNING" => Severity.Warning, _ => Severity.Info })" Dense="true" Class="mb-2">
-            @notice.Text
-        </MudAlert>
+        <ul class="avisos-detalle">
+            @foreach (var item in Items)
+            {
+                <li>@item.Detalle <a href="@item.Href">Revisar</a></li>
+            }
+        </ul>
     }
-    @if (me.BackupAlerts > 0)
+}
+
+@code {
+    private bool _abierto;
+
+    private sealed record Aviso(string Corto, string Detalle, string Href, bool Grave);
+
+    private List<Aviso> Items
     {
-        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Hay @me.BackupAlerts alerta(s) de backups. <MudLink Href="/admin/backups">Revisar</MudLink></MudAlert>
-    }
-    @if (me.OpenIntegrityIncidents > 0)
-    {
-        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">Hay @me.OpenIntegrityIncidents incidente(s) de integridad de la auditoría sin reconocer. <MudLink Href="/admin/auditoria">Revisar</MudLink></MudAlert>
+        get
+        {
+            var items = new List<Aviso>();
+            if (Session.Me is not { } me)
+            {
+                return items;
+            }
+
+            foreach (var notice in me.License?.Notices ?? [])
+            {
+                // Resumen: lo que va antes de los dos puntos o del primer punto ("Modo demostración: quedan 12 días…" → "Modo demostración").
+                var corto = notice.Text.Split([':', '.'], 2)[0].Trim();
+                items.Add(new Aviso(corto.Length is > 0 and <= 60 ? corto : "Licencia", notice.Text, "/admin/licencia", notice.Severity == "CRITICAL"));
+            }
+
+            if (me.BackupAlerts > 0)
+            {
+                items.Add(new Aviso(
+                    me.BackupAlerts == 1 ? "1 alerta de backups" : $"{me.BackupAlerts} alertas de backups",
+                    $"Hay {me.BackupAlerts} alerta(s) de backups: revise que se estén haciendo y copiando fuera del equipo.", "/admin/backups", false));
+            }
+
+            if (me.OpenIntegrityIncidents > 0)
+            {
+                items.Add(new Aviso(
+                    me.OpenIntegrityIncidents == 1 ? "1 incidente de auditoría" : $"{me.OpenIntegrityIncidents} incidentes de auditoría",
+                    $"Hay {me.OpenIntegrityIncidents} incidente(s) de integridad de la auditoría sin reconocer.", "/admin/auditoria", true));
+            }
+
+            return items;
+        }
     }
 }

@@ -968,7 +968,7 @@ public sealed partial class Caja
                 openingFloat = Total(_opening),
                 openingCount = _opening.Where(c => c.Value > 0).Select(c => new { paymentMethodId = cash.Id, denominationId = c.Key, quantity = c.Value }),
             });
-            Snackbar.Add($"Jornada {_session.Number} abierta.", Severity.Success);
+            Snackbar.Add($"Turno {_session.Number} abierto.", Severity.Success);
             await ContarSuspendidasAsync();
         });
     }

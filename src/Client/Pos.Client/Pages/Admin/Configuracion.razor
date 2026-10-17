@@ -293,8 +293,7 @@
             <h2>@_parametro.Str("description")</h2>
             <MudText Typo="Typo.caption" Class="d-block mb-2">@_parametro.Str("key") · nivel: @(_nivel is null ? "empresa" : "sucursal")</MudText>
             <MudText Typo="Typo.body2" Class="mb-2">
-                Valor actual: @Valor(_parametro.Prop("value")) (@Origen(_parametro.Str("source"))).
-                Si se quita la excepción queda: @Valor(_parametro.Prop("inheritedValue")) (@Origen(_parametro.Str("inheritedFrom"))).
+                Valor actual: @Valor(_parametro.Prop("value")) (@Origen(_parametro.Str("source"))). Sin la excepción sería @Valor(_parametro.Prop("inheritedValue")).
             </MudText>
             @if (EsBooleano(_parametro.Prop("value")))
             {

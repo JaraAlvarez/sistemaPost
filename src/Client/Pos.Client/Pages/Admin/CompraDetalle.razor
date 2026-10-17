@@ -27,7 +27,7 @@
             }
             @if (_compra.Str("status") == "DRAFT" && Session.Has("purchasing.purchase.post"))
             {
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ContabilizarAsync" Class="ml-2">Contabilizar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ContabilizarAsync" Class="ml-2">Confirmar compra</MudButton>
             }
             @if (_compra.Str("status") == "POSTED" && Session.Has("purchasing.purchase.void"))
             {
@@ -63,7 +63,7 @@
                     </MudItem>
                     <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_factura" Label="Número de la factura del proveedor" Immediate="true" /></MudItem>
                     <MudItem xs="12" sm="6" md="4"><MudDatePicker @bind-Date="_fecha" Label="Fecha de la factura" DateFormat="dd/MM/yyyy" /></MudItem>
-                    <MudItem xs="12" sm="6" md="4"><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura (para contabilizar)" Min="0" /></MudItem>
+                    <MudItem xs="12" sm="6" md="4"><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura (se compara al confirmar la compra)" Min="0" /></MudItem>
                     <MudItem xs="12" sm="6" md="4">
                         <MudSelect T="string" @bind-Value="_modo" Label="Forma de pago">
                             <MudSelectItem T="string" Value="@("Credit")">A crédito (plazo del proveedor)</MudSelectItem>
@@ -127,7 +127,7 @@
                     {
                         <MudPaper Outlined="true" Class="pa-4">
                             <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Total de la factura del proveedor</MudText>
-                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al contabilizar)" Min="0" />
+                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al confirmar la compraizar)" Min="0" />
                         </MudPaper>
                     }
                     else if (_compra.Str("status") == "VOIDED")
@@ -367,7 +367,7 @@
             }
 
             var posted = await Api.PostAsync<JsonElement>($"api/v1/purchasing/purchases/{_compra.GetProperty("id").GetGuid()}/post", new { cashSessionId = (Guid?)null });
-            Snackbar.Add($"Compra {posted.Str("number")} contabilizada: entró al inventario y a cuentas por pagar.", Severity.Success);
+            Snackbar.Add($"Compra {posted.Str("number")} confirmada: entró al inventario y a cuentas por pagar.", Severity.Success);
             _compra = posted;
             _totalFactura = TotalDeclarado(posted);
         }

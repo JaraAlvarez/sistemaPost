@@ -185,5 +185,5 @@ public static class ExpensesErrors
     public static readonly Error ReasonRequired = Error.Validation("EXPENSES.REASON_REQUIRED", "Indique el motivo (de 5 a 300 caracteres).");
 
     public static readonly Error SessionRequired = Error.Validation(
-        "EXPENSES.CASH_SESSION_REQUIRED", "Un gasto en efectivo del cajón se registra desde la jornada de caja abierta.");
+        "EXPENSES.CASH_SESSION_REQUIRED", "Un gasto en efectivo del cajón se registra desde el turno de caja abierto.");
 }

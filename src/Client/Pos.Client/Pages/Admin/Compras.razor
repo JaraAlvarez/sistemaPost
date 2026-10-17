@@ -24,7 +24,7 @@
                 <MudSelect T="string" Value="_estadoCompras" ValueChanged="@(v => FiltrarComprasAsync(v))" Label="Estado" Class="my-3" Style="max-width:260px">
                     <MudSelectItem T="string" Value="@("")">Todas</MudSelectItem>
                     <MudSelectItem T="string" Value="@("DRAFT")">Borrador</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("POSTED")">Contabilizada</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("POSTED")">Confirmada</MudSelectItem>
                     <MudSelectItem T="string" Value="@("VOIDED")">Anulada</MudSelectItem>
                 </MudSelect>
                 <MudTable RowsPerPage="25" Items="_compras" Dense="true" Hover="true" Striped="true" Class="fila-clic"
@@ -44,7 +44,7 @@
                                 <MudButton Size="Size.Small" Href="@($"/admin/compras/{context.GetProperty("id").GetGuid()}")">Ver</MudButton>
                                 @if (context.Str("status") == "DRAFT" && Session.Has("purchasing.purchase.post"))
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_busy" OnClick="@(() => ContabilizarAsync(context.GetProperty("id").GetGuid()))">Contabilizar</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_busy" OnClick="@(() => ContabilizarAsync(context.GetProperty("id").GetGuid()))">Confirmar compra</MudButton>
                                 }
                             </div>
                         </MudTd>
@@ -161,7 +161,7 @@
     internal static string EstadoCompra(string status) => status switch
     {
         "DRAFT" => "Borrador",
-        "POSTED" => "Contabilizada",
+        "POSTED" => "Confirmada",
         "VOIDED" => "Anulada",
         _ => status,
     };
@@ -241,7 +241,7 @@
         try
         {
             var posted = await Api.PostAsync<JsonElement>($"api/v1/purchasing/purchases/{purchaseId}/post", new { cashSessionId = (Guid?)null });
-            Snackbar.Add($"Compra {posted.Str("number")} contabilizada: entró al inventario y a cuentas por pagar.", Severity.Success);
+            Snackbar.Add($"Compra {posted.Str("number")} confirmada: entró al inventario y a cuentas por pagar.", Severity.Success);
             foreach (var alert in posted.Prop("alerts").Items())
             {
                 Snackbar.Add($"{alert.Str("sku")} {alert.Str("productName")}: {alert.Str("message")}", Severity.Warning);
