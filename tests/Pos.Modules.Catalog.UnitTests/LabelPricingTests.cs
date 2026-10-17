@@ -50,6 +50,29 @@ public class LabelPricingTests
     }
 
     [Fact]
+    public void Precio_por_cantidad_desde_una_unidad_es_un_precio_especial()
+    {
+        LabelPromotion[] promotions =
+        [
+            new("Desde 1", "QUANTITY_PRICE", [ForProduct()], Price: 8_000m, MinQuantity: 1m),
+            new("Especial", "SPECIAL_PRICE", [ForProduct()], Price: 8_500m),
+        ];
+
+        LabelPricing.BestOffer(Product, Category, Brand, 10_000m, false, Iva19, promotions).ShouldBe(new LabelOffer(9_520m, "Precio especial"));
+    }
+
+    [Fact]
+    public void En_productos_por_peso_la_cantidad_va_en_kilos()
+    {
+        var product = Data(saleMode: SaleMode.Weight, scale: true, unit: "KG", listPrice: 20_000m, barcode: null);
+
+        var item = LabelBuilder.ToItem(product, [], [new LabelPromotion("x", "QUANTITY_PRICE", [ForProduct()], Price: 18_000m, MinQuantity: 2m)], 1,
+            TimeZoneInfo.Utc);
+
+        item.PromoText.ShouldBe("Desde 2 kg: $ 18.000 /kg");
+    }
+
+    [Fact]
     public void Gana_la_oferta_de_menor_precio()
     {
         LabelPromotion[] promotions =
@@ -186,5 +209,5 @@ public class LabelPricingTests
         SaleMode saleMode = SaleMode.Unit, bool scale = false, string unit = "UND", decimal? netContent = null, string? netUnit = null,
         decimal? listPrice = 1_000m, bool includesTax = true, string? barcode = "7702177000014", ProductStatus status = ProductStatus.Active) =>
         new(Product, "SKU-1", "Producto de prueba", Category, Brand, unit, saleMode, scale, netContent, netUnit, status, barcode, listPrice,
-            includesTax, AllowsPromotions: true);
+            includesTax);
 }

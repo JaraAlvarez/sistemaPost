@@ -442,12 +442,45 @@ internal sealed class CatalogStore(PosDbContext context) : ICatalogStore
             RETURNING last_value AS "Value"
             """).ToListAsync(cancellationToken)).Single();
 
-    public async Task<long> ReserveCodeSequencesAsync(Guid nodeId, string kind, int count, CancellationToken cancellationToken) =>
-        (await context.Database.SqlQuery<long>($"""
-            INSERT INTO catalog.code_sequences (node_id, kind, last_value) VALUES ({nodeId}, {kind}, {count})
-            ON CONFLICT (node_id, kind) DO UPDATE SET last_value = catalog.code_sequences.last_value + {count}
-            RETURNING last_value AS "Value"
-            """).ToListAsync(cancellationToken)).Single();
+    public async Task<IReadOnlyList<long>> ReserveFreeInternalSequencesAsync(
+        Guid nodeId, Guid companyId, string prefix, int count, CancellationToken cancellationToken)
+    {
+        // 1) La fila del consecutivo existe y queda bloqueada hasta el fin de la transacción.
+        await context.Database.ExecuteSqlAsync($"""
+            INSERT INTO catalog.code_sequences (node_id, kind, last_value) VALUES ({nodeId}, 'BARCODE', 0)
+            ON CONFLICT (node_id, kind) DO UPDATE SET last_value = catalog.code_sequences.last_value
+            """, cancellationToken);
+
+        // 2) Una sola consulta: los primeros números libres después del último usado. El rango basta con count + los ocupados por encima.
+        var pattern = prefix + "%";
+        var free = await context.Database.SqlQuery<long>($"""
+            WITH cur AS (
+                SELECT last_value FROM catalog.code_sequences WHERE node_id = {nodeId} AND kind = 'BARCODE'
+            ), taken AS (
+                SELECT substring(b.normalized_code FROM 6 FOR 7)::bigint AS s
+                FROM catalog.product_barcodes b
+                WHERE b.company_id = {companyId} AND b.deleted_at IS NULL AND b.normalized_code LIKE {pattern}
+                  AND length(b.normalized_code) = 13 AND b.normalized_code ~ '^[0-9]+$'
+            )
+            SELECT g AS "Value"
+            FROM cur, generate_series(cur.last_value + 1,
+                    LEAST(9999999, cur.last_value + {count} + (SELECT count(*) FROM taken WHERE taken.s > cur.last_value))) AS g
+            WHERE g NOT IN (SELECT s FROM taken)
+            ORDER BY g
+            LIMIT {count}
+            """).ToListAsync(cancellationToken);
+
+        // 3) El consecutivo avanza hasta el mayor reservado (los saltados quedan atrás).
+        if (free.Count > 0)
+        {
+            var last = free[^1];
+            await context.Database.ExecuteSqlAsync(
+                $"UPDATE catalog.code_sequences SET last_value = GREATEST(last_value, {last}) WHERE node_id = {nodeId} AND kind = 'BARCODE'",
+                cancellationToken);
+        }
+
+        return free;
+    }
 
     private sealed record UnitRow(string Code, string Dimension);
 }

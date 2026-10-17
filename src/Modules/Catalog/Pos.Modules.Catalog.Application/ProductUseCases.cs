@@ -152,26 +152,21 @@ public sealed class ProductWriter(
     public async Task<Result<IReadOnlyList<NormalizedBarcode>>> ReserveInternalCodesAsync(int count, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
-        var node = await directory.GetLocalNodeNumberAsync(cancellationToken);
-        var codes = new List<NormalizedBarcode>(count);
-        for (var attempt = 0; attempt < 20 && codes.Count < count; attempt++)
+        var companyId = installation.RequireCompany();
+        if (companyId.IsFailure)
         {
-            var missing = count - codes.Count;
-            var last = await store.ReserveCodeSequencesAsync(installation.NodeId, "BARCODE", missing, cancellationToken);
-            if (last > Barcodes.MaxInternalSequence)
-            {
-                return CatalogErrors.InternalCodesExhausted;
-            }
-
-            var candidates = Enumerable.Range(0, missing)
-                .Select(i => Barcodes.Normalize(Barcodes.Internal(node, last - missing + 1 + i), BarcodeType.Internal).Value)
-                .ToList();
-            var taken = (await store.FindBarcodesAsync([.. candidates.Select(c => c.NormalizedCode)], cancellationToken))
-                .Select(b => b.NormalizedCode).ToHashSet(StringComparer.Ordinal);
-            codes.AddRange(candidates.Where(c => !taken.Contains(c.NormalizedCode)));
+            return companyId.Error;
         }
 
-        return codes.Count == count ? codes : CatalogErrors.InternalCodesExhausted;
+        var node = await directory.GetLocalNodeNumberAsync(cancellationToken);
+        var prefix = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{Barcodes.InternalPrefix}{node:D3}");
+        var free = await store.ReserveFreeInternalSequencesAsync(installation.NodeId, companyId.Value, prefix, count, cancellationToken);
+        if (free.Count < count)
+        {
+            return CatalogErrors.InternalCodesExhausted;
+        }
+
+        return free.Select(sequence => Barcodes.Normalize(Barcodes.Internal(node, sequence), BarcodeType.Internal).Value).ToList();
     }
 
     /// <summary>Reemplaza los impuestos del producto (máximo un IVA). Sin lista: el IVA por defecto de la empresa.</summary>

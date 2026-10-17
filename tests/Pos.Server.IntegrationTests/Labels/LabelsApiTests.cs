@@ -124,14 +124,99 @@ public class LabelsApiTests
         (await PreviewAsync(owner, new { source = "PRODUCTS", productIds = new[] { scenario.Rice } })).Items.Single().Barcode.ShouldBe(code.Barcode);
         (await scenario.Catalog.ScanAsync(code.Barcode)).ProductId.ShouldBe(scenario.Rice);
 
-        // Si el siguiente número del consecutivo ya existe (escrito a mano), se salta; un descontinuado no detiene el lote.
+        // Si los siguientes 26 números del consecutivo ya existen (escritos a mano), se saltan todos de una vez; un descontinuado no detiene el lote.
         var node = short.Parse(code.Barcode[2..5], CultureInfo.InvariantCulture);
         var sequence = long.Parse(code.Barcode[5..12], CultureInfo.InvariantCulture);
-        await scenario.Catalog.ProductAsync("A-MANO", "Código escrito a mano", drinks, barcode: Barcodes.Internal(node, sequence + 1), price: 1_000m);
-        var next = (await scenario.Catalog.ProductAsync("SIN-COD", "Sin código", drinks, price: 1_000m)).Id;
-        var batch = await PostAsync<List<GeneratedLabelCodeDto>>(owner, "/api/v1/catalog/labels/internal-codes", new { productIds = new[] { extra2, next } });
+        for (var i = 1; i <= 26; i++)
+        {
+            await scenario.Catalog.ProductAsync($"A-MANO-{i}", $"Código escrito a mano {i}", drinks, barcode: Barcodes.Internal(node, sequence + i), price: 1_000m);
+        }
+
+        var first = (await scenario.Catalog.ProductAsync("SIN-COD-1", "Sin código uno", drinks, price: 1_000m)).Id;
+        var second = (await scenario.Catalog.ProductAsync("SIN-COD-2", "Sin código dos", drinks, price: 1_000m)).Id;
+        var batch = await PostAsync<List<GeneratedLabelCodeDto>>(owner, "/api/v1/catalog/labels/internal-codes", new { productIds = new[] { extra2, first, second } });
         batch.Single(g => g.ProductId == extra2).Message.ShouldBe("El producto está descontinuado.");
-        batch.Single(g => g.ProductId == next).Barcode.ShouldBe(Barcodes.Internal(node, sequence + 2));
+        batch.Single(g => g.ProductId == first).Barcode.ShouldBe(Barcodes.Internal(node, sequence + 27));
+        batch.Single(g => g.ProductId == second).Barcode.ShouldBe(Barcodes.Internal(node, sequence + 28));
+        (await scenario.Catalog.ScalarAsync<long>("SELECT last_value FROM catalog.code_sequences WHERE kind = 'BARCODE'")).ShouldBe(sequence + 28);
+    }
+
+    [Fact]
+    public async Task Sucursal_promociones_y_compras_de_otra_sucursal()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await PurchasingScenario.CreateAsync(factory);
+        var owner = scenario.Owner;
+        var home = scenario.Catalog.Setup.BranchId;
+        var created = await owner.PostAsJsonAsync("/api/v1/organization/branches", new { code = "S02", name = "Norte", municipalityCode = "11001", address = "Cra 7" }, Json, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
+        var northDetail = (await created.Content.ReadFromJsonAsync<Pos.Modules.Organization.Contracts.BranchDetailDto>(Json, Ct))!;
+        var north = northDetail.Branch.Id;
+        var northFloor = northDetail.Warehouses.First(w => w.Kind == "SALES_FLOOR").Id;
+
+        // Precio propio de la sucursal Norte: la etiqueta de Norte lo usa; la de la sucursal principal, el general.
+        var price = await owner.PostAsJsonAsync($"/api/v1/catalog/products/{scenario.Rice}/prices", new { price = 2_800m, branchId = north }, Json, Ct);
+        price.IsSuccessStatusCode.ShouldBeTrue(await price.Content.ReadAsStringAsync(Ct));
+        (await PreviewAsync(owner, new { source = "PRODUCTS", productIds = new[] { scenario.Rice }, branchId = north })).Items.Single().Price.ShouldBe(2_800m);
+        (await PreviewAsync(owner, new { source = "PRODUCTS", productIds = new[] { scenario.Rice } })).Items.Single().Price.ShouldBe(3_000m);
+        await owner.PostAsJsonAsync("/api/v1/catalog/labels/preview", new { source = "PRODUCTS", productIds = new[] { scenario.Rice }, branchId = Guid.NewGuid() }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.NotFound, "CATALOG.LABELS_BRANCH_NOT_FOUND");
+
+        // Un usuario de la sucursal principal no arma etiquetas de Norte.
+        var role = await owner.PostAsJsonAsync("/api/v1/identity/roles", new { code = "ETIQUETAS", name = "Etiquetas", permissions = OnlyView }, Json, Ct);
+        role.StatusCode.ShouldBe(HttpStatusCode.Created, await role.Content.ReadAsStringAsync(Ct));
+        var security = SecurityScenario.ForExisting(factory, owner, scenario.Catalog.Setup);
+        await security.CreateUserAsync("etiquetas.principal", "ETIQUETAS", branchId: home);
+        var local = await security.LocalClientAsync("etiquetas.principal");
+        await local.PostAsJsonAsync("/api/v1/catalog/labels/preview", new { source = "PRODUCTS", productIds = new[] { scenario.Rice }, branchId = north }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "CATALOG.LABELS_BRANCH_FORBIDDEN");
+
+        // E8: una compra de otra sucursal no se encuentra.
+        var purchase = await scenario.BuyAsync("FE-NORTE", new { productId = scenario.Rice, quantity = 5, unitCost = 2_000 });
+        await scenario.Catalog.ScalarAsync<int?>($"UPDATE purchasing.purchases SET branch_id = '{north}', warehouse_id = '{northFloor}' WHERE id = '{purchase.Id}'");
+        await owner.PostAsJsonAsync("/api/v1/catalog/labels/preview", new { source = "PURCHASE", purchaseNumber = purchase.Number }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.NotFound, "CATALOG.LABELS_PURCHASE_NOT_FOUND");
+        (await PreviewAsync(owner, new { source = "PURCHASE", purchaseNumber = purchase.Number, branchId = north })).Items.Single().Quantity.ShouldBe(5);
+
+        // Promociones de punta a punta (ActivePromotions): la de horario no va en la etiqueta; la que tiene fecha final dice hasta cuándo.
+        var drinks = await scenario.Catalog.CategoryAsync("Bebidas");
+        var scheduled = (await scenario.Catalog.ProductAsync("HORARIO", "Con horario", drinks, price: 5_000m)).Id;
+        var dated = (await scenario.Catalog.ProductAsync("FECHADA", "Con fecha", drinks, price: 5_000m)).Id;
+        var validTo = DateTimeOffset.UtcNow.AddDays(3);
+        await PromotionAsync(owner, new
+        {
+            name = "Hora feliz", type = "SpecialPrice", validFrom = DateTimeOffset.UtcNow.AddHours(-1), startTime = "00:00:00", endTime = "23:59:59",
+            price = 4_000m, items = new[] { new { productId = scheduled } },
+        });
+        await PromotionAsync(owner, new
+        {
+            name = "Hasta el viernes", type = "SpecialPrice", validFrom = DateTimeOffset.UtcNow.AddHours(-1), validTo, price = 4_500m,
+            items = new[] { new { productId = dated } },
+        });
+
+        // Datos viejos: la lista general con "no admite promociones" se trata como si las admitiera (igual que la caja).
+        await scenario.Catalog.ScalarAsync<int?>("UPDATE catalog.price_lists SET allows_promotions = false WHERE is_default");
+        var items = (await PreviewAsync(owner, new { source = "PRODUCTS", productIds = new[] { scheduled, dated } })).Items;
+        items.Single(i => i.ProductId == scheduled).PromoText.ShouldBeNull();
+        var withOffer = items.Single(i => i.ProductId == dated);
+        withOffer.PromoPrice.ShouldBe(4_500m);
+        withOffer.PromoValidUntil.ShouldBe(DateOnly.FromDateTime(validTo.AddTicks(-1).ToOffset(TimeSpan.FromHours(-5)).DateTime));
+
+        // EN2: la lista general no se puede marcar sin promociones.
+        await scenario.Catalog.ScalarAsync<int?>("UPDATE catalog.price_lists SET allows_promotions = true WHERE is_default");
+        var general = (await GetAsync<List<PriceListDto>>(owner, "/api/v1/catalog/price-lists")).Single(l => l.IsDefault);
+        await owner.PutAsJsonAsync($"/api/v1/catalog/price-lists/{general.Id}",
+                new { name = general.Name, pricesIncludeTax = general.PricesIncludeTax, isDefault = true, isActive = true, allowsPromotions = false }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "CATALOG.DEFAULT_LIST_ALLOWS_PROMOTIONS");
+    }
+
+    private static async Task PromotionAsync(HttpClient owner, object promotion)
+    {
+        var created = await owner.PostAsJsonAsync("/api/v1/promotions", promotion, Json, Ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(Ct));
+        var id = (await created.Content.ReadFromJsonAsync<Pos.Modules.Promotions.Contracts.PromotionDto>(Json, Ct))!.Id;
+        var activated = await owner.PostAsync($"/api/v1/promotions/{id}/activate", null, Ct);
+        activated.StatusCode.ShouldBe(HttpStatusCode.OK, await activated.Content.ReadAsStringAsync(Ct));
     }
 
     [Fact]

@@ -68,7 +68,7 @@ public static class LabelPricing
     /// </summary>
     public static LabelOffer? BestOffer(
         Guid productId, Guid categoryId, Guid? brandId, decimal? listPrice, bool includesTax, IReadOnlyList<LabelTax> taxes,
-        IEnumerable<LabelPromotion> promotions)
+        IEnumerable<LabelPromotion> promotions, string quantityUnit = "und")
     {
         ArgumentNullException.ThrowIfNull(promotions);
         ArgumentNullException.ThrowIfNull(taxes);
@@ -90,6 +90,15 @@ public static class LabelPricing
                     priced.Add((CheckoutPrice(gross - Math.Clamp(gross - Rounding.RoundMoney(price), 0m, gross), includesTax, taxes), "Precio especial",
                         promotion.ValidTo));
                     break;
+                case "QUANTITY_PRICE" when promotion is { Price: > 0m, MinQuantity: <= 1m }:
+                    // Desde 1 unidad (o menos) la caja la aplica a la primera unidad: es un precio especial.
+                    priced.Add((CheckoutPrice(gross - Math.Clamp(gross - Rounding.RoundMoney(promotion.Price!.Value), 0m, gross), includesTax, taxes),
+                        "Precio especial", promotion.ValidTo));
+                    break;
+                case "MULTI_BUY" when promotion is { BuyQuantity: 1, PayQuantity: 0 }:
+                    // Lleve 1 pague 0: la caja descuenta la unidad completa.
+                    priced.Add((CheckoutPrice(0m, includesTax, taxes), "Gratis", promotion.ValidTo));
+                    break;
                 case "PERCENT_OFF" when promotion.Percent is { } percent && percent > 0m:
                     var discount = Math.Clamp(Rounding.RoundMoney(gross * percent / 100m), 0m, gross);
                     priced.Add((CheckoutPrice(gross - discount, includesTax, taxes), $"Ahorre {percent.ToString("0.##", Colombia)} %", promotion.ValidTo));
@@ -104,15 +113,15 @@ public static class LabelPricing
             return new LabelOffer(best.Price, best.Text, best.ValidTo);
         }
 
-        var quantity = applicable.Where(p => p is { Kind: "QUANTITY_PRICE", Price: > 0m, MinQuantity: > 0m } && Rounding.RoundMoney(p.Price!.Value) < gross)
+        var quantity = applicable.Where(p => p is { Kind: "QUANTITY_PRICE", Price: > 0m, MinQuantity: > 1m } && Rounding.RoundMoney(p.Price!.Value) < gross)
             .OrderBy(p => p.Price).FirstOrDefault();
         if (quantity is not null)
         {
             var each = CheckoutPrice(Rounding.RoundMoney(quantity.Price!.Value), includesTax, taxes);
-            return new LabelOffer(null, $"Desde {quantity.MinQuantity!.Value.ToString("0.###", Colombia)} und: {Money(each)} c/u", quantity.ValidTo);
+            return new LabelOffer(null, $"Desde {quantity.MinQuantity!.Value.ToString("0.###", Colombia)} {quantityUnit}: {Money(each)} {(quantityUnit == "und" ? "c/u" : "/" + quantityUnit)}", quantity.ValidTo);
         }
 
-        var multi = applicable.Where(p => p is { Kind: "MULTI_BUY", BuyQuantity: > 0, PayQuantity: >= 0 } && p.BuyQuantity > p.PayQuantity)
+        var multi = applicable.Where(p => p is { Kind: "MULTI_BUY", BuyQuantity: > 1, PayQuantity: >= 0 } && p.BuyQuantity > p.PayQuantity)
             .OrderByDescending(p => (decimal)(p.BuyQuantity!.Value - p.PayQuantity!.Value) / p.BuyQuantity.Value).FirstOrDefault();
         return multi is null ? null : new LabelOffer(null, MultiBuyText(multi), multi.ValidTo);
     }

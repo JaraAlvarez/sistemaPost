@@ -100,6 +100,25 @@ public class AgentApiTests
     }
 
     [Fact]
+    public async Task Una_simbologia_en_minusculas_o_desconocida_no_rechaza_el_tiquete()
+    {
+        await using var agent = new AgentFactory();
+        const string json = """
+            { "printer": { "connection": "file" },
+              "ticket": { "title": "x", "cut": false, "elements": [
+                { "type": "barcode", "data": "7702177000014", "symbology": "ean13" },
+                { "type": "barcode", "data": "SKU-1", "symbology": "pdf417" } ] } }
+            """;
+
+        var response = await agent.CreateClient().PostAsync("/print", Raw(json), Ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        agent.SingleOutput().ShouldBe(EscPosEncoder.Encode(
+            new TicketDocument("x", [new BarcodeElement("7702177000014", BarcodeElement.Ean13), new BarcodeElement("SKU-1", BarcodeElement.Code128)], Cut: false),
+            new PrinterOptions()));
+    }
+
+    [Fact]
     public async Task Sin_cajon_conectado_se_omite_el_pulso_y_no_se_abre()
     {
         await using var agent = new AgentFactory();

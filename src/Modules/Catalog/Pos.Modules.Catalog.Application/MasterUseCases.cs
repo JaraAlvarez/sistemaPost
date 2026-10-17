@@ -448,8 +448,15 @@ internal sealed class UpdatePriceListHandler(ICatalogStore store, Pos.Applicatio
             return updated.Error;
         }
 
+        // La lista general siempre admite promociones (la caja las aplica sobre ella): no se puede apagar ni al volverla general.
+        if (request.IsDefault && request.AllowsPromotions == false)
+        {
+            return CatalogErrors.DefaultListAllowsPromotions;
+        }
+
         var rules = list.ConfigureRules(
-            request.IsDefault ? null : request.AdjustmentPercent, request.RoundingIncrement ?? list.RoundingIncrement, request.AllowsPromotions ?? list.AllowsPromotions);
+            request.IsDefault ? null : request.AdjustmentPercent, request.RoundingIncrement ?? list.RoundingIncrement,
+            request.IsDefault ? true : request.AllowsPromotions ?? list.AllowsPromotions);
         if (rules.IsFailure)
         {
             return rules.Error;

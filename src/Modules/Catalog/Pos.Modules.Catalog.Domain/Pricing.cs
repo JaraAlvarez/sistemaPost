@@ -37,7 +37,10 @@ public sealed partial class PriceList : AggregateRoot<Guid>, ICompanyOwned, ISof
     /// <summary>Múltiplo al que se redondea el precio derivado (p. ej. $50); 0 = al centavo.</summary>
     public decimal RoundingIncrement { get; private set; } = 50m;
 
-    /// <summary>Las promociones aplican sobre el precio de esta lista (D8-10); si no, la lista ya es el precio final.</summary>
+    /// <summary>
+    /// Las promociones aplican sobre el precio de esta lista (D8-10); si no, la lista ya es el precio final. La lista general SIEMPRE admite
+    /// promociones (la caja no mira este valor para ella): <see cref="ConfigureRules"/> rechaza apagarlo y <see cref="MakeDefault"/> lo enciende.
+    /// </summary>
     public bool AllowsPromotions { get; private set; } = true;
 
     public string AuditLabel => $"Lista de precios {Code} · {Name}";
@@ -51,6 +54,11 @@ public sealed partial class PriceList : AggregateRoot<Guid>, ICompanyOwned, ISof
             return Error.Validation(
                 "CATALOG.INVALID_PRICE_LIST_RULES",
                 "Reglas inválidas: la lista general no tiene porcentaje; el porcentaje va de −90 a +100 (distinto de 0) y el redondeo de 0 a 1.000.");
+        }
+
+        if (IsDefault && !allowsPromotions)
+        {
+            return CatalogErrors.DefaultListAllowsPromotions;
         }
 
         AdjustmentPercent = adjustmentPercent;
@@ -97,6 +105,7 @@ public sealed partial class PriceList : AggregateRoot<Guid>, ICompanyOwned, ISof
     public void MakeDefault()
     {
         IsDefault = true;
+        AllowsPromotions = true;
         Status = MasterStatus.Active;
     }
 

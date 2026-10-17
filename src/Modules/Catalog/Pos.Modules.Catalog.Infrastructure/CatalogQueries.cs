@@ -224,7 +224,7 @@ internal sealed class CatalogQueries(PosDbContext context) : ICatalogQueries
             .GroupBy(b => b.ProductId)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(b => b.IsPrimary).ThenBy(b => b.Code, StringComparer.Ordinal).First().Code);
         var list = await context.Set<PriceList>().AsNoTracking().Where(l => l.IsDefault)
-            .Select(l => new { l.Id, l.PricesIncludeTax, l.AllowsPromotions }).FirstOrDefaultAsync(cancellationToken);
+            .Select(l => new { l.Id, l.PricesIncludeTax }).FirstOrDefaultAsync(cancellationToken);
         var prices = list is null
             ? []
             : (await context.Set<ProductPrice>().AsNoTracking()
@@ -236,8 +236,7 @@ internal sealed class CatalogQueries(PosDbContext context) : ICatalogQueries
                 .ToDictionary(g => g.Key, g => g.OrderBy(r => r.BranchId is null ? 1 : 0).First().Price);
         return [.. products.Select(p => new LabelProductData(
             p.Id, p.Sku, p.Name, p.CategoryId, p.BrandId, p.BaseUnitCode, p.SaleMode, p.IsSoldByScale, p.NetContent, p.NetContentUnit, p.Status,
-            barcodes.GetValueOrDefault(p.Id), prices.TryGetValue(p.Id, out var price) ? price : null, list?.PricesIncludeTax ?? true,
-            list?.AllowsPromotions ?? true))];
+            barcodes.GetValueOrDefault(p.Id), prices.TryGetValue(p.Id, out var price) ? price : null, list?.PricesIncludeTax ?? true))];
     }
 
     private async Task<Dictionary<Guid, decimal>> EffectivePricesAsync(List<Guid> productIds, Guid? branchId, DateTimeOffset now, CancellationToken cancellationToken)

@@ -159,12 +159,24 @@ public static class EscPosEncoder
         return [Esc, 0x61, 1, Gs, 0x68, 80, Gs, 0x77, 2, Gs, 0x48, 2, Gs, 0x6B, 73, length, .. payload.Take(length), Lf, Esc, 0x61, 0];
     }
 
-    /// <summary>Puntos imprimibles del papel: 58 mm = 384 puntos; 80 mm = 576 (203 ppp).</summary>
+    /// <summary>
+    /// Puntos imprimibles del papel (203 ppp): 58 mm = 384 puntos; 80 mm = 512 (72 mm de área útil en la mayoría de las impresoras económicas,
+    /// conservador frente a los 576 de las que imprimen todo el ancho).
+    /// </summary>
     public static int PaperDots(PrinterOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return options.Columns <= TicketLayout.Columns58Mm ? 384 : 576;
+        return options.Columns <= TicketLayout.Columns58Mm ? 384 : 512;
     }
+
+    /// <summary>Simbología normalizada (mayúsculas, sin espacios ni guiones): EAN13, EAN8 o, cualquier otra, CODE128.</summary>
+    public static string NormalizeSymbology(string? symbology) =>
+        (symbology ?? string.Empty).Trim().ToUpperInvariant().Replace("-", string.Empty, StringComparison.Ordinal).Replace("_", string.Empty, StringComparison.Ordinal) switch
+        {
+            BarcodeElement.Ean13 => BarcodeElement.Ean13,
+            BarcodeElement.Ean8 => BarcodeElement.Ean8,
+            _ => BarcodeElement.Code128,
+        };
 
     /// <summary>
     /// Código con simbología explícita: EAN-13 (GS k 67) y EAN-8 (GS k 68) si los dígitos son válidos; si no, CODE128 (subconjunto C cuando
@@ -175,14 +187,15 @@ public static class EscPosEncoder
     {
         var data = ToAscii(barcode.Data ?? string.Empty).Trim();
         var digits = data.Length > 0 && data.All(char.IsAsciiDigit);
+        var symbology = NormalizeSymbology(barcode.Symbology);
         byte system;
         byte[] payload;
         int modules;
-        if (barcode.Symbology == BarcodeElement.Ean13 && digits && data.Length == 13 && ValidGtin(data))
+        if (symbology == BarcodeElement.Ean13 && digits && data.Length == 13 && ValidGtin(data))
         {
             (system, payload, modules) = (67, Encoding.ASCII.GetBytes(data), 95 + 18);
         }
-        else if (barcode.Symbology == BarcodeElement.Ean8 && digits && data.Length == 8 && ValidGtin(data))
+        else if (symbology == BarcodeElement.Ean8 && digits && data.Length == 8 && ValidGtin(data))
         {
             (system, payload, modules) = (68, Encoding.ASCII.GetBytes(data), 67 + 14);
         }

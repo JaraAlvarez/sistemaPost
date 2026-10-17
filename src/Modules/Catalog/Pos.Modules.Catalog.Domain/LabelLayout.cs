@@ -48,7 +48,7 @@ public sealed record LabelTemplate(
 public sealed record LabelSlot(int Page, int Column, int Row, decimal X, decimal Y);
 
 /// <summary>Cómo se dibuja un código: ancho del módulo y del área (mm) y si ocupa todo el ancho de la etiqueta.</summary>
-public sealed record BarcodeFit(decimal Module, decimal AreaWidth, bool FullWidth);
+public sealed record BarcodeFit(decimal Module, decimal AreaWidth, bool FullWidth, bool BelowNominal = false);
 
 /// <summary>Reparte etiquetas en páginas: llena cada hoja por filas (izquierda a derecha, arriba a abajo) y pasa a la siguiente.</summary>
 public static class LabelLayout
@@ -69,6 +69,9 @@ public static class LabelLayout
 
     /// <summary>Módulo (barra más delgada) mínimo legible: 0,25 mm = 2 puntos de una impresora térmica de 203 ppp.</summary>
     public const decimal MinModule = 0.25m;
+
+    /// <summary>Módulo nominal mínimo de EAN-13/EAN-8 (80 % de 0,33 mm, norma GS1).</summary>
+    public const decimal MinEanModule = 0.264m;
 
     /// <summary>Un punto de una impresora térmica de 203 ppp: el módulo se ajusta a puntos enteros para que todas las barras salgan iguales.</summary>
     public const decimal Dot = 0.125m;
@@ -97,27 +100,39 @@ public static class LabelLayout
 
     /// <summary>
     /// Cómo cabe un código de <paramref name="totalModules"/> módulos (con zonas en blanco): módulo = mayor múltiplo de un punto que cabe, hasta
-    /// 0,5 mm y nunca menos de 0,25 mm. En góndola, si no cabe en el 58 % usa todo el ancho (<c>FullWidth</c>; los datos menores suben a la
-    /// fila del precio). Null si ni así cabe: el código es demasiado largo para esta etiqueta.
+    /// 0,5 mm. Primero se busca el tamaño nominal mínimo (0,264 mm = 80 % para EAN; 0,25 mm para CODE128) en el ancho normal y luego en todo el
+    /// ancho de la etiqueta (<c>FullWidth</c>; en góndola los datos menores suben a la fila del precio). Un EAN que solo cabe a 0,25 mm se dibuja
+    /// así con <c>BelowNominal</c> (se avisa: algunos lectores lo leen mal). Null si ni así cabe: el código es demasiado largo para la etiqueta.
     /// </summary>
-    public static BarcodeFit? FitBarcode(LabelTemplate template, int totalModules)
+    public static BarcodeFit? FitBarcode(LabelTemplate template, int totalModules, bool ean = false)
     {
         ArgumentNullException.ThrowIfNull(template);
         ArgumentOutOfRangeException.ThrowIfLessThan(totalModules, 1);
-        foreach (var (area, full) in new[] { (BarcodeAreaWidth(template), template.IsSticker), (InnerWidth(template), true) })
+        (decimal Area, bool Full)[] areas = [(BarcodeAreaWidth(template), template.IsSticker), (InnerWidth(template), true)];
+        foreach (var minimum in ean ? new[] { MinEanModule, MinModule } : [MinModule])
         {
-            var snapped = decimal.Floor(area / totalModules / Dot) * Dot;
-            if (snapped >= MinModule)
+            foreach (var (area, full) in areas)
             {
-                return new BarcodeFit(Math.Min(snapped, MaxModule), area, full);
+                var snapped = decimal.Floor(area / totalModules / Dot) * Dot;
+                if (snapped >= minimum)
+                {
+                    return new BarcodeFit(Math.Min(snapped, MaxModule), area, full, BelowNominal: ean && snapped < MinEanModule);
+                }
             }
         }
 
         return null;
     }
 
-    /// <summary>Ancho del módulo en milímetros, o null si el código no cabe legible (ver <see cref="FitBarcode"/>).</summary>
-    public static decimal? ModuleWidth(LabelTemplate template, int totalModules) => FitBarcode(template, totalModules)?.Module;
+    /// <summary>Cómo cabe este código en la etiqueta (EAN-13/EAN-8 con su mínimo nominal).</summary>
+    public static BarcodeFit? FitBarcode(LabelTemplate template, BarcodeDrawing barcode)
+    {
+        ArgumentNullException.ThrowIfNull(barcode);
+        return FitBarcode(template, barcode.TotalModules, barcode.Symbol != BarcodeSymbol.Code128);
+    }
+
+    /// <summary>Ancho del módulo en milímetros, o null si el código no cabe legible (ver <see cref="FitBarcode(LabelTemplate, int, bool)"/>).</summary>
+    public static decimal? ModuleWidth(LabelTemplate template, int totalModules, bool ean = false) => FitBarcode(template, totalModules, ean)?.Module;
 
     /// <summary>Número de páginas para <paramref name="labels"/> etiquetas (al menos una).</summary>
     public static int PageCount(LabelTemplate template, int labels)

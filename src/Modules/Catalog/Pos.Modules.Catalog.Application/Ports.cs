@@ -107,8 +107,12 @@ public interface ICatalogStore
     /// <summary>Siguiente consecutivo del nodo para códigos internos (SKU o BARCODE), dentro de la transacción.</summary>
     Task<long> NextCodeSequenceAsync(Guid nodeId, string kind, CancellationToken cancellationToken);
 
-    /// <summary>Reserva <paramref name="count"/> consecutivos seguidos del nodo y devuelve el último (el primero es último − count + 1).</summary>
-    Task<long> ReserveCodeSequencesAsync(Guid nodeId, string kind, int count, CancellationToken cancellationToken);
+    /// <summary>
+    /// Reserva los <paramref name="count"/> primeros consecutivos de códigos internos del nodo (después del último usado) cuyo código
+    /// <c>{prefix}{consecutivo:D7}{control}</c> NO exista ya en la empresa, con una sola consulta (generate_series menos los ocupados), y
+    /// adelanta el consecutivo hasta el mayor reservado. Devuelve menos de <paramref name="count"/> si se agotan (máximo 9.999.999).
+    /// </summary>
+    Task<IReadOnlyList<long>> ReserveFreeInternalSequencesAsync(Guid nodeId, Guid companyId, string prefix, int count, CancellationToken cancellationToken);
 }
 
 /// <summary>Lecturas del catálogo optimizadas (SQL directo), sin seguimiento de cambios.</summary>
@@ -156,7 +160,8 @@ public sealed record LabelFilter(string Source, Guid? CategoryId, DateTimeOffset
 
 /// <summary>
 /// Producto para su etiqueta. <c>Barcode</c>: código principal de la unidad base (sin presentación); <c>ListPrice</c>: precio vigente por
-/// unidad base en la lista por defecto (el de la sucursal gana) e <c>IncludesTax</c> si la lista ya trae los impuestos.
+/// unidad base en la lista por defecto (el de la sucursal gana) e <c>IncludesTax</c> si la lista ya trae los impuestos. La lista general
+/// siempre admite promociones (como en la caja), por eso no se lleva ese dato.
 /// </summary>
 public sealed record LabelProductData(
     Guid Id,
@@ -172,8 +177,7 @@ public sealed record LabelProductData(
     ProductStatus Status,
     string? Barcode,
     decimal? ListPrice,
-    bool IncludesTax,
-    bool AllowsPromotions);
+    bool IncludesTax);
 
 /// <summary>Filtro de búsqueda de productos (texto sin tildes por palabras, SKU o código exacto).</summary>
 public sealed record ProductSearch(string? Text, Guid? CategoryId, Guid? BrandId, ProductStatus? Status, int Page, int PageSize, Guid? BranchId);

@@ -20,7 +20,11 @@
     <ChildContent>
         <MudPaper Class="pa-4 mb-4" Elevation="1">
             <MudText Typo="Typo.h6" Class="mb-2">1. ¿Qué productos?</MudText>
-            @if (_sucursales.Count > 1)
+            @if (_avisoSucursal is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@_avisoSucursal</MudAlert>
+            }
+            @if (_sucursales.Count > 1 || (_necesitaSucursal && _sucursales.Count > 0))
             {
                 <MudSelect T="Guid?" @bind-Value="_sucursal" Label="Sucursal (precios y promociones)" Dense="true" Class="mb-3" Style="max-width: 420px;">
                     @foreach (var branch in _sucursales)
@@ -165,6 +169,8 @@
     private IReadOnlyList<LabelTemplateDto> _plantillas = [];
     private IReadOnlyList<Pos.Modules.Organization.Contracts.BranchDto> _sucursales = [];
     private Guid? _sucursal;
+    private bool _necesitaSucursal;
+    private string? _avisoSucursal;
     private IReadOnlyList<string> _avisos = [];
     private string _source = LabelSources.Products, _plantilla = "Shelf3x8";
     private string? _search, _compra, _error;
@@ -218,7 +224,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
     }
 
@@ -241,7 +247,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;
@@ -286,7 +292,25 @@
         var datos = JsonSerializer.SerializeToElement(request, ApiClient.Json).EnumerateObject()
             .ToDictionary(p => p.Name, p => (object?)p.Value);
         datos["branchId"] = _sucursal;
+        datos["template"] = _plantilla;
         return datos;
+    }
+
+    /// <summary>
+    /// Muestra el error. Si el problema es la sucursal (no hay una asignada, no existe o no tiene permiso), deja elegirla; si el usuario no
+    /// puede ver las sucursales, explica a quién pedir ayuda.
+    /// </summary>
+    private void MostrarError(ApiException ex)
+    {
+        if (ex.Code is "CATALOG.LABELS_BRANCH_REQUIRED" or "CATALOG.LABELS_BRANCH_NOT_FOUND" or "CATALOG.LABELS_BRANCH_FORBIDDEN")
+        {
+            _necesitaSucursal = true;
+            _avisoSucursal = _sucursales.Count > 0
+                ? $"{ex.Texto} Elija la sucursal arriba y vuelva a intentar."
+                : $"{ex.Texto} Su usuario no puede ver las sucursales: pida a un administrador que le asigne una o que imprima las etiquetas.";
+        }
+
+        Snackbar.Add(ex.Texto, Severity.Error);
     }
 
     private object Lista() => _items.Where(i => i.Quantity > 0).Select(i => new LabelPrintItem(i.ProductId, i.Quantity)).ToList();
@@ -301,7 +325,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;
@@ -329,7 +353,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;
@@ -364,7 +388,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;

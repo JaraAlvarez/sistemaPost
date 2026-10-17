@@ -37,6 +37,9 @@ public interface IWarehouseDirectory
     /// <summary>Sucursal activa o inactiva (no borrada) con ese código.</summary>
     Task<Guid?> FindBranchIdByCodeAsync(string branchCode, CancellationToken cancellationToken = default);
 
+    /// <summary>¿Existe la sucursal activa (no borrada) en la empresa de esta instalación?</summary>
+    Task<bool> IsActiveBranchAsync(Guid branchId, CancellationToken cancellationToken = default);
+
     /// <summary>Número corto (1–999) de este nodo dentro de la empresa; forma parte de los códigos internos.</summary>
     Task<short> GetLocalNodeNumberAsync(CancellationToken cancellationToken = default);
 }

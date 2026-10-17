@@ -64,7 +64,7 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
         DrawLines(gfx, Wrap(gfx, label.Name, nameFont, inner.Width, 2), nameFont, new XRect(inner.X, inner.Y, inner.Width, nameHeight), XStringAlignment.Near);
 
         // Código largo (p. ej. un SKU en CODE128): usa todo el ancho y los datos menores suben a la derecha del precio.
-        var fullWidth = label.Barcode is { } code && LabelLayout.FitBarcode(template, code.TotalModules) is { FullWidth: true };
+        var fullWidth = label.Barcode is { } code && LabelLayout.FitBarcode(template, code) is { FullWidth: true };
 
         // Precio grande (y la oferta).
         var priceTop = inner.Y + nameHeight + (Mm(0.5m) * scale);
@@ -173,7 +173,7 @@ internal sealed class LabelPdfRenderer : ILabelRenderer
     {
         var textHeight = textFont.GetHeight();
         var barsHeight = Math.Max(area.Height - textHeight, area.Height * 0.6);
-        if (LabelLayout.ModuleWidth(template, barcode.TotalModules) is not { } moduleMm)
+        if (LabelLayout.FitBarcode(template, barcode)?.Module is not { } moduleMm)
         {
             gfx.DrawString(barcode.Text, textFont, XBrushes.Black, area, XStringFormats.Center);
             return;

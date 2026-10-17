@@ -163,13 +163,33 @@ public class EscPosEncoderTests
     [Fact]
     public void El_ancho_de_las_barras_se_ajusta_al_papel_y_si_no_cabe_se_imprime_el_texto()
     {
-        // 20 caracteres en CODE128 B = 11 × 22 + 13 + 20 = 275 módulos: a 2 puntos cabe en 80 mm (576) pero no en 58 mm (384).
-        var code = "ABCDEFGHIJKLMNOPQRST";
+        // 15 caracteres en CODE128 B = 11 × 17 + 13 + 20 = 220 módulos: a 2 puntos (440) cabe en 80 mm (512) pero no en 58 mm (384).
+        var code = "ABCDEFGHIJKLMNO";
         Body(new BarcodeElement(code, BarcodeElement.Code128))[6..9].ShouldBe([0x1D, 0x77, 0x02]);
 
         var narrow = Body(new BarcodeElement(code, BarcodeElement.Code128), new PrinterOptions(TicketLayout.Columns58Mm));
         narrow.ShouldBe(Concat([0x1B, 0x61, 0x01], Ascii(code), [0x0A, 0x1B, 0x61, 0x00]));
     }
+
+    [Fact]
+    public void Ochenta_milimetros_son_512_puntos_por_defecto()
+    {
+        // 20 caracteres = 275 módulos × 2 = 550 puntos: ya no cabe en los 512 de 80 mm → texto.
+        var bytes = Body(new BarcodeElement("ABCDEFGHIJKLMNOPQRST", BarcodeElement.Code128));
+
+        EscPosEncoder.PaperDots(new PrinterOptions()).ShouldBe(512);
+        bytes.ShouldBe(Concat([0x1B, 0x61, 0x01], Ascii("ABCDEFGHIJKLMNOPQRST"), [0x0A, 0x1B, 0x61, 0x00]));
+    }
+
+    [Theory]
+    [InlineData("ean13")]
+    [InlineData(" Ean-13 ")]
+    public void La_simbologia_se_normaliza(string symbology) =>
+        Body(new BarcodeElement("7702177000014", symbology))[12..15].ShouldBe([0x1D, 0x6B, 67]);
+
+    [Fact]
+    public void Una_simbologia_desconocida_va_en_CODE128() =>
+        Body(new BarcodeElement("12345678", "QR-RARO"))[12..18].ShouldBe([0x1D, 0x6B, 73, 6, (byte)'{', (byte)'C']);
 
     [Fact]
     public void Codigo_de_barras_largo_o_con_tildes()

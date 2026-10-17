@@ -6,6 +6,7 @@ using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Catalog.Contracts;
 using Pos.Modules.Catalog.Domain;
+using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Promotions.Contracts;
 using Pos.Modules.Purchasing.Contracts;
 using Pos.Printing;
@@ -51,6 +52,11 @@ public static class LabelErrors
     public static readonly Error BranchRequired = Error.Validation(
         "CATALOG.LABELS_BRANCH_REQUIRED", "Elija la sucursal: los precios y las promociones dependen de ella.");
 
+    public static readonly Error BranchNotFound = Error.NotFound("CATALOG.LABELS_BRANCH_NOT_FOUND", "La sucursal elegida no existe o está inactiva.");
+
+    public static readonly Error BranchForbidden = Error.Forbidden(
+        "CATALOG.LABELS_BRANCH_FORBIDDEN", "No tiene permiso para consultar los productos de esa sucursal: elija la suya o pida acceso a un administrador.");
+
     public static readonly Error PurchaseNotFound = Error.NotFound(
         "CATALOG.LABELS_PURCHASE_NOT_FOUND", "No se encontró una compra con ese número en la sucursal (use el número interno de la compra, no el de la factura).");
 
@@ -73,10 +79,29 @@ public static class LabelErrors
         "etiquetas o genere el código interno (EAN-13, más corto).");
 }
 
-/// <summary>Sucursal de la etiqueta: la pedida, la del usuario o la del equipo (igual que al leer un código en la caja).</summary>
-public sealed class LabelBranch(ICurrentUser currentUser, IInstallationContext installation)
+/// <summary>
+/// Sucursal de la etiqueta: la pedida (debe existir activa y el usuario debe poder consultar productos en ella), la del usuario o la del
+/// equipo (igual que al leer un código en la caja).
+/// </summary>
+public sealed class LabelBranch(ICurrentUser currentUser, IInstallationContext installation, IWarehouseDirectory directory, IPermissionChecker permissions)
 {
-    public Guid? Resolve(Guid? requested) => requested ?? currentUser.BranchId ?? installation.BranchId;
+    public async Task<Result<Guid>> ResolveAsync(Guid? requested, CancellationToken cancellationToken)
+    {
+        if (requested is { } branchId)
+        {
+            if (!await directory.IsActiveBranchAsync(branchId, cancellationToken))
+            {
+                return LabelErrors.BranchNotFound;
+            }
+
+            return await permissions.HasPermissionAsync(CatalogPermissions.ProductView, branchId, cancellationToken)
+                ? branchId
+                : LabelErrors.BranchForbidden;
+        }
+
+        var resolved = currentUser.BranchId ?? installation.BranchId;
+        return resolved is { } value ? value : LabelErrors.BranchRequired;
+    }
 }
 
 /// <summary>Resultado de armar etiquetas: las que salen y cuántos productos se omitieron (descontinuados o inexistentes).</summary>
@@ -116,7 +141,8 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
             }
 
             var productTaxes = (taxes.GetValueOrDefault(productId) ?? []).Select(t => new LabelTax(t.Rate, t.FixedAmount)).ToList();
-            items.Add(ToItem(product, productTaxes, product.AllowsPromotions ? active : [], quantity, clock.BusinessTimeZone));
+            // La lista general siempre admite promociones (ScanUseCase: DEFAULT → true), aunque haya datos viejos en false.
+            items.Add(ToItem(product, productTaxes, active, quantity, clock.BusinessTimeZone));
         }
 
         return new LabelBuild(items, omitted);
@@ -131,8 +157,9 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
         ArgumentNullException.ThrowIfNull(zone);
         var weighed = product.IsSoldByScale || product.SaleMode == SaleMode.Weight;
         decimal? price = product.ListPrice is { } list ? LabelPricing.RegularPrice(list, product.IncludesTax, taxes) : null;
-        var offer = LabelPricing.BestOffer(product.Id, product.CategoryId, product.BrandId, product.ListPrice, product.IncludesTax, taxes, promotions);
         var unit = weighed ? (product.BaseUnitCode == "KG" ? "kg" : product.BaseUnitCode.ToLowerInvariant()) : null;
+        var offer = LabelPricing.BestOffer(
+            product.Id, product.CategoryId, product.BrandId, product.ListPrice, product.IncludesTax, taxes, promotions, unit ?? "und");
         DateOnly? until = offer?.ValidTo is { } to ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(to.AddTicks(-1), zone).DateTime) : null;
         return new LabelItemDto(
             product.Id,
@@ -193,7 +220,7 @@ public sealed class LabelBuilder(ICatalogQueries queries, ICatalogReader reader,
 /// recibidas; exige consultar compras) o WITHOUT_BARCODE. <c>BranchId</c>: sucursal de los precios (por defecto la del usuario o del equipo).
 /// </summary>
 public sealed record PreviewLabelsQuery(string Source, IReadOnlyList<Guid>? ProductIds = null, Guid? CategoryId = null, DateOnly? Since = null,
-    string? PurchaseNumber = null, Guid? BranchId = null) : IQuery<LabelPreviewDto>;
+    string? PurchaseNumber = null, Guid? BranchId = null, LabelTemplateKind? Template = null) : IQuery<LabelPreviewDto>;
 
 internal sealed class PreviewLabelsValidator : AbstractValidator<PreviewLabelsQuery>
 {
@@ -212,10 +239,13 @@ internal sealed class PreviewLabelsHandler(
 {
     public async Task<Result<LabelPreviewDto>> Handle(PreviewLabelsQuery request, CancellationToken cancellationToken)
     {
-        if (branches.Resolve(request.BranchId) is not { } branchId)
+        var branch = await branches.ResolveAsync(request.BranchId, cancellationToken);
+        if (branch.IsFailure)
         {
-            return LabelErrors.BranchRequired;
+            return branch.Error;
         }
+
+        var branchId = branch.Value;
 
         var source = (request.Source ?? string.Empty).Trim().ToUpperInvariant();
         List<(Guid ProductId, int Quantity)> requested;
@@ -286,7 +316,34 @@ internal sealed class PreviewLabelsHandler(
             items = [.. items.Select(i => i.IsWeighed ? i with { Quantity = 1 } : i)];
         }
 
-        return new LabelPreviewDto(source, reference, items, Warnings(items, build.Omitted, truncated), truncated);
+        var warnings = Warnings(items, build.Omitted, truncated);
+        if (request.Template is { } kind)
+        {
+            warnings.AddRange(BarcodeWarnings(LabelLayout.Get(kind), items));
+        }
+
+        return new LabelPreviewDto(source, reference, items, warnings, truncated);
+    }
+
+    /// <summary>Códigos que no caben legibles en la plantilla (el PDF los rechazaría) o EAN por debajo del tamaño nominal.</summary>
+    internal static IEnumerable<string> BarcodeWarnings(LabelTemplate template, IReadOnlyList<LabelItemDto> items)
+    {
+        var fits = items.Select(i => (i.Name, Barcode: BarcodeSymbology.Encode(i.Barcode ?? i.Sku)))
+            .Where(x => x.Barcode is not null)
+            .Select(x => (x.Name, Fit: LabelLayout.FitBarcode(template, x.Barcode!)))
+            .ToList();
+        var tooLong = fits.Where(f => f.Fit is null).Select(f => f.Name).Distinct().ToList();
+        if (tooLong.Count > 0)
+        {
+            yield return LabelErrors.BarcodeTooLong(tooLong.Take(5)).Message;
+        }
+
+        var small = fits.Count(f => f.Fit is { BelowNominal: true });
+        if (small > 0)
+        {
+            yield return $"En {template.Name} el código EAN de {small} producto(s) sale más pequeño de lo recomendado (barras de 0,25 mm): algunos " +
+                "lectores lo leen mal. Si pasa, use el adhesivo de 50 × 30 mm o la hoja A4.";
+        }
     }
 
     private static List<string> Warnings(List<LabelItemDto> items, int omitted, bool truncated)
@@ -363,10 +420,13 @@ internal sealed class RenderLabelsHandler(LabelBuilder builder, LabelBranch bran
 {
     public async Task<Result<LabelFile>> Handle(RenderLabelsQuery request, CancellationToken cancellationToken)
     {
-        if (branches.Resolve(request.BranchId) is not { } branchId)
+        var branch = await branches.ResolveAsync(request.BranchId, cancellationToken);
+        if (branch.IsFailure)
         {
-            return LabelErrors.BranchRequired;
+            return branch.Error;
         }
+
+        var branchId = branch.Value;
 
         var contents = await LabelPrinting.ContentsAsync(builder, request.Items, branchId, request.ShowDate ? clock.Today : null, LabelLayout.MaxLabels,
             cancellationToken);
@@ -376,7 +436,7 @@ internal sealed class RenderLabelsHandler(LabelBuilder builder, LabelBranch bran
         }
 
         var template = LabelLayout.Get(request.Template);
-        var tooLong = contents.Value.Where(c => c.Barcode is { } b && LabelLayout.ModuleWidth(template, b.TotalModules) is null)
+        var tooLong = contents.Value.Where(c => c.Barcode is { } b && LabelLayout.FitBarcode(template, b) is null)
             .Select(c => c.Name).Distinct().ToList();
         if (tooLong.Count > 0)
         {
@@ -407,10 +467,13 @@ internal sealed class LabelTicketHandler(LabelBuilder builder, LabelBranch branc
 
     public async Task<Result<TicketDocument>> Handle(LabelTicketQuery request, CancellationToken cancellationToken)
     {
-        if (branches.Resolve(request.BranchId) is not { } branchId)
+        var branch = await branches.ResolveAsync(request.BranchId, cancellationToken);
+        if (branch.IsFailure)
         {
-            return LabelErrors.BranchRequired;
+            return branch.Error;
         }
+
+        var branchId = branch.Value;
 
         var contents = await LabelPrinting.ContentsAsync(builder, request.Items, branchId, clock.Today, MaxTicketLabels, cancellationToken);
         return contents.IsSuccess ? LabelPrinting.Ticket(contents.Value) : contents.Error;

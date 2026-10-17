@@ -227,22 +227,26 @@ public class LabelLayoutTests
     }
 
     [Theory]
-    [InlineData(LabelTemplateKind.Shelf3x8, "7702177000014", "0.25")]
-    [InlineData(LabelTemplateKind.Shelf2x7, "7702177000014", "0.375")]
-    [InlineData(LabelTemplateKind.Sticker40x25, "7702177000014", "0.25")]
-    [InlineData(LabelTemplateKind.Sticker50x30, "7702177000014", "0.375")]
-    [InlineData(LabelTemplateKind.Shelf3x8, "001-000123", "0.25")]
-    [InlineData(LabelTemplateKind.Sticker40x25, "001-000123", "0.25")]
-    public void El_modulo_es_de_puntos_enteros_y_minimo_un_cuarto_de_milimetro(LabelTemplateKind kind, string code, string expected)
+    [InlineData(LabelTemplateKind.Shelf3x8, "7702177000014", "0.5", true, false)]
+    [InlineData(LabelTemplateKind.Shelf2x7, "7702177000014", "0.375", false, false)]
+    [InlineData(LabelTemplateKind.Sticker40x25, "7702177000014", "0.25", true, true)]
+    [InlineData(LabelTemplateKind.Sticker50x30, "7702177000014", "0.375", true, false)]
+    [InlineData(LabelTemplateKind.Shelf3x8, "001-000123", "0.25", false, false)]
+    [InlineData(LabelTemplateKind.Sticker40x25, "001-000123", "0.25", true, false)]
+    public void El_modulo_es_de_puntos_enteros_y_el_EAN_busca_su_minimo_nominal(
+        LabelTemplateKind kind, string code, string expected, bool fullWidth, bool belowNominal)
     {
         var template = LabelLayout.Get(kind);
         var drawing = BarcodeSymbology.Encode(code)!;
 
-        var module = LabelLayout.ModuleWidth(template, drawing.TotalModules);
+        var fit = LabelLayout.FitBarcode(template, drawing)!;
 
-        module.ShouldBe(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture));
-        (module!.Value % LabelLayout.Dot).ShouldBe(0m);
-        (module.Value * drawing.TotalModules).ShouldBeLessThanOrEqualTo(LabelLayout.BarcodeAreaWidth(template));
+        fit.Module.ShouldBe(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture));
+        fit.FullWidth.ShouldBe(fullWidth);
+        fit.BelowNominal.ShouldBe(belowNominal);
+        (fit.Module % LabelLayout.Dot).ShouldBe(0m);
+        fit.Module.ShouldBeGreaterThanOrEqualTo(LabelLayout.MinModule);
+        (fit.Module * drawing.TotalModules).ShouldBeLessThanOrEqualTo(fit.AreaWidth);
     }
 
     [Fact]
@@ -250,10 +254,25 @@ public class LabelLayoutTests
     {
         // ARROZ-500 en CODE128 B: 154 módulos × 0,25 = 38,5 mm > 36 mm (58 %), pero cabe en los 62 mm de ancho de la etiqueta de 66 mm.
         var template = LabelLayout.Get(LabelTemplateKind.Shelf3x8);
-        var fit = LabelLayout.FitBarcode(template, BarcodeSymbology.Encode("ARROZ-500")!.TotalModules);
 
-        fit.ShouldBe(new BarcodeFit(0.375m, 62m, FullWidth: true));
-        LabelLayout.FitBarcode(template, BarcodeSymbology.Encode("7702177000014")!.TotalModules)!.FullWidth.ShouldBeFalse();
+        LabelLayout.FitBarcode(template, BarcodeSymbology.Encode("ARROZ-500")!).ShouldBe(new BarcodeFit(0.375m, 62m, FullWidth: true));
+    }
+
+    [Fact]
+    public void La_vista_previa_avisa_codigos_largos_y_EAN_pequenos()
+    {
+        LabelItemDto[] items =
+        [
+            new(Guid.NewGuid(), "SKU-1", "Con EAN", "7702177000014", true, 1_000m, null, null, null, null, false, 1),
+            new(Guid.NewGuid(), "PRODUCTO-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123", "Muy largo", null, false, 1_000m, null, null, null, null, false, 1),
+        ];
+
+        var warnings = PreviewLabelsHandler.BarcodeWarnings(LabelLayout.Get(LabelTemplateKind.Sticker40x25), items).ToList();
+
+        warnings.Count.ShouldBe(2);
+        warnings[0].ShouldContain("Muy largo");
+        warnings[1].ShouldContain("más pequeño de lo recomendado");
+        PreviewLabelsHandler.BarcodeWarnings(LabelLayout.Get(LabelTemplateKind.Sticker50x30), [items[0]]).ShouldBeEmpty();
     }
 
     [Theory]

@@ -219,7 +219,8 @@ puede usar quien consulta productos; generar códigos internos exige poder modif
 - **Productos sin código de barras**.
 
 Los productos **descontinuados** no salen (se avisa cuántos se omitieron); los **inactivos** salen marcados para que decida. Si la empresa
-tiene varias sucursales, elija arriba la **sucursal**: los precios y las promociones dependen de ella.
+tiene varias sucursales, elija arriba la **sucursal**: los precios y las promociones dependen de ella (solo las sucursales en las que su
+usuario puede consultar productos). La lista de precios general siempre admite promociones, como en la caja.
 
 **2. Revise**: precio al público, calculado **igual que en la caja** (con IVA e impuestos fijos como la bolsa o el IBUA, también si la lista
 de precios no incluye impuestos; los centavos se suben al peso para que la góndola nunca diga menos de lo que se cobra); oferta vigente
@@ -240,9 +241,10 @@ código, está descontinuado), se informa sin detener los demás.
 - **Imprimir en la impresora de tiquetes** (solo en un computador de caja): nombre, precio y código de barras CODE128 una tras otra en
   el papel de 80 mm, para recortar a mano. Sirve para salir del paso; para la góndola es mejor el PDF.
 
-Las barras nunca se imprimen más delgadas de 0,25 mm (2 puntos de una impresora de 203 ppp). Un código largo (un SKU de muchas
+Las barras nunca se imprimen más delgadas de 0,25 mm (2 puntos de una impresora de 203 ppp); los EAN buscan su tamaño recomendado
+(0,264 mm) y, si en el adhesivo de 40 × 25 mm no alcanza, la vista previa lo avisa. Un código largo (un SKU de muchas
 letras) usa todo el ancho de la etiqueta; si aun así no cabe, el sistema lo dice: use la hoja de 14 etiquetas o genere el código interno.
-En la impresora de tiquetes los EAN-13 salen como EAN y el ancho de las barras se ajusta al papel (58 u 80 mm); si un código no cabe,
+En la impresora de tiquetes los EAN-13 salen como EAN y el ancho de las barras se ajusta al papel (58 mm = 384 puntos; 80 mm = 512); si un código no cabe,
 se imprime su texto.
 
 Máximo 2.000 etiquetas por archivo, 200 en la impresora de tiquetes y 500 copias por producto: si es más, imprima por partes.

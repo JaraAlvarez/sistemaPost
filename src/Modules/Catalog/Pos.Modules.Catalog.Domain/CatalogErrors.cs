@@ -145,6 +145,10 @@ public static class CatalogErrors
     public static readonly Error PrefixReservedForInternalCodes =
         Error.Validation("CATALOG.PREFIX_RESERVED", "El prefijo 29 está reservado para los códigos internos que genera el sistema.");
 
+    public static readonly Error DefaultListAllowsPromotions = Error.Validation(
+        "CATALOG.DEFAULT_LIST_ALLOWS_PROMOTIONS",
+        "La lista general siempre admite promociones (la caja las aplica sobre ella). Para precios sin promociones use una lista de cliente.");
+
     public static readonly Error InternalCodesExhausted =
         Error.BusinessRule("CATALOG.INTERNAL_CODES_EXHAUSTED", "Se agotaron los códigos internos de este nodo.");
 
