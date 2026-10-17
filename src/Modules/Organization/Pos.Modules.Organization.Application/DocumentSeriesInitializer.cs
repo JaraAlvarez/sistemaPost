@@ -22,7 +22,7 @@ public sealed class DocumentSeriesInitializer(IOrganizationStore store, IDocumen
         }
 
         await series.CreateBranchSeriesAsync(companyId, branch.Id, branch.Code, cancellationToken);
-        foreach (var terminal in (await store.ListTerminalsAsync(branchId, cancellationToken)).Where(t => t.Status == "Active"))
+        foreach (var terminal in (await store.ListTerminalsAsync(branchId, cancellationToken)).Where(t => t.Status == "ACTIVE"))
         {
             await series.CreateTerminalSeriesAsync(companyId, branch.Id, branch.Code, terminal.Id, terminal.Code, cancellationToken);
         }

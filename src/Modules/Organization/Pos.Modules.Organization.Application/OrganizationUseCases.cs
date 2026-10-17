@@ -7,18 +7,19 @@ using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Organization.Domain;
 using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Organization.Application;
 
 internal static class Mapping
 {
     public static CompanyDto ToDto(this Company c) => new(
-        c.Id, c.LegalName, c.TradeName, c.PersonType.ToString(), c.IdentificationType, c.IdentificationNumber, c.CheckDigit,
+        c.Id, c.LegalName, c.TradeName, c.PersonType.UpperSnake(), c.IdentificationType, c.IdentificationNumber, c.CheckDigit,
         c.TaxRegime, [.. c.FiscalResponsibilities.Select(r => r.Code).Order(StringComparer.Ordinal)], c.CountryCode,
-        c.MunicipalityCode, c.Address, c.Phone, c.Email, c.CurrencyCode, c.Timezone, c.Status.ToString());
+        c.MunicipalityCode, c.Address, c.Phone, c.Email, c.CurrencyCode, c.Timezone, c.Status.UpperSnake());
 
     public static BranchDto ToDto(this Branch b, Guid? homeBranchId) => new(
-        b.Id, b.Code, b.Name, b.MunicipalityCode, b.Address, b.Phone, b.DefaultWarehouseId, b.Status.ToString(), b.Id == homeBranchId);
+        b.Id, b.Code, b.Name, b.MunicipalityCode, b.Address, b.Phone, b.DefaultWarehouseId, b.Status.UpperSnake(), b.Id == homeBranchId);
 
     public static Result<Guid> RequireCompany(this IInstallationContext installation) =>
         installation.CompanyId is { } id ? id : OrganizationErrors.SetupRequired;
@@ -286,7 +287,7 @@ internal sealed class CreateWarehouseHandler(IOrganizationStore store, IIdGenera
     }
 
     internal static WarehouseDto ToDto(Warehouse w) =>
-        new(w.Id, w.BranchId, w.Code, w.Name, w.Kind.ToString(), w.AllowsSales, w.Status.ToString());
+        new(w.Id, w.BranchId, w.Code, w.Name, w.Kind.UpperSnake(), w.AllowsSales, w.Status.UpperSnake());
 }
 
 public sealed record UpdateWarehouseCommand(Guid WarehouseId, string Name, bool AllowsSales) : ICommand<WarehouseDto>;
@@ -415,7 +416,7 @@ internal sealed class CreateTerminalHandler(
     }
 
     internal static TerminalDto ToDto(PosTerminal t) =>
-        new(t.Id, t.BranchId, t.Code, t.Name, t.WarehouseId, t.DeviceId, t.Status.ToString());
+        new(t.Id, t.BranchId, t.Code, t.Name, t.WarehouseId, t.DeviceId, t.Status.UpperSnake());
 }
 
 public sealed record UpdateTerminalCommand(Guid TerminalId, string Name, Guid WarehouseId) : ICommand<TerminalDto>;

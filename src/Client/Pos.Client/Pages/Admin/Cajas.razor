@@ -71,12 +71,12 @@
                     <MudTd>@context.Str("hostname")</MudTd>
                     <MudTd>@TipoEquipo(context.Str("kind"))</MudTd>
                     <MudTd>@CodigoCaja(context.Str("posTerminalId"))</MudTd>
-                    <MudTd>@(context.Str("status") == "Revoked" ? "Revocado" : "Activo")</MudTd>
+                    <MudTd>@(EnumText.Same(context.Str("status"), "REVOKED") ? "Revocado" : "Activo")</MudTd>
                     <MudTd>@Format.Date(context.Date("pairedAt"))</MudTd>
                     <MudTd>@Format.Date(context.Date("lastSeenAt"))</MudTd>
                     <MudTd>@context.Str("appVersion")</MudTd>
                     <MudTd>
-                        @if (context.Str("status") != "Revoked")
+                        @if (!EnumText.Same(context.Str("status"), "REVOKED"))
                         {
                             <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => _revocar = context)">Revocar</MudButton>
                         }
@@ -259,7 +259,7 @@
 
     private string EquipoDe(JsonElement terminal)
     {
-        var device = _equipos.FirstOrDefault(d => d.Str("posTerminalId") == terminal.Str("id") && d.Str("status") != "Revoked");
+        var device = _equipos.FirstOrDefault(d => d.Str("posTerminalId") == terminal.Str("id") && !EnumText.Same(d.Str("status"), "REVOKED"));
         return device.ValueKind == JsonValueKind.Object ? device.Str("hostname")
             : terminal.Str("deviceId").Length > 0 ? "Emparejada"
             : "Sin equipo";
@@ -444,22 +444,22 @@
 
     // ------------------------------------------------------------------------------------------ Comunes
 
-    private static bool Activa(JsonElement element) => string.Equals(element.Str("status"), "Active", StringComparison.OrdinalIgnoreCase);
+    private static bool Activa(JsonElement element) => EnumText.Same(element.Str("status"), "ACTIVE");
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
-        "Active" => "Activa",
-        "Inactive" => "Inactiva",
-        "Blocked" => "Bloqueada",
+        "ACTIVE" => "Activa",
+        "INACTIVE" => "Inactiva",
+        "BLOCKED" => "Bloqueada",
         _ => status,
     };
 
-    private static string TipoEquipo(string kind) => kind switch
+    private static string TipoEquipo(string kind) => EnumText.Normalize(kind) switch
     {
-        "Terminal" => "Caja",
-        "AdminWorkstation" => "PC administrativo",
-        "StoreServer" => "Servidor de la tienda",
-        "AllInOne" => "Equipo único",
+        "TERMINAL" => "Caja",
+        "ADMIN_WORKSTATION" => "PC administrativo",
+        "STORE_SERVER" => "Servidor de la tienda",
+        "ALL_IN_ONE" => "Equipo único",
         _ => kind,
     };
 }

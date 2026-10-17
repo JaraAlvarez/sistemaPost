@@ -394,7 +394,7 @@
             _empresa = await Api.GetAsync<JsonElement>("api/v1/organization/company");
             _cRazonSocial = _empresa.Str("legalName");
             _cNombreComercial = _empresa.Str("tradeName");
-            _cTipoPersona = _empresa.Str("personType") is { Length: > 0 } personType ? personType : "Legal";
+            _cTipoPersona = _empresa.Str("personType") is { Length: > 0 } personType ? EnumText.ToEnumName(personType) : "Legal";
             _cRegimen = _empresa.Str("taxRegime");
             _cResponsabilidades = string.Join(", ", _empresa.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()));
             _cMunicipio = _empresa.Str("municipalityCode");
@@ -778,11 +778,11 @@
 
     private static string? Vacio(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static bool Activo(JsonElement element) => string.Equals(element.Str("status"), "Active", StringComparison.OrdinalIgnoreCase);
+    private static bool Activo(JsonElement element) => EnumText.Same(element.Str("status"), "ACTIVE");
 
     private static bool EsBooleano(JsonElement value) => value.ValueKind is JsonValueKind.True or JsonValueKind.False;
 
-    private static string Estado(string status) => status.ToUpperInvariant() switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "ACTIVE" => "Activo",
         "INACTIVE" => "Inactivo",
@@ -790,12 +790,12 @@
         _ => status,
     };
 
-    private static string TipoBodega(string kind) => kind switch
+    private static string TipoBodega(string kind) => EnumText.Normalize(kind) switch
     {
-        "SalesFloor" => "Piso de venta",
-        "Storage" => "Depósito",
-        "Damaged" => "Averías",
-        "InTransit" => "En tránsito",
+        "SALES_FLOOR" => "Piso de venta",
+        "STORAGE" => "Depósito",
+        "DAMAGED" => "Averías",
+        "IN_TRANSIT" => "En tránsito",
         _ => kind,
     };
 

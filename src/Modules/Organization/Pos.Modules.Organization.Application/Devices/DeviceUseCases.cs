@@ -11,6 +11,7 @@ using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Security;
 using Pos.SharedKernel.Time;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Organization.Application.Devices;
 
@@ -93,7 +94,7 @@ internal sealed class CreatePairingCodeHandler(
                 Summary: $"{current.DisplayName} generó un código para emparejar un equipo ({request.Kind})."),
             cancellationToken);
 
-        return new PairingCodeDto(code, now + Validity, request.Kind.ToString(), request.PosTerminalId, server.CertificateFingerprint);
+        return new PairingCodeDto(code, now + Validity, request.Kind.UpperSnake(), request.PosTerminalId, server.CertificateFingerprint);
     }
 }
 
@@ -167,7 +168,7 @@ internal sealed class PairDeviceHandler(
         await devices.MarkPairingCodeUsedAsync(code.Id, device.Id, now, cancellationToken);
 
         return new PairingOutcome(
-            new PairedDeviceDto(device.Id, secret, code.Kind.ToString(), code.PosTerminalId, server.CertificateFingerprint), null);
+            new PairedDeviceDto(device.Id, secret, code.Kind.UpperSnake(), code.PosTerminalId, server.CertificateFingerprint), null);
     }
 }
 

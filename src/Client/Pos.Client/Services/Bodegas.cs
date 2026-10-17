@@ -1,3 +1,4 @@
+using Pos.SharedKernel.Text;
 using System.Text.Json;
 using MudBlazor;
 
@@ -18,14 +19,14 @@ public sealed class Bodegas(ApiClient api, SessionState session, ISnackbar snack
     public IReadOnlyList<JsonElement> Todas => _todas;
 
     /// <summary>Las bodegas activas, en el orden de la API.</summary>
-    public IEnumerable<JsonElement> Activas => _todas.Where(b => b.Str("status") is "Active" or "ACTIVE");
+    public IEnumerable<JsonElement> Activas => _todas.Where(b => EnumText.Same(b.Str("status"), "ACTIVE"));
 
     /// <summary>Las que se pueden elegir en un documento de inventario: activas, sin la de tránsito y con la sala de ventas primero.</summary>
-    public IEnumerable<JsonElement> Elegibles => Activas.Where(b => b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
+    public IEnumerable<JsonElement> Elegibles => Activas.Where(b => !EnumText.Same(b.Str("kind"), "IN_TRANSIT")).OrderBy(b => EnumText.Same(b.Str("kind"), "SALES_FLOOR") ? 0 : 1);
 
     /// <summary>La bodega que se propone por defecto: la primera sala de ventas de la lista o, si no hay, la primera.</summary>
     public static Guid? Primera(IEnumerable<JsonElement> bodegas) =>
-        bodegas.OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1).Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
+        bodegas.OrderBy(b => EnumText.Same(b.Str("kind"), "SALES_FLOOR") ? 0 : 1).Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
 
     /// <summary>Lee las bodegas si aún no se tienen para esta sesión y sucursal; con <paramref name="recargar"/>, siempre.</summary>
     public async Task CargarAsync(bool recargar = false)

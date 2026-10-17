@@ -11,4 +11,26 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
     <PackageReference Include="MudBlazor" />
   </ItemGroup>
+  <!-- Fase 17-E (modelos con tipo): la interfaz usa los mismos contratos (DTO y constantes) que el servidor; el compilador detecta
+       cualquier diferencia de nombres o tipos. Los contratos no tienen dependencias de servidor. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Audit\Pos.Modules.Audit.Contracts\Pos.Modules.Audit.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Backup\Pos.Modules.Backup.Contracts\Pos.Modules.Backup.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Billing\Pos.Modules.Billing.Contracts\Pos.Modules.Billing.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Cash\Pos.Modules.Cash.Contracts\Pos.Modules.Cash.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Catalog\Pos.Modules.Catalog.Contracts\Pos.Modules.Catalog.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Customers\Pos.Modules.Customers.Contracts\Pos.Modules.Customers.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Expenses\Pos.Modules.Expenses.Contracts\Pos.Modules.Expenses.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Identity\Pos.Modules.Identity.Contracts\Pos.Modules.Identity.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Inventory\Pos.Modules.Inventory.Contracts\Pos.Modules.Inventory.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Licensing\Pos.Modules.Licensing.Contracts\Pos.Modules.Licensing.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Organization\Pos.Modules.Organization.Contracts\Pos.Modules.Organization.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Parties\Pos.Modules.Parties.Contracts\Pos.Modules.Parties.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Promotions\Pos.Modules.Promotions.Contracts\Pos.Modules.Promotions.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Purchasing\Pos.Modules.Purchasing.Contracts\Pos.Modules.Purchasing.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Reference\Pos.Modules.Reference.Contracts\Pos.Modules.Reference.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Reporting\Pos.Modules.Reporting.Contracts\Pos.Modules.Reporting.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Sales\Pos.Modules.Sales.Contracts\Pos.Modules.Sales.Contracts.csproj" />
+    <ProjectReference Include="..\..\Modules\Sync\Pos.Modules.Sync.Contracts\Pos.Modules.Sync.Contracts.csproj" />
+  </ItemGroup>
 </Project>

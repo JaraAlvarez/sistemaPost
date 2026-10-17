@@ -43,7 +43,7 @@ public sealed class PurchasingScenario
         var scenario = new PurchasingScenario(await CatalogScenario.CreateAsync(factory));
         var owner = scenario.Owner;
         var branch = await GetAsync<BranchDetailDto>(owner, $"/api/v1/organization/branches/{scenario.Catalog.Setup.BranchId}");
-        scenario.Floor = branch.Warehouses.Single(w => w.Kind == "SalesFloor").Id;
+        scenario.Floor = branch.Warehouses.Single(w => w.Kind == "SALES_FLOOR").Id;
 
         var party = await scenario.CreatePartyAsync(new
         {

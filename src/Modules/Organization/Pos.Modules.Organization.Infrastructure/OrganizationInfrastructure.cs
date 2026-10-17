@@ -4,6 +4,7 @@ using Pos.Modules.Organization.Application;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Organization.Domain;
 using Pos.SharedKernel.Results;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Organization.Infrastructure;
 
@@ -190,7 +191,7 @@ internal sealed class OrganizationStore(PosDbContext context) : IOrganizationSto
         var branches = await context.Set<Branch>().AsNoTracking().OrderBy(b => b.Code).ToListAsync(cancellationToken);
         return branches
             .Select(b => new BranchDto(b.Id, b.Code, b.Name, b.MunicipalityCode, b.Address, b.Phone, b.DefaultWarehouseId,
-                b.Status.ToString(), b.Id == homeBranchId))
+                b.Status.UpperSnake(), b.Id == homeBranchId))
             .ToList();
     }
 
@@ -199,7 +200,7 @@ internal sealed class OrganizationStore(PosDbContext context) : IOrganizationSto
         var warehouses = await context.Set<Warehouse>().AsNoTracking()
             .Where(w => w.BranchId == branchId).OrderBy(w => w.Code).ToListAsync(cancellationToken);
         return warehouses
-            .Select(w => new WarehouseDto(w.Id, w.BranchId, w.Code, w.Name, w.Kind.ToString(), w.AllowsSales, w.Status.ToString()))
+            .Select(w => new WarehouseDto(w.Id, w.BranchId, w.Code, w.Name, w.Kind.UpperSnake(), w.AllowsSales, w.Status.UpperSnake()))
             .ToList();
     }
 
@@ -208,7 +209,7 @@ internal sealed class OrganizationStore(PosDbContext context) : IOrganizationSto
         var terminals = await context.Set<PosTerminal>().AsNoTracking()
             .Where(t => branchId == null || t.BranchId == branchId).OrderBy(t => t.Code).ToListAsync(cancellationToken);
         return terminals
-            .Select(t => new TerminalDto(t.Id, t.BranchId, t.Code, t.Name, t.WarehouseId, t.DeviceId, t.Status.ToString()))
+            .Select(t => new TerminalDto(t.Id, t.BranchId, t.Code, t.Name, t.WarehouseId, t.DeviceId, t.Status.UpperSnake()))
             .ToList();
     }
 

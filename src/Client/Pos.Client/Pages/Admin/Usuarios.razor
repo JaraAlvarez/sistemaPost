@@ -99,7 +99,7 @@
     }
 
     /// <summary>Estado del usuario en mayúsculas (la API puede enviar "Active" o "ACTIVE").</summary>
-    private static string Estado(JsonElement user) => user.Str("status").ToUpperInvariant();
+    private static string Estado(JsonElement user) => EnumText.Normalize(user.Str("status"));
 
     private string NombreRol(string code) => _roles.FirstOrDefault(r => r.Str("code") == code).Str("name") is { Length: > 0 } name ? name : code;
 

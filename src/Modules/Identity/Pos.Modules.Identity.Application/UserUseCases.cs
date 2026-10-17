@@ -9,6 +9,7 @@ using Pos.Modules.Identity.Domain;
 using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Identity.Application;
 
@@ -386,10 +387,10 @@ public sealed class UserMutations(IIdentityStore store, PrivilegeGuard guard, IC
     {
         var roles = await store.GetRolesAsync(user.Roles.Select(r => r.RoleId).Distinct(), cancellationToken);
         return new UserDto(
-            user.Id, user.Username, user.DisplayName, user.Email, user.Status.ToString(), user.PosCode, user.PinHash is not null,
+            user.Id, user.Username, user.DisplayName, user.Email, user.Status.UpperSnake(), user.PosCode, user.PinHash is not null,
             user.MustChangePassword, user.EmployeeId, user.LastLoginAt,
             [.. user.Roles.Select(r => new UserRoleDto(r.RoleId, roles.FirstOrDefault(x => x.Id == r.RoleId)?.Code ?? "?", r.BranchId))],
-            [.. user.Overrides.Select(o => new UserOverrideDto(o.PermissionCode, o.Effect.ToString(), o.BranchId, o.Reason))]);
+            [.. user.Overrides.Select(o => new UserOverrideDto(o.PermissionCode, o.Effect.UpperSnake(), o.BranchId, o.Reason))]);
     }
 }
 

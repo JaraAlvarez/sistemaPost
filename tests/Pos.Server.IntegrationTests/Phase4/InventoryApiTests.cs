@@ -29,8 +29,8 @@ public class InventoryApiTests
         var category = await scenario.CategoryAsync("Despensa");
         var rice = await scenario.ProductAsync("ARROZ-500", "Arroz Diana 500 g", category, barcode: "7702177000014", price: 3_000m);
         var milk = await scenario.ProductAsync("LECHE-1", "Leche entera 1100 ml", category, price: 5_000m);
-        return new Store(scenario, branch.Warehouses.Single(w => w.Kind == "SalesFloor").Id, storage, branch.Warehouses.Single(w => w.Kind == "InTransit").Id,
-            branch.Warehouses.Single(w => w.Kind == "Damaged").Id, rice.Id, milk.Id);
+        return new Store(scenario, branch.Warehouses.Single(w => w.Kind == "SALES_FLOOR").Id, storage, branch.Warehouses.Single(w => w.Kind == "IN_TRANSIT").Id,
+            branch.Warehouses.Single(w => w.Kind == "DAMAGED").Id, rice.Id, milk.Id);
     }
 
     private static async Task<Guid> ReasonAsync(HttpClient client, string code) =>

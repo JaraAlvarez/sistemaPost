@@ -10,6 +10,7 @@ using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Organization.Domain;
 using Pos.SharedKernel.Security;
 using Pos.SharedKernel.Time;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Organization.Infrastructure;
 
@@ -87,7 +88,7 @@ internal sealed class DeviceStore(PosDbContext context) : IDeviceStore
         var terminals = await context.Set<PosTerminal>().AsNoTracking().Where(t => t.DeviceId != null)
             .ToDictionaryAsync(t => t.DeviceId!.Value, t => t.Id, cancellationToken);
         return devices
-            .Select(d => new DeviceDto(d.Id, d.Kind.ToString(), d.Hostname, terminals.TryGetValue(d.Id, out var t) ? t : null, d.Status.ToString(),
+            .Select(d => new DeviceDto(d.Id, d.Kind.UpperSnake(), d.Hostname, terminals.TryGetValue(d.Id, out var t) ? t : null, d.Status.UpperSnake(),
                 d.PairedAt, d.LastSeenAt, d.AppVersion))
             .ToList();
     }
