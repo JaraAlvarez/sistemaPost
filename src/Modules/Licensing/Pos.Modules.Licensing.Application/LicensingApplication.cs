@@ -181,8 +181,6 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
     public const string StaleReason =
         "No se pudo calcular el estado de la licencia en la última hora (error interno o base de datos no disponible). Revise que el servicio y la base de datos estén funcionando y verifique la licencia.";
 
-    private static readonly LicenseGateState Stale = new(true, false, StaleReason, SalesWindowClosed: false);
-
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private readonly long _startedAt = (time ?? TimeProvider.System).GetTimestamp();
     private volatile Snapshot? _snapshot;
@@ -191,9 +189,10 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
 
     public LicenseEvaluation? Current => _snapshot?.Evaluation;
 
+    // Sin cálculo reciente se restringe, pero se CONSERVA la última decisión de venta (si ya no se podía vender, sigue sin poderse).
     LicenseGateState ILicenseGate.Current => _snapshot is { } s
-        ? (_time.GetElapsedTime(s.At) > StaleAfter ? Stale : s.Gate)
-        : (_time.GetElapsedTime(_startedAt) > StaleAfter ? Stale : LicenseGateState.Unrestricted);
+        ? (_time.GetElapsedTime(s.At) > StaleAfter ? new LicenseGateState(true, s.Gate.Demo, StaleReason, s.Gate.SalesWindowClosed) : s.Gate)
+        : (_time.GetElapsedTime(_startedAt) > StaleAfter ? new LicenseGateState(true, false, StaleReason) : LicenseGateState.Unrestricted);
 
     public LicenseSummaryDto Summary => _snapshot is { } s
         ? new LicenseSummaryDto(s.Evaluation.State, s.Evaluation.DaysLeft, s.Evaluation.Notices, s.PaymentUrl)
@@ -258,7 +257,7 @@ public sealed class LicenseService(
         var evaluation = Evaluate(record);
         var trustedNow = LicenseEvaluator.TrustedNow(record, evaluation);
         var restrictedSince = evaluation.Restricted ? record.RestrictedSince ?? (persist ? trustedNow : null) : null;
-        cache.Update(evaluation, PaymentUrlOf(record), SalesWindowClosed(record, evaluation.Restricted ? restrictedSince : null, trustedNow));
+        cache.Update(evaluation, PaymentUrlOf(record), SalesWindowClosed(evaluation.Restricted ? restrictedSince : null, trustedNow));
         if (!persist)
         {
             return (evaluation, record);
@@ -475,9 +474,12 @@ public sealed class LicenseService(
         return corrected > claims.IssuedAt ? corrected : claims.IssuedAt;
     }
 
-    /// <summary>¿Pasó la ventana de 24 h para vender desde que quedó restringida (H6)? Con el estado alterado no se confía en la fecha.</summary>
-    private static bool SalesWindowClosed(LicenseRecord record, DateTimeOffset? restrictedSince, DateTimeOffset trustedNow) =>
-        restrictedSince is { } since && (record.Tampered || trustedNow - since > LicenseEvaluator.RestrictedSalesWindow);
+    /// <summary>
+    /// ¿Pasó la ventana de 24 h para vender desde que quedó restringida (H6)? También con el estado alterado: una vuelta atrás del
+    /// actualizador o un backup restaurado no dejan la tienda sin vender al instante (la fecha la reconcilia el archivo protegido).
+    /// </summary>
+    private static bool SalesWindowClosed(DateTimeOffset? restrictedSince, DateTimeOffset trustedNow) =>
+        restrictedSince is { } since && trustedNow - since > LicenseEvaluator.RestrictedSalesWindow;
 
     /// <summary>Hora confiable (emisión del token) menos el reloj local; diferencias menores a 5 minutos se ignoran (latencia).</summary>
     private long Offset(LicenseClaims claims)

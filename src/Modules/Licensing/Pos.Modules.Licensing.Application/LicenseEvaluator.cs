@@ -10,7 +10,9 @@ namespace Pos.Modules.Licensing.Application;
 /// <c>MaxObservedUtc</c> = mayor hora (confiable) vista por este equipo; <c>DemoStartedAt</c> = creación de la instalación;
 /// <c>PaymentUrl</c> = enlace de pago en línea que envió la nube en la última respuesta (Fase 12-C; no cuenta para el estado).
 /// Endurecimiento (docs/fases/fase-licencia-endurecimiento.md): <c>CompanyNit</c> = NIT de la empresa configurada (H7);
-/// <c>Tampered</c> = la firma local (MAC) del estado no cuadra (H4); <c>RestrictedSince</c> = hora confiable en que pasó a restringida (H6).
+/// <c>Tampered</c> = la firma local (MAC) del estado no cuadra o el token es más viejo que el último confirmado (H4);
+/// <c>RestrictedSince</c> = hora confiable en que pasó a restringida (H6); <c>OfflineFloorUtc</c> = piso desde el que se cuentan los días
+/// sin conexión cuando es posterior a la emisión del token (la actualización que introdujo el límite, N1).
 /// </summary>
 public sealed record LicenseRecord(
     Guid NodeId,
@@ -28,7 +30,8 @@ public sealed record LicenseRecord(
     string? PaymentUrl = null,
     string? CompanyNit = null,
     bool Tampered = false,
-    DateTimeOffset? RestrictedSince = null);
+    DateTimeOffset? RestrictedSince = null,
+    DateTimeOffset? OfflineFloorUtc = null);
 
 /// <summary>
 /// Resultado de evaluar la licencia en un instante. <c>EffectiveNow</c> = reloj local corregido con la hora confiable del último
@@ -67,6 +70,9 @@ public static class LicenseEvaluator
     /// conectarse. ⚙️ 30 — PENDIENTE DE APROBACIÓN del usuario. La configuración solo puede acortarlo.
     /// </summary>
     public const int DefaultMaxOfflineDays = 30;
+
+    /// <summary>Días antes del límite sin conexión desde los que se avisa en el Tablero (desde el día 23 de 30).</summary>
+    public const int OfflineWarningDays = 7;
 
     /// <summary>Ventana para seguir vendiendo en la jornada abierta desde que la licencia quedó restringida (H6).</summary>
     public static readonly TimeSpan RestrictedSalesWindow = TimeSpan.FromHours(24);
@@ -133,13 +139,8 @@ public static class LicenseEvaluator
                 $"El reloj del equipo está atrasado (marca {effectiveNow:yyyy-MM-dd HH:mm} UTC y ya se vio {record.MaxObservedUtc:yyyy-MM-dd HH:mm} UTC). Corrija la fecha y la hora de Windows y verifique la licencia.");
         }
 
-        if (record.Tampered)
-        {
-            return Result(LicenseStates.Restricted, record.Token is null
-                ? "Los datos de la licencia guardados en este equipo no cuadran con su firma (se modificaron fuera del sistema o se perdió el archivo de la licencia). Active la licencia con su clave."
-                : "Los datos de la licencia guardados en este equipo no cuadran con su firma (se modificaron fuera del sistema o se perdió el archivo de la licencia). Verifique la licencia con conexión a Internet.");
-        }
-
+        // En demostración un estado alterado no restringe: la demo se evalúa con la marca y el inicio que guarda el archivo protegido
+        // (lo reconcilia el almacén), así que editar o restaurar la BD no la alarga.
         if (record.Token is null)
         {
             if (record.Deactivated)
@@ -163,6 +164,12 @@ public static class LicenseEvaluator
         {
             return Result(LicenseStates.ReactivationRequired,
                 "La licencia no corresponde a este equipo (cambio de computador o backup restaurado en otro equipo). Actívela de nuevo con la clave; si el equipo anterior sigue activo, soporte lo libera.");
+        }
+
+        if (record.Tampered)
+        {
+            return Result(LicenseStates.Restricted,
+                "Los datos de la licencia guardados en este equipo no cuadran con su firma (se modificaron fuera del sistema, se restauró un backup anterior o se perdió el archivo de la licencia). Verifique la licencia con conexión a Internet.");
         }
 
         if (!string.Equals(claims.DeviceRole, localDeviceRole, StringComparison.Ordinal))
@@ -191,28 +198,45 @@ public static class LicenseEvaluator
                 return Result(LicenseStates.Restricted, "La suscripción venció y terminaron los días de gracia. Renueve con su proveedor.");
         }
 
-        // N1: el iat va firmado, así que editar la BD no alarga el tiempo sin conexión.
-        var offlineDeadline = claims.IssuedAt.AddDays(maxOfflineDays);
+        // N1: el iat va firmado, así que editar la BD no alarga el tiempo sin conexión. Las instalaciones que ya existían cuentan desde
+        // la actualización que introdujo el límite (piso firmado y guardado también en el archivo), no desde un check-in viejo.
+        var offlineFrom = record.OfflineFloorUtc is { } floor && floor > claims.IssuedAt ? floor : claims.IssuedAt;
+        var offlineDeadline = offlineFrom.AddDays(maxOfflineDays);
         if (now > offlineDeadline)
         {
             return Result(LicenseStates.Restricted,
-                $"La licencia no se ha podido verificar con el servidor de licencias en más de {maxOfflineDays} días (desde el {claims.IssuedAt:yyyy-MM-dd}). Conecte el equipo a Internet y verifique la licencia.");
+                $"La licencia no se ha podido verificar con el servidor de licencias en más de {maxOfflineDays} días (desde el {offlineFrom:yyyy-MM-dd}). Conecte el equipo a Internet y verifique la licencia.");
+        }
+
+        LicenseEvaluation WarnOffline(LicenseEvaluation evaluation)
+        {
+            if (offlineDeadline - now > TimeSpan.FromDays(OfflineWarningDays))
+            {
+                return evaluation;
+            }
+
+            var left = Math.Max(0, (int)Math.Ceiling((offlineDeadline - now).TotalDays));
+            return evaluation with
+            {
+                Notices = [.. evaluation.Notices, new LicenseNoticeDto("OFFLINE_LIMIT", "WARNING",
+                    $"La licencia no se verifica con el servidor desde el {offlineFrom:yyyy-MM-dd}: conecte el equipo a Internet antes del {offlineDeadline:yyyy-MM-dd} (quedan {left} días) o la licencia quedará restringida.")],
+            };
         }
 
         if (claims.IsValidAt(now) && claims.SubscriptionStatus != SubscriptionStatuses.PastDue)
         {
             var online = record.LastCheckinAt is { } last && now - last <= OfflineAfter;
-            return online
+            return WarnOffline(online
                 ? Result(LicenseStates.Valid, "Licencia vigente.", claims.ValidUntil)
                 : Result(LicenseStates.ValidOffline,
                     $"Licencia vigente; no se ha podido verificar con el servidor de licencias recientemente (sin Internet). Todo funciona con normalidad, pero conéctese antes del {offlineDeadline:yyyy-MM-dd} o la licencia quedará restringida.",
-                    claims.ValidUntil);
+                    claims.ValidUntil));
         }
 
         if (now <= claims.GraceUntil)
         {
-            return Result(LicenseStates.Grace,
-                $"El periodo pagado venció el {claims.ValidUntil:yyyy-MM-dd}. Quedan días de gracia: renueve para evitar la restricción.", claims.GraceUntil);
+            return WarnOffline(Result(LicenseStates.Grace,
+                $"El periodo pagado venció el {claims.ValidUntil:yyyy-MM-dd}. Quedan días de gracia: renueve para evitar la restricción.", claims.GraceUntil));
         }
 
         return Result(LicenseStates.Restricted, "Venció el periodo pagado y terminaron los días de gracia. Renueve con su proveedor y verifique la licencia.");

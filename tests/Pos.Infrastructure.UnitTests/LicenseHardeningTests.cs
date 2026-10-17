@@ -113,6 +113,45 @@ public sealed class LicenseHardeningTests : IDisposable
         tampered.Reason.ShouldContain("no cuadran con su firma");
     }
 
+    [Fact]
+    public void Un_estado_alterado_en_demo_sigue_en_demo_y_con_otra_huella_pide_reactivar()
+    {
+        // Demo: se evalúa con la marca y el inicio que reconcilia el archivo protegido; no se restringe por la firma.
+        Evaluate(Record(token: null) with { Tampered = true }, Installed.AddDays(3)).State.ShouldBe(LicenseStates.Demo);
+
+        // BD movida a otro PC (otra huella) y además sin firma válida: el mensaje es el de reactivar con la clave.
+        var record = Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { Tampered = true };
+        var moved = LicenseEvaluator.Evaluate(
+            record, LicenseToken.Verify(record.Token!, new LicenseKeyRing([_key.PublicKey])), DeviceFingerprint.FromHardware("X", "Y", "Z"),
+            DeviceRoles.AllInOne, Today);
+        moved.State.ShouldBe(LicenseStates.ReactivationRequired);
+        moved.Reason.ShouldContain("Actívela de nuevo con la clave");
+    }
+
+    [Fact]
+    public void Tras_actualizar_los_dias_sin_conexion_cuentan_desde_la_actualizacion_y_se_avisa_desde_el_dia_23()
+    {
+        // Token de hace 60 días (tienda que llevaba mucho sin conexión) y una licencia larga: sin piso quedaría restringida de golpe.
+        var oldIat = Today.AddDays(-60);
+        var token = Token(issuedAt: oldIat, validUntil: Today.AddDays(90));
+        var record = Record(token, lastCheckin: oldIat, maxObserved: Today);
+        Evaluate(record, Today).State.ShouldBe(LicenseStates.Restricted);
+
+        var upgraded = record with { OfflineFloorUtc = Today };
+        var first = Evaluate(upgraded, Today);
+        first.State.ShouldBe(LicenseStates.ValidOffline);
+        first.Notices.ShouldNotContain(n => n.Code == "OFFLINE_LIMIT");
+
+        Evaluate(upgraded, Today.AddDays(22)).Notices.ShouldNotContain(n => n.Code == "OFFLINE_LIMIT");
+        var day23 = Evaluate(upgraded, Today.AddDays(23));
+        day23.Notices.ShouldContain(n => n.Code == "OFFLINE_LIMIT" && n.Severity == "WARNING");
+        Evaluate(upgraded, Today.AddDays(30).AddMinutes(1)).State.ShouldBe(LicenseStates.Restricted);
+
+        // El piso nunca acorta: un token más nuevo que el piso cuenta desde su emisión.
+        Evaluate(Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { OfflineFloorUtc = Today.AddDays(-10) }, Today.AddDays(25))
+            .State.ShouldBe(LicenseStates.ValidOffline);
+    }
+
     // ------------------------------------------------------------------------------------------------ R2
 
     [Fact]
@@ -183,6 +222,37 @@ public sealed class LicenseHardeningTests : IDisposable
     }
 
     // ------------------------------------------------------------------------------------------------ H5
+
+    [Fact]
+    public async Task Un_estado_alterado_restringe_pero_con_la_ventana_normal_de_24_horas()
+    {
+        _store.Record = Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { Tampered = true };
+        var service = Service();
+
+        (await service.StatusAsync(Ct)).Value.State.ShouldBe(LicenseStates.Restricted);
+        ((ILicenseGate)_cache).Current.SalesWindowClosed.ShouldBeFalse();
+
+        _clock.UtcNow = Today.AddHours(25);
+        await service.StatusAsync(Ct);
+        ((ILicenseGate)_cache).Current.SalesWindowClosed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Sin_calculo_reciente_se_conserva_la_ultima_decision_de_venta()
+    {
+        var time = new MonotonicTime();
+        var cache = new LicenseStateCache(time);
+        ILicenseGate gate = cache;
+        var restricted = Evaluate(Record(Token(SubscriptionStatuses.Suspended, issuedAt: Today), lastCheckin: Today, maxObserved: Today), Today);
+
+        cache.Update(restricted, salesWindowClosed: true);
+        time.Advance(TimeSpan.FromHours(2));
+        (gate.Current.Restricted, gate.Current.SalesWindowClosed, gate.Current.Reason).ShouldBe((true, true, LicenseStateCache.StaleReason));
+
+        cache.Update(restricted, salesWindowClosed: false);
+        time.Advance(TimeSpan.FromHours(2));
+        (gate.Current.Restricted, gate.Current.SalesWindowClosed).ShouldBe((true, false));
+    }
 
     [Fact]
     public void Si_el_calculo_falla_mas_de_una_hora_el_filtro_restringe()
