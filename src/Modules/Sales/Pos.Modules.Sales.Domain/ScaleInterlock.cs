@@ -39,6 +39,9 @@ public sealed class ScaleInterlock : Entity<Guid>
     /// </summary>
     public Guid[] RetiredBootIds { get; private set; } = [];
 
+    /// <summary>BQ3: número de arranque más alto aceptado de esta caja; un arranque menor (anterior) nunca vale.</summary>
+    public long? LastBootCounter { get; private set; }
+
     /// <summary>Secuencia (en ese arranque) de la última lectura aceptada.</summary>
     public long? LastSeq { get; private set; }
 
@@ -67,7 +70,7 @@ public sealed class ScaleInterlock : Entity<Guid>
             return SalesErrors.ScaleClockSkew;
         }
 
-        if (RetiredBootIds.Contains(reading.BootId))
+        if (RetiredBootIds.Contains(reading.BootId) || (LastBootCounter is { } counter && reading.BootCounter < counter))
         {
             return SalesErrors.ScaleReadingStale;
         }
@@ -98,6 +101,7 @@ public sealed class ScaleInterlock : Entity<Guid>
         }
 
         LastBootId = reading.BootId;
+        LastBootCounter = LastBootCounter is { } counter && counter > reading.BootCounter ? counter : reading.BootCounter;
         LastSeq = reading.Seq;
         LastGrossKg = reading.GrossKg;
         LastSaleId = saleId;
@@ -167,6 +171,8 @@ public sealed class ScaleReadingRecord : Entity<Guid>
 
     public Guid BootId { get; private set; }
 
+    public long BootCounter { get; private set; }
+
     public long Seq { get; private set; }
 
     public decimal GrossKg { get; private set; }
@@ -194,6 +200,7 @@ public sealed class ScaleReadingRecord : Entity<Guid>
             KeyId = keyId,
             AgentAt = reading.At,
             BootId = reading.BootId,
+            BootCounter = reading.BootCounter,
             Seq = reading.Seq,
             GrossKg = reading.GrossKg,
             TareKg = reading.TareKg,

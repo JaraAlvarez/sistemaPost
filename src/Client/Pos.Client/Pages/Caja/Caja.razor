@@ -714,7 +714,7 @@ else
                     {
                         <MudButton Variant="Variant.Outlined" OnClick="ReiniciarBasculaAsync">Reiniciar báscula (supervisor)</MudButton>
                     }
-                    <MudButton OnClick="CerrarPanel">Cancelar <kbd class="ml-2">Esc</kbd></MudButton>
+                    <MudButton OnClick="CancelarPesajeYCerrarAsync">Cancelar <kbd class="ml-2">Esc</kbd></MudButton>
                 </div>
             </div>
         </div>
@@ -730,7 +730,7 @@ else
                 <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_pesoDigitado" Min="0.001m" AutoFocus="true" Label="Peso en kilos (ej. 0,700)" Variant="Variant.Outlined"
                                  Class="cobro-valor" Immediate="true" OnKeyDown="PesoDigitadoTeclaAsync" HideSpinButtons="true" Format="0.000" />
                 <div class="acciones">
-                    <MudButton OnClick="CerrarPanel">Cancelar</MudButton>
+                    <MudButton OnClick="CancelarPesajeYCerrarAsync">Cancelar</MudButton>
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AgregarPesoDigitadoAsync">Agregar <kbd class="ml-2">Enter</kbd></MudButton>
                 </div>
             </div>

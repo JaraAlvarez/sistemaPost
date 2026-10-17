@@ -23,23 +23,24 @@ public sealed record SignedScaleReading(string Payload, string Signature, Guid K
 
 /// <summary>
 /// Firma las lecturas de la báscula (Fase 7-C, decisión D3 de la revisión). Vincular (F1 → Vincular báscula, en la caja con autorización
-/// de supervisor) se hace en dos pasos (BK1): el agente prepara una clave ECDSA P-256 PENDIENTE (solo en memoria; la vigente sigue
-/// firmando), la caja registra la pública en el servidor y, solo si el servidor la aceptó, la caja confirma
-/// (<see cref="Commit"/>) y el agente la activa y la guarda. Si el registro falla o se cancela, la pendiente se descarta (otro
-/// <see cref="Prepare"/> o un reinicio del agente) y la caja sigue pesando con la clave vigente.
-/// <para>La privada (BB3/BK3) se guarda en <c>keys\scale-signing.json</c> cifrada con DPAPI de la CUENTA del agente (el servicio corre
-/// como SYSTEM; sin entropía fija) y la carpeta <c>keys</c> y el archivo tienen permisos solo para SYSTEM, Administradores y la cuenta del
-/// agente (sin herencia). Una clave del formato anterior (<c>dpapi:</c> con entropía fija) se borra al arrancar: hay que volver a
-/// vincular. Si cambia la cuenta del servicio también hay que volver a vincular.</para>
+/// de supervisor) se hace en dos pasos (BK1): el agente prepara una clave ECDSA P-256 PENDIENTE (la vigente sigue firmando), la caja
+/// registra la pública en el servidor y, solo si el servidor la aceptó, la caja confirma (<see cref="Commit"/>) y el agente la activa.
+/// La pendiente se guarda en disco (BQ2): la confirmación vale aunque el agente se haya reiniciado entre el registro y la confirmación. Un
+/// nuevo <see cref="Prepare"/> la reemplaza; si nunca se confirma, la caja sigue pesando con la clave vigente.
+/// <para>Las claves (BB3/BK3) se guardan en la carpeta <c>keys</c> cifradas con DPAPI de la CUENTA del agente (el servicio corre como
+/// SYSTEM; sin entropía fija); la carpeta y sus archivos tienen permisos solo para SYSTEM, Administradores y la cuenta del agente (sin
+/// herencia) y se reparan al arrancar. Una clave del formato anterior (<c>dpapi:</c> con entropía fija) se borra al arrancar.</para>
+/// <para>BQ3: también guarda en <c>keys</c> el número de arranque del agente, que sube en cada arranque y va firmado en cada lectura.</para>
 /// </summary>
 public sealed class ScaleSigner : IDisposable
 {
     private readonly Lock _gate = new();
     private readonly string _folder;
     private readonly string _file;
+    private readonly string _pendingFile;
+    private readonly string _bootFile;
     private readonly ILogger<ScaleSigner> _logger;
     private ECDsa? _key;
-    private Pending? _pending;
 
     public ScaleSigner(IOptions<AgentOptions> options, ILogger<ScaleSigner> logger)
     {
@@ -48,7 +49,11 @@ public sealed class ScaleSigner : IDisposable
         var agentFolder = Path.GetDirectoryName(options.Value.ResolveScaleConfigFile())!;
         _folder = Path.Combine(agentFolder, "keys");
         _file = Path.Combine(_folder, "scale-signing.json");
+        _pendingFile = Path.Combine(_folder, "scale-signing.pending.json");
+        _bootFile = Path.Combine(_folder, "boot-counter.txt");
         RemoveLegacy(Path.Combine(agentFolder, "scale-signing.json"));
+        RepairFolder();
+        BootCounter = NextBootCounter();
         Load();
     }
 
@@ -57,59 +62,50 @@ public sealed class ScaleSigner : IDisposable
 
     public Guid? KeyId { get; private set; }
 
+    /// <summary>Número de este arranque del agente (BQ3): siempre mayor que el del arranque anterior.</summary>
+    public long BootCounter { get; }
+
     /// <summary>Ruta del archivo de la clave vigente.</summary>
     public string KeyFile => _file;
 
     /// <summary>
-    /// Prepara una clave PENDIENTE para la caja (descarta la pendiente anterior, si la había) y devuelve la pública para registrarla en el
-    /// servidor. La clave vigente no cambia.
+    /// Prepara una clave PENDIENTE para la caja (reemplaza la pendiente anterior, si la había) y la guarda; devuelve la pública para
+    /// registrarla en el servidor. La clave vigente no cambia.
     /// </summary>
     public ScalePairingDto Prepare(Guid terminalId)
     {
-        var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var keyId = Guid.CreateVersion7();
         lock (_gate)
         {
-            _pending?.Key.Dispose();
-            _pending = new Pending(terminalId, keyId, key);
+            Save(_pendingFile, new StoredKey(terminalId, keyId, Protect(key.ExportPkcs8PrivateKey())));
         }
 
         return new ScalePairingDto(terminalId, keyId, Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()), Pos.SharedKernel.Measurement.ScaleReadingPayload.Algorithm);
     }
 
     /// <summary>
-    /// Activa la clave pendiente <paramref name="keyId"/> (el servidor ya la registró) y la guarda. Devuelve false si no hay una pendiente
-    /// con ese identificador (otra la reemplazó o el agente se reinició).
+    /// Activa la clave pendiente <paramref name="keyId"/> (el servidor ya la registró). Devuelve false si no hay una pendiente con ese
+    /// identificador (otro intento la reemplazó o ya se confirmó). Todo pasa bajo el mismo candado que <see cref="Prepare"/> (BQ5).
     /// </summary>
     public bool Commit(Guid keyId)
     {
-        Pending pending;
         lock (_gate)
         {
-            if (_pending is not { } p || p.KeyId != keyId)
+            if (Read(_pendingFile) is not { } pending || pending.KeyId != keyId)
             {
                 return false;
             }
 
-            pending = p;
-        }
-
-        Save(new StoredKey(pending.TerminalId, pending.KeyId, Protect(pending.Key.ExportPkcs8PrivateKey())));
-        lock (_gate)
-        {
-            if (!ReferenceEquals(_pending, pending))
-            {
-                return false;
-            }
-
+            var key = ECDsa.Create();
+            key.ImportPkcs8PrivateKey(Unprotect(pending.PrivateKey), out _);
+            File.Move(_pendingFile, _file, overwrite: true);
             _key?.Dispose();
-            _key = pending.Key;
+            _key = key;
             TerminalId = pending.TerminalId;
             KeyId = pending.KeyId;
-            _pending = null;
+            return true;
         }
-
-        return true;
     }
 
     /// <summary>Firma el texto canónico de una lectura con la clave VIGENTE; nulo si el agente no está vinculado.</summary>
@@ -134,8 +130,6 @@ public sealed class ScaleSigner : IDisposable
         {
             _key?.Dispose();
             _key = null;
-            _pending?.Key.Dispose();
-            _pending = null;
         }
     }
 
@@ -188,33 +182,47 @@ public sealed class ScaleSigner : IDisposable
         _ => throw new CryptographicException("Formato de clave desconocido."),
     };
 
-    /// <summary>Carpeta <c>keys</c> con permisos solo para SYSTEM, Administradores y la cuenta del agente (BK3/BK5).</summary>
-    private void EnsureFolder()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            Directory.CreateDirectory(_folder);
-            return;
-        }
+    private static StoredKey? Read(string path) =>
+        File.Exists(path) ? JsonSerializer.Deserialize<StoredKey>(File.ReadAllText(path), AgentEndpoints.Json) : null;
 
-        var folder = new DirectoryInfo(_folder);
-        if (!folder.Exists)
+    /// <summary>
+    /// BK3/BK5: carpeta <c>keys</c> con permisos solo para SYSTEM, Administradores y la cuenta del agente. Al arrancar se reparan la carpeta
+    /// y sus archivos (por si alguien cambió los permisos).
+    /// </summary>
+    private void RepairFolder()
+    {
+        try
         {
-            folder.Create(RestrictedDirectorySecurity());
-        }
-        else
-        {
+            if (!OperatingSystem.IsWindows())
+            {
+                Directory.CreateDirectory(_folder);
+                return;
+            }
+
+            var folder = new DirectoryInfo(_folder);
+            if (!folder.Exists)
+            {
+                folder.Create(RestrictedDirectorySecurity());
+                return;
+            }
+
             folder.SetAccessControl(RestrictedDirectorySecurity());
+            foreach (var file in folder.GetFiles())
+            {
+                file.SetAccessControl(RestrictedFileSecurity());
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PrivilegeNotHeldException)
+        {
+            AgentLog.ScaleConfigUnreadable(_logger, ex, _folder);
         }
     }
 
-    /// <summary>Escribe la clave con permisos restringidos: borra un <c>.tmp</c> anterior (conservaría sus permisos) y lo reemplaza.</summary>
-    private void Save(StoredKey stored)
+    /// <summary>Escribe con permisos restringidos: borra un <c>.tmp</c> anterior (conservaría sus permisos) y lo reemplaza.</summary>
+    private static void WriteRestricted(string path, string content)
     {
-        EnsureFolder();
-        var temporary = _file + ".tmp";
+        var temporary = path + ".tmp";
         File.Delete(temporary);
-        var content = JsonSerializer.Serialize(stored, AgentEndpoints.Json);
         if (OperatingSystem.IsWindows())
         {
             using var stream = new FileInfo(temporary).Create(FileMode.CreateNew, FileSystemRights.FullControl, FileShare.None, 4096, FileOptions.None, RestrictedFileSecurity());
@@ -226,10 +234,46 @@ public sealed class ScaleSigner : IDisposable
             File.WriteAllText(temporary, content);
         }
 
-        File.Move(temporary, _file, overwrite: true);
+        File.Move(temporary, path, overwrite: true);
     }
 
-    /// <summary>BK3: la clave del formato anterior (DPAPI de máquina con entropía fija, fuera de <c>keys</c>) se borra al arrancar.</summary>
+    private void Save(string path, StoredKey stored)
+    {
+        Directory.CreateDirectory(_folder);
+        WriteRestricted(path, JsonSerializer.Serialize(stored, AgentEndpoints.Json));
+    }
+
+    /// <summary>BQ3: lee el número del último arranque, lo sube y lo guarda (si no se puede guardar, igual sube en memoria).</summary>
+    private long NextBootCounter()
+    {
+        long previous = 0;
+        try
+        {
+            if (File.Exists(_bootFile))
+            {
+                _ = long.TryParse(File.ReadAllText(_bootFile).Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out previous);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AgentLog.ScaleConfigUnreadable(_logger, ex, _bootFile);
+        }
+
+        var next = previous + 1;
+        try
+        {
+            Directory.CreateDirectory(_folder);
+            WriteRestricted(_bootFile, next.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AgentLog.ScaleConfigUnreadable(_logger, ex, _bootFile);
+        }
+
+        return next;
+    }
+
+    /// <summary>BK3: la clave del formato anterior (DPAPI de máquina con entropía fija) se borra al arrancar.</summary>
     private void RemoveLegacy(string legacy)
     {
         try
@@ -239,9 +283,12 @@ public sealed class ScaleSigner : IDisposable
                 File.Delete(legacy);
             }
 
-            if (File.Exists(_file) && File.ReadAllText(_file).Contains("\"dpapi:", StringComparison.Ordinal))
+            foreach (var file in new[] { _file, _pendingFile })
             {
-                File.Delete(_file);
+                if (File.Exists(file) && File.ReadAllText(file).Contains("\"dpapi:", StringComparison.Ordinal))
+                {
+                    File.Delete(file);
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -254,13 +301,7 @@ public sealed class ScaleSigner : IDisposable
     {
         try
         {
-            if (!File.Exists(_file))
-            {
-                return;
-            }
-
-            var stored = JsonSerializer.Deserialize<StoredKey>(File.ReadAllText(_file), AgentEndpoints.Json);
-            if (stored is null)
+            if (Read(_file) is not { } stored)
             {
                 return;
             }
@@ -279,6 +320,4 @@ public sealed class ScaleSigner : IDisposable
     }
 
     private sealed record StoredKey(Guid TerminalId, Guid KeyId, string PrivateKey);
-
-    private sealed record Pending(Guid TerminalId, Guid KeyId, ECDsa Key);
 }

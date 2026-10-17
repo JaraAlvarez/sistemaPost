@@ -6,15 +6,17 @@ namespace Pos.SharedKernel.Measurement;
 /// Lectura de la báscula FIRMADA por el agente de la caja (Fase 7-C, decisión D3 de la revisión): el agente la arma con lo que leyó del
 /// puerto serie, la firma con la clave de la caja (ECDSA P-256 + SHA-256; la clave privada nunca sale del agente) y la interfaz la
 /// reenvía al servidor sin poder cambiarla. El texto firmado es canónico (campos separados por <c>|</c>, cultura invariante):
-/// <c>BP-SCALE-2|caja|lectura|hora-ms|arranque|secuencia|bruto|tara|neto|estable|neto-de-báscula|estado|secuencia-vacía|vacía-desde-la-aceptada</c>.
+/// <c>BP-SCALE-3|caja|lectura|hora-ms|arranque|número-de-arranque|secuencia|bruto|tara|neto|estable|neto-de-báscula|estado|secuencia-vacía|vacía-desde-la-aceptada</c>.
 /// <para>El orden entre lecturas NO usa la hora (el reloj del equipo puede saltar): usa <see cref="BootId"/> (cambia cada vez que arranca
-/// el agente) y <see cref="Seq"/> (contador que solo crece mientras el agente está encendido). La hora solo sirve para descartar
+/// el agente), <see cref="BootCounter"/> (número de arranque que el agente guarda y solo sube: el servidor rechaza un arranque menor al
+/// último aceptado, BQ3) y <see cref="Seq"/> (contador que solo crece mientras el agente está encendido). La hora solo sirve para descartar
 /// lecturas demasiado viejas o del futuro frente al reloj del servidor.</para>
 /// </summary>
 /// <param name="TerminalId">Caja con la que se vinculó el agente.</param>
 /// <param name="ReadingId">Identificador único de la lectura (nonce): el servidor no acepta dos veces la misma.</param>
 /// <param name="At">Hora de la lectura en el reloj del agente.</param>
 /// <param name="BootId">Arranque del agente.</param>
+/// <param name="BootCounter">Número de arranque del agente (guardado en su equipo; cada arranque es mayor que el anterior).</param>
 /// <param name="Seq">Número de la lectura dentro del arranque (creciente).</param>
 /// <param name="GrossKg">Lo que marcó la báscula.</param>
 /// <param name="TareKg">Tara manual del agente (tecla Ins).</param>
@@ -29,6 +31,7 @@ public sealed record ScaleReadingPayload(
     Guid ReadingId,
     DateTimeOffset At,
     Guid BootId,
+    long BootCounter,
     long Seq,
     decimal GrossKg,
     decimal TareKg,
@@ -39,7 +42,7 @@ public sealed record ScaleReadingPayload(
     long? LastEmptySeq,
     bool EmptiedSinceLastAccepted)
 {
-    public const string Version = "BP-SCALE-2";
+    public const string Version = "BP-SCALE-3";
 
     /// <summary>Algoritmo de la firma (texto informativo para la configuración).</summary>
     public const string Algorithm = "ECDSA_P256_SHA256";
@@ -51,6 +54,7 @@ public sealed record ScaleReadingPayload(
         ReadingId.ToString("D", CultureInfo.InvariantCulture),
         At.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture),
         BootId.ToString("D", CultureInfo.InvariantCulture),
+        BootCounter.ToString(CultureInfo.InvariantCulture),
         Seq.ToString(CultureInfo.InvariantCulture),
         Kg(GrossKg),
         Kg(TareKg),
@@ -64,22 +68,23 @@ public sealed record ScaleReadingPayload(
     public static ScaleReadingPayload? TryParse(string? text)
     {
         var parts = text?.Split('|');
-        if (parts is not { Length: 14 } || parts[0] != Version
+        if (parts is not { Length: 15 } || parts[0] != Version
             || !Guid.TryParseExact(parts[1], "D", out var terminal) || !Guid.TryParseExact(parts[2], "D", out var reading)
             || !long.TryParse(parts[3], NumberStyles.None, CultureInfo.InvariantCulture, out var at)
             || !Guid.TryParseExact(parts[4], "D", out var boot)
-            || !long.TryParse(parts[5], NumberStyles.None, CultureInfo.InvariantCulture, out var seq)
-            || ParseKg(parts[6]) is not { } gross || ParseKg(parts[7]) is not { } tare || ParseKg(parts[8]) is not { } net
-            || parts[9] is not ("0" or "1") || parts[10] is not ("0" or "1") || parts[13] is not ("0" or "1")
-            || parts[11] is not ("OK" or "UNSTABLE" or "ZERO" or "NEGATIVE" or "OVERLOAD" or "ERROR"))
+            || !long.TryParse(parts[5], NumberStyles.None, CultureInfo.InvariantCulture, out var bootCounter)
+            || !long.TryParse(parts[6], NumberStyles.None, CultureInfo.InvariantCulture, out var seq)
+            || ParseKg(parts[7]) is not { } gross || ParseKg(parts[8]) is not { } tare || ParseKg(parts[9]) is not { } net
+            || parts[10] is not ("0" or "1") || parts[11] is not ("0" or "1") || parts[14] is not ("0" or "1")
+            || parts[12] is not ("OK" or "UNSTABLE" or "ZERO" or "NEGATIVE" or "OVERLOAD" or "ERROR"))
         {
             return null;
         }
 
         long? lastEmpty = null;
-        if (parts[12] != "-")
+        if (parts[13] != "-")
         {
-            if (!long.TryParse(parts[12], NumberStyles.None, CultureInfo.InvariantCulture, out var empty))
+            if (!long.TryParse(parts[13], NumberStyles.None, CultureInfo.InvariantCulture, out var empty))
             {
                 return null;
             }
@@ -90,8 +95,8 @@ public sealed record ScaleReadingPayload(
         try
         {
             return new ScaleReadingPayload(
-                terminal, reading, DateTimeOffset.FromUnixTimeMilliseconds(at), boot, seq, gross, tare, net, parts[9] == "1", parts[10] == "1", parts[11],
-                lastEmpty, parts[13] == "1");
+                terminal, reading, DateTimeOffset.FromUnixTimeMilliseconds(at), boot, bootCounter, seq, gross, tare, net, parts[10] == "1", parts[11] == "1",
+                parts[12], lastEmpty, parts[14] == "1");
         }
         catch (ArgumentOutOfRangeException)
         {

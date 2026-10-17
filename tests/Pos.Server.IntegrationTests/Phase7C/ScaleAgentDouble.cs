@@ -29,6 +29,9 @@ public sealed class ScaleAgentDouble : IDisposable
     /// <summary>Arranque del agente (cambiarlo simula un reinicio: la secuencia empieza de nuevo).</summary>
     public Guid BootId { get; private set; } = Guid.NewGuid();
 
+    /// <summary>Número de arranque (BQ3): sube con cada reinicio.</summary>
+    public long BootCounter { get; private set; } = 1;
+
     /// <summary>Desfase del reloj del agente frente al reloj real (salto del reloj del equipo).</summary>
     public TimeSpan ClockOffset { get; set; }
 
@@ -72,16 +75,18 @@ public sealed class ScaleAgentDouble : IDisposable
     public void Restart()
     {
         BootId = Guid.NewGuid();
+        BootCounter++;
         _seq = 0;
         _lastEmptySeq = null;
     }
 
     /// <summary>Una lectura firmada (cuerpo <c>scale</c> de la línea) y su contenido.</summary>
     public (object Body, ScaleReadingPayload Payload) Read(
-        decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, DateTimeOffset? at = null, Guid? terminalId = null, ECDsa? key = null)
+        decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, DateTimeOffset? at = null, Guid? terminalId = null, ECDsa? key = null,
+        long? bootCounter = null, Guid? bootId = null)
     {
         var payload = new ScaleReadingPayload(
-            terminalId ?? TerminalId, Guid.CreateVersion7(), at ?? DateTimeOffset.UtcNow + ClockOffset, BootId, ++_seq, grossKg, tareKg, grossKg - tareKg, stable,
+            terminalId ?? TerminalId, Guid.CreateVersion7(), at ?? DateTimeOffset.UtcNow + ClockOffset, bootId ?? BootId, bootCounter ?? BootCounter, ++_seq, grossKg, tareKg, grossKg - tareKg, stable,
             net, stable ? "OK" : "UNSTABLE", _lastEmptySeq, true);
         return (Sign(payload, key), payload);
     }

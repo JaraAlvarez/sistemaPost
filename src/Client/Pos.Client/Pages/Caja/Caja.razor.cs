@@ -434,6 +434,13 @@ public sealed partial class Caja
     /// </summary>
     private async Task PesarAsync(ScanResult producto, Guid productId)
     {
+        // BQ4: con otro panel abierto (cobro, cliente…) no se empieza a pesar: la lectura quedaría detrás del panel.
+        if (_panel != Panel.None)
+        {
+            Snackbar.Add($"{producto.Name} se vende por báscula: cierre el cobro (Esc) antes de pesarlo.", Severity.Warning);
+            return;
+        }
+
         CancelarPesada();
         var cts = _pesoCts = new CancellationTokenSource();
         _pesoProducto = producto;
@@ -575,11 +582,17 @@ public sealed partial class Caja
             if (!(await Api.GetAsync<Pos.Modules.Sales.Contracts.ScaleInterlockDto>("api/v1/sales/scale/interlock")).AwaitingEmpty)
             {
                 await AgentScale.ReleaseAcceptedAsync();
+                Snackbar.Add("Pesada eliminada: puede volver a pesar el producto.", Severity.Info);
+            }
+            else
+            {
+                Snackbar.Add("Pesada eliminada. La última pesada de la caja era otra: retire el producto de la báscula antes de pesar el siguiente.", Severity.Info);
             }
         }
-        catch (ApiException)
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
         {
-            // Sin respuesta del servidor: se deja como está (el servidor es el que decide al pesar).
+            // BQ7: la línea sí se eliminó; sin respuesta del servidor el agente se deja como está (el servidor decide al pesar).
+            Snackbar.Add("Pesada eliminada. No se pudo confirmar la báscula con el servidor: si al pesar pide retirar el producto, retírelo.", Severity.Warning);
         }
     }
 
@@ -589,6 +602,7 @@ public sealed partial class Caja
     /// </summary>
     private async Task ReiniciarBasculaAsync()
     {
+        CancelarPesaje();
         CancelarPesada();
         _panel = Panel.None;
         await RunAsync(async grant =>
@@ -625,24 +639,39 @@ public sealed partial class Caja
                 await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(HttpMethod.Put, url, new { });
             }
 
-            // El agente prepara una clave PENDIENTE (la vigente sigue firmando); solo se activa si el servidor la registró.
-            var (vinculo, error) = await AgentScale.PairAsync(caja);
-            if (vinculo is null)
+            // BQ2: si el agente no pudo activar la clave, se repite una vez Prepare → PUT → commit. La autorización del supervisor es de un
+            // solo uso: en el segundo intento, si hace falta, el servidor la pide otra vez (RunAsync muestra el panel).
+            for (var intento = 1; intento <= 2; intento++)
             {
-                Snackbar.Add(error ?? "El agente de esta caja no respondió.", Severity.Error);
-                return;
-            }
+                // El agente prepara una clave PENDIENTE (la vigente sigue firmando); solo se activa si el servidor la registró.
+                var (vinculo, error) = await AgentScale.PairAsync(caja);
+                if (vinculo is null)
+                {
+                    Snackbar.Add(error ?? "El agente de esta caja no respondió.", Severity.Error);
+                    return;
+                }
 
-            await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(
-                HttpMethod.Put, url, new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, grant);
-            if (await AgentScale.CommitPairingAsync(vinculo.KeyId) is { } fallo)
-            {
-                Snackbar.Add($"El servidor registró la clave, pero el agente no la activó: {fallo} Vuelva a vincular la báscula.", Severity.Error);
-                return;
-            }
+                await Api.SendAsync<Pos.Modules.Organization.Contracts.TerminalScaleDto>(
+                    HttpMethod.Put, url, new { keyId = vinculo.KeyId, publicKey = vinculo.PublicKey }, intento == 1 ? grant : null);
+                var (viejo, fallo) = await AgentScale.CommitPairingAsync(vinculo.KeyId);
+                if (viejo)
+                {
+                    Snackbar.Add(fallo!, Severity.Error);
+                    return;
+                }
 
-            var aviso = await Scale.LoadAsync(caja);
-            Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
+                if (fallo is null)
+                {
+                    var aviso = await Scale.LoadAsync(caja);
+                    Snackbar.Add(aviso is null ? "Báscula vinculada con esta caja." : $"Báscula vinculada. {aviso}", aviso is null ? Severity.Success : Severity.Warning);
+                    return;
+                }
+
+                if (intento == 2)
+                {
+                    Snackbar.Add($"El servidor registró la clave, pero el agente no la activó: {fallo} Vuelva a vincular la báscula.", Severity.Error);
+                }
+            }
         });
     }
 
@@ -653,6 +682,13 @@ public sealed partial class Caja
         _pesoCts = null;
         cts?.Cancel();
         cts?.Dispose();
+    }
+
+    /// <summary>Botón Cancelar de la pesada (BQ6): igual que Esc, quita la tara manual de esta pesada y cierra el panel.</summary>
+    private async Task CancelarPesajeYCerrarAsync()
+    {
+        CancelarPesaje();
+        await CerrarPanel();
     }
 
     /// <summary>Esc durante la pesada: la tara manual tomada para ella se quita (D2).</summary>

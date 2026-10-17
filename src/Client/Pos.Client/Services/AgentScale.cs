@@ -124,18 +124,26 @@ public sealed class AgentScale(ApiClient api)
     }
 
     /// <summary>
-    /// BK1: el servidor ya registró la clave pendiente: el agente la activa. Devuelve el error, o nulo si quedó activa.
+    /// BK1: el servidor ya registró la clave pendiente: el agente la activa. <c>Outdated</c> = el agente es de una versión anterior (no
+    /// tiene la confirmación, BQ9); <c>Error</c> = no se pudo activar (se puede reintentar); ambos nulos/false = quedó activa.
     /// </summary>
-    public static async Task<string?> CommitPairingAsync(Guid keyId)
+    public static async Task<(bool Outdated, string? Error)> CommitPairingAsync(Guid keyId)
     {
         try
         {
             using var response = await Agent.PostAsJsonAsync("scale/pairing/commit", new { keyId }, ApiClient.Json);
-            return response.IsSuccessStatusCode ? null : await ProblemAsync(response);
+            if (response.IsSuccessStatusCode)
+            {
+                return (false, null);
+            }
+
+            return response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                ? (true, "Actualice el programa de la caja (agente de BusinessPost): esta versión no puede vincular la báscula.")
+                : (false, await ProblemAsync(response));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            return "No se pudo hablar con el agente de esta caja.";
+            return (false, "No se pudo hablar con el agente de esta caja.");
         }
     }
 

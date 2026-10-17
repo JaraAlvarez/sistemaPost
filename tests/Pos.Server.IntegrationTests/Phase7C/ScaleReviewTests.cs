@@ -125,6 +125,12 @@ public class ScaleReviewTests
         (await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{next.Id}/lines", Line(0.640m, agent.Read(0.640m).Body))).Lines[^1].Quantity.ShouldBe(0.620m);
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{next.Id}/lines", Line(0.640m, beforeRestart))
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_READING_STALE");
+
+        // BQ3: un arranque con número menor al último aceptado (aunque nunca tuvo pesadas y no está retirado) tampoco vale.
+        agent.Empty();
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{next.Id}/lines",
+                Line(0.640m, agent.Read(0.640m, bootCounter: agent.BootCounter - 1, bootId: Guid.NewGuid()).Body))
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SCALE_READING_STALE");
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM sales.scale_readings")).ShouldBe(5);
     }
 
@@ -139,9 +145,14 @@ public class ScaleReviewTests
             enabled = true, driver = "TOLEDO_8217", port = "COM3", stableWaitSeconds = 3, emptyWaitSeconds = 5, allowManualWeight = true,
         });
 
-        // BK3: báscula activa sin vincular: el Tablero lo avisa.
+        // BK3: báscula activa sin vincular: el Tablero lo avisa. BQ10: con la función "Báscula y PLU" apagada, no.
         (await GetAsync<List<ScaleKeyChangeDto>>(shop.Owner, "/api/v1/organization/terminals/scale-key-changes")).Single()
             .ShouldBe(new ScaleKeyChangeDto(terminal.Id, terminal.Code, null, Linked: false));
+        var features = (await GetAsync<BusinessFeaturesDto>(shop.Owner, "/api/v1/organization/business-features")).EnabledFeatures;
+        await SendAsync<BusinessFeaturesDto>(shop.Owner, HttpMethod.Put, "/api/v1/organization/business-features",
+            new { enabledFeatures = features.Where(f => f != "SCALE").ToArray() });
+        (await GetAsync<List<ScaleKeyChangeDto>>(shop.Owner, "/api/v1/organization/terminals/scale-key-changes")).ShouldBeEmpty();
+        await SendAsync<BusinessFeaturesDto>(shop.Owner, HttpMethod.Put, "/api/v1/organization/business-features", new { enabledFeatures = features });
 
         using var old = new ScaleAgentDouble(terminal.Id);
         await old.RegisterKeyAsync(shop);

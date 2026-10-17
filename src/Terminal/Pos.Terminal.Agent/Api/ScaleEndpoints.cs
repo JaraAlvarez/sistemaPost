@@ -24,6 +24,9 @@ public static class ScaleEndpoints
     public const string InvalidScale = "AGENT.INVALID_SCALE";
     public const string SimulatorDisabled = "SCALE.SIMULATOR_DISABLED";
 
+    /// <summary>La clave pendiente no existe (otra vinculación la reemplazó o ya se confirmó).</summary>
+    public const string PairingNotPending = "SCALE.PAIRING_NOT_PENDING";
+
     /// <summary>Pausa entre lecturas del flujo en vivo.</summary>
     public static readonly TimeSpan StreamInterval = TimeSpan.FromMilliseconds(250);
 
@@ -144,7 +147,18 @@ public static class ScaleEndpoints
         }
 
         // BK1/BB6: la clave nueva queda PENDIENTE; la vigente sigue firmando hasta que el servidor confirme.
-        return TypedResults.Ok(signer.Prepare(request.TerminalId));
+        try
+        {
+            return TypedResults.Ok(signer.Prepare(request.TerminalId));
+        }
+        catch (ObjectDisposedException)
+        {
+            return AgentEndpoints.Problem(HttpStatusCode.Conflict, PairingNotPending, "El agente se está cerrando: vuelva a vincular la báscula.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            return AgentEndpoints.Problem(HttpStatusCode.ServiceUnavailable, ScaleOutcome.Unavailable, $"No se pudo guardar la clave de la báscula: {ex.Message}");
+        }
     }
 
     private static async Task<IResult> CommitAsync(HttpContext http, ScaleSigner signer, IOptions<AgentOptions> options, CancellationToken ct)
@@ -155,15 +169,21 @@ public static class ScaleEndpoints
             return denied;
         }
 
+        // BQ5: otra vinculación reemplazó la pendiente, ya se confirmó o el agente se está cerrando: 409 (nunca 500).
         try
         {
             return signer.Commit(request!.KeyId)
                 ? TypedResults.NoContent()
-                : AgentEndpoints.Problem(HttpStatusCode.NotFound, AgentEndpoints.InvalidRequest, "No hay una clave pendiente con ese identificador: vuelva a vincular la báscula.");
+                : AgentEndpoints.Problem(HttpStatusCode.Conflict, PairingNotPending, "No hay una clave pendiente con ese identificador: vuelva a vincular la báscula.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        catch (ObjectDisposedException)
         {
-            return AgentEndpoints.Problem(HttpStatusCode.ServiceUnavailable, ScaleOutcome.Unavailable, $"No se pudo guardar la clave de la báscula: {ex.Message}");
+            return AgentEndpoints.Problem(HttpStatusCode.Conflict, PairingNotPending, "El agente se está cerrando: vuelva a vincular la báscula.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException
+                                       or System.Text.Json.JsonException or FormatException)
+        {
+            return AgentEndpoints.Problem(HttpStatusCode.ServiceUnavailable, ScaleOutcome.Unavailable, $"No se pudo activar la clave de la báscula: {ex.Message}");
         }
     }
 

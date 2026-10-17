@@ -21,8 +21,8 @@ public class WeighedLineTests
     /// <summary>Lectura del agente (ya verificada): bruto, tara manual, trama neta de la báscula, estable, orden en el agente y última vacía.</summary>
     private static ScaleReadingPayload Reading(
         decimal grossKg, decimal tareKg = 0m, bool net = false, bool stable = true, DateTimeOffset? at = null, long seq = 1, long? lastEmptySeq = null,
-        Guid? boot = null) =>
-        new(Caja, Guid.NewGuid(), at ?? Now, boot ?? Boot, seq, grossKg, tareKg, grossKg - tareKg, stable, net, stable ? "OK" : "UNSTABLE", lastEmptySeq, true);
+        Guid? boot = null, long bootCounter = 5) =>
+        new(Caja, Guid.NewGuid(), at ?? Now, boot ?? Boot, bootCounter, seq, grossKg, tareKg, grossKg - tareKg, stable, net, stable ? "OK" : "UNSTABLE", lastEmptySeq, true);
 
     private static Pos.SharedKernel.Results.Result<(decimal Quantity, string Source)> Scale(CatalogSaleItem item, decimal grossKg, decimal tareKg = 0m, bool net = false) =>
         AddLineHandler.WeighedQuantity(item, grossKg - tareKg, WeightSources.Scale, manualAuthorized: false, scaleLabel: false, Reading(grossKg, tareKg, net));
@@ -139,16 +139,30 @@ public class WeighedLineTests
         var bootA = Guid.NewGuid();
         var bootB = Guid.NewGuid();
         var interlock = ScaleInterlock.Start(Caja, Company, Now);
-        var r1 = Reading(1.0m, seq: 1, boot: bootA);
-        var r2 = Reading(0.7m, seq: 3, lastEmptySeq: 2, boot: bootA);
+        var r1 = Reading(1.0m, seq: 1, boot: bootA, bootCounter: 7);
+        var r2 = Reading(0.7m, seq: 3, lastEmptySeq: 2, boot: bootA, bootCounter: 7);
         interlock.Accept(r1, Guid.NewGuid(), Guid.NewGuid(), Now);
 
-        var fromB = Reading(0.5m, seq: 2, lastEmptySeq: 1, boot: bootB);
+        var fromB = Reading(0.5m, seq: 2, lastEmptySeq: 1, boot: bootB, bootCounter: 8);
         interlock.Check(fromB, Now, Window).IsSuccess.ShouldBeTrue();
         interlock.Accept(fromB, Guid.NewGuid(), Guid.NewGuid(), Now);
         interlock.RetiredBootIds.ShouldBe([bootA]);
 
         interlock.Check(r2, Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
+    }
+
+    [Fact]
+    public void Un_arranque_anterior_sin_pesadas_aceptadas_tampoco_vale_por_su_numero()
+    {
+        // BQ3: el arranque 6 nunca tuvo una pesada aceptada (no está entre los retirados), pero su número es menor que el del arranque 8
+        // ya aceptado: sus lecturas nunca valen.
+        var interlock = ScaleInterlock.Start(Caja, Company, Now);
+        interlock.Accept(Reading(1.0m, seq: 1, boot: Guid.NewGuid(), bootCounter: 8), Guid.NewGuid(), Guid.NewGuid(), Now);
+        interlock.Reset(Now);
+
+        interlock.Check(Reading(0.7m, seq: 4, lastEmptySeq: 3, boot: Guid.NewGuid(), bootCounter: 6), Now, Window).Error.ShouldBe(SalesErrors.ScaleReadingStale);
+        interlock.Check(Reading(0.7m, seq: 4, lastEmptySeq: 3, boot: Guid.NewGuid(), bootCounter: 9), Now, Window).IsSuccess.ShouldBeTrue();
+        interlock.LastBootCounter.ShouldBe(8);
     }
 
     [Fact]

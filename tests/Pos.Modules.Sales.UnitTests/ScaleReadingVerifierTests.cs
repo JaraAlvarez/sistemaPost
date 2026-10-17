@@ -20,7 +20,7 @@ public sealed class ScaleReadingVerifierTests : IDisposable
     public void Dispose() => _agentKey.Dispose();
 
     private static ScaleReadingPayload Payload(Guid? terminal = null, decimal gross = 0.7m) =>
-        new(terminal ?? Terminal, Guid.NewGuid(), Now, Guid.NewGuid(), 7, gross, 0m, gross, true, false, "OK", 5, true);
+        new(terminal ?? Terminal, Guid.NewGuid(), Now, Guid.NewGuid(), 3, 7, gross, 0m, gross, true, false, "OK", 5, true);
 
     private ScaleReadingInfo Signed(ScaleReadingPayload payload, ECDsa? key = null)
     {
@@ -67,8 +67,8 @@ public sealed class ScaleReadingVerifierTests : IDisposable
         var payload = Payload() with { LastEmptySeq = null, EmptiedSinceLastAccepted = false, TareKg = 0.05m, NetKg = 0.65m };
 
         ScaleReadingPayload.TryParse(payload.Format()).ShouldBe(payload);
-        ScaleReadingPayload.TryParse("BP-SCALE-2|x").ShouldBeNull();
-        ScaleReadingPayload.TryParse(payload.Format().Replace("BP-SCALE-2", "BP-SCALE-1", StringComparison.Ordinal)).ShouldBeNull();
+        ScaleReadingPayload.TryParse("BP-SCALE-3|x").ShouldBeNull();
+        ScaleReadingPayload.TryParse(payload.Format().Replace("BP-SCALE-3", "BP-SCALE-2", StringComparison.Ordinal)).ShouldBeNull();
         ScaleReadingPayload.TryParse(payload.Format().Replace("|OK|", "|BIEN|", StringComparison.Ordinal)).ShouldBeNull();
     }
 }

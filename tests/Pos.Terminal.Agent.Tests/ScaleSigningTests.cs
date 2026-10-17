@@ -176,6 +176,7 @@ public class ScaleSigningTests
         try
         {
             ScalePairingDto current;
+            ScalePairingDto registered;
             await using (var rig = await Rig.StartAsync(Toledo, settings, pair: false))
             {
                 rig.Device.Set(0.7m);
@@ -187,25 +188,80 @@ public class ScaleSigningTests
 
                 // Otro intento reemplaza la pendiente anterior: confirmar la primera ya no vale.
                 var retry = await PreparedAsync(rig.Client);
-                (await CommitAsync(rig.Client, abandoned.KeyId)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+                var stale = await CommitAsync(rig.Client, abandoned.KeyId);
+                stale.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+                (await CodeAsync(stale)).ShouldBe(ScaleEndpoints.PairingNotPending);
                 (await WeightAsync(rig.Client)).SignedReading!.KeyId.ShouldBe(current.KeyId);
 
                 // Una página sin el Origin de la interfaz no puede confirmar.
                 var local = await rig.Client.PostAsync("/scale/pairing/commit", Body(new ScalePairingCommitRequest(retry.KeyId)), Ct);
                 local.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
-                _ = await PreparedAsync(rig.Client);
+                registered = await PreparedAsync(rig.Client);
             }
 
-            // Reinicio del agente con una pendiente sin confirmar: se descarta y sigue la vigente.
+            // Reinicio del agente con una pendiente sin confirmar: sigue firmando la vigente.
             await using var again = await Rig.StartAsync(Toledo, settings, pair: false);
             again.Device.Set(0.7m);
             var after = (await WeightAsync(again.Client)).SignedReading!;
             (after.KeyId, Verifies(current, after)).ShouldBe((current.KeyId, true));
+
+            // BQ2: la pendiente quedó en disco: si el servidor ya la había registrado, la caja la confirma aunque el agente se reinició.
+            (await CommitAsync(again.Client, registered.KeyId)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+            var committed = (await WeightAsync(again.Client)).SignedReading!;
+            (committed.KeyId, Verifies(registered, committed)).ShouldBe((registered.KeyId, true));
+            File.Exists(Path.Combine(folder, "keys", "scale-signing.pending.json")).ShouldBeFalse();
+
+            // Confirmar dos veces (otra pestaña, un reintento): la segunda es un 409, no un error.
+            (await CommitAsync(again.Client, registered.KeyId)).StatusCode.ShouldBe(HttpStatusCode.Conflict);
         }
         finally
         {
             Directory.Delete(folder, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Al_arrancar_se_reparan_los_permisos_de_la_carpeta_de_claves()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // BK3: alguien abre la carpeta "keys" a todos; al arrancar, el agente vuelve a dejarla (y sus archivos) solo para SYSTEM,
+        // Administradores y su cuenta.
+        var folder = TempDirectory();
+        var settings = new Dictionary<string, string?> { ["Agent:ScaleConfigFile"] = Path.Combine(folder, "scale.json") };
+        try
+        {
+            await using (var first = await Rig.StartAsync(Toledo, settings))
+            {
+                first.Device.Set(0.5m);
+            }
+
+            var keys = Path.Combine(folder, "keys");
+            OpenToEveryone(keys);
+            OnlyAgentAndAdministrators(keys).ShouldBeFalse();
+
+            await using var again = await Rig.StartAsync(Toledo, settings, pair: false);
+            OnlyAgentAndAdministrators(keys).ShouldBeTrue();
+            OnlyAgentAndAdministrators(Path.Combine(keys, "scale-signing.json")).ShouldBeTrue();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void OpenToEveryone(string folder)
+    {
+        var info = new DirectoryInfo(folder);
+        var security = info.GetAccessControl();
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.WorldSid, null), FileSystemRights.Read, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None, AccessControlType.Allow));
+        info.SetAccessControl(security);
     }
 
     [Fact]
@@ -255,11 +311,13 @@ public class ScaleSigningTests
         {
             ScalePairingDto pairing;
             Guid firstBoot;
+            long firstCounter;
             await using (var first = await Rig.StartAsync(Toledo, settings, pair: false))
             {
                 first.Device.Set(0.5m);
                 pairing = await PairedAsync(first.Client);
-                firstBoot = Payload(await WeightAsync(first.Client)).BootId;
+                var firstPayload = Payload(await WeightAsync(first.Client));
+                (firstBoot, firstCounter) = (firstPayload.BootId, firstPayload.BootCounter);
             }
 
             await using var second = await Rig.StartAsync(Toledo, settings, pair: false);
@@ -270,6 +328,9 @@ public class ScaleSigningTests
 
             // Otro arranque: otro identificador (el servidor sabe que la secuencia empezó de nuevo).
             Payload(again).BootId.ShouldNotBe(firstBoot);
+
+            // BQ3: el número de arranque guardado en "keys" sube y va firmado en la lectura.
+            Payload(again).BootCounter.ShouldBe(firstCounter + 1);
         }
         finally
         {

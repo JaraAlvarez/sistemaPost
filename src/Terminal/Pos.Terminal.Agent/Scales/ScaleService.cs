@@ -681,7 +681,7 @@ public sealed class ScaleService : IDisposable
         if (!live.Simulated && _signer.TerminalId is { } terminalId && dto.GrossKg is { } gross && dto.WeightKg is { } weight)
         {
             var payload = new ScaleReadingPayload(
-                terminalId, readingId, dto.At, BootId, seq, gross, dto.TareKg, weight, dto.Stable, dto.ScaleNet, dto.Status, _lastEmptySeq, emptied);
+                terminalId, readingId, dto.At, BootId, _signer.BootCounter, seq, gross, dto.TareKg, weight, dto.Stable, dto.ScaleNet, dto.Status, _lastEmptySeq, emptied);
             signed = _signer.Sign(payload.Format());
         }
 

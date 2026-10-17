@@ -322,3 +322,27 @@ Migración POS **V2026.10.051** (arranques retirados del agente; invalida las cl
 
 **Pruebas:** agente 150/150 · Sales 90/90 · SharedKernel 103/103 · Catalog 42/42 · Organization 58/58 · Identity 33/33 · ArchitectureTests 23/23 · Database.Tests 80/80 · integración `Phase7` 9/9, `Phase3` 24/24 y `Phase7C` 14/14 (incluye vincular desde el equipo de otra caja en Multicaja,
 arranque retirado, clave vigente tras un intento fallido y alerta de báscula sin vincular).
+
+## Quinta revisión de la báscula — 2026-10-17
+
+Migración POS **V2026.10.052** (número de arranque del agente). Formato firmado **`BP-SCALE-3`** (las claves ya se invalidaron en la V051,
+así que toda caja vincula de nuevo con un agente que firma este formato; las lecturas `BP-SCALE-2` no se aceptan).
+
+| Hallazgo | Cómo quedó |
+|---|---|
+| BQ1 · Licencia restringida | `SetTerminalScaleKeyCommand` (vincular) y `ResetScaleInterlockCommand` (reiniciar) se permiten con la licencia restringida: una tienda puede volver a vincular la báscula después de actualizar. |
+| BQ2 · Pendiente en disco | La clave pendiente se guarda en `agent\keys\scale-signing.pending.json` (misma ACL): la confirmación vale aunque el agente se haya reiniciado. Si la confirmación falla, la caja repite una vez preparar → registrar → confirmar (si la autorización del supervisor ya se usó, el servidor la pide de nuevo). |
+| BQ3 · Número de arranque | El agente guarda en `keys` un número de arranque que sube en cada arranque y lo firma en cada lectura. El servidor guarda el más alto aceptado por caja (`last_boot_counter`) y rechaza uno menor: un arranque anterior nunca vale, aunque no haya tenido pesadas aceptadas. |
+| BQ4 · Cobro abierto | Con el cobro (u otro panel) abierto no se empieza a pesar: "Producto se vende por báscula: cierre el cobro (Esc) antes de pesarlo". |
+| BQ5 · Carreras | Preparar y confirmar van bajo el mismo candado; una confirmación de una pendiente reemplazada o ya confirmada, o con el agente cerrándose, responde 409 (`SCALE.PAIRING_NOT_PENDING`), no 500. |
+| BQ6 · Cancelar | Los botones Cancelar (pesar y peso digitado) y "Reiniciar báscula" pasan por `CancelarPesaje` (quitan la tara manual de la pesada). |
+| BQ7 · Eliminar una pesada | Si la consulta al servidor falla (también sin red), la caja informa que la línea se eliminó y deja el agente como está; si responde, informa si ya se puede volver a pesar. |
+| BQ8 · Hora | El servidor no puede distinguir un reloj desfasado de una lectura guardada más de 5 minutos: el mensaje nombra las dos causas ("vuelva a registrar el producto; si se repite, revise la fecha y hora del computador de la caja"). |
+| BQ9 · Agente viejo | Si el agente no tiene la confirmación (404), la caja dice "Actualice el programa de la caja". |
+| BQ10 · Función apagada | Con "Báscula y PLU" apagada, el Tablero no avisa "báscula no vinculada". |
+| BK3 · Permisos | Al arrancar, el agente repara los permisos de la carpeta `keys` y de sus archivos. |
+| BK4 · Neto | La báscula genérica también reconoce "PESO NETO" y "NT" pegado al número. |
+
+**Pruebas:** agente 163/163 · Sales 118/118 · Cash 71/71 · SharedKernel 103/103 · Catalog 117/117 · Organization 58/58 ·
+Identity 33/33 · Printing 59/59 · ArchitectureTests 23/23 · Database.Tests 81/81 · integración `Phase7C` 14/14, `Phase7` 9/9,
+`Phase7B` 24/24, `Phase3` 24/24 y `Labels` 3/3.

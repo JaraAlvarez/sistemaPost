@@ -97,8 +97,10 @@ internal sealed class GetTerminalScaleHandler(IOrganizationStore store) : IQuery
 /// <summary>
 /// Vincula la báscula de la caja (D3): registra la clave pública que el agente de ESA caja acaba de crear. Exige la báscula configurada.
 /// Volver a vincular reemplaza la clave (rotación): las lecturas firmadas con la anterior dejan de valer.
+/// <para>BQ1: se permite con la licencia restringida (una tienda debe poder volver a vincular la báscula después de actualizar).</para>
 /// </summary>
-public sealed record SetTerminalScaleKeyCommand(Guid PosTerminalId, Guid KeyId, string PublicKey) : ICommand<TerminalScaleDto>;
+public sealed record SetTerminalScaleKeyCommand(Guid PosTerminalId, Guid KeyId, string PublicKey)
+    : ICommand<TerminalScaleDto>, Pos.Application.Abstractions.Licensing.IAllowedWhenRestricted;
 
 internal sealed class SetTerminalScaleKeyHandler(
     IOrganizationStore store,
@@ -159,11 +161,15 @@ internal sealed class SetTerminalScaleKeyHandler(
 /// </summary>
 public sealed record ListScaleKeyChangesQuery : IQuery<IReadOnlyList<ScaleKeyChangeDto>>;
 
-internal sealed class ListScaleKeyChangesHandler(IOrganizationStore store, Pos.SharedKernel.Time.IClock clock)
+internal sealed class ListScaleKeyChangesHandler(
+    IOrganizationStore store, Pos.SharedKernel.Time.IClock clock, Pos.Application.Abstractions.Security.ICurrentUser current)
     : IQueryHandler<ListScaleKeyChangesQuery, IReadOnlyList<ScaleKeyChangeDto>>
 {
     public async Task<Result<IReadOnlyList<ScaleKeyChangeDto>>> Handle(ListScaleKeyChangesQuery request, CancellationToken cancellationToken)
     {
+        // BQ10: con la función "Báscula y PLU" apagada no se avisa que falta vincular (la caja no lee la báscula).
+        var company = current.CompanyId is { } companyId ? await store.GetCompanyAsync(companyId, cancellationToken) : null;
+        var scaleOn = company is null || company.Has(BusinessFeature.Scale);
         var since = clock.UtcNow.AddDays(-7);
         var scales = (await store.ListTerminalScalesAsync(cancellationToken)).ToDictionary(s => s.PosTerminalId);
         var changes = new List<ScaleKeyChangeDto>();
@@ -178,7 +184,7 @@ internal sealed class ListScaleKeyChangesHandler(IOrganizationStore store, Pos.S
             {
                 changes.Add(new ScaleKeyChangeDto(terminal.Id, terminal.Code, at));
             }
-            else if (scale.Enabled && scale.ReadingKeyId is null && terminal.Status == "ACTIVE")
+            else if (scaleOn && scale.Enabled && scale.ReadingKeyId is null && terminal.Status == "ACTIVE")
             {
                 changes.Add(new ScaleKeyChangeDto(terminal.Id, terminal.Code, null, Linked: false));
             }
