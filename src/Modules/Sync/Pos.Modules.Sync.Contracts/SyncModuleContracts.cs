@@ -18,11 +18,15 @@ public static class SyncPermissions
 /// <summary>Un lote enviado o exportado.</summary>
 public sealed record SyncBatchDto(Guid Id, DateTimeOffset CreatedAt, string Via, int Items, string Status, int? Applied, int? Ignored, string? Error, DateTimeOffset? AckedAt);
 
-/// <summary>Estado de la sincronización: datos pendientes por tipo, último acuse y los lotes recientes.</summary>
+/// <summary>
+/// Estado de la sincronización: datos pendientes por tipo, último acuse y los lotes recientes. <c>Warnings</c>: datos que se omitieron por
+/// demasiado grandes en los lotes recientes.
+/// </summary>
 public sealed record SyncStatusDto(
     bool Configured,
     string? NotConfiguredReason,
     DateTimeOffset? LastAckAt,
     string? LastError,
     IReadOnlyDictionary<string, int> Pending,
-    IReadOnlyList<SyncBatchDto> Batches);
+    IReadOnlyList<SyncBatchDto> Batches,
+    IReadOnlyList<string>? Warnings = null);

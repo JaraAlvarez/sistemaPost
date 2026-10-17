@@ -28,8 +28,35 @@ public sealed class PosInstallationAuthenticator(ILicensingStore store, ITrusted
         return await IdentityAsync(installation, cancellationToken);
     }
 
-    public async Task<PosInstallationIdentity?> FindAsync(Guid installationId, CancellationToken cancellationToken) =>
-        await store.FindInstallationAsync(installationId, cancellationToken) is { } installation ? await IdentityAsync(installation, cancellationToken) : null;
+    /// <summary>
+    /// Instalación de un paquete cargado en el portal: debe seguir activada (no liberada) y su licencia vigente; si no, el paquete no se aplica
+    /// (revisión S2).
+    /// </summary>
+    public async Task<PosInstallationIdentity?> FindAsync(Guid installationId, CancellationToken cancellationToken)
+    {
+        if (await store.FindInstallationAsync(installationId, cancellationToken) is not { Status: Domain.InstallationStatus.Active } installation
+            || (await store.GetLicenseAsync(installation.LicenseId, cancellationToken)) is not { IsActive: true })
+        {
+            return null;
+        }
+
+        return await IdentityAsync(installation, cancellationToken);
+    }
+
+    public async Task<string?> InactiveReasonAsync(Guid installationId, CancellationToken cancellationToken)
+    {
+        if (await store.FindInstallationAsync(installationId, cancellationToken) is not { } installation)
+        {
+            return PosInstallationInactiveReasons.NotFound;
+        }
+
+        if (installation.Status != Domain.InstallationStatus.Active)
+        {
+            return PosInstallationInactiveReasons.Released;
+        }
+
+        return (await store.GetLicenseAsync(installation.LicenseId, cancellationToken)) is { IsActive: true } ? null : PosInstallationInactiveReasons.LicenseInactive;
+    }
 
     private async Task<PosInstallationIdentity?> IdentityAsync(Domain.Installation installation, CancellationToken cancellationToken) =>
         await store.GetOrganizationAsync(installation.OrganizationId, cancellationToken) is { } organization

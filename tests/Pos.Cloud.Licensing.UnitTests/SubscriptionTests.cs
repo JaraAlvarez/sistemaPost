@@ -113,16 +113,61 @@ public class SubscriptionTests
     }
 
     [Fact]
-    public void Renovar_en_gracia_conserva_el_ciclo_y_vuelve_a_vigente()
+    public void Renovar_en_gracia_empieza_el_periodo_hoy_y_vuelve_a_vigente()
     {
+        // Decisión W3: en gracia o vencida, el periodo pagado empieza HOY (los días sin pagar no se cobran ni se "descuentan").
         var subscription = Paid();
         var end = subscription.CurrentPeriodEnd!.Value;
+        var today = end.AddDays(2);
 
-        subscription.Renew("PAGO-002", 1, 7, At(end.AddDays(2))).IsSuccess.ShouldBeTrue();
+        subscription.Renew("PAGO-002", 1, 7, At(today)).IsSuccess.ShouldBeTrue();
 
         subscription.Status.ShouldBe(SubscriptionStatus.Active);
-        subscription.CurrentPeriodStart.ShouldBe(end);
+        subscription.CurrentPeriodStart.ShouldBe(today);
+        subscription.CurrentPeriodEnd.ShouldBe(today.AddMonths(1));
         subscription.Events.Select(e => e.Type).ShouldContain(SubscriptionEventType.StatusChanged);
+    }
+
+    [Fact]
+    public void Revertir_un_pago_anulado_restaura_el_periodo_anterior_o_descuenta_lo_que_dio()
+    {
+        // Es el último periodo: vuelve el anterior.
+        var subscription = Paid();
+        var (previousStart, previousEnd) = (subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd);
+        subscription.Renew("WOMPI tx-1 BP-2026-000001", 1, 7, At(Start.AddDays(5))).IsSuccess.ShouldBeTrue();
+        var (grantedStart, grantedEnd) = (subscription.CurrentPeriodStart!.Value, subscription.CurrentPeriodEnd!.Value);
+
+        subscription.RevertRenewal("WOMPI tx-1 BP-2026-000001", grantedStart, grantedEnd, previousStart, previousEnd, "La pasarela anuló el pago",
+            At(Start.AddDays(6))).IsSuccess.ShouldBeTrue();
+        subscription.CurrentPeriodStart.ShouldBe(previousStart);
+        subscription.CurrentPeriodEnd.ShouldBe(previousEnd);
+        subscription.Events.Last().Type.ShouldBe(SubscriptionEventType.RenewalReverted);
+
+        // Hubo otra renovación después: se descuenta solo la duración que dio el pago anulado.
+        var other = Paid();
+        var (otherPreviousStart, otherPreviousEnd) = (other.CurrentPeriodStart, other.CurrentPeriodEnd);
+        other.Renew("WOMPI tx-2 BP-2026-000002", 1, 7, At(Start.AddDays(5))).IsSuccess.ShouldBeTrue();
+        var (start2, end2) = (other.CurrentPeriodStart!.Value, other.CurrentPeriodEnd!.Value);
+        other.Renew("PAGO-MANUAL", 1, 7, At(Start.AddDays(6))).IsSuccess.ShouldBeTrue();
+        var afterManual = other.CurrentPeriodEnd!.Value;
+
+        other.RevertRenewal("WOMPI tx-2 BP-2026-000002", start2, end2, otherPreviousStart, otherPreviousEnd, "La pasarela anuló el pago", At(Start.AddDays(7)))
+            .IsSuccess.ShouldBeTrue();
+        other.CurrentPeriodEnd.ShouldBe(afterManual - (end2 - start2));
+
+        // Descontar más de lo que queda no deja el fin (ni la gracia) antes del inicio.
+        var shortened = Paid();
+        var current = (shortened.CurrentPeriodStart!.Value, shortened.CurrentPeriodEnd!.Value);
+        shortened.RevertRenewal("WOMPI tx-9 BP-2026-000009", Start.AddYears(-3), Start.AddYears(-1), null, null, "La pasarela anuló el pago", At(Start.AddDays(1)))
+            .IsSuccess.ShouldBeTrue();
+        shortened.CurrentPeriodEnd.ShouldBe(current.Item1);
+        shortened.GraceUntil.ShouldBeGreaterThanOrEqualTo(shortened.CurrentPeriodStart!.Value);
+
+        // Cancelada: no se revierte.
+        var cancelled = Paid();
+        cancelled.Cancel("El cliente cerró el negocio", Now).IsSuccess.ShouldBeTrue();
+        cancelled.RevertRenewal("WOMPI tx-3 BP-2026-000003", Start, Start.AddMonths(1), null, null, "La pasarela anuló el pago", Now)
+            .Error.ShouldBe(LicensingErrors.InvalidTransition);
     }
 
     [Fact]

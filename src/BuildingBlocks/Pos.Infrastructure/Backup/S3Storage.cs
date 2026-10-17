@@ -77,11 +77,20 @@ public static class S3Signer
 /// <summary>Cliente S3 mínimo (subir, bajar, listar, borrar) con firma V4, sin dependencias externas.</summary>
 public sealed class S3Storage(HttpClient http, S3Settings settings, TimeProvider time)
 {
+    /// <summary>
+    /// Sube el archivo con <c>Content-MD5</c>: el almacenamiento rechaza un objeto que llegó distinto, y los buckets con object lock (retención por
+    /// defecto) lo exigen en S3/MinIO para aceptar el PUT.
+    /// </summary>
     public async Task PutAsync(string key, string file, CancellationToken cancellationToken)
     {
         await using var stream = File.OpenRead(file);
+#pragma warning disable CA5351 // Content-MD5 es el control de integridad que define S3 (no se usa como función criptográfica).
+        var md5 = await System.Security.Cryptography.MD5.HashDataAsync(stream, cancellationToken);
+#pragma warning restore CA5351
+        stream.Position = 0;
         using var content = new StreamContent(stream);
         content.Headers.ContentLength = stream.Length;
+        content.Headers.ContentMD5 = md5;
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
         using var response = await SendAsync(HttpMethod.Put, key, new Dictionary<string, string>(), content, cancellationToken);
         await EnsureAsync(response, cancellationToken);
@@ -96,11 +105,38 @@ public sealed class S3Storage(HttpClient http, S3Settings settings, TimeProvider
 
     public async Task DeleteAsync(string key, CancellationToken cancellationToken)
     {
+        if (!await TryDeleteAsync(key, cancellationToken))
+        {
+            throw new InvalidOperationException("El almacenamiento S3 respondió 403: la cuenta de la tienda no puede borrar.");
+        }
+    }
+
+    /// <summary>
+    /// Borra el objeto; <c>false</c> si la POLÍTICA lo niega (403 <c>AccessDenied</c>). Con la política recomendada (sin <c>s3:Delete*</c> y con
+    /// object lock, despliegue-nube.md §14) la tienda no puede borrar: la retención la aplica el ciclo de vida del bucket. Un 403 por
+    /// credenciales o reloj (<c>InvalidAccessKeyId</c>, <c>SignatureDoesNotMatch</c>, <c>RequestTimeTooSkewed</c>…) es un error: falla.
+    /// </summary>
+    public async Task<bool> TryDeleteAsync(string key, CancellationToken cancellationToken)
+    {
         using var response = await SendAsync(HttpMethod.Delete, key, new Dictionary<string, string>(), null, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.Forbidden)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            var code = ErrorCode(body);
+            if (code is "AccessDenied" or null)
+            {
+                return false;
+            }
+
+            throw new InvalidOperationException($"El almacenamiento S3 respondió 403 {code}: revise la clave de acceso, la clave secreta y la hora del equipo.");
+        }
+
         if (response.StatusCode != HttpStatusCode.NotFound)
         {
             await EnsureAsync(response, cancellationToken);
         }
+
+        return true;
     }
 
     public async Task<IReadOnlyList<(string Key, long Size)>> ListAsync(string prefix, CancellationToken cancellationToken)
@@ -149,6 +185,25 @@ public sealed class S3Storage(HttpClient http, S3Settings settings, TimeProvider
         request.Headers.TryAddWithoutValidation("Authorization", S3Signer.Authorization(
             method.Method, canonicalUri, query, headers, S3Signer.UnsignedPayload, now, settings.Region, settings.AccessKey, settings.SecretKey));
         return http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+    }
+
+    /// <summary>Código del error S3 (<c>&lt;Error&gt;&lt;Code&gt;…&lt;/Code&gt;</c>), o nulo si la respuesta no lo trae.</summary>
+    internal static string? ErrorCode(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            var root = XDocument.Parse(body).Root;
+            return root?.Elements().FirstOrDefault(e => e.Name.LocalName == "Code")?.Value;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
+        }
     }
 
     private static async Task EnsureAsync(HttpResponseMessage response, CancellationToken cancellationToken)

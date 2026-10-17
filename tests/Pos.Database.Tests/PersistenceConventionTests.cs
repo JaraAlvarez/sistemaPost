@@ -86,6 +86,14 @@ public class PersistenceConventionTests(PostgresFixture postgres)
             await context.SaveChangesAsync(Ct);
         });
         (await harness.Database.ScalarAsync<long>($"SELECT row_version FROM identity.roles WHERE id = '{id}'")).ShouldBe(2);
+
+        // R6: el outbox SYNC lleva los cambios del maestro, pero nunca el valor [Sensitive] (ni siquiera enmascarado).
+        (await harness.Database.ScalarAsync<long>(
+            $"SELECT count(*) FROM system.outbox_messages WHERE type = 'sync.entity_changed.v1' AND payload->>'id' = '{id}'")).ShouldBe(2);
+        (await harness.Database.ScalarAsync<long>(
+            $"SELECT count(*) FROM system.outbox_messages WHERE type = 'sync.entity_changed.v1' AND payload->>'id' = '{id}' AND payload->'changes' ? 'description'"))
+            .ShouldBe(0);
+        (await harness.Database.ScalarAsync<long>("SELECT count(*) FROM system.outbox_messages WHERE payload::text LIKE '%secreto%'")).ShouldBe(0);
         (await harness.Database.ScalarAsync<Guid>($"SELECT updated_by FROM identity.roles WHERE id = '{id}'"))
             .ShouldBe(InfrastructureHarness.SystemUserId);
 

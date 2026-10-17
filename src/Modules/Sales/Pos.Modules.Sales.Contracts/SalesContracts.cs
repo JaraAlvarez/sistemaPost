@@ -236,6 +236,16 @@ public sealed record CustomerSalesSummaryDto(
     int Purchases, decimal TotalPurchased, decimal AverageTicket, DateTimeOffset? FirstPurchaseAt, DateTimeOffset? LastPurchaseAt, string? UsualBranch,
     int VoidedSales, int Exchanges, decimal ReturnedCredit, IReadOnlyList<CustomerTopProductDto> TopProducts);
 
+/// <summary>
+/// Supresión del titular (Customers, RN-DAT-04) en las ventas: la venta local conserva su snapshot durante la retención legal, pero se
+/// marca para que la sincronización suba su copia sin el nombre del cliente (revisión S1).
+/// </summary>
+public interface ICustomerSaleRedaction
+{
+    /// <summary>Marca las ventas del tercero (en la transacción en curso). Devuelve cuántas marcó.</summary>
+    Task<int> RedactCustomerAsync(Guid partyId, DateTimeOffset at, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Historial de compras de un cliente, calculado en línea desde las ventas (D8-13).</summary>
 public interface ICustomerSalesHistory
 {

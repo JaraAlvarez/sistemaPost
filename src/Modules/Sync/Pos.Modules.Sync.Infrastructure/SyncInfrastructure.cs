@@ -11,7 +11,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Pos.Application.Abstractions.Installation;
+using NSec.Cryptography;
 using Pos.Infrastructure.Persistence;
+using Pos.Infrastructure.Security;
 using Pos.Modules.Sync.Application;
 using Pos.Modules.Sync.Contracts;
 using Pos.SharedKernel.Time;
@@ -28,13 +30,16 @@ internal sealed class SyncFeeds(PosDbContext context, SyncOptions options) : ISy
 
     private static readonly Dictionary<string, (string Version, string From, string Data, string Date)> Sources = new(StringComparer.Ordinal)
     {
+        // Versión: la última de completar, anular o suprimir los datos del titular (S1). GREATEST(completed, voided) = COALESCE(voided,
+        // completed) de antes, así que los cursores guardados siguen valiendo. La cédula/NIT no sube (la nube no la usa) y, suprimido el
+        // titular, tampoco el nombre: la venta vuelve a subir con versión nueva y la nube reemplaza su copia.
         [SyncKinds.Sale] = (
-            "COALESCE(s.voided_at, s.completed_at)",
+            "GREATEST(s.completed_at, s.voided_at, s.customer_redacted_at)",
             "sales.sales s JOIN org.pos_terminals t ON t.id = s.pos_terminal_id JOIN org.branches b ON b.id = s.branch_id JOIN identity.users u ON u.id = s.cashier_id WHERE s.status IN ('COMPLETED', 'VOIDED')",
             """
             json_build_object('number', s.number, 'status', s.status, 'branch', b.name, 'branchCode', b.code, 'terminal', t.code, 'cashier', u.display_name,
                 'businessDate', s.business_date, 'completedAt', s.completed_at, 'voidedAt', s.voided_at, 'voidReason', s.void_reason,
-                'customer', s.customer_name, 'customerIdentification', s.customer_identification, 'gross', s.gross,
+                'customer', CASE WHEN s.customer_redacted_at IS NULL THEN s.customer_name END, 'gross', s.gross,
                 'discounts', s.discount_total + s.promotion_total, 'subtotal', s.subtotal, 'tax', s.tax_total, 'total', s.total,
                 'lines', (SELECT json_agg(json_build_object('sku', l.sku, 'name', l.name, 'quantity', l.quantity, 'unitPrice', l.unit_price,
                     'total', l.total, 'tax', l.tax_total, 'status', l.status) ORDER BY l.line_no) FROM sales.sale_lines l WHERE l.sale_id = s.id),
@@ -51,12 +56,13 @@ internal sealed class SyncFeeds(PosDbContext context, SyncOptions options) : ISy
                 'expected', s.expected_total, 'counted', s.counted_total, 'difference', s.difference, 'differenceNote', s.difference_note)
             """,
             "s.business_date"),
+        // Sin costo promedio: el portal muestra cantidad y valor total (revisión, hallazgo bajo).
         [SyncKinds.Stock] = (
             "s.last_movement_at",
             "inventory.stock_balances s JOIN org.warehouses w ON w.id = s.warehouse_id JOIN org.branches b ON b.id = s.branch_id JOIN catalog.products p ON p.id = s.product_id WHERE s.last_movement_at IS NOT NULL",
             """
             json_build_object('branch', b.name, 'branchCode', b.code, 'warehouse', w.code, 'sku', p.sku, 'name', p.name, 'lotId', s.lot_id,
-                'quantity', s.quantity, 'averageCost', s.average_cost, 'totalValue', s.total_value, 'lastMovementAt', s.last_movement_at)
+                'quantity', s.quantity, 'totalValue', s.total_value, 'lastMovementAt', s.last_movement_at)
             """,
             "NULL::date"),
         [SyncKinds.Product] = (
@@ -198,8 +204,11 @@ public sealed class SyncOptions
     public string? DevelopmentCloudPublicKey { get; set; }
 }
 
-/// <summary>Cliente HTTP de la nube: envía el lote con el token de licencia y la huella (D16-03).</summary>
-internal sealed partial class SyncCloudClient(HttpClient? http, string? cloudPublicKey, ILogger<SyncCloudClient> logger) : ISyncCloud
+/// <summary>
+/// Cliente HTTP de la nube: envía el lote con el token de licencia y la huella (D16-03), y la clave pública de firma de la instalación con su
+/// prueba de posesión para que la nube la registre (revisión S2).
+/// </summary>
+internal sealed partial class SyncCloudClient(HttpClient? http, string? cloudPublicKey, ISyncSigner? signer, ILogger<SyncCloudClient> logger) : ISyncCloud
 {
     public bool IsConfigured => http?.BaseAddress is not null;
 
@@ -221,6 +230,11 @@ internal sealed partial class SyncCloudClient(HttpClient? http, string? cloudPub
             };
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(SyncRoutes.AuthorizationScheme, credentials.Token);
             request.Headers.Add(SyncRoutes.FingerprintHeader, credentials.Fingerprint);
+            if (signer is not null)
+            {
+                request.Headers.Add(SyncRoutes.SigningKeyHeader, signer.PublicKey);
+                request.Headers.Add(SyncRoutes.SigningKeyProofHeader, SyncSigning.KeyProof(signer.Key, batch.InstallationId, batch.BatchId));
+            }
             using var response = await http.SendAsync(request, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
@@ -295,15 +309,18 @@ public static class SyncInfrastructureRegistration
     public static void Register(IServiceCollection services)
     {
         services.AddSingleton(sp => Read(sp.GetRequiredService<IConfiguration>()));
+        services.AddSingleton<ISyncSigner>(sp =>
+            new SyncSigningKeyStore(Path.Combine(DataRoot(sp), "config", "sync-signing.key"), sp.GetRequiredService<ILogger<SyncSigningKeyStore>>()));
         services.AddSingleton<ISyncCloud>(sp =>
         {
             var options = sp.GetRequiredService<SyncOptions>();
             var production = sp.GetRequiredService<IHostEnvironment>().IsProduction();
             return new SyncCloudClient(
-                Uri.TryCreate(options.ServerUrl, UriKind.Absolute, out var url)
+                CloudAddress(options.ServerUrl, production) is { } url
                     ? new HttpClient { BaseAddress = new Uri(url.ToString().TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(60) }
                     : null,
                 EmbeddedKey() ?? (production ? null : options.DevelopmentCloudPublicKey),
+                sp.GetRequiredService<ISyncSigner>(),
                 sp.GetRequiredService<ILogger<SyncCloudClient>>());
         });
         services.AddScoped<ISyncFeeds, SyncFeeds>();
@@ -325,6 +342,27 @@ public static class SyncInfrastructureRegistration
         };
     }
 
+    /// <summary>
+    /// Dirección de la nube: solo <c>https</c>. <c>http</c> se admite únicamente hacia el propio equipo (localhost) fuera de producción
+    /// (revisión, hallazgo bajo): los lotes llevan el token de licencia y datos de ventas.
+    /// </summary>
+    internal static Uri? CloudAddress(string? serverUrl, bool production)
+    {
+        if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out var url))
+        {
+            return null;
+        }
+
+        return url.Scheme == Uri.UriSchemeHttps || (url.Scheme == Uri.UriSchemeHttp && url.IsLoopback && !production) ? url : null;
+    }
+
+    /// <summary>Carpeta de datos de la instalación (la misma de los backups).</summary>
+    private static string DataRoot(IServiceProvider sp) =>
+        sp.GetService<Pos.Infrastructure.Backup.BackupEnvironment>()?.DataRoot
+        ?? (sp.GetRequiredService<IConfiguration>()["Pos:DataRoot"] is { Length: > 0 } configured
+            ? configured
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "BusinessPost"));
+
     /// <summary>Clave pública de sincronización embebida (se completa al compilar la versión de producción).</summary>
     private static string? EmbeddedKey()
     {
@@ -334,4 +372,90 @@ public static class SyncInfrastructureRegistration
     }
 
     private sealed record KeyFile(string? PublicKey);
+}
+
+/// <summary>
+/// Clave Ed25519 de la instalación (revisión S2) en <c>{DataRoot}\config\sync-signing.key</c>: se crea la primera vez y se guarda protegida
+/// con DPAPI de la máquina, como la clave de los backups. Fuera de Windows queda en claro y la protegen solo los permisos del archivo
+/// (ver <see cref="ProtectedSecret"/>). Se escribe de forma atómica (archivo temporal + reemplazo).
+/// <para>
+/// Si el archivo existe pero NO se puede descifrar o no es una clave (<see cref="System.Security.Cryptography.CryptographicException"/> o
+/// <see cref="FormatException"/>: DPAPI de otra máquina tras restaurar en otro equipo, archivo dañado), se renombra a <c>.bak</c> y se genera
+/// una clave nueva con una advertencia (la nube la verá como rotación). Un error de disco (<see cref="IOException"/>,
+/// <see cref="UnauthorizedAccessException"/>) NO regenera nada: falla este ciclo y se reintenta en el siguiente.
+/// </para>
+/// </summary>
+internal sealed partial class SyncSigningKeyStore(string keyFile, ILogger<SyncSigningKeyStore> logger) : ISyncSigner, IDisposable
+{
+    // Identificador criptográfico interno y estable: cambiarlo dejaría ilegible la clave ya guardada.
+    public const string Purpose = "PosSupermercado.Sync.SigningKey.v1";
+
+    private readonly Lock _gate = new();
+    private Key? _key;
+
+    public Key Key
+    {
+        get
+        {
+            // Sin Lazy: un error de disco no queda guardado para siempre; el próximo ciclo vuelve a intentar.
+            lock (_gate)
+            {
+                return _key ??= LoadOrCreate(keyFile, logger);
+            }
+        }
+    }
+
+    public string PublicKey => SyncSigning.PublicOf(Key);
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            _key?.Dispose();
+            _key = null;
+        }
+    }
+
+    internal static Key LoadOrCreate(string file, ILogger logger)
+    {
+        if (File.Exists(file))
+        {
+            var stored = File.ReadAllBytes(file); // IOException: falla el ciclo, no se regenera.
+            try
+            {
+                return SyncSigning.ImportPrivate(OperatingSystem.IsWindows() ? ProtectedSecret.UnprotectBytes(stored, Purpose) : stored);
+            }
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException)
+            {
+                var backup = file + ".bak";
+                File.Move(file, backup, overwrite: true);
+                LogUnreadable(logger, file, backup, ex);
+            }
+        }
+
+        var key = SyncSigning.GenerateKey();
+        var raw = SyncSigning.ExportPrivate(key);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            var temporary = file + ".tmp";
+            File.WriteAllBytes(temporary, OperatingSystem.IsWindows() ? ProtectedSecret.ProtectBytes(raw, Purpose) : raw);
+            File.Move(temporary, file, overwrite: true);
+        }
+        catch
+        {
+            key.Dispose();
+            throw;
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(raw);
+        }
+
+        return key;
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "La clave de firma de la sincronización ({File}) no se pudo leer; se guardó como {Backup} y se genera una nueva, que la nube registrará en la próxima sincronización en línea")]
+    private static partial void LogUnreadable(ILogger logger, string file, string backup, Exception exception);
 }

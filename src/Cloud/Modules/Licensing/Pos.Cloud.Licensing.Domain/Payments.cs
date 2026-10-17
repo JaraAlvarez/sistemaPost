@@ -36,6 +36,9 @@ public enum PaymentOutcome
 
     /// <summary>Aprobada pero no se renueva sola: queda "Requiere revisión" con alerta en el tablero.</summary>
     ReviewRequired,
+
+    /// <summary>La pasarela anuló (VOIDED) un pago ya aplicado: se devolvió la vigencia que había dado.</summary>
+    Reverted,
 }
 
 /// <summary>Estados de la transacción en la pasarela (Wompi): PENDING, APPROVED, DECLINED, VOIDED, ERROR.</summary>
@@ -104,6 +107,9 @@ public static class PaymentRules
 
     /// <summary>Código del enlace de pago: 128 bits aleatorios en base64url (22 caracteres, D12C-07).</summary>
     public static string NewLinkCode() => Base64Url(RandomNumberGenerator.GetBytes(16));
+
+    /// <summary>Token de la página de resultado de una orden (mismo formato que el código del enlace: 128 bits en base64url).</summary>
+    public static bool IsResultToken(string? token) => IsLinkCode(token);
 
     public static bool IsLinkCode(string? code) =>
         code is { Length: 22 } && code.AsSpan().ContainsOnly("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
@@ -274,6 +280,7 @@ public sealed class PaymentOrder : AggregateRoot<Guid>, IHasAuditLabel
         Status = PaymentOrderStatus.Pending;
         CreatedAt = now;
         UpdatedAt = now;
+        ResultToken = PaymentRules.NewLinkCode();
     }
 
     public string Reference { get; private set; }
@@ -319,6 +326,25 @@ public sealed class PaymentOrder : AggregateRoot<Guid>, IHasAuditLabel
     public DateTimeOffset? ReviewedAt { get; private set; }
 
     public string? ReviewNote { get; private set; }
+
+    /// <summary>
+    /// Token aleatorio (128 bits) de la página de regreso <c>/pagar/resultado/&lt;referencia&gt;/&lt;token&gt;</c>: sin él la página no
+    /// muestra el estado ni el valor (la referencia es un consecutivo y se podría enumerar). Nulo en órdenes anteriores a la revisión.
+    /// </summary>
+    public string? ResultToken { get; private set; }
+
+    /// <summary>Periodo que dio la renovación de esta orden (para devolverlo si la pasarela la anula).</summary>
+    public DateTimeOffset? GrantedPeriodStart { get; private set; }
+
+    public DateTimeOffset? GrantedPeriodEnd { get; private set; }
+
+    /// <summary>Periodo de la suscripción ANTES de aplicar esta orden (nulo si estaba en prueba).</summary>
+    public DateTimeOffset? PreviousPeriodStart { get; private set; }
+
+    public DateTimeOffset? PreviousPeriodEnd { get; private set; }
+
+    /// <summary>Cuándo se devolvió la vigencia porque la pasarela anuló el pago.</summary>
+    public DateTimeOffset? RevertedAt { get; private set; }
 
     public bool IsApplied => AppliedAt is not null;
 
@@ -374,11 +400,12 @@ public sealed class PaymentOrder : AggregateRoot<Guid>, IHasAuditLabel
         var status = (transaction.Status ?? string.Empty).ToUpperInvariant();
         if (IsApplied)
         {
-            // Ya renovó: solo una anulación posterior de ESA transacción pide revisión (la devolución se hace en el panel de Wompi).
-            if (status == GatewayStatuses.Voided && transaction.Id == GatewayTransactionId && Status != PaymentOrderStatus.ReviewRequired)
+            // Ya renovó: solo una anulación posterior de ESA transacción cambia algo: se devuelve la vigencia que dio (o, si no se puede,
+            // queda en revisión).
+            if (status == GatewayStatuses.Voided && transaction.Id == GatewayTransactionId
+                && Status is not (PaymentOrderStatus.ReviewRequired or PaymentOrderStatus.Voided))
             {
-                RequireReview("La pasarela anuló el pago después de renovar la suscripción: revise la vigencia.", change.Now);
-                return PaymentOutcome.ReviewRequired;
+                return Revert(subscription, change);
             }
 
             return PaymentOutcome.Ignored;
@@ -481,6 +508,7 @@ public sealed class PaymentOrder : AggregateRoot<Guid>, IHasAuditLabel
             return PaymentOutcome.ReviewRequired;
         }
 
+        var (previousStart, previousEnd) = (subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd);
         var renewed = subscription.Renew(PaymentRules.RenewalReference(transaction.Id, Reference), Periods, defaultGraceDays, change);
         if (renewed.IsFailure)
         {
@@ -490,8 +518,36 @@ public sealed class PaymentOrder : AggregateRoot<Guid>, IHasAuditLabel
 
         Status = PaymentOrderStatus.Approved;
         AppliedAt = change.Now;
+        PreviousPeriodStart = previousStart;
+        PreviousPeriodEnd = previousEnd;
+        GrantedPeriodStart = subscription.CurrentPeriodStart;
+        GrantedPeriodEnd = subscription.CurrentPeriodEnd;
         RenewalEventId = subscription.Events.Last(e => e.Type == SubscriptionEventType.Renewed).Id;
         return PaymentOutcome.Renewed;
+    }
+
+    private PaymentOutcome Revert(Subscription subscription, ChangeContext change)
+    {
+        if (GrantedPeriodStart is not { } start || GrantedPeriodEnd is not { } end)
+        {
+            // Orden aplicada antes de guardar el periodo concedido: no se sabe qué devolver.
+            RequireReview("La pasarela anuló el pago después de renovar la suscripción: revise la vigencia.", change.Now);
+            return PaymentOutcome.ReviewRequired;
+        }
+
+        var reverted = subscription.RevertRenewal(
+            PaymentRules.RenewalReference(GatewayTransactionId!, Reference), start, end, PreviousPeriodStart, PreviousPeriodEnd,
+            $"La pasarela anuló el pago {Reference}", change);
+        if (reverted.IsFailure)
+        {
+            RequireReview("La pasarela anuló el pago después de renovar y la vigencia no se pudo devolver: revísela.", change.Now);
+            return PaymentOutcome.ReviewRequired;
+        }
+
+        Status = PaymentOrderStatus.Voided;
+        RevertedAt = change.Now;
+        UpdatedAt = change.Now;
+        return PaymentOutcome.Reverted;
     }
 
     private void Record(GatewayTransaction transaction, DateTimeOffset now)
@@ -559,11 +615,16 @@ public sealed class PaymentEvent : Entity<Guid>
 
     public string? RejectionReason { get; private set; }
 
+    /// <summary>IP de quien envió el evento (webhook): limita la auditoría de los rechazados.</summary>
+    public System.Net.IPAddress? SourceIp { get; private set; }
+
     public static PaymentEvent Webhook(
         Guid id, DateTimeOffset now, bool signatureValid, string? eventType, GatewayTransaction? transaction, string? environment, string? payload,
-        string? rejectionReason) =>
-        new PaymentEvent(id, now, WebhookSource) { SignatureValid = signatureValid, EventType = Cut(eventType, 60), Environment = Cut(environment, 10) }
-            .With(transaction, payload, rejectionReason);
+        string? rejectionReason, System.Net.IPAddress? sourceIp = null) =>
+        new PaymentEvent(id, now, WebhookSource)
+        {
+            SignatureValid = signatureValid, EventType = Cut(eventType, 60), Environment = Cut(environment, 10), SourceIp = sourceIp,
+        }.With(transaction, payload, rejectionReason);
 
     public static PaymentEvent Query(Guid id, DateTimeOffset now, GatewayTransaction? transaction, string? payload, string? note) =>
         new PaymentEvent(id, now, QuerySource) { EventType = "transaction.query" }.With(transaction, payload, note);

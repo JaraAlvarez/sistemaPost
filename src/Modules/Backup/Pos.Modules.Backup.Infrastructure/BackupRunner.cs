@@ -116,9 +116,25 @@ internal sealed class FolderDestination(string path, string? volumeLabel) : IDes
     }
 }
 
-/// <summary>Almacenamiento compatible S3 (MinIO en el VPS): <c>prefijo/NIT-sucursal/archivo.posbak</c>.</summary>
-internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDestinationClient
+/// <summary>
+/// Almacenamiento compatible S3 (MinIO en el VPS): <c>&lt;prefijo&gt;/&lt;id de la instalación&gt;/archivo.posbak</c>. El prefijo del destino es
+/// la carpeta de la tienda en el bucket (<c>&lt;NIT&gt;-&lt;sucursal&gt;</c>, despliegue-nube.md §14) y la política de su usuario la limita a ella.
+/// La tienda no puede borrar (política sin <c>s3:Delete*</c>, object lock): la retención en S3 la aplica el ciclo de vida del bucket.
+/// </summary>
+internal sealed partial class S3Destination(S3Storage storage, string keyPrefix, ILogger? logger = null) : IDestinationClient
 {
+    /// <summary>
+    /// Prefijo de las claves: la carpeta del destino (sin barras sobrantes ni segmentos <c>.</c>/<c>..</c>) más el id de la instalación, para
+    /// que cada tienda escriba solo bajo su carpeta.
+    /// </summary>
+    internal static string ObjectPrefix(string? prefix, Guid nodeId)
+    {
+        var segments = (prefix ?? string.Empty).Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => s is not ("." or ".."));
+        var folder = string.Join('/', segments);
+        return (folder.Length == 0 ? string.Empty : folder + "/") + nodeId.ToString("N") + "/";
+    }
+
     public async Task<string> UploadAsync(string file, CancellationToken cancellationToken)
     {
         var key = keyPrefix + Path.GetFileName(file);
@@ -134,7 +150,21 @@ internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDest
         return key;
     }
 
-    public Task DeleteAsync(string location, CancellationToken cancellationToken) => storage.DeleteAsync(location, cancellationToken);
+    /// <summary>
+    /// Si la política niega el borrado (403 <c>AccessDenied</c>), la copia vence por el ciclo de vida del bucket: se da por eliminada en la tienda
+    /// con una advertencia. Un 403 por credenciales o reloj falla y la copia NO se marca eliminada (se reintenta).
+    /// </summary>
+    public async Task DeleteAsync(string location, CancellationToken cancellationToken)
+    {
+        if (!await storage.TryDeleteAsync(location, cancellationToken) && logger is not null)
+        {
+            LogDeleteDenied(logger, location);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "El almacenamiento S3 no permite borrar {Location} (política sin s3:Delete*): lo vencerá el ciclo de vida del bucket")]
+    private static partial void LogDeleteDenied(ILogger logger, string location);
 
     public async Task<string?> TestAsync(CancellationToken cancellationToken)
     {
@@ -145,7 +175,9 @@ internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDest
             var key = keyPrefix + Path.GetFileName(probe);
             await storage.PutAsync(key, probe, cancellationToken);
             File.Delete(probe);
-            await storage.DeleteAsync(key, cancellationToken);
+
+            // Sin permiso de borrar (política recomendada) la prueba igual es válida: el archivo de prueba lo vence el bucket.
+            await storage.TryDeleteAsync(key, cancellationToken);
             return null;
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or IOException)
@@ -375,7 +407,7 @@ internal sealed partial class BackupRunner(
             DestinationKinds.S3 => new S3Destination(
                 new S3Storage(S3Http, new S3Settings(destination.Endpoint!, destination.Region ?? "us-east-1", destination.Bucket!,
                     destination.AccessKey!, secret ?? string.Empty), time),
-                KeyPrefix(destination.Prefix)),
+                KeyPrefix(destination.Prefix), logger),
             _ => new FolderDestination(destination.Path!, destination.Kind == DestinationKinds.External ? destination.VolumeLabel : null),
         };
     }
@@ -396,11 +428,7 @@ internal sealed partial class BackupRunner(
         return (NpgsqlConnection)context.Database.GetDbConnection();
     }
 
-    private string KeyPrefix(string? prefix)
-    {
-        var folder = string.IsNullOrWhiteSpace(prefix) ? string.Empty : prefix.Trim('/') + "/";
-        return folder + installation.NodeId.ToString("N") + "/";
-    }
+    private string KeyPrefix(string? prefix) => S3Destination.ObjectPrefix(prefix, installation.NodeId);
 
     private async Task RecordSuccessAsync(
         Guid runId, Guid companyId, string kind, DateTimeOffset started, Guid? requestedBy, BackupCreated created, BackupVerification verification,

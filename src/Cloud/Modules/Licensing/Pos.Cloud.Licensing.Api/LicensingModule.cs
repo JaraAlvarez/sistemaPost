@@ -73,7 +73,10 @@ public sealed class LicensingModule : IModule
                     return TypedResults.Problem(title: "Solicitud demasiado grande", statusCode: StatusCodes.Status413PayloadTooLarge);
                 }
 
-                var result = await d.Send(new HandlePaymentEventCommand(new string(buffer, 0, read), request.Headers[WompiProtocol.ChecksumHeader].ToString()), ct);
+                var result = await d.Send(
+                    new HandlePaymentEventCommand(new string(buffer, 0, read), request.Headers[WompiProtocol.ChecksumHeader].ToString(),
+                        request.HttpContext.Connection.RemoteIpAddress),
+                    ct);
                 return result.IsFailure ? LicenseProblem(result.Error)
                     : result.Value.Error is { } error ? LicenseProblem(error)
                     : TypedResults.Ok(result.Value.Value);
@@ -261,6 +264,9 @@ public sealed class LicensingModule : IModule
         {
             LicenseErrorCodes.TooManyRequests or LicenseErrorCodes.OwnerLinkSlowDown => StatusCodes.Status429TooManyRequests,
             LicenseErrorCodes.SigningUnavailable => StatusCodes.Status503ServiceUnavailable,
+
+            // W1: la pasarela no respondió al confirmar el evento; con 503 Wompi lo reintenta.
+            "PAYMENTS.GATEWAY_UNAVAILABLE" => StatusCodes.Status503ServiceUnavailable,
             _ => ResultHttpExtensions.StatusCodeFor(error.Type),
         };
         var extensions = new Dictionary<string, object?> { [ResultHttpExtensions.ErrorCodeExtension] = error.Code };

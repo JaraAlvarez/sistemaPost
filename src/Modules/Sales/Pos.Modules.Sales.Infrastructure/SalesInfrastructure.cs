@@ -286,6 +286,13 @@ internal sealed class SalesReadModel(PosDbContext context, ILicenseGate license)
 /// Historial del cliente calculado en línea desde las ventas y los cambios (D8-13), con el índice por cliente de la migración
 /// 024. Total comprado = ventas completadas − créditos de cambios y reintegros (un cambio no se cuenta dos veces).
 /// </summary>
+internal sealed class CustomerSaleRedaction(PosDbContext context) : ICustomerSaleRedaction
+{
+    public Task<int> RedactCustomerAsync(Guid partyId, DateTimeOffset at, CancellationToken cancellationToken = default) =>
+        context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE sales.sales SET customer_redacted_at = {at} WHERE customer_id = {partyId} AND customer_redacted_at IS NULL", cancellationToken);
+}
+
 internal sealed class CustomerSalesHistory(PosDbContext context) : ICustomerSalesHistory
 {
     public async Task<IReadOnlyList<CustomerHistoryEntryDto>> GetHistoryAsync(
@@ -460,5 +467,6 @@ public static class SalesInfrastructureRegistration
         services.AddScoped<IOpenSalesProbe, OpenSalesProbe>();
         services.AddScoped<ISaleChargeProbe, SaleChargeProbe>();
         services.AddScoped<ICustomerSalesHistory, CustomerSalesHistory>();
+        services.AddScoped<ICustomerSaleRedaction, CustomerSaleRedaction>();
     }
 }

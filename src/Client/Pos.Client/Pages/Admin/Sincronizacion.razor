@@ -25,6 +25,10 @@
             {
                 <MudAlert Severity="Severity.Error" Class="mb-3">El último envío falló: @lastError</MudAlert>
             }
+            @foreach (var warning in _status.Prop("warnings").Items())
+            {
+                <MudAlert Severity="Severity.Warning" Class="mb-3">@warning.GetString()</MudAlert>
+            }
             <MudText Class="mb-3">
                 Último acuse de la nube: <b>@(_status.Date("lastAckAt") is { } ack ? Format.Date(ack) : "nunca")</b>.
                 Con Internet, la tienda sube sola lo pendiente cada minuto. Sin Internet, exporte el paquete y cárguelo en el portal desde otro equipo

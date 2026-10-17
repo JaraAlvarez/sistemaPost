@@ -60,6 +60,7 @@ internal sealed class PaymentsModelContributor : ICloudModelContributor
             b.HasKey(x => x.Id);
             b.Property(x => x.Id).ValueGeneratedNever();
             b.Property(x => x.Payload).HasColumnType("jsonb");
+            b.Property(x => x.SourceIp).HasColumnType("inet");
             b.HasOne<PaymentOrder>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
         });
     }
@@ -116,13 +117,20 @@ internal sealed class PaymentStore(CloudDbContext context) : IPaymentStore
         return await context.Set<PaymentOrder>().SingleOrDefaultAsync(o => o.Reference == reference, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Guid>> GetPendingOrderIdsAsync(int limit, CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<Guid>> GetOrderIdsToReconcileAsync(int limit, DateTimeOffset recheckSince, CancellationToken cancellationToken) =>
         await context.Set<PaymentOrder>().AsNoTracking()
-            .Where(o => o.Status == PaymentOrderStatus.Pending)
-            .OrderBy(o => o.CreatedAt)
+            .Where(o => o.Status == PaymentOrderStatus.Pending
+                        || ((o.Status == PaymentOrderStatus.Declined || o.Status == PaymentOrderStatus.Expired) && o.CreatedAt >= recheckSince))
+            .OrderBy(o => o.Status == PaymentOrderStatus.Pending ? 0 : 1)
+            .ThenBy(o => o.CreatedAt)
             .Select(o => o.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
+
+    public Task<int> CountRecentRejectedEventsAsync(System.Net.IPAddress? ip, DateTimeOffset since, CancellationToken cancellationToken) =>
+        ip is null
+            ? context.Set<PaymentEvent>().CountAsync(e => e.SignatureValid == false && e.SourceIp == null && e.ReceivedAt >= since, cancellationToken)
+            : context.Set<PaymentEvent>().CountAsync(e => e.SignatureValid == false && e.SourceIp == ip && e.ReceivedAt >= since, cancellationToken);
 
     public Task<int> CountRecentPendingOrdersAsync(Guid subscriptionId, DateTimeOffset since, CancellationToken cancellationToken) =>
         context.Set<PaymentOrder>().CountAsync(
@@ -215,6 +223,9 @@ internal sealed class PaymentReadModel(CloudDbContext context) : IPaymentReadMod
 
     public async Task<PaymentOrderRowDto?> FindOrderByReferenceAsync(string reference, CancellationToken cancellationToken) =>
         (await ListOrdersByAsync(o => o.Reference == reference, cancellationToken)).FirstOrDefault();
+
+    public async Task<PaymentOrderRowDto?> FindOrderForResultAsync(string reference, string token, CancellationToken cancellationToken) =>
+        (await ListOrdersByAsync(o => o.Reference == reference && o.ResultToken != null && o.ResultToken == token, cancellationToken)).FirstOrDefault();
 
     public async Task<(int ReviewRequired, int Pending)> CountAlertsAsync(CancellationToken cancellationToken)
     {
