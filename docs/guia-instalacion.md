@@ -28,6 +28,11 @@
    clásico adentro, §10), el paquete clásico `BusinessPost-Clasico-1.0.0.exe` (soporte), el paquete `BusinessPost-1.0.0.zip` y el
    manifiesto firmado `stable.json`. El portal (Descargas) entrega `BusinessPost-Setup-<versión>.exe`.
 5. Para que las tiendas se actualicen solas, suba el ZIP y `stable.json` a la carpeta `updates/` del VPS (despliegue-nube §16).
+   El manifiesto **vence** (30 días por defecto, `--expires-days`) y lleva un **número de secuencia** creciente (la hora de la firma,
+   `--sequence`): el actualizador rechaza uno vencido o con una secuencia menor que la última que vio, y solo lo descarga por **https**.
+   Antes de que venza, vuelva a firmar la misma versión (`dotnet run --project tools/Pos.Release -- sign …`) y suba el `stable.json`
+   nuevo. Una clave de actualizaciones comprometida se marca `"status": "REVOKED"` en `update-keys.json` (deja de aceptarse en la
+   versión siguiente).
 
 ## 3. Instalar
 

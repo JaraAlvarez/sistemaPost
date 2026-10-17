@@ -201,3 +201,30 @@ La guía `docs/guia-instalacion.md` tiene la lista de pasos.
    quieres una contraseña de soporte que se te muestre al instalar?
 5. **Actualizaciones:** ¿**automáticas en la ventana segura** con aviso (**recomendado**), o solo cuando el propietario pulse
    "Actualizar"?
+
+## 12. Revisión de seguridad del actualizador (2026-10-17)
+
+- **R5 (caja adicional):** la carpeta de datos queda solo para SYSTEM y Administradores también en la caja (el instalador y el
+  actualizador al arrancar aplican la misma ACL que el migrador en el equipo principal), con lectura para los usuarios solo de
+  `config\updater.json` y `desktop.json`, que necesita la ventana. `Pos:Updates:InstallRoot` ya no se lee de la configuración: la carpeta
+  de la instalación sale de la ubicación del actualizador y de la clave de Inno, y si un usuario sin privilegios puede escribir en ella
+  no se instala nada. La descarga va a un archivo nuevo (`CreateNew`) y el paquete se verifica y se extrae desde el mismo handle
+  exclusivo. Copiar, borrar y precalentar no siguen uniones NTFS, y solo se ejecutan programas cuya huella está en el manifiesto de la
+  carpeta.
+- **U1-U4:**
+  - **U1:** una versión está "preparada" solo si su manifiesto de huellas (`.paquete-verificado.json`) coincide archivo por archivo.
+  - **U2:** la firma y la huella se vuelven a revisar justo antes de instalar.
+  - **U3:** `app\current` se cambia con una unión aparte (`current.nueva`) y, si falla, se recrea la anterior.
+  - **U4:** `updates\update-in-progress.json` registra cada paso, y al arrancar una actualización a medias se deshace (versión anterior,
+    BD del backup previo si ya se había migrado). El servidor no atiende con un esquema que no es el suyo (SCHEMA_OUTDATED).
+- **Bajas:**
+  - El manifiesto vence (`expiresAt`, obligatorio en el servidor) y lleva una secuencia creciente (`sequence`, la última vista se guarda en
+    `updates\manifest-sequence.json`). Pos.Release las pone por defecto (30 días, hora Unix).
+  - El manifiesto y el paquete van solo por https.
+  - Las claves `REVOKED` no se cargan.
+  - Las preliminares se ordenan por SemVer (`beta.2 < beta.10`).
+  - Si `current.json` falta o está dañado no se actualiza y se avisa.
+  - En la caja también se espera la madrugada (o "instalar ahora"), así el agente no se detiene en plena venta.
+  - Si no se detienen los servicios o falla algo sin cambios, se reintenta con espera creciente (5, 10, 20… minutos, hasta 6 h), con un
+    solo backup PRE_UPDATE por intento.
+  - Si la migración falla, se vuelve a la BD del backup previo antes de arrancar la versión anterior.

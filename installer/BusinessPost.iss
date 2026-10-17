@@ -751,6 +751,26 @@ begin
     Log('Advertencia: no se pudo ' + What + ' (sc ' + Params + ', código ' + IntToStr(Code) + ').');
 end;
 
+procedure IcaclsOptional(const Params: String);
+var
+  Code: Integer;
+begin
+  if not Exec(ExpandConstant('{sys}\icacls.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Log('Advertencia: icacls ' + Params + ' (código ' + IntToStr(Code) + ').');
+end;
+
+// R5: en una caja adicional la carpeta de datos (configuración, descargas y estado del actualizador, que corre como SYSTEM) queda solo para
+// SYSTEM y Administradores, como el migrador la deja en el equipo principal (RestrictDataRootAsync). La ventana BusinessPost.exe (usuario
+// normal) solo necesita LEER updater.json (dirección y huella del equipo principal). El actualizador vuelve a aplicarlo al arrancar.
+procedure RestrictTerminalDataRoot(const Data: String);
+begin
+  IcaclsOptional('"' + Data + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /Q');
+  if FileExists(Data + '\config\updater.json') then
+    IcaclsOptional('"' + Data + '\config\updater.json" /grant *S-1-5-32-545:R /Q');
+  if FileExists(Data + '\config\desktop.json') then
+    IcaclsOptional('"' + Data + '\config\desktop.json" /grant *S-1-5-32-545:R /Q');
+end;
+
 // I2: si el servicio ya existe se RECONFIGURA (sc config) en vez de borrarlo y crearlo: "sc delete" de un servicio que todavía se está
 // deteniendo lo deja "marcado para eliminación" y el "sc create" siguiente fallaba (1072): el equipo quedaba SIN servicio.
 // I7: dependencia de la base de datos (el servidor no arranca antes que PostgreSQL), recuperación ante fallos también cuando el proceso
@@ -1202,6 +1222,7 @@ begin
       JsonText(OriginOf(TerminalPage.Values[0])) + '" ] } }', False);
     SaveStringToFile(Data + '\config\updater.json', '{ "Pos": { "Updates": { "Mode": "Terminal", "ServerUrl": "' + JsonText(WithSlash(TerminalPage.Values[0])) +
       '", "ServerCertificateThumbprint": "' + JsonText(Trim(TerminalPage.Values[1])) + '" } } }', False);
+    RestrictTerminalDataRoot(Data);
   end;
 
   if ModePage.SelectedValueIndex <> 1 then

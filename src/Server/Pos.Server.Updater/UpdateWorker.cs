@@ -12,6 +12,8 @@ namespace Pos.Server.Updater;
 
 /// <summary>
 /// Configuración del actualizador: <c>{DataRoot}\config\server.json</c> (servidor) o <c>updater.json</c> (caja), escritos por el instalador.
+/// R5: <see cref="InstallRoot"/> NO sale de la configuración (un usuario que pudiera escribirla haría que SYSTEM instale en otra carpeta):
+/// la resuelve <see cref="UpdaterSecurity.ResolveInstallRoot"/> a partir de la ubicación del programa y de la clave de Inno.
 /// </summary>
 public sealed record UpdaterSettings(
     string Product,
@@ -32,14 +34,11 @@ public sealed record UpdaterSettings(
     IReadOnlyList<string> ServiceNames,
     IReadOnlyList<string> DevelopmentTrustedKeys)
 {
-    public static UpdaterSettings From(IConfiguration configuration, string product, string dataRoot, bool production)
+    public static UpdaterSettings From(IConfiguration configuration, string product, string dataRoot, string installRoot, bool production)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var updates = configuration.GetSection("Pos:Updates");
         var mode = string.Equals(updates["Mode"], nameof(UpdaterMode.Terminal), StringComparison.OrdinalIgnoreCase) ? UpdaterMode.Terminal : UpdaterMode.Server;
-        var installRoot = updates["InstallRoot"] is { Length: > 0 } root
-            ? root
-            : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
         return new UpdaterSettings(
             product,
             mode,
@@ -57,25 +56,57 @@ public sealed record UpdaterSettings(
             configuration["Pos:Database:ConnectionString"],
             configuration["Pos:Backup:PgBinPath"],
             mode == UpdaterMode.Terminal ? [$"{product}-TerminalAgent"] : [$"{product}-Server", $"{product}-TerminalAgent"],
-            production ? [] : [.. updates.GetSection("DevelopmentTrustedKeys").GetChildren().Select(c => c.Value).OfType<string>()]);
+            DevelopmentKeys(updates, DevelopmentKeysCompiledIn && !production));
+    }
+
+    /// <summary>
+    /// Claves de desarrollo de los manifiestos (<c>Pos:Updates:DevelopmentTrustedKeys</c>): solo existen en compilación Debug y fuera de
+    /// producción (R1). El entorno lo cambia cualquier administrador de Windows, así que en Release nunca se leen.
+    /// </summary>
+#if DEBUG
+    internal const bool DevelopmentKeysCompiledIn = true;
+#else
+    internal const bool DevelopmentKeysCompiledIn = false;
+#endif
+
+    internal static IReadOnlyList<string> DevelopmentKeys(IConfiguration updates, bool enabled)
+    {
+#if DEBUG
+        return enabled ? [.. updates.GetSection("DevelopmentTrustedKeys").GetChildren().Select(c => c.Value).OfType<string>()] : [];
+#else
+        _ = updates;
+        _ = enabled;
+        return [];
+#endif
     }
 
     private static int Int(string? text, int fallback, int min, int max) =>
         int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value >= min && value <= max ? value : fallback;
 }
 
-/// <summary>Claves públicas de confianza para los manifiestos: embebidas (<c>update-keys.json</c>) y, fuera de producción, las de la configuración.</summary>
+/// <summary>Claves públicas de confianza para los manifiestos: embebidas (<c>update-keys.json</c>) y, solo en Debug fuera de producción, las de la configuración.</summary>
 public static class UpdateKeys
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public static LicenseKeyRing Load(IEnumerable<string> developmentKeys)
     {
-        var keys = new List<LicensePublicKey>();
         using var stream = typeof(UpdateKeys).Assembly.GetManifestResourceStream("Pos.Updates.TrustedKeys.json");
-        if (stream is not null && JsonSerializer.Deserialize<KeysFile>(stream, Json) is { } file)
+        using var reader = stream is null ? null : new StreamReader(stream);
+        return Parse(reader?.ReadToEnd(), developmentKeys);
+    }
+
+    /// <summary>Las claves con <c>status: REVOKED</c> no se cargan (una clave filtrada se revoca publicando la lista sin ella o marcada).</summary>
+    public static LicenseKeyRing Parse(string? keysJson, IEnumerable<string> developmentKeys)
+    {
+        ArgumentNullException.ThrowIfNull(developmentKeys);
+        var keys = new List<LicensePublicKey>();
+        if (keysJson is { Length: > 0 } && JsonSerializer.Deserialize<KeysFile>(keysJson, Json) is { } file)
         {
-            keys.AddRange(file.Keys.Select(k => LicensePublicKey.TryParse(k.X, out var key) && key.Kid == k.Kid ? key : null).OfType<LicensePublicKey>());
+            keys.AddRange(file.Keys
+                .Where(k => !string.Equals(k.Status, "REVOKED", StringComparison.OrdinalIgnoreCase))
+                .Select(k => LicensePublicKey.TryParse(k.X, out var key) && key.Kid == k.Kid ? key : null)
+                .OfType<LicensePublicKey>());
         }
 
         keys.AddRange(developmentKeys.Select(x => LicensePublicKey.TryParse(x, out var key) ? key : null).OfType<LicensePublicKey>());
@@ -88,23 +119,56 @@ public static class UpdateKeys
 /// <summary>
 /// Ciclo del actualizador (D13-08): consulta el manifiesto cada ⚙️ 6 h, descarga y verifica el paquete, y lo aplica en la ventana segura
 /// (⚙️ 02:00, sin jornadas abiertas) o cuando el propietario pide "instalar ahora". Publica su estado para el servidor.
+/// Revisión del actualizador: manifiesto solo por https (servidor), con caducidad y número de secuencia creciente (el último visto se
+/// guarda); la firma y la huella se vuelven a revisar justo antes de instalar; la descarga va a un archivo nuevo (no se reutiliza uno
+/// existente); si falla, se reintenta con espera creciente sin hacer un backup nuevo cada minuto; en la caja también se espera la
+/// madrugada (no se detiene el agente en plena venta); si quedó una actualización a medias, al arrancar se vuelve atrás.
 /// </summary>
 public sealed partial class UpdateWorker(
     UpdaterSettings settings,
     IUpdateHost host,
     LicenseKeyRing trustedKeys,
     TimeProvider time,
-    ILogger<UpdateWorker> logger) : BackgroundService
+    ILogger<UpdateWorker> logger,
+    HttpMessageHandler? handler = null) : BackgroundService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private readonly HttpClient _http = CreateClient(settings);
+    /// <summary>Espera máxima entre reintentos de una instalación que falló.</summary>
+    public static readonly TimeSpan MaxRetryDelay = TimeSpan.FromHours(6);
+
+    private readonly HttpClient _http = new(handler ?? CreateHandler(settings)) { Timeout = TimeSpan.FromMinutes(10) };
     private DateTimeOffset _nextCheck = DateTimeOffset.MinValue;
+    private DateTimeOffset _retryAt = DateTimeOffset.MinValue;
+    private int _failures;
+    private string? _failedVersion;
     private (UpdateManifest Manifest, string Package, SignedUpdateManifest Signed)? _ready;
     private string? _lastError;
 
+    /// <summary>Error que se publica en el estado (para pruebas y para el servidor).</summary>
+    internal string? LastError => _lastError;
+
+    internal UpdateManifest? ReadyManifest => _ready?.Manifest;
+
+    /// <summary>Si la instalación vigente no pasa la revisión de seguridad (permisos), no se instala nada (R5).</summary>
+    public string? SecurityProblem { get; init; }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            // U4: una actualización que quedó a medias (corte de luz) se deshace antes de cualquier otra cosa.
+            if (await new UpdateOrchestrator(host, settings.Mode, settings.DataRoot, time).RecoverAsync(stoppingToken) is { } recovered)
+            {
+                LogRecovered(logger, recovered);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _lastError = $"No se pudo deshacer una actualización a medias: {ex.Message}";
+            LogFailed(logger, ex);
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -114,6 +178,7 @@ public sealed partial class UpdateWorker(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _lastError = ex.Message;
+                Backoff();
                 LogFailed(logger, ex);
             }
 
@@ -124,6 +189,12 @@ public sealed partial class UpdateWorker(
 
     internal async Task TickAsync(CancellationToken cancellationToken)
     {
+        if (SecurityProblem is { } problem)
+        {
+            _lastError = problem;
+            return;
+        }
+
         var now = time.GetUtcNow();
         if (now >= _nextCheck)
         {
@@ -131,7 +202,7 @@ public sealed partial class UpdateWorker(
             await CheckAsync(cancellationToken);
         }
 
-        if (_ready is not { } ready)
+        if (_ready is not { } ready || now < _retryAt)
         {
             return;
         }
@@ -139,7 +210,9 @@ public sealed partial class UpdateWorker(
         var request = Path.Combine(UpdateFiles.Directory(settings.DataRoot), UpdateFiles.InstallNowRequest);
         var forced = File.Exists(request);
         var inWindow = TimeZoneInfo.ConvertTime(now, TimeZoneInfo.Local).Hour == settings.WindowHour;
-        if (!forced && !inWindow && settings.Mode == UpdaterMode.Server)
+
+        // También en la caja: el agente no se detiene en plena venta; se espera la madrugada o "instalar ahora" (bajas).
+        if (!forced && !inWindow)
         {
             return;
         }
@@ -149,14 +222,36 @@ public sealed partial class UpdateWorker(
             File.Delete(request);
         }
 
-        var result = await new UpdateOrchestrator(host, settings.Mode, settings.DataRoot, time).ApplyAsync(ready.Manifest, ready.Package, forced, cancellationToken);
-        LogResult(logger, ready.Manifest.Version, result);
-        if (result == UpdateResult.Deferred)
+        // U2: justo antes de instalar se vuelven a revisar la firma del manifiesto y la huella del paquete (pudo cambiar en el disco).
+        if (UpdateSigning.Verify(ready.Signed, trustedKeys, settings.Product, out var again) != ManifestStatus.Valid
+            || again is null || again != ready.Manifest || !await MatchesAsync(ready.Package, ready.Manifest, cancellationToken))
         {
+            _lastError = "El manifiesto o el paquete cambió desde que se verificó: se descarta y se vuelve a descargar.";
+            _ready = null;
+            _nextCheck = now;
             return;
         }
 
-        if (result == UpdateResult.Applied && settings.Mode == UpdaterMode.Server)
+        var result = await new UpdateOrchestrator(host, settings.Mode, settings.DataRoot, time).ApplyAsync(ready.Manifest, ready.Package, forced, cancellationToken);
+        LogResult(logger, ready.Manifest.Version, result);
+        switch (result)
+        {
+            case UpdateResult.Deferred:
+                return;
+            case UpdateResult.FailedNoChanges:
+                // Nada cambió (backup, servicios o migración): se reintenta más tarde, cada vez con más espera.
+                Backoff();
+                return;
+            case UpdateResult.RolledBack or UpdateResult.RollbackFailed:
+                // Esa versión no sirve en este equipo: no se reintenta hasta que haya una más nueva.
+                _failedVersion = ready.Manifest.Version;
+                _ready = null;
+                return;
+        }
+
+        _failures = 0;
+        _retryAt = DateTimeOffset.MinValue;
+        if (settings.Mode == UpdaterMode.Server)
         {
             // Las cajas se actualizan desde aquí (D13-09): el servidor ofrece el manifiesto firmado y el paquete de la versión instalada.
             var folder = UpdateFiles.Directory(settings.DataRoot);
@@ -167,7 +262,7 @@ public sealed partial class UpdateWorker(
         _ready = null;
     }
 
-    private async Task CheckAsync(CancellationToken cancellationToken)
+    internal async Task CheckAsync(CancellationToken cancellationToken)
     {
         var manifestUrl = ManifestUri();
         if (manifestUrl is null)
@@ -175,17 +270,33 @@ public sealed partial class UpdateWorker(
             return;
         }
 
-        var signed = await _http.GetFromJsonAsync<SignedUpdateManifest>(manifestUrl, Json, cancellationToken);
-        var status = UpdateSigning.Verify(signed, trustedKeys, settings.Product, out var manifest);
-        if (status != ManifestStatus.Valid || manifest is null)
+        if (!SemanticVersion.TryParse(host.CurrentVersion, out var current))
         {
-            _lastError = $"Manifiesto rechazado ({status}).";
+            // Bajas: current.json dañado no es "0.0.0" (cualquier versión parecería nueva): no se actualiza y se avisa.
+            _lastError = "No se sabe qué versión está instalada (app\\current.json falta o está dañado): no se actualiza. Reinstale o llame a soporte.";
+            _ready = null;
             return;
         }
 
+        var signed = await _http.GetFromJsonAsync<SignedUpdateManifest>(manifestUrl, Json, cancellationToken);
+        var status = UpdateSigning.Verify(signed, trustedKeys, settings.Product, out var manifest);
+        if (status == ManifestStatus.Valid && manifest is not null)
+        {
+            status = ManifestFreshness.Check(manifest, time.GetUtcNow(), LastSequence(), requireNotExpired: settings.Mode == UpdaterMode.Server);
+        }
+
+        if (status != ManifestStatus.Valid || manifest is null)
+        {
+            _lastError = $"Manifiesto rechazado ({status}).";
+            _ready = null;
+            return;
+        }
+
+        SaveSequence(manifest.Sequence);
         if (settings.Mode == UpdaterMode.Server && manifest.Channel != settings.Channel
-            || !SemanticVersion.TryParse(manifest.Version, out var available) || !SemanticVersion.TryParse(host.CurrentVersion, out var current)
-            || available <= current)
+            || !SemanticVersion.TryParse(manifest.Version, out var available)
+            || available <= current
+            || string.Equals(manifest.Version, _failedVersion, StringComparison.Ordinal))
         {
             _lastError = null;
             _ready = null;
@@ -198,13 +309,13 @@ public sealed partial class UpdateWorker(
             var packageUrl = settings.Mode == UpdaterMode.Terminal
                 ? new Uri(new Uri(settings.ServerUrl!), "api/v1/system/updates/package")
                 : new Uri(manifestUrl, manifest.PackageUrl);
-            await using (var source = await _http.GetStreamAsync(packageUrl, cancellationToken))
-            await using (var target = File.Create(package + ".part"))
+            if (settings.Mode == UpdaterMode.Server && packageUrl.Scheme != Uri.UriSchemeHttps)
             {
-                await source.CopyToAsync(target, cancellationToken);
+                _lastError = "El paquete debe descargarse por https.";
+                return;
             }
 
-            File.Move(package + ".part", package, overwrite: true);
+            await DownloadAsync(packageUrl, package, cancellationToken);
             if (!await MatchesAsync(package, manifest, cancellationToken))
             {
                 File.Delete(package);
@@ -221,14 +332,105 @@ public sealed partial class UpdateWorker(
         _lastError = null;
     }
 
-    private Uri? ManifestUri() =>
-        settings.Mode == UpdaterMode.Terminal
-            ? settings.ServerUrl is { Length: > 0 } server ? new Uri(new Uri(server), "api/v1/system/updates/manifest") : null
-            : Uri.TryCreate(settings.ManifestUrl, UriKind.Absolute, out var url) ? url : null;
+    /// <summary>
+    /// R5 (TOCTOU): la descarga va a un archivo NUEVO (se borra el que hubiera y se crea con <see cref="FileMode.CreateNew"/>, en exclusiva)
+    /// dentro de la carpeta de datos con ACL; la huella se revisa después y otra vez al instalar con un handle exclusivo.
+    /// </summary>
+    private async Task DownloadAsync(Uri packageUrl, string package, CancellationToken cancellationToken)
+    {
+        var part = package + ".part";
+        foreach (var path in new[] { part, package })
+        {
+            if (File.Exists(path) || Directory.Exists(path))
+            {
+                if (UpdaterSecurity.IsReparsePoint(path) && Directory.Exists(path))
+                {
+                    Directory.Delete(path);
+                }
+                else
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+
+        await using (var source = await _http.GetStreamAsync(packageUrl, cancellationToken))
+        await using (var target = new FileStream(part, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+        {
+            await source.CopyToAsync(target, cancellationToken);
+        }
+
+        File.Move(part, package, overwrite: false);
+    }
+
+    private Uri? ManifestUri()
+    {
+        if (settings.Mode == UpdaterMode.Terminal)
+        {
+            return settings.ServerUrl is { Length: > 0 } server ? new Uri(new Uri(server), "api/v1/system/updates/manifest") : null;
+        }
+
+        if (!Uri.TryCreate(settings.ManifestUrl, UriKind.Absolute, out var url))
+        {
+            return null;
+        }
+
+        if (url.Scheme != Uri.UriSchemeHttps)
+        {
+            // Bajas: el manifiesto viaja firmado, pero por http se podría ocultar una actualización de seguridad (o servir uno viejo).
+            _lastError = "La dirección del manifiesto de actualizaciones debe ser https.";
+            return null;
+        }
+
+        return url;
+    }
+
+    private void Backoff()
+    {
+        _failures++;
+        var delay = TimeSpan.FromMinutes(5 * Math.Pow(2, Math.Min(_failures - 1, 10)));
+        _retryAt = time.GetUtcNow() + (delay > MaxRetryDelay ? MaxRetryDelay : delay);
+    }
+
+    internal DateTimeOffset RetryAt => _retryAt;
+
+    private string SequenceFile => Path.Combine(UpdateFiles.Directory(settings.DataRoot), UpdateFiles.LastSequence);
+
+    private long LastSequence()
+    {
+        try
+        {
+            return File.Exists(SequenceFile) && JsonDocument.Parse(File.ReadAllText(SequenceFile)).RootElement.GetProperty("sequence").GetInt64() is var value
+                ? value
+                : 0;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            // Dañado: se sigue con la secuencia del manifiesto actual (no se bloquea el equipo).
+            return 0;
+        }
+    }
+
+    private void SaveSequence(long sequence)
+    {
+        if (sequence <= LastSequence())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(UpdateFiles.Directory(settings.DataRoot));
+        File.WriteAllText(SequenceFile + ".tmp", JsonSerializer.Serialize(new { sequence }));
+        File.Move(SequenceFile + ".tmp", SequenceFile, overwrite: true);
+    }
 
     private static async Task<bool> MatchesAsync(string path, UpdateManifest manifest, CancellationToken cancellationToken)
     {
-        await using var stream = File.OpenRead(path);
+        if (!File.Exists(path) || UpdaterSecurity.IsReparsePoint(path))
+        {
+            return false;
+        }
+
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         if (stream.Length != manifest.PackageSize)
         {
             return false;
@@ -254,7 +456,7 @@ public sealed partial class UpdateWorker(
         }
     }
 
-    private static HttpClient CreateClient(UpdaterSettings settings)
+    private static HttpClientHandler CreateHandler(UpdaterSettings settings)
     {
         var handler = new HttpClientHandler();
         if (settings.Mode == UpdaterMode.Terminal && settings.ServerCertificateThumbprint is { Length: > 0 } pinned)
@@ -267,7 +469,13 @@ public sealed partial class UpdateWorker(
 #pragma warning restore CA5359
         }
 
-        return new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(10) };
+        return handler;
+    }
+
+    public override void Dispose()
+    {
+        _http.Dispose();
+        base.Dispose();
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Falló el ciclo del actualizador.")]
@@ -275,4 +483,7 @@ public sealed partial class UpdateWorker(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Actualización a {Version}: {Result}")]
     private static partial void LogResult(ILogger logger, string version, UpdateResult result);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Había una actualización a medias; al arrancar: {Result}")]
+    private static partial void LogRecovered(ILogger logger, UpdateResult result);
 }

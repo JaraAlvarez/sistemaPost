@@ -31,6 +31,14 @@ public static class UpdateChannels
 /// <param name="MinimumTerminalVersion">Versión mínima del agente de caja que funciona con este servidor.</param>
 /// <param name="PublishedAt">Fecha de publicación.</param>
 /// <param name="Notes">Novedades en español para el propietario.</param>
+/// <param name="ExpiresAt">
+/// Caducidad del manifiesto: después de esa fecha el actualizador del servidor no lo acepta (así un manifiesto viejo, aunque esté bien
+/// firmado, no se puede volver a servir para frenar las actualizaciones). Obligatoria.
+/// </param>
+/// <param name="Sequence">
+/// Número de secuencia creciente de cada publicación (Pos.Release usa la hora Unix de la firma). El actualizador guarda el último que vio y
+/// rechaza uno menor (ataque de repetición o vuelta atrás). Obligatorio (mayor que cero).
+/// </param>
 public sealed record UpdateManifest(
     [property: JsonPropertyName("product")] string Product,
     [property: JsonPropertyName("channel")] string Channel,
@@ -40,7 +48,9 @@ public sealed record UpdateManifest(
     [property: JsonPropertyName("packageSize")] long PackageSize,
     [property: JsonPropertyName("minimumTerminalVersion")] string MinimumTerminalVersion,
     [property: JsonPropertyName("publishedAt")] DateTimeOffset PublishedAt,
-    [property: JsonPropertyName("notes")] string Notes);
+    [property: JsonPropertyName("notes")] string Notes,
+    [property: JsonPropertyName("expiresAt")] DateTimeOffset? ExpiresAt = null,
+    [property: JsonPropertyName("sequence")] long Sequence = 0);
 
 /// <summary>
 /// Manifiesto firmado: <c>payload</c> es el JSON del manifiesto en base64url y <c>signature</c> la firma Ed25519 de esos bytes con la clave
@@ -58,6 +68,41 @@ public enum ManifestStatus
     UnknownKey,
     BadSignature,
     WrongProduct,
+
+    /// <summary>Le falta la caducidad o el número de secuencia (manifiesto de un generador viejo).</summary>
+    MissingFreshness,
+
+    /// <summary>Venció (<see cref="UpdateManifest.ExpiresAt"/>).</summary>
+    Expired,
+
+    /// <summary>Su número de secuencia es menor que el último visto en este equipo.</summary>
+    Replayed,
+}
+
+/// <summary>
+/// Frescura del manifiesto (además de la firma): caducidad y número de secuencia. En las cajas no se exige la caducidad: el servidor de la
+/// tienda les sirve el manifiesto de la versión que instaló, que puede ser de hace meses; sí la secuencia.
+/// </summary>
+public static class ManifestFreshness
+{
+    /// <summary>Vigencia que pone Pos.Release por defecto.</summary>
+    public static readonly TimeSpan DefaultLifetime = TimeSpan.FromDays(30);
+
+    public static ManifestStatus Check(UpdateManifest manifest, DateTimeOffset now, long lastSequence, bool requireNotExpired)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (manifest.ExpiresAt is not { } expiresAt || manifest.Sequence <= 0)
+        {
+            return ManifestStatus.MissingFreshness;
+        }
+
+        if (requireNotExpired && now >= expiresAt)
+        {
+            return ManifestStatus.Expired;
+        }
+
+        return manifest.Sequence < lastSequence ? ManifestStatus.Replayed : ManifestStatus.Valid;
+    }
 }
 
 /// <summary>Firma y verificación de manifiestos con la clave de actualizaciones (distinta de la de licencias).</summary>
@@ -179,7 +224,36 @@ public readonly record struct SemanticVersion(int Major, int Minor, int Patch, s
             return result;
         }
 
-        return PreRelease is null ? 1 : other.PreRelease is null ? -1 : string.CompareOrdinal(PreRelease, other.PreRelease);
+        return PreRelease is null ? 1 : other.PreRelease is null ? -1 : ComparePreRelease(PreRelease, other.PreRelease);
+    }
+
+    /// <summary>
+    /// Precedencia de las versiones preliminares según SemVer 2.0 (§11): identificadores separados por puntos; los numéricos se comparan
+    /// como números y van antes que los alfanuméricos; con todo igual, la que tiene menos identificadores va antes
+    /// (<c>beta.2 &lt; beta.10</c>, que como texto quedaba al revés).
+    /// </summary>
+    private static int ComparePreRelease(string left, string right)
+    {
+        var a = left.Split('.');
+        var b = right.Split('.');
+        for (var i = 0; i < Math.Min(a.Length, b.Length); i++)
+        {
+            var leftNumeric = long.TryParse(a[i], NumberStyles.None, CultureInfo.InvariantCulture, out var x);
+            var rightNumeric = long.TryParse(b[i], NumberStyles.None, CultureInfo.InvariantCulture, out var y);
+            var result = (leftNumeric, rightNumeric) switch
+            {
+                (true, true) => x.CompareTo(y),
+                (true, false) => -1,
+                (false, true) => 1,
+                _ => string.CompareOrdinal(a[i], b[i]),
+            };
+            if (result != 0)
+            {
+                return result;
+            }
+        }
+
+        return a.Length.CompareTo(b.Length);
     }
 
     public static bool operator <(SemanticVersion left, SemanticVersion right) => left.CompareTo(right) < 0;
@@ -235,6 +309,12 @@ public static class UpdateFiles
     public const string InstalledManifest = "installed-manifest.json";
 
     public const string InstalledPackage = "installed-package.zip";
+
+    /// <summary>U4: actualización en curso (se escribe al empezar y se borra al terminar; si queda, al arrancar se vuelve atrás).</summary>
+    public const string InProgress = "update-in-progress.json";
+
+    /// <summary>Último número de secuencia de manifiesto aceptado en este equipo.</summary>
+    public const string LastSequence = "manifest-sequence.json";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

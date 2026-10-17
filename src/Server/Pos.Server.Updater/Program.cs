@@ -34,14 +34,38 @@ if (OperatingSystem.IsWindows())
     builder.Logging.AddEventLog();
 }
 
-var settings = UpdaterSettings.From(builder.Configuration, product, dataRoot, builder.Environment.IsProduction());
+// R5: la carpeta de la instalación sale de la ubicación de este programa ({app}\updater) y de la clave de Inno, no de la configuración.
+var installRoot = UpdaterSecurity.ResolveInstallRoot(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? UpdaterSecurity.InnoInstallLocation() : null);
+string? securityProblem = installRoot is null
+    ? "La carpeta de este actualizador no coincide con la de la instalación registrada: no se instalan actualizaciones."
+    : null;
+installRoot ??= Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
+var settings = UpdaterSettings.From(builder.Configuration, product, dataRoot, installRoot, builder.Environment.IsProduction());
+if (OperatingSystem.IsWindows() && builder.Environment.IsProduction())
+{
+    securityProblem ??= UpdaterSecurity.WritableByUnprivileged(installRoot) ?? UpdaterSecurity.WritableByUnprivileged(Path.Combine(installRoot, "app"));
+    if (settings.Mode == UpdaterMode.Terminal)
+    {
+        // R5: en la caja adicional la carpeta de datos queda solo para SYSTEM y Administradores (también en equipos instalados antes).
+        foreach (var aviso in UpdaterSecurity.RestrictTerminalDataRoot(dataRoot))
+        {
+            Console.Error.WriteLine(aviso);
+        }
+    }
+}
+
 builder.Services.AddSingleton(settings);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(UpdateKeys.Load(settings.DevelopmentTrustedKeys));
 if (OperatingSystem.IsWindows())
 {
     builder.Services.AddSingleton<IUpdateHost, WindowsUpdateHost>();
-    builder.Services.AddHostedService<UpdateWorker>();
+    builder.Services.AddHostedService(provider => new UpdateWorker(
+        settings, provider.GetRequiredService<IUpdateHost>(), provider.GetRequiredService<Pos.Licensing.Contracts.LicenseKeyRing>(),
+        TimeProvider.System, provider.GetRequiredService<ILogger<UpdateWorker>>())
+    {
+        SecurityProblem = securityProblem,
+    });
 }
 
 await builder.Build().RunAsync();

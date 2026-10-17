@@ -29,7 +29,8 @@ public sealed class UpdateTests : IDisposable
     }
 
     private static UpdateManifest Manifest(string version = "1.4.0", string product = "BusinessPost") =>
-        new(product, UpdateChannels.Stable, version, $"BusinessPost-{version}.zip", new string('a', 64), 1234, "1.4.0", DateTimeOffset.UtcNow, "Novedades");
+        new(product, UpdateChannels.Stable, version, $"BusinessPost-{version}.zip", new string('a', 64), 1234, "1.4.0", DateTimeOffset.UtcNow, "Novedades",
+            DateTimeOffset.UtcNow.AddDays(30), 100);
 
     [Fact]
     public void El_manifiesto_firmado_verifica_y_cualquier_cambio_lo_invalida()
@@ -93,14 +94,16 @@ public sealed class UpdateTests : IDisposable
     }
 
     [Fact]
-    public async Task Si_falla_la_migracion_sigue_la_version_anterior_sin_cambios()
+    public async Task Si_falla_la_migracion_vuelve_al_backup_previo_y_sigue_la_version_anterior()
     {
         var host = new FakeUpdateHost("1.3.0") { MigrateSucceeds = false };
         (await Orchestrator(host).ApplyAsync(Manifest(), "paquete.zip", force: false, Ct)).ShouldBe(UpdateResult.FailedNoChanges);
         host.CurrentVersion.ShouldBe("1.3.0");
         host.Steps.ShouldNotContain("activate 1.4.0");
-        host.Steps[^1].ShouldBe("start");
-        UpdateFiles.ReadHistory(_dataRoot).ShouldHaveSingleItem().Outcome.ShouldBe(UpdateOutcomes.Failed);
+        // Cada script va en su transacción: los anteriores pudieron quedar; se vuelve a la BD del backup previo antes de arrancar (IN4).
+        host.Steps[^2..].ShouldBe(["restore 1.3.0 backup-1.3.0.posbak", "start"]);
+        UpdateFiles.ReadHistory(_dataRoot).Select(h => h.Outcome).ShouldBe([UpdateOutcomes.Failed, UpdateOutcomes.RolledBack]);
+        File.Exists(Path.Combine(UpdateFiles.Directory(_dataRoot), UpdateFiles.InProgress)).ShouldBeFalse();
     }
 
     [Fact]
@@ -142,7 +145,7 @@ public sealed class UpdateTests : IDisposable
 
         var paquete = Path.Combine(_dataRoot, "BusinessPost-1.4.0.zip");
         CrearPaquete(paquete, "1.4.0");
-        await host.StageAsync("1.4.0", paquete, Ct);
+        await host.StageAsync("1.4.0", paquete, ManifestOf(paquete, "1.4.0"), Ct);
         host.IsStaged("1.4.0").ShouldBeTrue();
         File.Exists(Path.Combine(install, "app", "1.4.0", "desktop", "LICENSE-WebView2.txt")).ShouldBeTrue();
         Ventana(install).ShouldBe("ventana 1.3.0"); // preparada pero todavía no activa
@@ -227,6 +230,15 @@ public sealed class UpdateTests : IDisposable
         Directory.Exists(Path.Combine(install, "app", "1.3.0")).ShouldBeTrue();
     }
 
+    /// <summary>Manifiesto con la huella y el tamaño reales del paquete.</summary>
+    internal static UpdateManifest ManifestOf(string zip, string version)
+    {
+        var bytes = File.ReadAllBytes(zip);
+        return new UpdateManifest("BusinessPost", UpdateChannels.Stable, version, Path.GetFileName(zip),
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), bytes.Length, version, DateTimeOffset.UtcNow, "Novedades",
+            DateTimeOffset.UtcNow.AddDays(30), 100);
+    }
+
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private WindowsUpdateHost RealHost(string install) =>
         new(new UpdaterSettings("BusinessPost", UpdaterMode.Server, _dataRoot, install, null, UpdateChannels.Stable, null, null, 6, 2, 5480, 5490, 10,
@@ -235,7 +247,7 @@ public sealed class UpdateTests : IDisposable
     private static string Ventana(string install) => File.ReadAllText(Path.Combine(install, "app", "current", "desktop", "BusinessPost.exe"));
 
     /// <summary>Carpeta de una versión ya instalada, con archivos de texto en lugar de los programas.</summary>
-    private static void CrearVersion(string install, string version)
+    internal static void CrearVersion(string install, string version)
     {
         foreach (var (carpeta, archivo) in Contenido)
         {
@@ -246,7 +258,7 @@ public sealed class UpdateTests : IDisposable
     }
 
     /// <summary>Paquete de actualización como lo arma build-installer.ps1: server, migrator, agent y desktop en la raíz del ZIP.</summary>
-    private static void CrearPaquete(string zip, string version)
+    internal static void CrearPaquete(string zip, string version)
     {
         var origen = Path.Combine(Path.GetDirectoryName(zip)!, "paquete-" + version);
         CrearVersion(origen, version);
@@ -299,7 +311,7 @@ public sealed class UpdateTests : IDisposable
 
         public bool IsStaged(string v) => _staged.Contains(v);
 
-        public Task StageAsync(string v, string packagePath, CancellationToken cancellationToken) => Step($"stage {v}", () => _staged.Add(v));
+        public Task StageAsync(string v, string packagePath, UpdateManifest manifest, CancellationToken cancellationToken) => Step($"stage {v}", () => _staged.Add(v));
 
         public Task<int> OpenCashSessionsAsync(CancellationToken cancellationToken) => Task.FromResult(OpenSessions);
 
