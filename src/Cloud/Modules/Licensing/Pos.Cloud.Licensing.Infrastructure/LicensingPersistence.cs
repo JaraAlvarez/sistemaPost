@@ -150,6 +150,7 @@ internal sealed class LicensingModelContributor : ICloudModelContributor
             b.Property(x => x.PollTokenHash).HasColumnType("char(64)");
             b.Property(x => x.UserCode).HasColumnType("char(9)");
             b.Property(x => x.PollIntervalSeconds).HasConversion<short>();
+            b.Property(x => x.CodeAttempts).HasConversion<short>();
             b.Property(x => x.CreatedIp).HasColumnType("inet");
             b.Property(x => x.DecidedIp).HasColumnType("inet");
             b.HasOne<License>().WithMany().HasForeignKey(x => x.LicenseId).OnDelete(DeleteBehavior.Restrict);

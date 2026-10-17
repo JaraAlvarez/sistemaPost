@@ -24,7 +24,6 @@ public sealed record SolicitudInstalacion(
 internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisposable
 {
     private readonly ServidorLocal _servidor = new();
-    private readonly Decoder _utf8 = new UTF8Encoding(false).GetDecoder();
     private string? _codigo;
 
     public string? Registro { get; private set; }
@@ -51,27 +50,37 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         var lector = new RegistroInno();
         var argumentos = ArgumentosInno.Instalar(solicitud.Modo, Registro, solicitud.Servidor, solicitud.Huella, solicitud.Backup, archivoCodigo);
         int salida;
+        var registroInno = new LectorIncremental();
+        Process? proceso = null;
         try
         {
-            using var proceso = Process.Start(new ProcessStartInfo(paquete, argumentos) { UseShellExecute = false })!;
-            long posicion = 0;
-            var pendiente = new StringBuilder();
+            proceso = Process.Start(new ProcessStartInfo(paquete, argumentos) { UseShellExecute = false })!;
             while (!proceso.HasExited)
             {
-                posicion = LeerNuevo(Registro, posicion, pendiente, lector, _utf8);
+                LeerNuevo(Registro, registroInno, lector);
                 Avanzar(lector);
                 await Task.Delay(700, cancellationToken);
             }
 
-            LeerNuevo(Registro, posicion, pendiente, lector, _utf8);
+            await proceso.WaitForExitAsync(CancellationToken.None);
+            LeerNuevo(Registro, registroInno, lector);
             salida = proceso.ExitCode;
+        }
+        catch (OperationCanceledException)
+        {
+            // Se cerró el instalador: el paquete (y lo que haya lanzado, p. ej. el migrador) no debe seguir solo en segundo plano.
+            Detener(proceso);
+            throw;
         }
         finally
         {
-            if (archivoCodigo is not null && File.Exists(archivoCodigo))
+            // El archivo del código se borra SOLO cuando el paquete ya terminó (Inno lo lee y lo borra; esto es por si no llegó a leerlo).
+            if (archivoCodigo is not null && (proceso is null || proceso.HasExited))
             {
-                File.Delete(archivoCodigo);
+                BorrarSilencioso(archivoCodigo);
             }
+
+            proceso?.Dispose();
         }
 
         Avanzar(lector);
@@ -111,14 +120,29 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
     private async Task ConfigurarAsync(SolicitudInstalacion solicitud, CancellationToken cancellationToken)
     {
         avisar(new { evento = "progreso", etapa = (int)Etapa.ConfigurandoNegocio, porcentaje = 90, nota = "Dejando lista tu tienda…" });
-        if (!await _servidor.EsperarAsync(TimeSpan.FromMinutes(10), cancellationToken))
+        // /health/ready (no /health/live): en una actualización el servidor responde enseguida, pero con 503 mientras migra la base.
+        var espera = await _servidor.EsperarListoAsync(TimeSpan.FromMinutes(20),
+            () => avisar(new { evento = "progreso", etapa = (int)Etapa.ConfigurandoNegocio, porcentaje = 91, nota = "Preparando la base de datos… puede tardar varios minutos en una actualización." }),
+            null, cancellationToken);
+        if (espera != EsperaServidor.Listo)
         {
-            Fallo("BusinessPost quedó instalado, pero todavía no responde en este equipo. Reinicia el computador y abre BusinessPost: el " +
+            Fallo(espera == EsperaServidor.SinBaseDeDatos
+                ? "BusinessPost quedó instalado, pero la base de datos todavía no está lista. Espera unos minutos y abre BusinessPost; si sigue " +
+                  "sin abrir, reinicia el computador o comunícate con soporte y comparte el registro."
+                : "BusinessPost quedó instalado, pero todavía no responde en este equipo. Reinicia el computador y abre BusinessPost: el " +
                   "asistente te pedirá los datos de tu negocio.", Registro);
             return;
         }
 
-        if (await _servidor.ConfiguradoAsync(cancellationToken))
+        var configurado = await _servidor.ConfiguradoAsync(cancellationToken);
+        if (!configurado.Ok)
+        {
+            Fallo($"BusinessPost quedó instalado, pero no pudimos revisar si la tienda ya estaba configurada ({configurado.Mensaje}). Abre " +
+                  "BusinessPost en unos minutos: si falta, el asistente te pedirá los datos de tu negocio.", Registro);
+            return;
+        }
+
+        if (configurado.Dato)
         {
             // Reinstalación sobre los datos conservados: la tienda ya estaba configurada.
             Terminar(solicitud, "Tu tienda ya estaba configurada en este equipo: conservamos tus datos, usuarios y licencia.", licenciaActiva: null);
@@ -216,44 +240,61 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         });
 
     /// <summary>Lee lo nuevo del registro (Inno lo tiene abierto mientras escribe) y lo pasa al lector línea por línea.</summary>
-    private static long LeerNuevo(string ruta, long posicion, StringBuilder pendiente, RegistroInno lector, Decoder utf8)
+    private static void LeerNuevo(string ruta, LectorIncremental registro, RegistroInno lector)
     {
         if (!File.Exists(ruta))
         {
-            return posicion;
+            return;
         }
 
         try
         {
             using var archivo = new FileStream(ruta, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (archivo.Length <= posicion)
+            foreach (var linea in registro.Leer(archivo))
             {
-                return posicion;
+                lector.Procesar(linea);
             }
-
-            archivo.Seek(posicion, SeekOrigin.Begin);
-            var bytes = new byte[archivo.Length - posicion];
-            archivo.ReadExactly(bytes);
-            var caracteres = new char[utf8.GetCharCount(bytes, 0, bytes.Length)];
-            utf8.GetChars(bytes, 0, bytes.Length, caracteres, 0);
-            pendiente.Append(caracteres);
-            var texto = pendiente.ToString();
-            var ultimo = texto.LastIndexOf('\n');
-            if (ultimo >= 0)
-            {
-                foreach (var linea in texto[..ultimo].Split('\n'))
-                {
-                    lector.Procesar(linea.TrimEnd('\r'));
-                }
-
-                pendiente.Clear().Append(texto[(ultimo + 1)..]);
-            }
-
-            return archivo.Length;
         }
         catch (IOException)
         {
-            return posicion;
+            // Inno lo tiene bloqueado justo ahora: se lee en la próxima vuelta (la posición no avanzó).
+        }
+    }
+
+    /// <summary>Detiene el paquete Inno y todo lo que lanzó (cancelación).</summary>
+    private static void Detener(Process? proceso)
+    {
+        if (proceso is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!proceso.HasExited)
+            {
+                proceso.Kill(entireProcessTree: true);
+                proceso.WaitForExit(TimeSpan.FromSeconds(30));
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            // Ya terminó o no se puede detener: no hay nada más que hacer.
+        }
+    }
+
+    private static void BorrarSilencioso(string ruta)
+    {
+        try
+        {
+            if (File.Exists(ruta))
+            {
+                File.Delete(ruta);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Queda en la carpeta temporal del administrador; Inno lo borra al leerlo.
         }
     }
 }

@@ -38,20 +38,28 @@ internal static class Program
         }
 
         // Desinstalar desde {app}\instalador: el desinstalador de Inno borra esa carpeta, así que se trabaja desde una copia temporal.
-        if (desinstalar && !maqueta && !args.Contains("--copia", StringComparer.OrdinalIgnoreCase)
+        var copiaTemporal = args.Contains("--copia", StringComparer.OrdinalIgnoreCase);
+        if (desinstalar && !maqueta && !copiaTemporal
             && Sistema.CarpetaInstalada() is { } carpeta
-            && Environment.ProcessPath!.StartsWith(carpeta, StringComparison.OrdinalIgnoreCase))
+            && Rutas.EstaDentro(Environment.ProcessPath, carpeta))
         {
-            var copia = Path.Combine(Sistema.CarpetaTemporal(), $"BusinessPost-Desinstalar-{Guid.NewGuid():N}.exe");
-            File.Copy(Environment.ProcessPath, copia, overwrite: true);
+            var copia = Path.Combine(Sistema.CarpetaTemporal(), $"{Rutas.PrefijoCopiaDesinstalar}{Guid.NewGuid():N}.exe");
+            File.Copy(Environment.ProcessPath!, copia, overwrite: true);
             Process.Start(new ProcessStartInfo(copia) { UseShellExecute = false, ArgumentList = { "--desinstalar", "--copia" } });
             return 0;
         }
 
+        Sistema.BorrarCopiasViejas();
         ApplicationConfiguration.Initialize();
         // ‑‑maqueta ‑‑pantalla <nombre>: abre directo en una pantalla (revisión del diseño).
         var pantalla = Array.FindIndex(args, a => string.Equals(a, "--pantalla", StringComparison.OrdinalIgnoreCase)) is var p and >= 0 && p + 1 < args.Length ? args[p + 1] : null;
         Application.Run(new VentanaInstalador(new Opciones(desinstalar, maqueta, paquete, pantalla, ArgumentosCaptura.Leer(args))));
+        if (copiaTemporal)
+        {
+            // La copia temporal no puede borrarse mientras corre: se borra al salir (y, si algo lo impide, al reiniciar Windows).
+            Sistema.ProgramarBorradoDeEsteArchivo();
+        }
+
         return SinWebView2 ? SalidaSinWebView2 : 0;
     }
 }

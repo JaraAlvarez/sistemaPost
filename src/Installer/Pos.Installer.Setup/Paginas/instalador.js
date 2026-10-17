@@ -199,9 +199,21 @@ $("clave").addEventListener("input", () => {
   aviso("errorLicencia", "");
   $("btnLicencia").disabled = true;
   S.vista = null;
+  olvidarCuentaSiCambiaClave();
   clearTimeout(temporizador);
   if (limpia.length >= 23) temporizador = setTimeout(vistaPrevia, 350);
 });
+
+// La cuenta del portal se valida CON la clave: si el dueño cambia la clave, la validación anterior ya no sirve (Puente.cs también lo revisa).
+function olvidarCuentaSiCambiaClave() {
+  if (!S.clave && !S.google && !(S.cuenta && S.cuenta.enlace)) return;
+  if (S.google === "esperando") cancelarGoogle();
+  S.clave = null;
+  S.google = null;
+  S.googleCuenta = null;
+  if (S.cuenta && S.cuenta.enlace) S.cuenta = null;
+  llamar("olvidarCuenta").catch(() => {});
+}
 
 async function vistaPrevia() {
   const clave = $("clave").value.trim();
@@ -266,6 +278,7 @@ function cancelarGoogle() {
 $("btnGoogle").onclick = async () => {
   if (!S.clave) { aviso("avisoCuenta", "Primero escribe tu clave de licencia.", "error"); return; }
   aviso("avisoCuenta", "");
+  $("googleReintentar").classList.add("oculto");
   S.google = "esperando";
   $("googleCodigo").textContent = "····-····";
   vistaGoogle();
@@ -297,7 +310,11 @@ function alGoogle(m) {
   S.google = null;
   vistaGoogle();
   aviso("avisoCuenta", m.mensaje || "No se completó el ingreso con Google. Intenta de nuevo o usa tu correo y contraseña.", "error");
+  // Error, vencida o rechazada: "Reintentar" vuelve a pedir la autorización (la espera ya terminó; nada queda "esperando" para siempre).
+  $("googleReintentar").classList.toggle("oculto", !m.reintentar);
 }
+
+$("lnkGoogleReintentar").onclick = () => { $("googleReintentar").classList.add("oculto"); $("btnGoogle").click(); };
 
 // Misma regla que IngresoGoogle.ValidarContrasenaLocal (Puente.cs la vuelve a revisar).
 function problemaContrasenaLocal(contrasena, confirmacion, correo) {
@@ -317,7 +334,7 @@ $("btnCuenta").onclick = async () => {
     const contrasena = $("localContrasena").value;
     const problema = problemaContrasenaLocal(contrasena, $("localConfirmar").value, S.googleCuenta.email);
     if (problema) { aviso("avisoCuenta", problema, "error"); return; }
-    S.cuenta = { usuario: S.googleCuenta.email, nombre: S.googleCuenta.displayName, contrasena, enlace: true };
+    S.cuenta = { usuario: S.googleCuenta.email, nombre: S.googleCuenta.displayName, contrasena, confirmacion: $("localConfirmar").value, enlace: true };
     aviso("avisoCuenta", "");
     prepararNegocio();
     ir("negocio");
@@ -449,7 +466,7 @@ $("btnInstalar").onclick = () => {
       tipoDocumento: "NIT", numero, dv, regimen: $("regimen").value, municipio: municipioElegido, direccion: $("direccion").value.trim(),
       telefono: $("telefono").value.trim() || null, correo: correo || null, tipoNegocio: S.tipoNegocio,
     },
-    propietario: { usuario: S.cuenta.usuario, nombre: S.cuenta.nombre, contrasena: S.cuenta.contrasena, enlace: null },
+    propietario: { usuario: S.cuenta.usuario, nombre: S.cuenta.nombre, contrasena: S.cuenta.contrasena, confirmacion: S.cuenta.confirmacion || null, enlace: null },
   });
 };
 
@@ -462,7 +479,20 @@ function instalar(solicitud) {
   $("itemConfigurar").classList.toggle("oculto", solicitud.modo === "adicional" || !!solicitud.backup);
   ir("instalando");
   progreso({ etapa: 0, porcentaje: 0, nota: "Preparando…" });
-  llamar("instalar", solicitud).catch((e) => alAviso({ evento: "error", mensaje: e.message }));
+  llamar("instalar", solicitud).catch((e) => {
+    if (e.codigo === "INSTALADOR.CUENTA_INVALIDA") {
+      // La cuenta se validó con otra clave (o venció): se vuelve a "Tu cuenta" para validarla de nuevo, sin instalar nada.
+      S.instalando = false;
+      S.cuenta = null;
+      S.google = null;
+      S.googleCuenta = null;
+      prepararCuenta();
+      ir("cuenta");
+      aviso("avisoCuenta", e.message, "error");
+      return;
+    }
+    alAviso({ evento: "error", mensaje: e.message });
+  });
 }
 
 function progreso(m) {
@@ -562,6 +592,7 @@ $("btnBackupFinal").onclick = async () => {
   S.instalando = true;
   try {
     const ruta = await llamar("backupFinal");
+    if (!ruta) { ocupado(boton, false); return; } // Cerró la ventana de elegir carpeta.
     $("dBackupRuta").textContent = "Backup final guardado en: " + ruta;
     boton.textContent = "Listo ✓";
   } catch (e) { $("dBackupRuta").textContent = e.message; ocupado(boton, false); }

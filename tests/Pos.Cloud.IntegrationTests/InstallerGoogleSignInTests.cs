@@ -81,7 +81,7 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
         started.BrowserUrl.ShouldEndWith($"/cuenta/vincular-instalador?r={started.RequestId:D}");
         started.UserCode.ShouldMatch("^[A-Z0-9]{4}-[A-Z0-9]{4}$");
         started.PollToken.Length.ShouldBe(43);
-        started.ExpiresIn.ShouldBe(600);
+        started.ExpiresIn.ShouldBe(300, "Vence rápido: un enlace enviado por otra persona deja de servir enseguida.");
         started.Interval.ShouldBe(5);
         body.ShouldNotContain(customer.License.Key, Case.Insensitive);
         body.ShouldNotContain(customer.OrganizationId.ToString(), Case.Insensitive);
@@ -134,10 +134,24 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
         await SignInAsync(browser, owner, $"/cuenta/vincular-instalador?r={started.RequestId:D}");
         var html = WebUtility.HtmlDecode(await browser.GetStringAsync(page, Ct));
         html.ShouldContain($"Supermercado {customer.Nit.Split('-')[0]} SAS");
-        html.ShouldContain(started.UserCode);
+        html.ShouldNotContain(started.UserCode, customMessage: "El dueño ESCRIBE el código de su instalador: la página no lo muestra.");
+        html.ShouldContain("Solicitud creada hace");
         html.ShouldContain("Autorizar");
+        html.ShouldNotContain("aplicación autenticadora", customMessage: "Sin TOTP activo no se pide el código del autenticador.");
 
-        using (var approved = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar" }))
+        // Sin el código (o con otro): no autoriza y sigue pendiente.
+        foreach (var wrong in new string?[] { null, "ZZZZ-ZZZZ" })
+        {
+            using var rejected = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = wrong ?? string.Empty });
+            WebUtility.HtmlDecode(await rejected.Content.ReadAsStringAsync(Ct)).ShouldContain("El código no coincide");
+        }
+
+        cloud.Factory.Clock.Advance(NextPoll);
+        (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Pending);
+
+        // Escrito en minúsculas y sin guion: se normaliza.
+        var typed = started.UserCode.Replace("-", " ", StringComparison.Ordinal).ToLowerInvariant();
+        using (var approved = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = typed }))
         {
             approved.StatusCode.ShouldBe(HttpStatusCode.OK);
             WebUtility.HtmlDecode(await approved.Content.ReadAsStringAsync(Ct)).ShouldContain("la instalación quedó autorizada");
@@ -186,25 +200,125 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
         var page = new Uri($"cuenta/vincular-instalador?r={started.RequestId:D}", UriKind.Relative);
         await SignInAsync(browser, stranger, page.OriginalString.Insert(0, "/"));
         var html = WebUtility.HtmlDecode(await browser.GetStringAsync(page, Ct));
-        html.ShouldContain("no es el dueño");
+        html.ShouldContain("No encontramos una solicitud del instalador para su usuario");
         html.ShouldNotContain($"Supermercado {customer.Nit.Split('-')[0]}");
         html.ShouldNotContain(started.UserCode);
 
-        // Aunque envíe el formulario a mano (con un token antifalsificación válido), no autoriza.
+        // La MISMA respuesta que una solicitud inexistente: no se distingue "existe pero es de otro".
+        var missing = WebUtility.HtmlDecode(await browser.GetStringAsync(new Uri($"cuenta/vincular-instalador?r={Guid.CreateVersion7():D}", UriKind.Relative), Ct));
+        AlertOf(missing).ShouldBe(AlertOf(html));
+
+        // Abrir la página (GET) no escribe en la auditoría.
+        (await RejectedAuditAsync(stranger.Email)).ShouldBe(0);
+
+        // Aunque envíe el formulario a mano (con un token antifalsificación válido y el código correcto), no autoriza.
         using (var forged = await BrowserForms.PostFormAsync(browser, page, html, new()
                {
                    ["_handler"] = "vincular-instalador",
                    ["Input.Decision"] = "autorizar",
+                   ["Input.Code"] = started.UserCode,
                }))
         {
             forged.StatusCode.ShouldBe(HttpStatusCode.OK);
-            WebUtility.HtmlDecode(await forged.Content.ReadAsStringAsync(Ct)).ShouldContain("no es el dueño");
+            WebUtility.HtmlDecode(await forged.Content.ReadAsStringAsync(Ct)).ShouldContain("No encontramos una solicitud del instalador para su usuario");
         }
 
         cloud.Factory.Clock.Advance(NextPoll);
         (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Pending);
-        var audit = await PortalApi.GetAsync<List<CloudAuditEntryDto>>(cloud.Superadmin, "/admin/audit?action=PORTAL_OWNER_LINK_REJECTED");
-        audit.ShouldContain(a => (a.Summary ?? string.Empty).Contains(stranger.Email, StringComparison.Ordinal));
+        (await RejectedAuditAsync(stranger.Email)).ShouldBe(1, "Solo el POST de decisión queda en la auditoría.");
+    }
+
+    [Fact]
+    public async Task Cinco_codigos_incorrectos_cancelan_la_solicitud()
+    {
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var (_, owner) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "CUSTOMER", customer.AccountId);
+        var installer = cloud.Factory.CreateClient();
+        var started = await StartAsync(installer, customer);
+
+        using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
+        var page = new Uri($"cuenta/vincular-instalador?r={started.RequestId:D}", UriKind.Relative);
+        await SignInAsync(browser, owner, "/" + page.OriginalString);
+        var html = await browser.GetStringAsync(page, Ct);
+        for (var i = 1; i <= 5; i++)
+        {
+            using var wrong = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = "ZZZZ-ZZZZ" });
+            var text = WebUtility.HtmlDecode(await wrong.Content.ReadAsStringAsync(Ct));
+            text.ShouldContain(i < 5 ? $"le quedan {5 - i} intentos" : "Solicitud cancelada");
+        }
+
+        // Ni con el código correcto después.
+        using (var late = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode }))
+        {
+            WebUtility.HtmlDecode(await late.Content.ReadAsStringAsync(Ct)).ShouldContain("Solicitud cancelada");
+        }
+
+        (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Denied);
+    }
+
+    [Fact]
+    public async Task Con_un_ingreso_antiguo_pide_ingresar_de_nuevo_antes_de_autorizar()
+    {
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var (_, owner) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "CUSTOMER", customer.AccountId);
+        using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
+        await SignInAsync(browser, owner, "/cuenta/vincular-instalador?r=" + Guid.Empty.ToString("D"));
+
+        // La sesión sigue abierta (se usa cada pocos minutos), pero el ingreso fue hace más de 10 minutos.
+        for (var i = 0; i < 3; i++)
+        {
+            cloud.Factory.Clock.Advance(TimeSpan.FromMinutes(4));
+            (await browser.GetAsync(new Uri("cuenta/vincular-instalador?r=x", UriKind.Relative), Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        }
+
+        var installer = cloud.Factory.CreateClient();
+        var started = await StartAsync(installer, customer);
+        var page = new Uri($"cuenta/vincular-instalador?r={started.RequestId:D}", UriKind.Relative);
+        var html = WebUtility.HtmlDecode(await browser.GetStringAsync(page, Ct));
+        html.ShouldContain("Ingresar de nuevo");
+        html.ShouldNotContain("name=\"Input.Decision\" value=\"autorizar\"");
+        using (var forced = await BrowserForms.PostFormAsync(browser, page, html, new()
+               {
+                   ["_handler"] = "vincular-instalador", ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode,
+               }))
+        {
+            WebUtility.HtmlDecode(await forced.Content.ReadAsStringAsync(Ct)).ShouldContain("Ingresar de nuevo");
+        }
+
+        (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Pending);
+    }
+
+    [Fact]
+    public async Task Si_la_suscripcion_se_suspende_antes_de_recoger_no_se_entrega_el_enlace()
+    {
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var (_, owner) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "CUSTOMER", customer.AccountId);
+        var installer = cloud.Factory.CreateClient();
+        var started = await StartAsync(installer, customer);
+        using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
+        var page = new Uri($"cuenta/vincular-instalador?r={started.RequestId:D}", UriKind.Relative);
+        await SignInAsync(browser, owner, "/" + page.OriginalString);
+        var html = await browser.GetStringAsync(page, Ct);
+        using (var approved = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode }))
+        {
+            WebUtility.HtmlDecode(await approved.Content.ReadAsStringAsync(Ct)).ShouldContain("la instalación quedó autorizada");
+        }
+
+        (await PortalApi.SendAsync(cloud.Superadmin, HttpMethod.Post, $"/admin/subscriptions/{customer.SubscriptionId}/suspend",
+            new { reason = "Pago rechazado por el banco" })).Code.ShouldBeNull();
+        var poll = await PollAsync(installer, started);
+        poll.Code.ShouldBe(LicenseErrorCodes.SubscriptionInactive);
+    }
+
+    private async Task<int> RejectedAuditAsync(string email) =>
+        (await PortalApi.GetAsync<List<CloudAuditEntryDto>>(cloud.Superadmin, $"/admin/audit?action=PORTAL_OWNER_LINK_REJECTED&text={Uri.EscapeDataString(email)}")).Count;
+
+    /// <summary>El texto del aviso de la página (sin el token antifalsificación, que cambia en cada respuesta).</summary>
+    private static string AlertOf(string html)
+    {
+        var start = html.IndexOf("No encontramos", StringComparison.Ordinal);
+        start.ShouldBeGreaterThanOrEqualTo(0);
+        return html[start..html.IndexOf('<', start)];
     }
 
     [Fact]
@@ -237,7 +351,7 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
     }
 
     [Fact]
-    public async Task La_solicitud_vence_a_los_10_minutos_y_ya_no_se_puede_autorizar()
+    public async Task La_solicitud_vence_a_los_5_minutos_y_ya_no_se_puede_autorizar()
     {
         var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
         var (_, owner) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "CUSTOMER", customer.AccountId);
@@ -249,7 +363,7 @@ public class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud) : ICla
         await SignInAsync(browser, owner, "/" + page.OriginalString);
         var html = await browser.GetStringAsync(page, Ct);
 
-        cloud.Factory.Clock.Advance(TimeSpan.FromMinutes(10) + TimeSpan.FromSeconds(1));
+        cloud.Factory.Clock.Advance(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1));
         (await PollAsync(installer, started)).Response!.Status.ShouldBe(OwnerLinkRequestStatuses.Expired);
         using (var late = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar" }))
         {

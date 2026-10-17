@@ -238,6 +238,61 @@ public class PortalGoogleTests(GoogleCloudFixture cloud) : IClassFixture<GoogleC
         }
     }
 
+    /// <summary>
+    /// M15 (adenda de ADR-0062): el ingreso con Google no pide el TOTP para usar el portal, pero AUTORIZAR la instalación de BusinessPost
+    /// (el usuario queda como Propietario del POS) sí lo pide si el usuario lo tiene activo, igual que <c>/v1/owner-links</c>.
+    /// </summary>
+    [Fact]
+    public async Task Despues_de_Google_autorizar_el_instalador_pide_el_TOTP_si_el_usuario_lo_tiene_activo()
+    {
+        var customer = await LicensedCustomer.CreateAsync(cloud.Superadmin);
+        var (client, owner) = await PortalApi.CreateUserAsync(cloud.Factory, cloud.Superadmin, "CUSTOMER", customer.AccountId);
+        using (client)
+        {
+            var enrollment = await PortalApi.PostAsync<TotpEnrollmentDto>(client, "/admin/auth/me/totp/enrollment", new { });
+            owner.TotpSecret = Authenticator.FromBase32(enrollment.Secret);
+            (await PortalApi.SendAsync(client, HttpMethod.Post, "/admin/auth/me/totp", new { code = owner.NextCode() })).Status.ShouldBe(HttpStatusCode.NoContent);
+        }
+
+        using var installer = cloud.Factory.CreateClient();
+        using var startResponse = await installer.PostAsJsonAsync(Pos.Licensing.Contracts.LicensingRoutes.OwnerLinkRequests,
+            new Pos.Licensing.Contracts.OwnerLinkRequestStart(customer.License.Key), PortalApi.Json, Ct);
+        startResponse.StatusCode.ShouldBe(HttpStatusCode.OK, await startResponse.Content.ReadAsStringAsync(Ct));
+        var started = (await startResponse.Content.ReadFromJsonAsync<Pos.Licensing.Contracts.OwnerLinkRequestStarted>(PortalApi.Json, Ct))!;
+        var page = new Uri($"cuenta/vincular-instalador?r={started.RequestId:D}", UriKind.Relative);
+
+        var (browser, _) = Browser();
+        using (browser)
+        {
+            var login = await browser.GetStringAsync(new Uri($"cuenta/ingresar?returnUrl={Uri.EscapeDataString("/" + page.OriginalString)}", UriKind.Relative), Ct);
+            using (var complete = await SignInWithGoogleAsync(browser, login, cloud.Factory.Google.Issue(owner.Email, verified: true)))
+            {
+                complete.StatusCode.ShouldBe(HttpStatusCode.OK, "Google entra al portal SIN el TOTP (ADR-0062).");
+            }
+
+            var html = WebUtility.HtmlDecode(await browser.GetStringAsync(page, Ct));
+            html.ShouldContain("aplicación autenticadora");
+
+            // Código del instalador correcto, sin TOTP o con uno incorrecto: no autoriza.
+            using (var noTotp = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode }))
+            {
+                WebUtility.HtmlDecode(await noTotp.Content.ReadAsStringAsync(Ct)).ShouldContain("Escriba el código de 6 dígitos");
+            }
+
+            using (var wrongTotp = await BrowserForms.PostFormAsync(browser, page, html,
+                       new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode, ["Input.Totp"] = "000000" }))
+            {
+                WebUtility.HtmlDecode(await wrongTotp.Content.ReadAsStringAsync(Ct)).ShouldContain("El código de verificación no es correcto");
+            }
+
+            using (var ok = await BrowserForms.PostFormAsync(browser, page, html,
+                       new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode, ["Input.Totp"] = owner.NextCode() }))
+            {
+                WebUtility.HtmlDecode(await ok.Content.ReadAsStringAsync(Ct)).ShouldContain("la instalación quedó autorizada");
+            }
+        }
+    }
+
     private async Task<(string Email, Guid Id)> NewUserAsync()
     {
         var email = $"google-{Guid.NewGuid():N}@licencias.co";

@@ -31,11 +31,32 @@ public enum InstallerSignInPollCheck
     SlowDown,
 }
 
+/// <summary>Resultado de revisar el código que el dueño escribió en el portal.</summary>
+public enum InstallerSignInCodeCheck
+{
+    Matches,
+
+    /// <summary>No coincide; quedan intentos.</summary>
+    Mismatch,
+
+    /// <summary>No coincide y se acabaron los intentos: la solicitud quedó cancelada.</summary>
+    Exhausted,
+
+    /// <summary>La solicitud ya no está pendiente (vencida, decidida o usada).</summary>
+    Closed,
+}
+
 /// <summary>Reglas de la solicitud (Fase 13-B, parte E pendiente: "Continuar con Google").</summary>
 public static class InstallerSignInRules
 {
-    /// <summary>Vigencia de la solicitud: alcanza para entrar con Google y autorizar.</summary>
-    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
+    /// <summary>
+    /// Vigencia de la solicitud: alcanza para entrar con Google, escribir el código y autorizar, y es corta a propósito (un enlace
+    /// enviado por otra persona para "pescar" la autorización deja de servir enseguida).
+    /// </summary>
+    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>Intentos con un código escrito incorrecto antes de cancelar la solicitud (el dueño vuelve a empezar en el instalador).</summary>
+    public const int MaxCodeAttempts = 5;
 
     /// <summary>Segundos mínimos entre consultas del instalador (OAuth recomienda 5).</summary>
     public const int IntervalSeconds = 5;
@@ -77,6 +98,21 @@ public static class InstallerSignInRules
         }
 
         return new string(code);
+    }
+
+    /// <summary>
+    /// Código ESCRITO por el dueño en el portal, normalizado: mayúsculas, sin espacios ni guiones y con el guion en su lugar
+    /// (<c>k7qf m2xp</c> → <c>K7QF-M2XP</c>). <c>null</c> si no tiene 8 letras o números.
+    /// </summary>
+    public static string? NormalizeUserCode(string? typed)
+    {
+        if (string.IsNullOrWhiteSpace(typed) || typed.Length > 40)
+        {
+            return null;
+        }
+
+        var clean = new string([.. typed.Where(char.IsAsciiLetterOrDigit).Select(char.ToUpperInvariant)]);
+        return clean.Length == 8 ? $"{clean[..4]}-{clean[4..]}" : null;
     }
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -162,6 +198,9 @@ public sealed class InstallerSignInRequest : Entity<Guid>
     /// <summary><c>jti</c> del enlace firmado entregado (auditoría).</summary>
     public Guid? IssuedTokenId { get; private set; }
 
+    /// <summary>Códigos incorrectos escritos en el portal (V2026.10.012).</summary>
+    public int CodeAttempts { get; private set; }
+
     public static InstallerSignInRequest Create(Guid id, Guid licenseId, Guid organizationId, string pollToken, IPAddress? createdIp, DateTimeOffset now) =>
         new(id, licenseId, organizationId, InstallerSignInRules.HashPollToken(pollToken), InstallerSignInRules.NewUserCode(), createdIp, now);
 
@@ -195,6 +234,39 @@ public sealed class InstallerSignInRequest : Entity<Guid>
         PollIntervalSeconds = Math.Min(InstallerSignInRules.MaxIntervalSeconds, PollIntervalSeconds + InstallerSignInRules.SlowDownStepSeconds);
         return InstallerSignInPollCheck.SlowDown;
     }
+
+    /// <summary>
+    /// Revisa el código que el dueño ESCRIBIÓ en el portal (el que muestra su instalador). Así, quien tenga la clave y le envíe al dueño
+    /// el enlace de una solicitud suya no consigue la autorización con un solo clic: el dueño tendría que escribir un código que solo
+    /// ve el instalador de esa otra persona. Tras <see cref="InstallerSignInRules.MaxCodeAttempts"/> códigos incorrectos la solicitud
+    /// queda cancelada.
+    /// </summary>
+    public InstallerSignInCodeCheck CheckUserCode(string? typed, Guid portalUserId, IPAddress? ip, DateTimeOffset now)
+    {
+        if (!IsPendingAt(now))
+        {
+            return InstallerSignInCodeCheck.Closed;
+        }
+
+        var normalized = InstallerSignInRules.NormalizeUserCode(typed);
+        if (normalized is not null
+            && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(normalized), Encoding.ASCII.GetBytes(UserCode)))
+        {
+            return InstallerSignInCodeCheck.Matches;
+        }
+
+        CodeAttempts++;
+        if (CodeAttempts < InstallerSignInRules.MaxCodeAttempts)
+        {
+            return InstallerSignInCodeCheck.Mismatch;
+        }
+
+        Deny(portalUserId, ip, now);
+        return InstallerSignInCodeCheck.Exhausted;
+    }
+
+    /// <summary>Códigos incorrectos que quedan antes de cancelar la solicitud.</summary>
+    public int CodeAttemptsLeft => Math.Max(0, InstallerSignInRules.MaxCodeAttempts - CodeAttempts);
 
     public Result Approve(Guid portalUserId, string email, string displayName, IPAddress? ip, DateTimeOffset now)
     {
