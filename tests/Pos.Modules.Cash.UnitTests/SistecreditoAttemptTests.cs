@@ -1,3 +1,4 @@
+using System.Globalization;
 using Pos.Modules.Cash.Domain;
 
 namespace Pos.Modules.Cash.UnitTests;
@@ -18,6 +19,7 @@ public class SistecreditoAttemptTests
     [Fact]
     public void Validaciones_documento_enmascarado_y_factura_unica()
     {
+        using var culture = new CultureScope("es-CO"); // los valores del mensaje se escriben con la cultura de Colombia
         var attempt = Pending(Guid.NewGuid());
         attempt.DocumentType.ShouldBe("CC");
         attempt.DocumentNumber.ShouldBe("1020304050");
@@ -25,8 +27,12 @@ public class SistecreditoAttemptTests
         attempt.Invoice.ShouldBe($"BP-{attempt.Id:N}");
         attempt.Status.ShouldBe(SistecreditoAttemptStatus.Pending);
 
-        SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 1_000.5m, "CC", "123456", SistecreditoEnvironment.Staging, Now)
-            .Error.ShouldBe(SistecreditoErrors.InvalidAmount);
+        var cents = SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 1_000.5m, "CC", "123456", SistecreditoEnvironment.Staging, Now).Error;
+        cents.Code.ShouldBe(SistecreditoErrors.InvalidAmount.Code);
+        cents.Type.ShouldBe(SistecreditoErrors.InvalidAmount.Type);
+        cents.Message.ShouldContain("pesos enteros");
+        cents.Message.ShouldContain("cobre 1.000 con Sistecrédito");
+        cents.Message.ShouldContain("0,50 restantes con otro medio de pago");
         SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 0m, "CC", "123456", SistecreditoEnvironment.Staging, Now)
             .Error.ShouldBe(SistecreditoErrors.InvalidAmount);
         SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 1_000m, "RC", "123456", SistecreditoEnvironment.Staging, Now)
@@ -94,6 +100,116 @@ public class SistecreditoAttemptTests
     }
 
     [Fact]
+    public void Con_centavos_el_mensaje_dice_cuanto_cobrar_con_Sistecredito_y_cuanto_con_otro_medio()
+    {
+        using var culture = new CultureScope("es-CO");
+        // Revisión B5: la caja proponía lo que falta con centavos y Sistecrédito solo cobra pesos enteros.
+        var error = SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 9_050.50m, "CC", "123456", SistecreditoEnvironment.Staging, Now).Error;
+        error.Code.ShouldBe(SistecreditoErrors.InvalidAmount.Code);
+        error.Message.ShouldContain("pesos enteros");
+        error.Message.ShouldContain("9.050");
+        error.Message.ShouldContain("otro medio de pago");
+        SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 0.5m, "CC", "123456", SistecreditoEnvironment.Staging, Now)
+            .Error.ShouldBe(SistecreditoErrors.InvalidAmount);
+    }
+
+    [Fact]
+    public void Requiere_revision_aprobado_y_sin_usar_completa_su_venta_y_sale_de_la_revision()
+    {
+        // Revisión M1: un cobro en "Requiere revisión" (aprobado, sin usar) es plata ya cobrada: completa la venta.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.RequireReview("Sin venta completada.", Now.AddMinutes(20));
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.IsUsable.ShouldBeTrue();
+
+        attempt.Use(sale, 80_000m, Now.AddMinutes(21)).IsSuccess.ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.Approved);
+        attempt.IsUsable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Aprobado_que_Sistecredito_ya_no_reporta_aprobado_queda_en_revision_y_no_se_usa()
+    {
+        // Revisión B4: al volver a consultar un aprobado, si se reversó no completa la venta.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.Apply("PendingForPaymentMethod", null, null, null, Now).ShouldBeFalse(); // un estado intermedio no cambia nada
+        attempt.IsUsable.ShouldBeTrue();
+
+        attempt.Apply("Cancelled", null, null, null, Now.AddMinutes(1)).ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.Message!.ShouldContain("ya no reporta aprobado");
+        attempt.IsUsable.ShouldBeFalse();
+        attempt.Use(sale, 80_000m, Now).Error.ShouldBe(SistecreditoErrors.NoLongerApproved);
+    }
+
+    [Fact]
+    public void Venta_anulada_deja_el_cobro_en_revision_para_reversarlo_en_el_portal()
+    {
+        // Revisión M3.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.SaleVoided(Now).ShouldBeFalse(); // sin usar no aplica
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.Use(sale, 80_000m, Now).IsSuccess.ShouldBeTrue();
+
+        attempt.SaleVoided(Now.AddHours(1)).ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.Message.ShouldBe("Venta anulada: reverse el pago en el portal de Sistecrédito");
+        attempt.ReviewRequiredAt.ShouldBe(Now.AddHours(1));
+        attempt.SaleVoided(Now.AddHours(2)).ShouldBeFalse(); // una sola vez
+        attempt.Resolve("Reversado en el portal de Sistecrédito", Guid.NewGuid(), Now.AddHours(3)).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Pendiente_viejo_vence_y_708_vence_o_revisa_segun_si_se_aprobo()
+    {
+        // Revisión M4: nada se queda atascado en la revisión automática.
+        var stale = Pending(Guid.NewGuid());
+        stale.Expire("Vencido.", Now.AddHours(25)).ShouldBeTrue();
+        stale.Status.ShouldBe(SistecreditoAttemptStatus.Expired);
+        stale.Expire("otra vez", Now).ShouldBeFalse();
+
+        var missing = Pending(Guid.NewGuid());
+        missing.NotFoundAtProvider(Now.AddHours(1));
+        missing.Status.ShouldBe(SistecreditoAttemptStatus.Expired);
+        missing.ProviderStatus.ShouldBe(SistecreditoProtocol.NotFoundStatus);
+
+        var approved = Pending(Guid.NewGuid());
+        approved.Apply("Approved", null, null, null, Now);
+        approved.NotFoundAtProvider(Now.AddMinutes(5));
+        approved.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        approved.IsUsable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Vencido_en_la_caja_que_el_cliente_aprueba_despues_queda_en_revision_y_usable()
+    {
+        // Revisión N3: un pendiente que se dio por vencido y luego aparece aprobado no se pierde.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Expire("Vencido.", Now.AddHours(25)).ShouldBeTrue();
+        attempt.Apply("Approved", null, null, null, Now.AddHours(26)).ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.ApprovedAt.ShouldBe(Now.AddHours(26));
+        attempt.IsUsable.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Si_no_se_alcanza_a_crear_en_Sistecredito_el_registro_local_queda_cancelado_con_el_motivo()
+    {
+        // Revisión M5: el intento se guarda antes de llamar a Sistecrédito; si la creación falla queda cancelado.
+        var attempt = SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 10_000m, "CC", "123456", SistecreditoEnvironment.Staging, Now).Value;
+        attempt.StartFailed("Sin conexión.", Now);
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.Cancelled);
+        attempt.TransactionId.ShouldBeNull();
+        attempt.Message!.ShouldStartWith("No se pudo crear el cobro en Sistecrédito");
+    }
+
+    [Fact]
     public void Encender_exige_llaves_y_el_medio_del_sistema_siempre_pide_referencia()
     {
         var settings = SistecreditoSettings.Create(Company);
@@ -105,5 +221,107 @@ public class SistecreditoAttemptTests
         var method = PaymentMethod.Create(Guid.NewGuid(), Company, PaymentMethod.SistecreditoCode, "Sistecrédito", PaymentMethodKind.Sistecredito, "ZZZ", false, 90, true).Value;
         method.RequiresReference.ShouldBeTrue();
         method.AffectsCashDrawer.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Una_respuesta_Approved_vieja_no_revive_un_cobro_que_Sistecredito_dejo_de_aprobar()
+    {
+        // Revisión TP5.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.Apply("Cancelled", null, null, null, Now.AddMinutes(1)); // reversado en Sistecrédito
+        attempt.IsUsable.ShouldBeFalse();
+
+        attempt.Apply("Approved", null, null, null, Now.AddMinutes(2)).ShouldBeFalse(); // respuesta vieja que llega tarde
+        attempt.ProviderStatus.ShouldBe("Cancelled");
+        attempt.IsUsable.ShouldBeFalse();
+        attempt.Use(sale, 80_000m, Now).Error.ShouldBe(SistecreditoErrors.NoLongerApproved);
+    }
+
+    [Fact]
+    public void No_usar_este_credito_lo_deja_en_revision_y_ya_no_se_usa()
+    {
+        // Revisión TP2.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Release(sale, Guid.NewGuid(), Now).Error.ShouldBe(SistecreditoErrors.NotApproved); // pendiente: no aplica
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.Release(Guid.NewGuid(), Guid.NewGuid(), Now).Error.ShouldBe(SistecreditoErrors.OtherSale);
+
+        attempt.Release(sale, Guid.NewGuid(), Now.AddMinutes(1)).IsSuccess.ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.Message.ShouldBe(SistecreditoAttempt.ReleasedMessage);
+        attempt.IsUsable.ShouldBeFalse();
+        attempt.Use(sale, 80_000m, Now).IsFailure.ShouldBeTrue();
+        attempt.Resolve("Reversado en el portal de Sistecrédito", Guid.NewGuid(), Now.AddHours(1)).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Un_cobro_que_no_se_pudo_guardar_espera_cada_vez_mas_y_vuelve_a_cero_al_consultarse_bien()
+    {
+        // Revisión TP4.
+        var attempt = Pending(Guid.NewGuid());
+        attempt.CheckFailed(Now);
+        attempt.CheckFailures.ShouldBe(1);
+        attempt.NextCheckAt.ShouldBe(Now.AddMinutes(2));
+        attempt.CheckFailed(Now);
+        attempt.NextCheckAt.ShouldBe(Now.AddMinutes(4));
+        for (var i = 0; i < 10; i++)
+        {
+            attempt.CheckFailed(Now);
+        }
+
+        attempt.NextCheckAt.ShouldBe(Now.AddMinutes(60));
+        attempt.Checked(Now);
+        attempt.CheckFailures.ShouldBe(0);
+        attempt.NextCheckAt.ShouldBeNull();
+    }
+
+    [Fact]
+    public void No_usar_es_idempotente()
+    {
+        // Revisión SC4.
+
+        var sale = Guid.NewGuid();
+        var approved = Pending(sale);
+        approved.Apply("Approved", null, null, null, Now);
+        var user = Guid.NewGuid();
+        approved.Release(sale, user, Now.AddMinutes(1)).IsSuccess.ShouldBeTrue();
+        approved.Release(sale, Guid.NewGuid(), Now.AddMinutes(2)).IsSuccess.ShouldBeTrue(); // repetir: OK sin cambios
+        approved.ReleasedBy.ShouldBe(user);
+        approved.ReleasedAt.ShouldBe(Now.AddMinutes(1));
+    }
+
+    [Theory]
+    [InlineData("Abandoned", SistecreditoAttemptStatus.Cancelled)]
+    [InlineData("Cancelled", SistecreditoAttemptStatus.Cancelled)]
+    [InlineData("Expired", SistecreditoAttemptStatus.Expired)]
+    [InlineData("Rejected", SistecreditoAttemptStatus.Rejected)]
+    [InlineData("Failed", SistecreditoAttemptStatus.Rejected)]
+    public void Aprobado_despues_de_un_fallo_de_Sistecredito_nunca_se_ignora_queda_en_revision(string failure, SistecreditoAttemptStatus failed)
+    {
+        // Revisión S5-1: no hay certeza de que esos estados sean irreversibles; si el cliente igual aprueba, quedó cobrado.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Apply(failure, null, null, null, Now).ShouldBeTrue();
+        attempt.Status.ShouldBe(failed);
+
+        attempt.Apply("Approved", null, 3, null, Now.AddMinutes(30)).ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.ApprovedAt.ShouldBe(Now.AddMinutes(30));
+        attempt.ReviewRequiredAt.ShouldNotBeNull();
+        attempt.IsUsable.ShouldBeTrue(); // la plata ya se cobró: puede completar su venta o reversarse
+        attempt.Use(sale, 80_000m, Now.AddMinutes(31)).IsSuccess.ShouldBeTrue();
+    }
+
+    /// <summary>Fija la cultura mientras dura la prueba (los mensajes formatean valores con la cultura actual).</summary>
+    private sealed class CultureScope : IDisposable
+    {
+        private readonly CultureInfo _culture = CultureInfo.CurrentCulture;
+
+        public CultureScope(string name) => CultureInfo.CurrentCulture = new CultureInfo(name);
+
+        public void Dispose() => CultureInfo.CurrentCulture = _culture;
     }
 }
