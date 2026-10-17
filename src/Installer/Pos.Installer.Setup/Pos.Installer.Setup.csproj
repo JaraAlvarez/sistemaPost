@@ -13,7 +13,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Pos.Installer.Setup</RootNamespace>
     <AssemblyName>BusinessPost-Setup</AssemblyName>
-    <ApplicationIcon>..\..\Desktop\Pos.Desktop\BusinessPost.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\..\installer\BusinessPost-Setup.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationVisualStyles>true</ApplicationVisualStyles>

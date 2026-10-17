@@ -1,21 +1,27 @@
 ﻿<#
 .SYNOPSIS
     Genera el ícono de la ventana de BusinessPost (src\Desktop\Pos.Desktop\BusinessPost.ico) a partir del logo "B" de la marca.
+    Con -Instalador genera la variante del instalador (installer\BusinessPost-Setup.ico): el punto turquesa se cambia por una insignia
+    turquesa con una flecha de descarga blanca, para distinguir "el que instala" del programa.
 .DESCRIPTION
     Dibuja el mismo trazado SVG del logo (docs/diseno/instalador-premium-maqueta.html, viewBox 0 0 32 32) con GDI+: fondo redondeado con
     el degradado de la marca (#2524C8 → #5B3DF5), la "B" blanca y el punto turquesa (#2DD4BF). Guarda un .ico con imágenes PNG de 16, 20,
     24, 32, 40, 48, 64, 128 y 256 px. Solo se corre cuando cambia el logo; el .ico generado se guarda en el repositorio.
 .EXAMPLE
     ./tools/scripts/generar-icono-escritorio.ps1
+    ./tools/scripts/generar-icono-escritorio.ps1 -Instalador
 #>
 [CmdletBinding()]
 param(
-    [string] $Salida = ''
+    [string] $Salida = '',
+    [switch] $Instalador
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
-if (-not $Salida) { $Salida = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..\..\src\Desktop\Pos.Desktop\BusinessPost.ico' }
+if (-not $Salida) {
+    $Salida = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) $(if ($Instalador) { '..\..\installer\BusinessPost-Setup.ico' } else { '..\..\src\Desktop\Pos.Desktop\BusinessPost.ico' })
+}
 
 function Nuevo-Punto([double] $x, [double] $y, [double] $escala) { [System.Drawing.PointF]::new([float]($x * $escala), [float]($y * $escala)) }
 
@@ -64,8 +70,25 @@ function Dibujar([int] $tam) {
 
     $g.FillPath([System.Drawing.Brushes]::White, (Trazado-B $escala))
     $turquesa = [System.Drawing.SolidBrush]::new([System.Drawing.ColorTranslator]::FromHtml('#2DD4BF'))
-    $r = 2.6 * $escala
-    $g.FillEllipse($turquesa, [float](26 * $escala - $r), [float](26 * $escala - $r), [float](2 * $r), [float](2 * $r))
+    if ($Instalador) {
+        # Insignia de descarga: aro del color del fondo (separa la insignia de la "B"), círculo turquesa y flecha blanca hacia abajo.
+        $cx = 24.6 * $escala; $cy = 24.6 * $escala; $r = 6.4 * $escala; $aro = 1.3 * $escala
+        $fondoEsquina = [System.Drawing.SolidBrush]::new([System.Drawing.ColorTranslator]::FromHtml('#5236EE'))
+        $g.FillEllipse($fondoEsquina, [float]($cx - $r - $aro), [float]($cy - $r - $aro), [float](2 * ($r + $aro)), [float](2 * ($r + $aro)))
+        $g.FillEllipse($turquesa, [float]($cx - $r), [float]($cy - $r), [float](2 * $r), [float](2 * $r))
+        $lapiz = [System.Drawing.Pen]::new([System.Drawing.Color]::White, [float]([Math]::Max(1.0, 1.55 * $escala)))
+        $lapiz.StartCap = [System.Drawing.Drawing2D.LineCap]::Round; $lapiz.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $lapiz.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
+        $g.DrawLine($lapiz, [float]$cx, [float]($cy - 3.4 * $escala), [float]$cx, [float]($cy + 2.9 * $escala))
+        $g.DrawLines($lapiz, [System.Drawing.PointF[]]@(
+            [System.Drawing.PointF]::new([float]($cx - 2.7 * $escala), [float]($cy + 0.4 * $escala)),
+            [System.Drawing.PointF]::new([float]$cx, [float]($cy + 3.1 * $escala)),
+            [System.Drawing.PointF]::new([float]($cx + 2.7 * $escala), [float]($cy + 0.4 * $escala))))
+        $lapiz.Dispose(); $fondoEsquina.Dispose()
+    } else {
+        $r = 2.6 * $escala
+        $g.FillEllipse($turquesa, [float](26 * $escala - $r), [float](26 * $escala - $r), [float](2 * $r), [float](2 * $r))
+    }
     $g.Dispose()
     $ms = [System.IO.MemoryStream]::new()
     $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)

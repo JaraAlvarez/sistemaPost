@@ -39,7 +39,7 @@ DisableFinishedPage=yes
 Compression=none
 OutputDir=..\artifacts\releases
 OutputBaseFilename=BusinessPost-Setup-{#AppVersion}
-SetupIconFile=..\src\Desktop\Pos.Desktop\BusinessPost.ico
+SetupIconFile=BusinessPost-Setup.ico
 SetupLogging=no
 
 [Languages]
