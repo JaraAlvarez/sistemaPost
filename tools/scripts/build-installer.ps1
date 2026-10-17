@@ -63,7 +63,7 @@ Publish 'src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj' (Join-Path $pa
 # Firma de código (Authenticode): los ejecutables propios firmados no quedan retenidos por Windows Defender en el primer arranque.
 function Sign([string[]] $files) {
     if (-not $CodeSigningThumbprint -or $files.Count -eq 0) { return }
-    $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kitsin\*d\signtool.exe" -ErrorAction SilentlyContinue |
+    $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending | Select-Object -First 1
     if (-not $signtool) { throw 'No se encontró signtool.exe (instale el Windows SDK) para firmar con -CodeSigningThumbprint.' }
     foreach ($group in ($files | Group-Object { [math]::Floor([array]::IndexOf($files, $_) / 50) })) {
