@@ -109,10 +109,12 @@ Hace falta el **convenio de aliado** de la tienda con Sistecrédito y sus llaves
 
 1. **Administración → Configuración → Medios de pago → tarjeta Sistecrédito.**
 2. Pegue la **llave de suscripción**, la **ApplicationKey** y el **ApplicationToken** del correo de Sistecrédito (si se copia la etiqueta
-   "Key" o "ID", no pasa nada: se guarda solo el código). Elija el **ambiente** (Pruebas o Producción), deje **Activo en la caja** y
-   oprima **Guardar**. Las llaves quedan cifradas en el equipo y no se vuelven a mostrar.
-3. Oprima **Verificar conexión**. Si dice que las llaves **sí funcionan en el otro ambiente**, cambie el ambiente y guarde de nuevo.
-4. Desde ese momento el medio **Sistecrédito** aparece en la pantalla de cobro de la caja.
+   "Key" o "ID", no pasa nada: se guarda solo el código). Elija el **ambiente**: **Producción** para cobrar de verdad (viene así) o
+   **Pruebas** con las llaves de Staging.
+3. Oprima **Conectar**. BusinessPost guarda las llaves cifradas, **prueba la conexión con Sistecrédito** y solo si responde bien activa
+   la forma de pago. Si dice que las llaves **funcionan en el otro ambiente**, cambie el ambiente y vuelva a pulsar Conectar.
+4. Queda **"Conectado"** y el medio **Sistecrédito** aparece en la pantalla de cobro de la caja. Ahí mismo están **Volver a probar**,
+   **Cambiar llaves** y **Desconectar** (las llaves se conservan).
 
 **Cobrar en la caja:**
 
