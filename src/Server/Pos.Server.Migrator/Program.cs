@@ -16,6 +16,8 @@ using Pos.Server.Migrator;
 //   Pos.Server.Migrator create-database --superuser "<cadena>" [--database pos]
 //                                       --migrator-password <p> --app-password <p> --backup-password <p>
 //   Pos.Server.Migrator migrate  [--connection "<cadena pos_migrator>"]
+//   Pos.Server.Migrator apply-always [--connection "<cadena pos_migrator>"] [--data-root D]
+//                       Solo los privilegios (scripts "always") de esta versión, sin migrar (la BD debe estar en esta versión).
 //   Pos.Server.Migrator status   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify-audit [--seal <n> --code <XXXX-XXXX-XXXX-XXXX>] [--connection "<cadena>"]
@@ -28,7 +30,7 @@ using Pos.Server.Migrator;
 //   Pos.Server.Migrator backup [--kind MANUAL] [--backup-connection "<cadena pos_backup>"] [--data-root D] [--output carpeta] [--pg-bin carpeta]
 //                       Backup cifrado y verificado (Fase 11). migrate hace uno PRE_UPDATE antes de aplicar migraciones (--no-backup lo omite).
 //   Pos.Server.Migrator verify-backup --file F.posbak [--recovery-code XXXX-…] [--data-root D]
-//   Pos.Server.Migrator restore --file F.posbak --superuser "<cadena>" [--recovery-code XXXX-…] [--database pos_rAAAAMMDDhhmm]
+//   Pos.Server.Migrator restore --file F.posbak --superuser "<cadena>" [--recovery-code XXXX-… | --recovery-code-file F] [--database pos_rAAAAMMDDhhmm]
 //                       [--migrator-connection "<cadena>"] [--data-root D] --yes
 //                       Restaura en una BD nueva, verifica y cambia la BD activa en server.json (detenga antes el servicio).
 //   Pos.Server.Migrator install --pg-bin <carpeta bin> [--data-root D] [--edition SINGLE|MULTI] [--pg-port 5488]
@@ -45,6 +47,8 @@ using Pos.Server.Migrator;
 // Códigos de salida: 0 = correcto, 1 = error de migración, 2 = uso incorrecto, 3 = migraciones pendientes,
 //                    4 = la auditoría tiene hallazgos (posible manipulación), 5 = saldos que no cuadran con el kardex,
 //                    6 = falló el backup previo obligatorio, 7 = inconsistencias en verify-consistency.
+//                    install (actualización): 3 = la migración falló y los datos quedaron como antes (se restauró el backup PRE_UPDATE),
+//                    8 = la migración falló y NO se pudo volver atrás (restaurar con soporte; el instalador no arranca el servidor).
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole(o => o.SingleLine = true));
 var logger = loggerFactory.CreateLogger<DatabaseMigrator>();
@@ -58,7 +62,7 @@ if (Pos.Shared.Precalentamiento.Pedido(args))
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: install | create-database | migrate | status | verify | verify-audit | verify-consistency | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");
+    Console.Error.WriteLine("Comandos: install | create-database | migrate | apply-always | status | verify | verify-audit | verify-consistency | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");
     return 2;
 }
 
@@ -104,6 +108,13 @@ try
 
             var report = await migrator.MigrateAsync(Connection(options), appVersion);
             Console.WriteLine($"Versión de esquema: {report.SchemaVersion} ({report.AppliedScripts.Count} scripts aplicados).");
+            return 0;
+
+        case "apply-always":
+            // IR2: solo los privilegios (scripts "always") de ESTA versión; el instalador lo usa con el migrador de la versión anterior
+            // después de volver al backup PRE_UPDATE. Código 3 si la BD no está en la versión de este migrador.
+            await migrator.ApplyAlwaysAsync(Connection(options), appVersion);
+            Console.WriteLine("Privilegios de esta versión aplicados.");
             return 0;
 
         case "status":

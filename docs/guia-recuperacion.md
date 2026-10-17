@@ -38,6 +38,24 @@ Si se restaura en el **mismo** equipo (la BD se dañó pero el disco no), no hac
 6. Revise en el backoffice: `GET /api/v1/audit/verifications` (haga `POST /api/v1/audit/verify`) y `GET /api/v1/backups/alerts`.
 7. Genere un **backup inmediato** (`POST /api/v1/backups`) y, si el equipo es otro, configure de nuevo los destinos (USB, red, nube).
 
+## Después de una actualización fallida ("restaurar con soporte")
+
+Si el instalador terminó con el código **21** (el migrador salió con **8**: la migración falló y no se pudo volver solo a los datos de
+antes) o con el **22** (no se pudo activar la versión nueva), el servidor y el actualizador quedaron en **inicio manual** para que no
+arranquen sobre una base que no les corresponde. El detalle está en `C:\ProgramData\BusinessPost\logs\actualizacion-fallida-*.txt` y en
+el registro de la instalación; el backup previo es el `…-PRE_UPDATE.posbak` más reciente de `C:\ProgramData\BusinessPost\backups\local`.
+
+1. Restaure ese backup PRE_UPDATE con los pasos de arriba (servicio detenido) o, en el caso 22, vuelva a ejecutar el instalador: si
+   termina bien, deja solos los servicios en automático.
+2. Si restauró a mano, vuelva a dejar los servicios en **inicio automático** y arránquelos (consola como administrador):
+   ```bash
+   sc config BusinessPost-Server start= auto
+   sc config BusinessPost-Updater start= auto
+   sc start BusinessPost-Server
+   sc start BusinessPost-Updater
+   ```
+3. Compruebe que `http://localhost:5480/health/ready` responde y genere un paquete de soporte para el registro del caso.
+
 ## Códigos de salida del migrador
 
 | Código | Significado |
@@ -47,3 +65,5 @@ Si se restaura en el **mismo** equipo (la BD se dañó pero el disco no), no hac
 | 2 | Falta un dato o falta `--yes` |
 | 4 | La auditoría o el sello no coinciden: la BD restaurada queda para revisión |
 | 6 | Falló el backup previo obligatorio (antes de `migrate`) |
+| 3 | `install`: la migración falló y se volvió solo a los datos de antes (backup PRE_UPDATE restaurado) |
+| 8 | `install`: la migración falló y NO se pudo volver atrás: restaurar con soporte (ver arriba) |

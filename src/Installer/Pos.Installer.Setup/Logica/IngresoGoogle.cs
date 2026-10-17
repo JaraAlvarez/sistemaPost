@@ -90,7 +90,9 @@ public sealed class EsperaAutorizacion
     {
         if (!Terminada && ahora >= Vence - Margen)
         {
-            Terminar(EstadoEspera.Vencida, "Pasaron los minutos para autorizar. Pulsa de nuevo \"Continuar con Google\".");
+            Terminar(EstadoEspera.Vencida, FallasDeConexion > 0
+                ? "No hubo conexión con BusinessPost en internet mientras esperábamos tu autorización (¿la red pide iniciar sesión en una página?). Revisa el internet y pulsa \"Reintentar\"."
+                : "Pasaron los minutos para autorizar. Pulsa \"Reintentar\".");
         }
 
         return Estado == EstadoEspera.Vencida;

@@ -425,6 +425,12 @@ public class SistecreditoReviewFixesTests
         var review = await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{late.Id}");
         review.Status.ShouldBe("REVIEW_REQUIRED");
         review.Message!.ShouldContain("después de completar la venta");
+
+        // SX2: el cierre de la jornada también lo muestra (no solo los «No usar»).
+        var session = await GetAsync<CashSessionDto>(shop.Cashier, "/api/v1/cash/sessions/current");
+        var toReview = session.SistecreditoNotUsed!.Single(n => n.AttemptId == late.Id);
+        toReview.Released.ShouldBeFalse();
+        toReview.Reason!.ShouldContain("después de completar la venta");
     }
 
     [Fact]
@@ -599,6 +605,7 @@ public class SistecreditoReviewFixesTests
         // «No usar este crédito» también sobre la venta suspendida; repetirlo no cambia nada ni duplica la bitácora.
         await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = part.TransactionId });
         await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = part.TransactionId });
+        await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = (string?)null }); // SX6
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'SISTECREDITO_RELEASED'")).ShouldBe(1);
 
         var resumed = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/resume");
@@ -699,8 +706,10 @@ public class SistecreditoReviewFixesTests
         using var report = await shop.Owner.GetAsync($"/api/v1/cash/sessions/{session.Id}/report-x?format=text", Ct); // el arqueo es ciego para la cajera
         var text = await report.Content.ReadAsStringAsync(Ct);
         report.StatusCode.ShouldBe(HttpStatusCode.OK, text);
-        text.ShouldContain("SISTECRÉDITO NO USADO (1)");
-        text.ShouldContain("por reversar");
+        text.ShouldContain("SISTECREDITO A REVISAR (1)");
+        text.ShouldContain("no usado");
+        text.ShouldNotContain("•"); // documento con "*" para las impresoras de tiquetes
+        text.Split('\n').ShouldAllBe(l => l.Length <= 42);
     }
 
     [Fact]
@@ -752,6 +761,153 @@ public class SistecreditoReviewFixesTests
         var cancelled = await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{pending.Id}");
         cancelled.Status.ShouldBe("CANCELLED");
         cancelled.Message.ShouldBe("La venta se completó con otro medio de pago.");
+    }
+
+    [Fact]
+    public async Task Con_varios_creditos_No_usar_solo_los_necesarios_libera_el_mas_grande_que_hace_falta()
+    {
+        // SX5: créditos de 3.000 y 4.000 en una venta de 9.000 suspendida; una promoción la baja a 4.500.
+        var (factory, shop, method) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 3);
+        var small = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 3_000m));
+        factory.Gateway.SetStatus(small.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{small.Id}/check");
+        var big = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 4_000m));
+        factory.Gateway.SetStatus(big.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{big.Id}/check");
+        await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/hold", new { label = "Dos créditos" });
+        var promotion = await PostAsync<PromotionDto>(shop.Owner, "/api/v1/promotions", new
+        {
+            name = "Arroz a mitad de precio", type = "PercentOff", validFrom = DateTimeOffset.UtcNow.AddHours(-1), percent = 50m,
+            items = new[] { new { productId = shop.Rice } },
+        }, HttpStatusCode.Created);
+        await PostAsync<PromotionDto>(shop.Owner, $"/api/v1/promotions/{promotion.Id}/activate");
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/resume")
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL");
+
+        // Solo los necesarios: el exceso es 2.500 (7.000 − 4.500); el crédito más chico que lo cubre es el de 3.000 → se libera ese y
+        // queda el de 4.000, que cabe en la venta.
+        await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = (string?)null, onlyNeeded = true });
+        (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{small.Id}")).Usable.ShouldBeFalse();
+        (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{big.Id}")).Usable.ShouldBeTrue();
+
+        (await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/resume")).Total.ShouldBe(4_500m);
+        await shop.CompleteAsync(sale.Id, [Pay(method, 4_000m, big.TransactionId), Pay(shop.Cash, 500m)]);
+    }
+
+    [Fact]
+    public async Task Credito_mas_tarjeta_que_se_pasan_dan_el_mensaje_del_credito()
+    {
+        // S5-5: 3.000 de Sistecrédito + 4.000 con tarjeta en una venta de 6.000 (la tarjeta no da cambio).
+        var (factory, shop, method) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 2);
+        var part = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 3_000m));
+        factory.Gateway.SetStatus(part.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{part.Id}/check");
+
+        var detail = await ProblemDetailAsync(
+            await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/complete",
+                new { payments = new[] { Pay(method, 3_000m, part.TransactionId), Pay(shop.Debit, 4_000m, "APR-1") } }),
+            "SALES.NON_CASH_EXCEEDS_TOTAL_WITH_CREDIT");
+        detail.ShouldContain("baje el otro medio a $3");
+        detail.ShouldContain("No usar este crédito");
+        await shop.CompleteAsync(sale.Id, [Pay(method, 3_000m, part.TransactionId), Pay(shop.Debit, 3_000m, "APR-2")]);
+    }
+
+    [Fact]
+    public async Task Los_terminados_sin_aprobar_van_en_un_lote_aparte_y_no_quitan_turno()
+    {
+        // SX1: 52 pendientes y 3 rechazados: la vuelta consulta 50 pendientes (el límite) y, aparte, los 3 rechazados.
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        var started = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var company = scope.ServiceProvider.GetRequiredService<IInstallationContext>().CompanyId!.Value;
+            var store = scope.ServiceProvider.GetRequiredService<ISistecreditoStore>();
+            for (var i = 0; i < 55; i++)
+            {
+                var attempt = SistecreditoAttempt.Create(Guid.NewGuid(), company, sale.Id, null, 1_000m, "CC", "123456", SistecreditoEnvironment.Staging, started).Value;
+                attempt.Started(i < 3 ? $"failed-{i}" : $"open-{i:D2}", "Pending", started.AddSeconds(i));
+                if (i < 3)
+                {
+                    attempt.Apply("Rejected", null, null, null, started.AddSeconds(i)); // los más viejos: antes le quitaban turno a los pendientes
+                }
+
+                store.Add(attempt);
+            }
+
+            (await scope.ServiceProvider.GetRequiredService<IShortTransactions>().SaveAsync(cancellationToken: Ct)).IsSuccess.ShouldBeTrue();
+        }
+
+        (await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(2))).Checked.ShouldBe(53);
+        var queried = factory.Gateway.Queries.Select(q => q.TransactionId).ToHashSet(StringComparer.Ordinal);
+        queried.Count(t => t.StartsWith("open-", StringComparison.Ordinal)).ShouldBe(50);
+        queried.Count(t => t.StartsWith("failed-", StringComparison.Ordinal)).ShouldBe(3);
+
+        // Recién consultados, los rechazados esperan (5 min): la siguiente vuelta es solo de pendientes (los 2 que faltaban van primero).
+        (await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(3))).Checked.ShouldBe(50);
+        factory.Gateway.Queries.Select(q => q.TransactionId).Where(t => t.StartsWith("open-", StringComparison.Ordinal)).Distinct().Count().ShouldBe(52);
+        factory.Gateway.Queries.Count(q => q.TransactionId.StartsWith("failed-", StringComparison.Ordinal)).ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Un_No_usar_conserva_su_motivo_en_el_cierre_aunque_despues_se_reverse_y_no_se_sigue_consultando()
+    {
+        // SQ1: «No usar» en la jornada A; luego la administración lo reversa en el portal y pasa la revisión automática.
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        var payment = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, sale.AmountDue));
+        factory.Gateway.SetStatus(payment.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}/check");
+        await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = payment.TransactionId });
+        var releasedAt = (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}")).ReviewRequiredAt;
+
+        factory.Gateway.SetStatus(payment.TransactionId!, "Cancelled"); // reversado en el portal
+        var queriesBefore = factory.Gateway.Queries.Count(q => q.TransactionId == payment.TransactionId);
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(10));
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(20));
+        factory.Gateway.Queries.Count(q => q.TransactionId == payment.TransactionId).ShouldBe(queriesBefore); // ya liberado: no se consulta cada 5 min
+
+        var after = await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}");
+        after.Message.ShouldBe("No usado en la venta: reverse el pago en el portal de Sistecrédito");
+        after.ReviewRequiredAt.ShouldBe(releasedAt);
+        var session = await GetAsync<CashSessionDto>(shop.Cashier, "/api/v1/cash/sessions/current");
+        var inClosing = session.SistecreditoNotUsed!.Single(n => n.AttemptId == payment.Id);
+        inClosing.Released.ShouldBeTrue();
+        inClosing.Reason.ShouldBe("No usado en la venta: reverse el pago en el portal de Sistecrédito");
+    }
+
+    [Fact]
+    public async Task Un_aprobado_tarde_sale_en_la_jornada_en_que_empezo_y_en_la_que_entro_en_revision()
+    {
+        // SQ2: la ventana de la jornada incluye los cobros que empezaron en ella aunque entren en revisión después (p. ej. tras el cierre).
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        var payment = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, sale.AmountDue));
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}/cancel");
+        factory.Gateway.SetStatus(payment.TransactionId!, "Approved");
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddHours(3)); // el cliente aprobó 3 h después (otra jornada)
+        var review = await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}");
+        review.Status.ShouldBe("REVIEW_REQUIRED");
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISistecreditoStore>();
+        var terminal = shop.Catalog.Setup.PosTerminalId;
+        var startedIn = await store.ListToReviewAsync(terminal, payment.StartedAt.AddMinutes(-1), payment.StartedAt.AddMinutes(1), Ct); // jornada ya cerrada
+        startedIn.Select(a => a.Id).ShouldContain(payment.Id);
+        var reviewedIn = await store.ListToReviewAsync(terminal, review.ReviewRequiredAt!.Value.AddMinutes(-1), null, Ct); // jornada abierta
+        reviewedIn.Select(a => a.Id).ShouldContain(payment.Id);
     }
 
     /// <summary>Envía la petición y, si pide autorización de supervisor, la autoriza y la repite.</summary>

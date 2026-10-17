@@ -71,30 +71,34 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
         var expiredSince = now.AddHours(-72);
         var failed = SistecreditoProtocol.FailedStatuses.Append(SistecreditoProtocol.NotFoundStatus).ToList();
 
-        // El que lleva más tiempo sin consultarse va primero: así todos tienen turno aunque haya más de "limit" abiertos.
-        return await context.Set<SistecreditoAttempt>()
+        // 1) Los que importan ya (pendientes, aprobados sin usar y en revisión todavía usables), el que lleva más tiempo sin consultarse
+        //    primero: así todos tienen turno aunque haya más de "limit" abiertos. Los terminados sin aprobar no les quitan turno.
+        var open = await context.Set<SistecreditoAttempt>()
             .Where(a => a.NextCheckAt == null || a.NextCheckAt <= now)
             .Where(a => (a.Status == SistecreditoAttemptStatus.Pending && a.StartedAt < pendingBefore)
-                        // Terminados sin aprobar en las últimas 24 h (en la caja o por Sistecrédito): el cliente pudo aprobar después.
-                        || ((a.Status == SistecreditoAttemptStatus.Cancelled || a.Status == SistecreditoAttemptStatus.Rejected
-                                || (a.Status == SistecreditoAttemptStatus.Expired && a.ProviderStatus != null && failed.Contains(a.ProviderStatus)))
-                            && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > cancelledSince
-                            && a.ProviderStatus != SistecreditoProtocol.NotFoundStatus
-                            && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
                         || (a.Status == SistecreditoAttemptStatus.Approved && a.CompletedSaleId == null)
-
-                        // Vencidos en la caja (no por Sistecrédito) en las últimas 72 h: el cliente pudo aprobar después.
-                        || (a.Status == SistecreditoAttemptStatus.Expired && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > expiredSince
-                            && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus))
-                            && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
-
-                        // En revisión pero todavía usables: se confirma que Sistecrédito los siga reportando aprobados.
-                        || (a.Status == SistecreditoAttemptStatus.ReviewRequired && a.CompletedSaleId == null && a.ReviewedAt == null
+                        || (a.Status == SistecreditoAttemptStatus.ReviewRequired && a.CompletedSaleId == null && a.ReviewedAt == null && a.ReleasedAt == null
                             && a.ProviderStatus == SistecreditoProtocol.ApprovedStatus && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore)))
             .OrderBy(a => a.LastCheckedAt ?? a.StartedAt)
             .ThenBy(a => a.StartedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
+
+        // 2) Lote aparte para los terminados sin aprobar (el cliente pudo aprobar después): rechazados, cancelados y vencidos por
+        //    Sistecrédito durante 24 h, vencidos en la caja durante 72 h, con espera creciente (5, 15, 60 min y luego cada 3 h) que
+        //    queda en next_check_at al consultarlos (SistecreditoAttempt.Checked) y se filtra aquí, en la base de datos.
+        return [.. open, .. await context.Set<SistecreditoAttempt>()
+            .Where(a => a.NextCheckAt == null || a.NextCheckAt <= now)
+            .Where(a => a.TransactionId != null && a.CompletedSaleId == null && a.ProviderStatus != SistecreditoProtocol.NotFoundStatus
+                        && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore)
+                        && (((a.Status == SistecreditoAttemptStatus.Cancelled || a.Status == SistecreditoAttemptStatus.Rejected
+                                 || (a.Status == SistecreditoAttemptStatus.Expired && a.ProviderStatus != null && failed.Contains(a.ProviderStatus)))
+                             && a.StartedAt > cancelledSince)
+                            || (a.Status == SistecreditoAttemptStatus.Expired && a.StartedAt > expiredSince
+                                && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus)))))
+            .OrderBy(a => a.NextCheckAt ?? a.LastCheckedAt ?? a.StartedAt)
+            .Take(Math.Max(10, limit / 2))
+            .ToListAsync(cancellationToken)];
     }
 
     public async Task<IReadOnlyList<SistecreditoAttempt>> ListAsync(SistecreditoAttemptStatus? status, int limit, CancellationToken cancellationToken) =>
@@ -104,11 +108,13 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
             .Take(limit)
             .ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<SistecreditoAttempt>> ListReleasedAsync(
+    public async Task<IReadOnlyList<SistecreditoAttempt>> ListToReviewAsync(
         Guid posTerminalId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken) =>
         await context.Set<SistecreditoAttempt>().AsNoTracking()
-            .Where(a => a.PosTerminalId == posTerminalId && a.ReleasedAt != null && a.ReleasedAt >= from && (to == null || a.ReleasedAt <= to))
-            .OrderBy(a => a.ReleasedAt)
+            .Where(a => a.PosTerminalId == posTerminalId && a.Status == SistecreditoAttemptStatus.ReviewRequired && a.ReviewRequiredAt != null
+                        && ((a.ReviewRequiredAt >= from && (to == null || a.ReviewRequiredAt <= to))
+                            || (a.StartedAt >= from && (to == null || a.StartedAt <= to))))
+            .OrderBy(a => a.ReviewRequiredAt)
             .ToListAsync(cancellationToken);
 
     public Task<int> CountPendingReviewsAsync(CancellationToken cancellationToken) =>
