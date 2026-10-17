@@ -224,7 +224,8 @@ public sealed class SistecreditoHttpGateway : ISistecreditoGateway
         }
     }
 
-    private TimeSpan Timeout => TimeSpan.FromSeconds(Math.Clamp(_options.TimeoutSeconds, 1, 120));
+    /// <summary>Máximo 20 s por petición: nunca se acerca al límite de 30 s de una transacción de la base de datos (transaction_timeout).</summary>
+    private TimeSpan Timeout => TimeSpan.FromSeconds(Math.Clamp(_options.TimeoutSeconds, 1, 20));
 
     private static string Payload(
         string invoice, string description, decimal amount, string documentType, string documentNumber, string urlResponse, string urlConfirmation) =>

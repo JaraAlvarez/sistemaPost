@@ -25,8 +25,12 @@ public class SistecreditoAttemptTests
         attempt.Invoice.ShouldBe($"BP-{attempt.Id:N}");
         attempt.Status.ShouldBe(SistecreditoAttemptStatus.Pending);
 
-        SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 1_000.5m, "CC", "123456", SistecreditoEnvironment.Staging, Now)
-            .Error.Code.ShouldBe(SistecreditoErrors.InvalidAmount.Code);
+        var cents = SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 1_000.5m, "CC", "123456", SistecreditoEnvironment.Staging, Now).Error;
+        cents.Code.ShouldBe(SistecreditoErrors.InvalidAmount.Code);
+        cents.Type.ShouldBe(SistecreditoErrors.InvalidAmount.Type);
+        cents.Message.ShouldContain("pesos enteros");
+        cents.Message.ShouldContain("cobre 1.000 con Sistecrédito");
+        cents.Message.ShouldContain("0,50 restantes con otro medio de pago");
         SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 0m, "CC", "123456", SistecreditoEnvironment.Staging, Now)
             .Error.ShouldBe(SistecreditoErrors.InvalidAmount);
         SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 1_000m, "RC", "123456", SistecreditoEnvironment.Staging, Now)
@@ -176,6 +180,19 @@ public class SistecreditoAttemptTests
         approved.NotFoundAtProvider(Now.AddMinutes(5));
         approved.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
         approved.IsUsable.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Vencido_en_la_caja_que_el_cliente_aprueba_despues_queda_en_revision_y_usable()
+    {
+        // Revisión N3: un pendiente que se dio por vencido y luego aparece aprobado no se pierde.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Expire("Vencido.", Now.AddHours(25)).ShouldBeTrue();
+        attempt.Apply("Approved", null, null, null, Now.AddHours(26)).ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.ApprovedAt.ShouldBe(Now.AddHours(26));
+        attempt.IsUsable.ShouldBeTrue();
     }
 
     [Fact]

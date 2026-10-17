@@ -210,7 +210,7 @@ public class ArchitectureTests
             "Organization.SetupCommand",
             "Reporting.ExportReportCommand",
             "Sales.AddLineCommand", "Sales.ApplyDiscountCommand", "Sales.CancelSaleCommand", "Sales.ChangeQuantityCommand", "Sales.CompleteSaleCommand",
-            "Sales.HoldSaleCommand", "Sales.OverridePriceCommand", "Sales.RemoveDiscountCommand", "Sales.ReprintSaleCommand", "Sales.ResumeSaleCommand",
+            "Sales.HoldSaleCommand", "Sales.OverridePriceCommand", "Sales.RecheckSalePaymentsCommand", "Sales.RemoveDiscountCommand", "Sales.ReprintSaleCommand", "Sales.ResumeSaleCommand",
             "Sales.SetCustomerCommand", "Sales.StartExchangeCommand", "Sales.StartSaleCommand", "Sales.VoidLineCommand", "Sales.VoidSaleCommand",
             "Sales.WarrantyRefundCommand",
         ],

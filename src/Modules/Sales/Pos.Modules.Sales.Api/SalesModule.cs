@@ -113,7 +113,10 @@ public sealed class SalesModule : IModule
         group.MapPost("/{saleId:guid}/complete", async (
                     Guid saleId, CompleteRequest r, [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, IDispatcher d, FiscalTicketWait fiscal,
                     CancellationToken ct) =>
-                (await fiscal.SaleAsync(await d.Send(new CompleteSaleCommand(saleId, r.Payments, idempotencyKey), ct), ct)).ToHttpResult())
+                {
+                    await d.Send(new RecheckSalePaymentsCommand(saleId), ct); // Sistecrédito: fuera de la transacción de la venta
+                    return (await fiscal.SaleAsync(await d.Send(new CompleteSaleCommand(saleId, r.Payments, idempotencyKey), ct), ct)).ToHttpResult();
+                })
             .RequirePermission(SalesPermissions.SaleCreate)
             .WithSummary("Cobra y completa en una transacción (idempotente con Idempotency-Key): número, kardex, caja, comprobante y tiquete; con la facturación electrónica espera ⚙️ hasta 3 s los datos fiscales");
         group.MapPost("/{saleId:guid}/void", async (Guid saleId, ReasonRequest r, IDispatcher d, FiscalTicketWait fiscal, CancellationToken ct) =>

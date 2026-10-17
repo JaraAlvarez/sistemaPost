@@ -307,6 +307,9 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
     /// <summary>Se ejecuta justo antes de crear la transacción (p. ej. para mirar la base de datos en ese momento).</summary>
     public Func<SistecreditoCreateRequest, Task>? BeforeCreate { get; set; }
 
+    /// <summary>Se ejecuta justo después de crear la transacción (p. ej. para simular que la caja deja de esperar).</summary>
+    public Action<string>? AfterCreate { get; set; }
+
     public void SetStatus(string transactionId, string status) => _statuses[transactionId] = status;
 
     public async Task<SistecreditoCreated> CreateAsync(SistecreditoConnection connection, SistecreditoCreateRequest request, CancellationToken cancellationToken)
@@ -325,6 +328,7 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
         Created.Enqueue(request);
         var id = $"tx-{Interlocked.Increment(ref _next):D4}";
         _statuses[id] = "PendingForPaymentMethod";
+        AfterCreate?.Invoke(id);
         return new SistecreditoCreated(id, "Pending");
     }
 
@@ -345,8 +349,11 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
     }
 
     public Task<SistecreditoTransaction> WaitForRedirectUrlAsync(
-        SistecreditoConnection connection, string transactionId, int attempts, TimeSpan interval, CancellationToken cancellationToken) =>
-        GetTransactionAsync(connection, transactionId, cancellationToken);
+        SistecreditoConnection connection, string transactionId, int attempts, TimeSpan interval, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return GetTransactionAsync(connection, transactionId, cancellationToken);
+    }
 
     public Task<SistecreditoVerification> VerifyCredentialsAsync(SistecreditoConnection connection, CancellationToken cancellationToken)
     {

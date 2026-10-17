@@ -312,6 +312,10 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
                 ApprovedAt = now;
                 RequireReview("El cliente aprobó el crédito después de cancelar el cobro en la caja.", now);
                 break;
+            case SistecreditoAttemptStatus.Expired when mapped == SistecreditoAttemptStatus.Approved && CompletedSaleId is null:
+                ApprovedAt = now;
+                RequireReview("El cliente aprobó el crédito después de que el cobro se dio por vencido: complete la venta o reverse el pago en el portal de Sistecrédito.", now);
+                break;
 
             // Aprobado y sin usar, pero Sistecrédito ya no lo reporta aprobado (reversado, cancelado…): no se puede usar y se revisa.
             case SistecreditoAttemptStatus.Approved or SistecreditoAttemptStatus.ReviewRequired

@@ -93,6 +93,9 @@ public sealed partial class Caja
     private string _scTipo = "CC";
     private string? _scDocumento;
     private SistecreditoPaymentDto? _sc;
+
+    // Mientras se recuperan los cobros de Sistecrédito de la venta al abrir el cobro, no se puede cobrar (ni con Enter).
+    private bool _restaurando;
     private string? _scQr;
     private CancellationTokenSource? _scCts;
     private Receipt? _lastReceipt;
@@ -1053,6 +1056,11 @@ public sealed partial class Caja
 
     private void AgregarPago(PaymentMethod method)
     {
+        if (_restaurando)
+        {
+            return;
+        }
+
         if (_methodSelected != method)
         {
             _methodSelected = method;
@@ -1133,6 +1141,12 @@ public sealed partial class Caja
             return;
         }
 
+        if (_restaurando)
+        {
+            Snackbar.Add("Revisando los pagos con Sistecrédito de esta venta: un momento.", Severity.Info);
+            return;
+        }
+
         // Si escribió un valor sin pulsar el medio, se toma con el medio seleccionado.
         if (_payments.Count == 0 && _methodSelected is not null && _amount > 0)
         {
@@ -1192,7 +1206,7 @@ public sealed partial class Caja
 
     private async Task GenerarSistecreditoAsync()
     {
-        if (_sale is null || _methodSelected is null || _amount <= 0)
+        if (_sale is null || _methodSelected is null || _amount <= 0 || _restaurando)
         {
             return;
         }
@@ -1221,6 +1235,9 @@ public sealed partial class Caja
             _sc = await Api.PostAsync<SistecreditoPaymentDto>("api/v1/cash/sistecredito/payments", new
             {
                 saleId = _sale.Id, amount = _amount, documentType = _scTipo, documentNumber = _scDocumento,
+
+                // Los cobros que ya están como pago: el servidor no los devuelve otra vez como si fueran el cobro nuevo.
+                heldTransactionIds = _payments.Where(p => p.PaymentMethodId == _methodSelected.Id && p.Reference is not null).Select(p => p.Reference),
             });
             _offline = false;
             await AplicarSistecreditoAsync();
@@ -1337,8 +1354,9 @@ public sealed partial class Caja
     }
 
     /// <summary>
-    /// Al abrir el cobro, los cobros de Sistecrédito ya aprobados y sin usar de esta venta vuelven como pago (p. ej. si se cerró el panel
-    /// en un pago mixto): así nunca se genera otro cobro por lo mismo y el cliente no paga dos veces.
+    /// Al abrir el cobro se recuperan los cobros de Sistecrédito de esta venta: los aprobados y sin usar vuelven como pago (p. ej. si se
+    /// cerró el panel en un pago mixto) y el pendiente se vuelve a mostrar y a vigilar. Mientras tanto no se puede cobrar: así nunca se
+    /// cobra el total con otro medio teniendo un crédito aprobado (el servidor igual lo rechaza).
     /// </summary>
     private async Task RestaurarSistecreditoAsync(Guid saleId)
     {
@@ -1347,37 +1365,61 @@ public sealed partial class Caja
             return;
         }
 
-        List<SistecreditoPaymentDto> aprobados;
+        _restaurando = true;
+        _busy = true;
         try
         {
-            aprobados = await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{saleId}/approved");
-        }
-        catch (Exception ex) when (ex is ApiException or HttpRequestException)
-        {
-            return; // si no se pudo consultar, el servidor igual rechaza un cobro nuevo que supere lo que falta
-        }
-
-        await InvokeAsync(() =>
-        {
-            if (_sale?.Id != saleId || _panel != Panel.Cobro)
+            List<SistecreditoPaymentDto> abiertos;
+            try
             {
-                return;
+                abiertos = await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{saleId}/open");
+            }
+            catch (Exception ex) when (ex is ApiException or HttpRequestException)
+            {
+                return; // si no se pudo consultar, el servidor igual rechaza completar sin el crédito aprobado
             }
 
-            var restaurados = 0m;
-            foreach (var cobro in aprobados.Where(c => c.Usable && c.TransactionId is not null && !_payments.Any(p => p.Reference == c.TransactionId)))
+            await InvokeAsync(async () =>
             {
-                _payments.Add(new PaymentLine(medio.Id, cobro.Amount, cobro.TransactionId));
-                restaurados += cobro.Amount;
-            }
+                if (_sale?.Id != saleId || _panel != Panel.Cobro)
+                {
+                    return;
+                }
 
-            if (restaurados > 0)
-            {
+                var restaurados = 0m;
+                foreach (var cobro in abiertos.Where(c => c.Usable && c.TransactionId is not null && !_payments.Any(p => p.Reference == c.TransactionId)))
+                {
+                    _payments.Add(new PaymentLine(medio.Id, cobro.Amount, cobro.TransactionId));
+                    restaurados += cobro.Amount;
+                }
+
                 _amount = Math.Max(0, _sale.AmountDue - Pagado);
-                Snackbar.Add($"Se recuperó el pago ya aprobado con Sistecrédito por {Format.Money(restaurados)}: cobre solo lo que falta.", Severity.Info);
+                if (restaurados > 0)
+                {
+                    Snackbar.Add($"Se recuperó el pago ya aprobado con Sistecrédito por {Format.Money(restaurados)}: cobre solo lo que falta.", Severity.Info);
+                }
+
+                // Un cobro que seguía esperando al cliente: se vuelve a mostrar (QR) y a vigilar.
+                if (abiertos.Where(c => c.Status == "PENDING").OrderByDescending(c => c.StartedAt).FirstOrDefault() is { } pendiente && _sc is null)
+                {
+                    _methodSelected = medio;
+                    _amount = pendiente.Amount;
+                    _sc = pendiente;
+                    await AplicarSistecreditoAsync();
+                    _scCts = new CancellationTokenSource();
+                    _ = VigilarSistecreditoAsync(pendiente.Id, _scCts.Token);
+                    Snackbar.Add("Hay un cobro con Sistecrédito esperando al cliente: se sigue consultando.", Severity.Info);
+                }
+
                 StateHasChanged();
-            }
-        });
+            });
+        }
+        finally
+        {
+            _restaurando = false;
+            _busy = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task CancelarSistecreditoAsync()

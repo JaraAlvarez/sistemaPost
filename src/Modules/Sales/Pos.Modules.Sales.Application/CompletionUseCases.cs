@@ -243,6 +243,22 @@ public sealed record PaymentRequest(Guid PaymentMethodId, decimal Amount, string
 /// saldo negativo) con el costo de cada línea, movimientos de caja por medio, comprobante, cambio de mercancía si lo hay y
 /// evento de sincronización. Idempotente: repetir con la misma clave devuelve la venta ya completada.
 /// </summary>
+/// <summary>
+/// Paso previo a <see cref="CompleteSaleCommand"/>, por FUERA de su transacción (<see cref="ISelfTransactedCommand"/>): vuelve a consultar
+/// en Sistecrédito los cobros aprobados de la venta (máximo ⚙️ 5 s en total) y guarda en el momento los que ya no estén aprobados. Así la
+/// transacción de la venta nunca espera a Sistecrédito y ese cambio no se pierde si la venta falla. Nunca falla.
+/// </summary>
+public sealed record RecheckSalePaymentsCommand(Guid SaleId) : ICommand, IAllowedWhenRestricted, ISelfTransactedCommand;
+
+internal sealed class RecheckSalePaymentsHandler(ISistecreditoPayments sistecredito) : ICommandHandler<RecheckSalePaymentsCommand>
+{
+    public async Task<Result> Handle(RecheckSalePaymentsCommand request, CancellationToken cancellationToken)
+    {
+        await sistecredito.RecheckForSaleAsync(request.SaleId, cancellationToken);
+        return Result.Success();
+    }
+}
+
 public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>, IAllowedWhenRestricted;
 
 internal sealed class CompleteSaleHandler(
@@ -336,6 +352,17 @@ internal sealed class CompleteSaleHandler(
         if (tenders.IsFailure)
         {
             return tenders.Error;
+        }
+
+        // Sistecrédito (revisión N1): un cobro ya aprobado de esta venta que no viene en los pagos significa que el cliente pagaría dos
+        // veces (crédito + otro medio): la venta no se completa sin incluirlo.
+        var included = tenders.Value.Where(t => t.Kind == "SISTECREDITO" && t.Reference is not null).Select(t => t.Reference!).ToHashSet(StringComparer.Ordinal);
+        if ((await sistecredito.ListApprovedUnusedAsync(sale.Id, cancellationToken)).Where(a => !included.Contains(a.TransactionId)).ToList() is { Count: > 0 } approvedNotIncluded)
+        {
+            return Error.BusinessRule(
+                "CASH.SISTECREDITO_APPROVED_NOT_INCLUDED",
+                $"Esta venta tiene un pago con Sistecrédito ya aprobado por {approvedNotIncluded.Sum(a => a.Amount):N0} que no está en los pagos: el cliente ya pagó con "
+                + "Sistecrédito. Vuelva a abrir el cobro (se agrega solo) y cobre únicamente lo que falta.");
         }
 
         var allocation = PaymentAllocator.Allocate(

@@ -88,6 +88,7 @@ public static class PersistenceRegistration
         services.AddSingleton<ConstraintErrorTranslator>();
         services.AddScoped<CommitCallbacks>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IShortTransactions, ShortTransactions>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<IOutbox, Outbox.Outbox>();
         services.AddScoped<InboxStore>();

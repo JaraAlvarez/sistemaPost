@@ -61,6 +61,15 @@ public interface ISistecreditoPayments
     Task<Result> UseApprovedAsync(Guid saleId, string transactionId, decimal amount, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Paso previo a completar la venta, FUERA de su transacción: vuelve a consultar en Sistecrédito los cobros aprobados y sin usar de la
+    /// venta (⚙️ máximo 5 s en total, mejor esfuerzo) y guarda en el momento los que ya no estén aprobados ("Requiere revisión").
+    /// </summary>
+    Task RecheckForSaleAsync(Guid saleId, CancellationToken cancellationToken = default);
+
+    /// <summary>Cobros recién aprobados y sin usar de la venta: la venta no se completa sin incluirlos (el cliente ya pagó con ellos).</summary>
+    Task<IReadOnlyList<SistecreditoPendingUse>> ListApprovedUnusedAsync(Guid saleId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// La venta pagada con estos cobros se anuló: quedan "Requiere revisión" para que la administración reverse el pago en el portal de
     /// Sistecrédito (Sistecrédito no tiene cómo reversarlo desde la caja). Queda en la bitácora.
     /// </summary>
@@ -69,6 +78,9 @@ public interface ISistecreditoPayments
     /// <summary>Cobros aprobados sin venta que la administración debe revisar (aviso en la franja de avisos).</summary>
     Task<int> CountPendingReviewsAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>Cobro aprobado y sin usar de una venta: número de la transacción de Sistecrédito y valor.</summary>
+public sealed record SistecreditoPendingUse(string TransactionId, decimal Amount);
 
 /// <summary>Venta en curso vista por la caja para cobrarla con Sistecrédito. <c>Status</c>: OPEN, ON_HOLD, COMPLETED…</summary>
 public sealed record SaleChargeInfo(

@@ -68,6 +68,7 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
         var pendingBefore = now.AddMinutes(-1);
         var cancelledSince = now.AddHours(-24);
         var recheckBefore = now.AddMinutes(-5);
+        var expiredSince = now.AddHours(-72);
         var failed = SistecreditoProtocol.FailedStatuses.Append(SistecreditoProtocol.NotFoundStatus).ToList();
 
         // El que lleva más tiempo sin consultarse va primero: así todos tienen turno aunque haya más de "limit" abiertos.
@@ -76,7 +77,16 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
                         || (a.Status == SistecreditoAttemptStatus.Cancelled && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > cancelledSince
                             && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus))
                             && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
-                        || (a.Status == SistecreditoAttemptStatus.Approved && a.CompletedSaleId == null))
+                        || (a.Status == SistecreditoAttemptStatus.Approved && a.CompletedSaleId == null)
+
+                        // Vencidos en la caja (no por Sistecrédito) en las últimas 72 h: el cliente pudo aprobar después.
+                        || (a.Status == SistecreditoAttemptStatus.Expired && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > expiredSince
+                            && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus))
+                            && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
+
+                        // En revisión pero todavía usables: se confirma que Sistecrédito los siga reportando aprobados.
+                        || (a.Status == SistecreditoAttemptStatus.ReviewRequired && a.CompletedSaleId == null && a.ReviewedAt == null
+                            && a.ProviderStatus == SistecreditoProtocol.ApprovedStatus && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore)))
             .OrderBy(a => a.LastCheckedAt ?? a.StartedAt)
             .ThenBy(a => a.StartedAt)
             .Take(limit)
@@ -164,7 +174,7 @@ internal sealed partial class SistecreditoReconcileWorker(
         }
     }
 
-    /// <summary>Una vuelta: consulta a Sistecrédito fuera de la transacción y guarda los cambios (con su bitácora) al final.</summary>
+    /// <summary>Una vuelta: consulta a Sistecrédito fuera de toda transacción; cada cobro se guarda en su propia transacción corta.</summary>
     public static async Task<(int Checked, int Changed)> RunOnceAsync(IServiceScopeFactory scopes, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();

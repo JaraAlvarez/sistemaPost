@@ -1,6 +1,11 @@
 using System.Net;
 using Dapper;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Pos.Application.Abstractions.Data;
+using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Messaging;
+using Pos.Modules.Cash.Application;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Cash.Domain;
 using Pos.Modules.Identity.Contracts;
@@ -43,7 +48,7 @@ public class SistecreditoReviewFixesTests
         var created = factory.Gateway.Created.Count;
 
         // Al reabrir, la caja recupera el aprobado sin usar y lo pone como pago.
-        var restored = await GetAsync<List<SistecreditoPaymentDto>>(shop.Cashier, $"/api/v1/cash/sistecredito/sales/{sale.Id}/approved");
+        var restored = await GetAsync<List<SistecreditoPaymentDto>>(shop.Cashier, $"/api/v1/cash/sistecredito/sales/{sale.Id}/open");
         restored.Single().Id.ShouldBe(part.Id);
         restored.Single().Amount.ShouldBe(6_000m);
 
@@ -54,8 +59,50 @@ public class SistecreditoReviewFixesTests
         (await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 6_000m))).Id.ShouldBe(part.Id);
         factory.Gateway.Created.Count.ShouldBe(created); // ninguna transacción nueva en Sistecrédito
 
-        await shop.CompleteAsync(sale.Id, [Pay(method, 6_000m, part.TransactionId), Pay(shop.Cash, 3_000m)]);
-        (await GetAsync<List<SistecreditoPaymentDto>>(shop.Cashier, $"/api/v1/cash/sistecredito/sales/{sale.Id}/approved")).ShouldBeEmpty();
+        // N6: si la caja ya tiene ese cobro como pago, pedir otro por el mismo valor crea uno nuevo (no devuelve el mismo).
+        var another = await PostAsync<SistecreditoPaymentDto>(
+            shop.Cashier, "/api/v1/cash/sistecredito/payments",
+            new { saleId = sale.Id, amount = 3_000m, documentType = "CC", documentNumber = "1020304050", heldTransactionIds = new[] { part.TransactionId } });
+        another.Id.ShouldNotBe(part.Id);
+        factory.Gateway.SetStatus(another.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{another.Id}/check");
+
+        await shop.CompleteAsync(sale.Id, [Pay(method, 6_000m, part.TransactionId), Pay(method, 3_000m, another.TransactionId)]);
+        (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{part.Id}")).CompletedSaleId.ShouldBe(sale.Id);
+    }
+
+    [Fact]
+    public async Task No_se_completa_la_venta_sin_el_credito_aprobado_y_los_cobros_abiertos_solo_los_ve_su_caja()
+    {
+        // N1 (defensa en el servidor): con 6.000 aprobados, cobrar los 9.000 en efectivo haría pagar dos veces al cliente.
+        var (factory, shop, method) = await ShopAsync();
+        await using var _ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 3);
+        var part = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 6_000m));
+        factory.Gateway.SetStatus(part.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{part.Id}/check");
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/complete", new { payments = new[] { Pay(shop.Cash, 9_000m) } })
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "CASH.SISTECREDITO_APPROVED_NOT_INCLUDED");
+
+        // N9: los cobros abiertos (con transacción y enlace de pago) solo los ve la caja de la venta.
+        await RawAsync(shop.Owner, HttpMethod.Get, $"/api/v1/cash/sistecredito/sales/{sale.Id}/open")
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "CASH.SISTECREDITO_SALE_NOT_OPEN");
+
+        // N1: un cobro que seguía pendiente al cerrar el panel también vuelve (para mostrarlo y seguir consultándolo).
+        var pending = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 3_000m));
+        var open = await GetAsync<List<SistecreditoPaymentDto>>(shop.Cashier, $"/api/v1/cash/sistecredito/sales/{sale.Id}/open");
+        open.Select(o => o.Status).Order(StringComparer.Ordinal).ShouldBe(["APPROVED", "PENDING"]);
+        open.Single(o => o.Status == "PENDING").Id.ShouldBe(pending.Id);
+
+        // B4 sin respuesta de Sistecrédito: se usa el último estado conocido y la venta se completa.
+        factory.Gateway.SetStatus(pending.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{pending.Id}/check");
+        factory.Gateway.Offline = true;
+        var receipt = await shop.CompleteAsync(sale.Id, [Pay(method, 6_000m, part.TransactionId), Pay(method, 3_000m, pending.TransactionId)]);
+        receipt.Sale.Status.ShouldBe("COMPLETED");
+        factory.Gateway.Offline = false;
+        (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{part.Id}")).CompletedSaleId.ShouldBe(sale.Id);
     }
 
     [Fact]
@@ -93,13 +140,12 @@ public class SistecreditoReviewFixesTests
         await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{second.Id}/complete", new { payments = new[] { Pay(method, second.AmountDue, reversed.TransactionId) } })
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "CASH.SISTECREDITO_NO_LONGER_APPROVED");
 
-        // La revisión automática (que también vuelve a consultar los aprobados) lo deja en revisión y ya no se ofrece como pago.
-        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(2));
+        // La nueva consulta va ANTES de la transacción de la venta: el "Requiere revisión" quedó guardado aunque la venta falló.
         var review = await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{reversed.Id}");
         review.Status.ShouldBe("REVIEW_REQUIRED");
         review.Usable.ShouldBeFalse();
         review.Message!.ShouldContain("ya no reporta aprobado");
-        (await GetAsync<List<SistecreditoPaymentDto>>(shop.Cashier, $"/api/v1/cash/sistecredito/sales/{second.Id}/approved")).ShouldBeEmpty();
+        (await GetAsync<List<SistecreditoPaymentDto>>(shop.Cashier, $"/api/v1/cash/sistecredito/sales/{second.Id}/open")).ShouldBeEmpty();
         await shop.CompleteAsync(second.Id, [Pay(shop.Cash, second.AmountDue)]);
     }
 
@@ -214,6 +260,110 @@ public class SistecreditoReviewFixesTests
         problem.GetProperty("code").GetString().ShouldBe("CASH.SISTECREDITO_INVALID_AMOUNT");
         problem.GetProperty("detail").GetString()!.ShouldContain("pesos enteros");
         factory.Gateway.Created.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Un_pendiente_de_mas_de_24_horas_solo_vence_si_Sistecredito_responde_y_si_aprueba_despues_se_revisa()
+    {
+        // N3.
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        var payment = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, sale.AmountDue));
+        var url = $"/api/v1/cash/sistecredito/payments/{payment.Id}";
+
+        // Sin internet o con un error de Sistecrédito no vence: el cliente pudo aprobar mientras tanto.
+        factory.Gateway.Offline = true;
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddHours(25));
+        (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, url)).Status.ShouldBe("PENDING");
+        factory.Gateway.Offline = false;
+
+        // Sistecrédito responde que sigue pendiente: vence.
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddHours(25).AddMinutes(10));
+        (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, url)).Status.ShouldBe("EXPIRED");
+
+        // El cliente aprobó después: la revisión automática sigue mirando los vencidos en la caja (72 h) y lo deja en revisión.
+        factory.Gateway.SetStatus(payment.TransactionId!, "Approved");
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddHours(26));
+        var review = await GetAsync<SistecreditoPaymentDto>(shop.Cashier, url);
+        review.Status.ShouldBe("REVIEW_REQUIRED");
+        review.Usable.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task La_revision_automatica_le_da_turno_a_todos_aunque_haya_mas_de_50_abiertos()
+    {
+        // M4/N7: más de 50 abiertos: primero los que llevan más tiempo sin consultarse; cada uno se guarda aparte.
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        var started = DateTimeOffset.UtcNow.AddMinutes(-10);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var company = scope.ServiceProvider.GetRequiredService<IInstallationContext>().CompanyId!.Value;
+            var store = scope.ServiceProvider.GetRequiredService<ISistecreditoStore>();
+            for (var i = 0; i < 55; i++)
+            {
+                var attempt = SistecreditoAttempt.Create(Guid.NewGuid(), company, sale.Id, null, 1_000m, "CC", "123456", SistecreditoEnvironment.Staging, started).Value;
+                attempt.Started($"bulk-{i:D2}", "Pending", started.AddSeconds(i));
+                store.Add(attempt);
+            }
+
+            (await scope.ServiceProvider.GetRequiredService<IShortTransactions>().SaveAsync(cancellationToken: Ct)).IsSuccess.ShouldBeTrue();
+        }
+
+        (await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(2))).Checked.ShouldBe(50);
+        Bulk(factory).Count.ShouldBe(50);
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(3));
+        Bulk(factory).Count.ShouldBe(55); // los 5 que faltaban entran primero en la segunda vuelta
+
+        static HashSet<string> Bulk(SistecreditoServerFactory factory) =>
+            factory.Gateway.Queries.Select(q => q.TransactionId).Where(t => t.StartsWith("bulk-", StringComparison.Ordinal)).ToHashSet(StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task Si_la_caja_deja_de_esperar_despues_de_crear_el_cobro_el_numero_de_transaccion_queda_guardado()
+    {
+        // M5: la caja se desconecta justo después de que Sistecrédito crea la transacción.
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        using var cts = new CancellationTokenSource();
+        string? created = null;
+        factory.Gateway.AfterCreate = id =>
+        {
+            created = id;
+            cts.Cancel();
+        };
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            await Should.ThrowAsync<OperationCanceledException>(() => scope.ServiceProvider.GetRequiredService<IDispatcher>()
+                .Send(new StartSistecreditoPaymentCommand(sale.Id, sale.AmountDue, "CC", "1020304050"), cts.Token));
+        }
+
+        factory.Gateway.AfterCreate = null;
+        created.ShouldNotBeNull();
+        (await shop.Catalog.ScalarAsync<string>($"SELECT status FROM cash.sistecredito_attempts WHERE transaction_id = '{created}'")).ShouldBe("PENDING");
+    }
+
+    [Fact]
+    public async Task Consultar_o_cancelar_un_cobro_usa_el_ambiente_en_que_se_creo()
+    {
+        // N8.
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        var payment = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, sale.AmountDue));
+        await SendAsync<SistecreditoSettingsDto>(shop.Owner, HttpMethod.Put, "/api/v1/cash/sistecredito/settings", new { environment = "PRODUCTION", enabled = true });
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}/check");
+        (await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}/cancel")).Status.ShouldBe("CANCELLED");
+        factory.Gateway.Queries.Where(q => q.TransactionId == payment.TransactionId).Select(q => q.Environment).Distinct()
+            .ShouldBe([SistecreditoEnvironment.Staging]);
     }
 
     private static async Task<(SistecreditoServerFactory Factory, SalesScenario Shop, Guid Method)> ShopAsync()
