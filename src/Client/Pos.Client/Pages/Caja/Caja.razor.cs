@@ -781,7 +781,7 @@ public sealed partial class Caja
                 {
                     config.RequireInteraction = true;
                     config.Action = "No usar este crédito";
-                    config.OnClick = _ => NoUsarCreditoAsync(held.Id, null, () => RecuperarAsync(held));
+                    config.OnClick = _ => NoUsarCreditoAsync(held.Id, null, () => RecuperarAsync(held), soloLosNecesarios: true);
                 });
                 return;
             }
@@ -1554,12 +1554,13 @@ public sealed partial class Caja
     /// transacción: todos los créditos aprobados de la venta (venta suspendida o al recuperarla). Después de la autorización se vuelve a la
     /// pantalla en que estaba (cobro o suspendidas).
     /// </summary>
-    private async Task NoUsarCreditoAsync(Guid saleId, string? transactionId, Func<Task>? despues = null)
+    private async Task NoUsarCreditoAsync(Guid saleId, string? transactionId, Func<Task>? despues = null, bool soloLosNecesarios = false)
     {
         var volverA = _panel is Panel.Cobro or Panel.Suspendidas ? _panel : Panel.None;
         await RunAsync(async grant =>
         {
-            await Api.PostAsync<Sale>($"api/v1/sales/{saleId}/sistecredito/release", new { transactionId }, grant);
+            // Con varios créditos, «solo los necesarios» libera los más grandes hasta que lo aprobado quepa en la venta.
+            await Api.PostAsync<Sale>($"api/v1/sales/{saleId}/sistecredito/release", new { transactionId, onlyNeeded = soloLosNecesarios }, grant);
             _payments.RemoveAll(p => transactionId is null || p.Reference == transactionId);
             if (_sale?.Id == saleId)
             {
@@ -1583,23 +1584,25 @@ public sealed partial class Caja
             return;
         }
 
-        foreach (var held in _held)
+        // Todas a la vez: la lista no espera una consulta tras otra.
+        var creditos = await Task.WhenAll(_held.Select(async held =>
         {
             try
             {
-                var creditos = (await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{held.Id}/open")).Where(c => c.Usable).ToList();
-                if (creditos.Count > 0)
-                {
-                    _heldCredits[held.Id] = creditos.Sum(c => c.Amount);
-                }
+                var abiertos = await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{held.Id}/open");
+                return (held.Id, Total: abiertos.Where(c => c.Usable).Sum(c => c.Amount));
             }
             catch (Exception ex) when (ex is ApiException or HttpRequestException)
             {
-                // Solo es una ayuda: al recuperarla, el error también ofrece «No usar este crédito».
+                // Solo es una ayuda: si falla, al recuperar la venta el error igual ofrece «No usar este crédito».
+                return (held.Id, Total: 0m);
             }
+        }));
+        foreach (var (id, total) in creditos.Where(c => c.Total > 0m))
+        {
+            _heldCredits[id] = total;
         }
     }
-
 
     private async Task ImprimirAsync(JsonElement ticket)
     {

@@ -315,6 +315,18 @@ public class SistecreditoAttemptTests
         attempt.Use(sale, 80_000m, Now.AddMinutes(31)).IsSuccess.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(19, 5)]
+    [InlineData(20, 15)]
+    [InlineData(74, 15)]
+    [InlineData(75, 60)]
+    [InlineData(239, 60)]
+    [InlineData(240, 180)]
+    [InlineData(1_400, 180)]
+    public void Los_terminados_sin_aprobar_se_consultan_con_espera_creciente(int minutesSinceFinished, int gapMinutes) =>
+        SistecreditoProtocol.FailedRecheckGap(TimeSpan.FromMinutes(minutesSinceFinished)).ShouldBe(TimeSpan.FromMinutes(gapMinutes)); // SX1
+
     /// <summary>Fija la cultura mientras dura la prueba (los mensajes formatean valores con la cultura actual).</summary>
     private sealed class CultureScope : IDisposable
     {

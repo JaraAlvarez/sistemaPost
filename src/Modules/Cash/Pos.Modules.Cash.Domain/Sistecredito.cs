@@ -59,6 +59,18 @@ public static class SistecreditoProtocol
 
     public static bool IsFailed(string? providerStatus) => providerStatus is not null && FailedStatuses.Contains(providerStatus);
 
+    /// <summary>
+    /// Cada cuánto se vuelve a consultar un cobro que terminó sin aprobar (por si el cliente aprueba después), según el tiempo desde que
+    /// terminó: cada 5 min los primeros 20 min, cada 15 min hasta la 1 h 15, cada hora hasta las 4 h y luego cada 3 h (hasta 24 h).
+    /// </summary>
+    public static TimeSpan FailedRecheckGap(TimeSpan sinceFinished) => sinceFinished switch
+    {
+        _ when sinceFinished < TimeSpan.FromMinutes(20) => TimeSpan.FromMinutes(5),
+        _ when sinceFinished < TimeSpan.FromMinutes(75) => TimeSpan.FromMinutes(15),
+        _ when sinceFinished < TimeSpan.FromHours(4) => TimeSpan.FromHours(1),
+        _ => TimeSpan.FromHours(3),
+    };
+
     /// <summary>Documento sin puntos, espacios ni guiones, en mayúsculas.</summary>
     public static string NormalizeDocument(string? number) =>
         new((number ?? string.Empty).Where(char.IsAsciiLetterOrDigit).Select(char.ToUpperInvariant).ToArray());

@@ -128,8 +128,9 @@ public interface ISistecreditoStore
     Task<IReadOnlyList<SistecreditoAttempt>> ListForSaleAsync(Guid saleId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Para la revisión automática: pendientes con más de un minuto, cancelados en la caja en las últimas 24 h que Sistecrédito no dio
-    /// por fallidos (el cliente pudo aprobar después) y aprobados sin venta.
+    /// Para la revisión automática: primero pendientes con más de un minuto, aprobados sin venta y "Requiere revisión" todavía usables
+    /// (hasta <paramref name="limit"/>); aparte, los terminados sin aprobar (rechazados, cancelados o vencidos, por si el cliente aprueba
+    /// después) con espera creciente según <see cref="SistecreditoProtocol.FailedRecheckGap"/>, sin quitarles turno a los primeros.
     /// </summary>
     Task<IReadOnlyList<SistecreditoAttempt>> ListToReconcileAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken);
 
@@ -137,8 +138,11 @@ public interface ISistecreditoStore
 
     Task<int> CountPendingReviewsAsync(CancellationToken cancellationToken);
 
-    /// <summary>Créditos «no usados» (liberados) en una caja entre dos momentos (para el cierre y el detalle de la jornada).</summary>
-    Task<IReadOnlyList<SistecreditoAttempt>> ListReleasedAsync(Guid posTerminalId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken);
+    /// <summary>
+    /// Cobros de una caja que pasaron a "Requiere revisión" entre dos momentos (para el cierre, el detalle de la jornada y el reporte X/Z):
+    /// liberados con «No usar este crédito», aprobados tarde, aprobados después de completar con otro medio, de ventas anuladas…
+    /// </summary>
+    Task<IReadOnlyList<SistecreditoAttempt>> ListToReviewAsync(Guid posTerminalId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -898,19 +902,38 @@ public sealed class SistecreditoPaymentsService(
             .Select(a => new SistecreditoPendingUse(a.TransactionId!, a.Amount))
             .ToList();
 
-    public async Task<Result> ReleaseAsync(Guid saleId, string? transactionId, Guid userId, Guid? authorizedBy, CancellationToken cancellationToken = default)
+    public async Task<Result> ReleaseAsync(
+        Guid saleId, string? transactionId, Guid userId, Guid? authorizedBy, decimal? keepUpTo = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(transactionId))
         {
-            var usable = (await store.ListForSaleAsync(saleId, cancellationToken)).Where(a => a.IsUsable && a.TransactionId is not null).ToList();
+            var attempts = await store.ListForSaleAsync(saleId, cancellationToken);
+            var usable = attempts.Where(a => a.IsUsable && a.TransactionId is not null).OrderByDescending(a => a.Amount).ToList();
             if (usable.Count == 0)
             {
-                return SistecreditoErrors.NotApproved;
+                // Repetir «No usar» cuando ya se liberaron: OK sin cambios.
+                return attempts.Any(a => a.ReleasedAt is not null) ? Result.Success() : SistecreditoErrors.NotApproved;
+            }
+
+            // Solo los necesarios: se liberan los más grandes hasta que lo aprobado quepa en lo que falta por pagar.
+            if (keepUpTo is { } limit)
+            {
+                var kept = usable.Sum(a => a.Amount);
+                usable = usable.TakeWhile(a =>
+                {
+                    if (kept <= limit)
+                    {
+                        return false;
+                    }
+
+                    kept -= a.Amount;
+                    return true;
+                }).ToList();
             }
 
             foreach (var each in usable)
             {
-                var one = await ReleaseAsync(saleId, each.TransactionId, userId, authorizedBy, cancellationToken);
+                var one = await ReleaseAsync(saleId, each.TransactionId, userId, authorizedBy, cancellationToken: cancellationToken);
                 if (one.IsFailure)
                 {
                     return one;

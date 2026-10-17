@@ -71,9 +71,11 @@ public interface ISistecreditoPayments
 
     /// <summary>
     /// «No usar este crédito»: con autorización de supervisor, el cobro aprobado de la venta queda en revisión y ya no se usa. Sin
-    /// <paramref name="transactionId"/>, todos los créditos usables de la venta.
+    /// <c>transactionId</c>, todos los créditos usables de la venta o, con <c>keepUpTo</c>, solo los necesarios (los más grandes primero)
+    /// para que lo aprobado que queda no supere ese valor (lo que falta por pagar). Repetirlo cuando ya no queda ninguno usable: OK.
     /// </summary>
-    Task<Result> ReleaseAsync(Guid saleId, string? transactionId, Guid userId, Guid? authorizedBy, CancellationToken cancellationToken = default);
+    Task<Result> ReleaseAsync(
+        Guid saleId, string? transactionId, Guid userId, Guid? authorizedBy, decimal? keepUpTo = null, CancellationToken cancellationToken = default);
 
     /// <summary>Después de completar la venta, FUERA de su transacción: cancela (o revisa, si ya se aprobaron) los cobros que seguían pendientes.</summary>
     Task SettleAfterSaleAsync(Guid saleId, CancellationToken cancellationToken = default);
