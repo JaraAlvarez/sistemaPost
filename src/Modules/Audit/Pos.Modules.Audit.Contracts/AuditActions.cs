@@ -53,6 +53,7 @@ public static class AuditActions
         new("SISTECREDITO_PAYMENT_APPROVED", "cash", "Cobro con Sistecrédito aprobado por el cliente", "INFO"),
         new("SISTECREDITO_PAYMENT_CANCELLED", "cash", "Cobro con Sistecrédito cancelado en la caja", "INFO"),
         new("SISTECREDITO_PAYMENT_STARTED", "cash", "Cobro con Sistecrédito generado en la caja", "INFO"),
+        new("SISTECREDITO_RELEASED", "cash", "Crédito de Sistecrédito aprobado no usado en la venta (autorizado por supervisor)", "WARNING"),
         new("SISTECREDITO_REVIEW_REQUIRED", "cash", "Cobro con Sistecrédito aprobado sin venta: requiere revisión", "WARNING"),
         new("SISTECREDITO_REVIEW_RESOLVED", "cash", "Revisión de un cobro con Sistecrédito cerrada", "INFO"),
         new("SISTECREDITO_SETTINGS_CHANGED", "cash", "Configuración o llaves de Sistecrédito cambiadas", "WARNING"),

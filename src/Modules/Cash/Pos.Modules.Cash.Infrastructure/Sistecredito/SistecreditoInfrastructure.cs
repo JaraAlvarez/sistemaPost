@@ -37,6 +37,7 @@ internal sealed class SistecreditoModelContributor : IModelContributor
             b.Property(x => x.Environment).HasUpperSnakeConversion();
             b.Property(x => x.Status).HasUpperSnakeConversion();
             b.Ignore(x => x.MaskedDocument);
+            b.Ignore(x => x.IsUsable);
             b.HasControlColumns();
             b.HasXminConcurrency();
         });
@@ -67,14 +68,31 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
         var pendingBefore = now.AddMinutes(-1);
         var cancelledSince = now.AddHours(-24);
         var recheckBefore = now.AddMinutes(-5);
-        var failed = SistecreditoProtocol.FailedStatuses.ToList();
+        var expiredSince = now.AddHours(-72);
+        var failed = SistecreditoProtocol.FailedStatuses.Append(SistecreditoProtocol.NotFoundStatus).ToList();
+
+        // El que lleva más tiempo sin consultarse va primero: así todos tienen turno aunque haya más de "limit" abiertos.
         return await context.Set<SistecreditoAttempt>()
+            .Where(a => a.NextCheckAt == null || a.NextCheckAt <= now)
             .Where(a => (a.Status == SistecreditoAttemptStatus.Pending && a.StartedAt < pendingBefore)
-                        || (a.Status == SistecreditoAttemptStatus.Cancelled && a.CompletedSaleId == null && a.StartedAt > cancelledSince
+                        // Terminados sin aprobar en las últimas 24 h (en la caja o por Sistecrédito): el cliente pudo aprobar después.
+                        || ((a.Status == SistecreditoAttemptStatus.Cancelled || a.Status == SistecreditoAttemptStatus.Rejected
+                                || (a.Status == SistecreditoAttemptStatus.Expired && a.ProviderStatus != null && failed.Contains(a.ProviderStatus)))
+                            && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > cancelledSince
+                            && a.ProviderStatus != SistecreditoProtocol.NotFoundStatus
+                            && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
+                        || (a.Status == SistecreditoAttemptStatus.Approved && a.CompletedSaleId == null)
+
+                        // Vencidos en la caja (no por Sistecrédito) en las últimas 72 h: el cliente pudo aprobar después.
+                        || (a.Status == SistecreditoAttemptStatus.Expired && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > expiredSince
                             && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus))
                             && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
-                        || (a.Status == SistecreditoAttemptStatus.Approved && a.CompletedSaleId == null))
-            .OrderBy(a => a.StartedAt)
+
+                        // En revisión pero todavía usables: se confirma que Sistecrédito los siga reportando aprobados.
+                        || (a.Status == SistecreditoAttemptStatus.ReviewRequired && a.CompletedSaleId == null && a.ReviewedAt == null
+                            && a.ProviderStatus == SistecreditoProtocol.ApprovedStatus && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore)))
+            .OrderBy(a => a.LastCheckedAt ?? a.StartedAt)
+            .ThenBy(a => a.StartedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
     }
@@ -84,6 +102,13 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
             .Where(a => status == null || a.Status == status)
             .OrderByDescending(a => a.StartedAt)
             .Take(limit)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<SistecreditoAttempt>> ListReleasedAsync(
+        Guid posTerminalId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken) =>
+        await context.Set<SistecreditoAttempt>().AsNoTracking()
+            .Where(a => a.PosTerminalId == posTerminalId && a.ReleasedAt != null && a.ReleasedAt >= from && (to == null || a.ReleasedAt <= to))
+            .OrderBy(a => a.ReleasedAt)
             .ToListAsync(cancellationToken);
 
     public Task<int> CountPendingReviewsAsync(CancellationToken cancellationToken) =>
@@ -160,7 +185,7 @@ internal sealed partial class SistecreditoReconcileWorker(
         }
     }
 
-    /// <summary>Una vuelta: consulta a Sistecrédito fuera de la transacción y guarda los cambios (con su bitácora) al final.</summary>
+    /// <summary>Una vuelta: consulta a Sistecrédito fuera de toda transacción; cada cobro se guarda en su propia transacción corta.</summary>
     public static async Task<(int Checked, int Changed)> RunOnceAsync(IServiceScopeFactory scopes, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
@@ -203,7 +228,7 @@ public static class SistecreditoInfrastructureRegistration
     /// <summary>
     /// <c>Pos:Sistecredito</c>: <c>ResponseUrl</c>, <c>ConfirmationUrl</c>, <c>Description</c>, <c>TimeoutSeconds</c> (⚙️ 20),
     /// <c>RedirectPollAttempts</c> (⚙️ 3), <c>RedirectPollIntervalMilliseconds</c> (⚙️ 1500), <c>ReconcileIntervalSeconds</c> (⚙️ 60),
-    /// <c>ReviewAfterMinutes</c> (⚙️ 15) y <c>Worker</c> (⚙️ true).
+    /// <c>ReviewAfterMinutes</c> (⚙️ 15), <c>PendingExpiryHours</c> (⚙️ 24), <c>UseRecheckTimeoutSeconds</c> (⚙️ 5) y <c>Worker</c> (⚙️ true).
     /// </summary>
     private static SistecreditoOptions Read(IConfiguration configuration)
     {
@@ -231,6 +256,8 @@ public static class SistecreditoInfrastructureRegistration
             : options.RedirectPollIntervalMilliseconds;
         options.ReconcileIntervalSeconds = int.TryParse(section["ReconcileIntervalSeconds"], out var reconcile) ? reconcile : options.ReconcileIntervalSeconds;
         options.ReviewAfterMinutes = int.TryParse(section["ReviewAfterMinutes"], out var review) ? review : options.ReviewAfterMinutes;
+        options.PendingExpiryHours = int.TryParse(section["PendingExpiryHours"], out var expiry) ? expiry : options.PendingExpiryHours;
+        options.UseRecheckTimeoutSeconds = int.TryParse(section["UseRecheckTimeoutSeconds"], out var recheck) ? recheck : options.UseRecheckTimeoutSeconds;
         options.Worker = !bool.TryParse(section["Worker"], out var worker) || worker;
         return options;
     }

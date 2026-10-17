@@ -18,7 +18,7 @@ public static class CashReports
 
     public static CashReportDto Build(
         string kind, CashSession session, SessionHeader header, IReadOnlyList<CashMovementDto> movements, IReadOnlyList<CashMethodTotalDto> totals,
-        DateTimeOffset printedAt, IClock clock)
+        DateTimeOffset printedAt, IClock clock, IReadOnlyList<SistecreditoNotUsedDto>? sistecreditoNotUsed = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(header);
@@ -39,7 +39,7 @@ public static class CashReports
             kind, session.Id, session.Number, header.CompanyName, header.BranchName, header.TerminalCode, header.CashierName, session.BusinessDate,
             session.OpenedAt, session.ClosedAt, printedAt, session.OpeningFloat, byType, totals, expected, closed ? session.CountedTotal : null,
             closed ? session.Difference : null, session.DifferenceNote, noSale, withdrawals, session.ClosedBySupervisor, session.ZSealNo, session.ZSealCode,
-            string.Empty);
+            string.Empty, sistecreditoNotUsed is { Count: > 0 } ? sistecreditoNotUsed : null);
         return report with { Text = Text(report, clock) };
     }
 
@@ -105,6 +105,19 @@ public static class CashReports
         if (r.ClosedBySupervisor)
         {
             Center(text, "CIERRE POR SUPERVISOR");
+        }
+
+        // Créditos de Sistecrédito aprobados que no se usaron en la venta: no son plata de la caja; se reversan en el portal.
+        if (r.SistecreditoNotUsed is { Count: > 0 } notUsed)
+        {
+            Line(text, '-');
+            Pair(text, $"SISTECRÉDITO NO USADO ({notUsed.Count.ToString(CultureInfo.InvariantCulture)})", Money(notUsed.Sum(n => n.Amount)));
+            foreach (var n in notUsed)
+            {
+                Pair(text, $"  {n.MaskedDocument} {(n.Reviewed ? "revisado" : "por reversar")}", Money(n.Amount));
+            }
+
+            Wrap(text, "No es plata de la caja: la administración lo reversa en el portal de Sistecrédito.");
         }
 
         if (r.Kind == "Z")
