@@ -1,6 +1,6 @@
 # Fase 13-B · Instalador con marca, arranque confiable y descargas en el portal del cliente — Propuesta
 
-> Estado: **PROPUESTA v2 — pendiente de tu aprobación** · 2026-10-17 (v1 respondida: logo y colores de tutiendanueva.com, texto del
+> Estado: **APROBADA (v2)** · 2026-10-17 ("dale, empieza con la A y la C"); orden A y C → B → E → D. (v1 respondida: logo y colores de tutiendanueva.com, texto del
 > aliado aprobado, descargas solo desde el portal; v2 agrega lo que pediste: experiencia premium, ventana propia y cuenta del portal).
 > Origen: pediste mostrar la marca (y a tutiendanueva.com como aliado) durante la instalación, y que el cliente pueda descargar el
 > instalador y el manual desde su panel. Al instalar la 1.0.1 en un equipo real encontramos además fallas del primer arranque.
@@ -132,3 +132,13 @@ del cliente (Descargas) y enlazada desde el instalador.
 | C | Portal → Descargas + manual de instalación | Pequeña |
 | D | Instalador premium propio (licencia primero, cuenta del portal, carrusel con el aliado) | Grande |
 | E | Cuenta del portal en el POS (correo/contraseña/Google del propietario) | Media |
+
+## 8. Desinstalación premium (pedido del 2026-10-17)
+
+Con el mismo diseño del instalador premium (parte D):
+- Pantalla con la marca que explica qué se va a quitar y qué **se conserva** (por defecto los datos de la tienda se conservan).
+- Botón **"Hacer un backup final"** antes de desinstalar y la ruta donde quedó.
+- Casilla **"Borrar también los datos de la tienda"**, desmarcada, con doble confirmación y el código de recuperación.
+- **Libera el equipo en la licencia** (para activar la misma clave en otro computador) si hay internet.
+- Pregunta opcional "¿Por qué desinstalas BusinessPost?" (se envía a la nube solo si el usuario acepta).
+- Detiene los servicios con orden y quita la regla del firewall (ya lo hace hoy).

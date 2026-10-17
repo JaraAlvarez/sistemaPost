@@ -13,6 +13,8 @@
 artifacts/
 publish/
 docs/
+# Excepción: el manual de instalación se incrusta en el servidor de la nube (página Descargas).
+!docs/manual-instalacion.md
 tests/
 tools/
 http/

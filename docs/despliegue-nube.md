@@ -385,6 +385,23 @@ Caddy sirve la carpeta `deploy/cloud/updates` del VPS en `https://licencias.<DOM
 Para retirar una versión defectuosa, vuelva a subir el `stable.json` anterior: las tiendas que ya actualizaron se quedan en la nueva
 (la vuelta atrás automática solo actúa si la versión no arranca).
 
+**Portal → Descargas (Fase 13-B).** Los usuarios del portal con rol Cliente, Soporte o Superadministrador ven la última versión de
+`stable.json` y el botón "Descargar instalador", que apunta a `/updates/BusinessPost-Setup-<versión>.exe`. Para que funcione, suba
+también el instalador **a la misma carpeta** y con ese nombre exacto (la versión debe ser la del manifiesto):
+
+```bash
+scp artifacts/releases/BusinessPost-Setup-1.0.1.exe usuario@vps:~/pos/deploy/cloud/updates/
+```
+
+- Sin manifiesto (o si no responde) la página dice "Aún no hay una versión publicada para descargar"; el portal recuerda la lectura 5
+  minutos (`Downloads__CacheMinutes`).
+- Fije `DOWNLOADS_MANIFEST_URL` en el `.env` (p. ej. `https://businesspost.tutiendanueva.com/updates/stable.json`). Vacía, el portal
+  arma la dirección con la de cada petición; fijarla evita depender del encabezado `Host` y de que el contenedor pueda salir a su propio
+  dominio.
+- El portal no verifica la firma del manifiesto: solo muestra la versión (el POS sí la verifica antes de instalar).
+- El manual de instalación (`docs/manual-instalacion.md`) va dentro del servidor de la nube y se ve en Descargas → Ver el manual. Si
+  más adelante se publica un PDF, súbalo a la misma carpeta y configure `Downloads__ManualPdfFileName` con su nombre.
+
 ## 17. Sincronización de las tiendas y portal del cliente (Fase 16)
 
 Las tiendas suben ventas, cierres, existencias y productos a `https://licencias.<DOMINIO>/v1/sync/batches`, identificadas con su token

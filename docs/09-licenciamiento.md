@@ -269,3 +269,4 @@ configuración: [despliegue-nube.md §20](despliegue-nube.md).
 | Check-in | `PaymentUrl` en la respuesta (no firmado) cuando faltan 15 días ⚙️ o menos, en gracia o vencida; nunca suspendida ni cancelada |
 | Portal | Pantallas **Precios** y **Pagos**, pestaña "Pagos en línea" de la empresa (historial, "Copiar enlace de pago", QR), alerta del tablero y "Mi suscripción" del rol Cliente |
 | Permisos nuevos | `licensing.payment.view` (superadministrador y soporte), `licensing.payment.manage` y `licensing.price.manage` (superadministrador), `licensing.subscription.self` (cliente) |
+| Fase 13-B | Pantalla **Descargas** (`/descargas`) y el manual de instalación (`/descargas/manual`) con el permiso `portal.download.view` (cliente, soporte y superadministrador) |

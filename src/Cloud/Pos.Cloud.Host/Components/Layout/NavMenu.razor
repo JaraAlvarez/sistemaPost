@@ -59,6 +59,10 @@
                 {
                     <MudNavLink Href="mi-suscripcion" Icon="@Icons.Material.Outlined.EventAvailable">Mi suscripción</MudNavLink>
                 }
+                @if (user.HasPortalPermission(CloudPermissions.DownloadView))
+                {
+                    <MudNavLink Href="descargas" Icon="@Icons.Material.Outlined.Download">Descargas</MudNavLink>
+                }
                 <MudNavLink Href="mi-cuenta" Icon="@Icons.Material.Outlined.AccountCircle">Mi cuenta</MudNavLink>
             </MudNavMenu>
         </div>

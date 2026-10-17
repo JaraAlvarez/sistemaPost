@@ -10,6 +10,7 @@ using MudBlazor.Services;
 using Pos.Api.Abstractions;
 using Pos.Application.Abstractions.Security;
 using Pos.Cloud.Host.Components;
+using Pos.Cloud.Host.Downloads;
 using Pos.Cloud.Host.Hosting;
 using Pos.Cloud.Host.Security;
 using Pos.Cloud.Infrastructure;
@@ -108,6 +109,11 @@ internal static class CloudHostSetup
         builder.Services.AddScoped<AuthenticationStateProvider, PortalRevalidatingAuthenticationStateProvider>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Scoped<CircuitHandler, PortalCircuitHandler>());
         builder.Services.AddScoped<PortalOperations>();
+
+        // Descargas (Fase 13-B): lee el manifiesto de actualizaciones para mostrar la última versión y el enlace del instalador.
+        builder.Services.Configure<DownloadOptions>(builder.Configuration.GetSection(DownloadOptions.SectionName));
+        builder.Services.AddHttpClient(DownloadCatalog.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        builder.Services.AddSingleton<DownloadCatalog>();
         builder.Services.AddMudServices();
         return builder;
     }

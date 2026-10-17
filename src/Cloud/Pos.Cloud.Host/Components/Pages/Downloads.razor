@@ -1,0 +1,82 @@
+@page "/descargas"
+@attribute [Authorize(Policy = CloudPermissions.DownloadView)]
+@using Pos.Cloud.Host.Downloads
+@inherits PortalPageBase
+@inject NavigationManager Navigation
+
+@* "Descargas" (Fase 13-B, D13B-05): instalador de la última versión publicada (según el manifiesto de actualizaciones que ya usa el
+   POS) y el manual de instalación. Solo con sesión del portal; el archivo lo sirve Caddy desde /updates. *@
+<PageTitle>Descargas · BusinessPost</PageTitle>
+<PageHeader Title="Descargas" Section="Personal"
+            Description="Descargue el programa BusinessPost para instalarlo en los computadores de su tienda y lea el manual paso a paso." />
+
+<MudPaper Elevation="0" Class="bp-card pa-5 mb-6">
+    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-4">BusinessPost para Windows</MudText>
+    @if (!_loaded)
+    {
+        <TableSkeleton Rows="2" />
+    }
+    else if (_release is null)
+    {
+        <EmptyState Title="Aún no hay una versión publicada para descargar."
+                    Hint="Vuelva a intentarlo más tarde o comuníquese con BusinessPost." Icon="@Icons.Material.Outlined.CloudDownload" />
+    }
+    else
+    {
+        <div class="bp-download">
+            <div>
+                <MudText Typo="Typo.body2" Class="texto-secundario">Última versión</MudText>
+                <div class="bp-download-version" data-testid="version">@_release.Version</div>
+                @if (_release.PublishedAt is { } published)
+                {
+                    <MudText Typo="Typo.body2" Class="texto-secundario">Publicada el @Day(published)</MudText>
+                }
+            </div>
+            <MudButton Href="@_release.InstallerUrl" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                       StartIcon="@Icons.Material.Filled.Download" aria-label="@($"Descargar instalador {_release.InstallerFileName}")">
+                Descargar instalador
+            </MudButton>
+        </div>
+        <MudText Typo="Typo.body2" Class="mt-4">
+            Funciona en Windows 10 y Windows 11 de 64 bits. Instálelo con un usuario administrador del computador.
+            Mientras el instalador no tenga firma digital, Windows puede mostrar el aviso "Windows protegió su PC": elija
+            <strong>Más información</strong> y luego <strong>Ejecutar de todas formas</strong>.
+        </MudText>
+        @if (_release.Notes is { } notes)
+        {
+            <MudText Typo="Typo.subtitle1" HtmlTag="h3" Class="mt-6 mb-2">Novedades de esta versión</MudText>
+            <MudText Typo="Typo.body2" Class="bp-notes">@notes</MudText>
+        }
+    }
+</MudPaper>
+
+<MudPaper Elevation="0" Class="bp-card pa-5 mb-6">
+    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Manual de instalación</MudText>
+    <MudText Typo="Typo.body2" Class="mb-4">
+        Qué necesita, cómo instalar paso a paso, cómo configurar la tienda la primera vez y qué hacer si algo falla.
+    </MudText>
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+        <MudButton Href="descargas/manual" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.MenuBook">Ver el manual</MudButton>
+        @if (_manualPdf is not null)
+        {
+            <MudButton Href="@_manualPdf" Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PictureAsPdf">Descargar manual (PDF)</MudButton>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    private LatestRelease? _release;
+    private string? _manualPdf;
+    private bool _loaded;
+
+    [Inject]
+    private DownloadCatalog Catalog { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var baseUri = new Uri(Navigation.BaseUri);
+        _manualPdf = Catalog.GetManualPdfUrl(baseUri);
+        _release = await Catalog.GetLatestAsync(baseUri, CancellationToken.None);
+        _loaded = true;
+    }
+}

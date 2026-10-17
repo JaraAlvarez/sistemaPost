@@ -63,16 +63,19 @@ public static class CloudPermissions
     /// <summary>"Mi suscripción": el cliente ve el vencimiento y los pagos de SUS empresas y paga en línea (D12C-09).</summary>
     public const string SubscriptionSelfView = "licensing.subscription.self";
 
-    private static readonly HashSet<string> SupportPermissions =
-        [DashboardView, LicensingView, SubscriptionSupport, DeviceRelease, AuditView, SyncDataView, SyncPackageUpload, PaymentView];
+    /// <summary>"Descargas" (Fase 13-B, D13B-05): instalador de la última versión publicada y manual de instalación.</summary>
+    public const string DownloadView = "portal.download.view";
 
-    private static readonly HashSet<string> CustomerPermissions = [SyncDataView, SyncPackageUpload, SubscriptionSelfView];
+    private static readonly HashSet<string> SupportPermissions =
+        [DashboardView, LicensingView, SubscriptionSupport, DeviceRelease, AuditView, SyncDataView, SyncPackageUpload, PaymentView, DownloadView];
+
+    private static readonly HashSet<string> CustomerPermissions = [SyncDataView, SyncPackageUpload, SubscriptionSelfView, DownloadView];
 
     private static readonly HashSet<string> SuperadminPermissions =
     [
         DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease,
         SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload, PaymentView, PaymentManage,
-        PriceManage,
+        PriceManage, DownloadView,
     ];
 
     private static readonly HashSet<string> AllPermissions = [.. SuperadminPermissions, .. CustomerPermissions, .. SupportPermissions];

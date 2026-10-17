@@ -30,22 +30,65 @@
 
 ## 3. Instalar
 
-### Todo en uno (una sola caja)
-1. Ejecute el instalador → **Todo en uno** → deje en blanco la recuperación → Instalar.
-2. Al terminar se abre el navegador en `http://localhost:5480/instalacion`: datos de la empresa y del propietario, la clave de licencia
-   (o siga en demostración 30 días) y el **código de recuperación**. Imprímalo y guárdelo fuera del local.
-3. En el escritorio queda el acceso "BusinessPost".
+El instalador pregunta **"¿Cómo usará este equipo?"** con tres opciones:
 
-### Multicaja
-1. En el **servidor**: el instalador con **Servidor (Multicaja)** y el asistente como arriba. Se abren los puertos 5443 (HTTPS) y 5444
-   (búsqueda) solo en la red privada.
-2. En cada **caja**: el instalador con **Caja**. Busca solo el servidor y propone su dirección y la **huella del certificado**. Compárela con
-   la que muestra la administración del servidor. Si no lo encuentra, escríbalas a mano.
-3. Empareje cada caja con el código que genera la administración del servidor: **Administración → Cajas e impresoras → Generar código de emparejamiento**; en la caja, escríbalo en "Emparejar este equipo".
+| Opción en el instalador | Cuándo elegirla | Nombre técnico |
+|---|---|---|
+| **Este equipo es la única caja (Caja Única)** | El local tiene una sola caja | Todo en uno |
+| **Este es el equipo principal: guarda los datos y las demás cajas se conectan a él (Multicaja)** | Local con varias cajas: se instala primero, en el equipo que guarda los datos | Servidor |
+| **Esta es una caja adicional: se conecta al equipo principal del local (Multicaja)** | Cada una de las demás cajas | Caja |
+
+"Equipo principal" no es un servidor en Internet: es un computador del local que guarda los datos; las cajas se conectan a él por la red
+del local, sin Internet.
+
+### Una sola caja
+1. Ejecute el instalador → **Este equipo es la única caja** → deje en blanco la recuperación → Instalar.
+2. Espere a que termine (ver §3.1, la primera vez puede tardar varios minutos). Al final se abre el navegador en el **asistente de
+   configuración**: datos de la empresa y del propietario, la clave de licencia (o siga en demostración 30 días) y el **código de
+   recuperación**. Imprímalo y guárdelo fuera del local.
+3. En el último paso ("Todo listo") pulse **Abrir BusinessPost** para entrar. En el escritorio queda el acceso "BusinessPost".
+
+### Varias cajas (Multicaja)
+1. En el **equipo principal**: el instalador con **Este es el equipo principal** y el asistente como arriba. Se abren los puertos 5443
+   (HTTPS) y 5444 (búsqueda) solo en la red privada.
+2. En cada **caja adicional**: el instalador con **Esta es una caja adicional**. Busca solo el equipo principal y propone su dirección y la
+   **huella del certificado**. Compárela con la que muestra la administración del equipo principal (Cajas e impresoras). Si no lo
+   encuentra, escríbalas a mano. Al terminar se abre la dirección del equipo principal.
+3. Empareje cada caja con el código que genera la administración del equipo principal: **Administración → Cajas e impresoras → Generar
+   código de emparejamiento**; en la caja, escríbalo en "Emparejar este equipo".
+
+### 3.1 Qué muestra el instalador al final (Fase 13-B)
+
+Después de copiar los archivos, la pantalla "Instalando" muestra el paso en curso con una barra en movimiento:
+
+| Texto en pantalla | Qué hace | Cuánto tarda (sin firma de código) |
+|---|---|---|
+| Revisando los archivos con Windows Defender (la primera vez puede tardar varios minutos)… | Abre cada programa una vez para que Defender lo revise ahora y no al arrancar el servicio (§8) | De 1 a 6 minutos (máximo 15) |
+| Creando la base de datos… | PostgreSQL, la base de datos y la configuración (solo en el equipo principal o la única caja) | Alrededor de 1 minuto |
+| Recuperando los datos desde el backup… | Solo si eligió un archivo `.posbak` | Según el tamaño del backup |
+| Registrando los servicios de BusinessPost… | Crea los servicios de Windows (BusinessPost se inicia solo al encender el equipo) | Segundos |
+| Iniciando BusinessPost… | Inicia los servicios | Segundos |
+| Esperando a que BusinessPost responda… | Espera a que el sistema conteste; si el servicio no alcanzó a iniciar, lo vuelve a iniciar (hasta 3 veces) | Normalmente segundos; máximo 5 minutos |
+
+**No cierre el instalador** mientras muestra estos pasos. Solo cuando BusinessPost responde se abre el navegador (en la caja adicional se
+abre la dirección del equipo principal).
+
+**Si BusinessPost no responde en 5 minutos**, el instalador lo dice con un mensaje en lugar de abrir una página en blanco. Qué hacer:
+
+1. Espere unos minutos y abra el acceso **BusinessPost** del escritorio (si la tienda no está configurada, lleva al asistente).
+2. Si no abre, **reinicie el computador**: BusinessPost se inicia solo al encenderlo.
+3. Si aun así no abre: menú Inicio → BusinessPost → **Paquete de soporte**, y envíe a soporte el archivo que queda en el escritorio.
+
+En la caja adicional, si el programa de impresión no responde, el instalador avisa y abre igual la dirección del equipo principal: se
+puede vender; si no imprime, reinicie el computador.
+
+El detalle de cada paso (tiempos del precalentamiento, reinicios del servicio) queda en el registro de la instalación:
+`%TEMP%\Setup Log <fecha> #<n>.txt` del usuario que instaló.
 
 ### Recuperar en un computador nuevo
-En el instalador (modo Todo en uno o Servidor) elija el archivo `.posbak` y escriba el código de recuperación. La instalación crea la base
-de datos, restaura el backup y verifica la auditoría. Después active de nuevo la licencia (el equipo cambió) y vuelva a emparejar las cajas.
+En el instalador (única caja o equipo principal) elija el archivo `.posbak` y escriba el código de recuperación. La instalación crea la
+base de datos, restaura el backup y verifica la auditoría. Después active de nuevo la licencia (el equipo cambió) y vuelva a emparejar
+las cajas.
 
 ## 4. Actualizaciones
 
@@ -69,8 +112,8 @@ servicios, sin contraseñas ni datos de clientes. Envíelo a soporte.
 
 | # | Prueba | Esperado |
 |---|---|---|
-| 1 | Instalar Todo en uno en Windows 10 22H2 limpio (máquina virtual o *Windows Sandbox*) | Servicios `-DB`, `-Server`, `-TerminalAgent`, `-Updater` en ejecución; el asistente se abre solo |
-| 2 | Completar el asistente | Empresa creada, licencia o demostración, código confirmado |
+| 1 | Instalar "única caja" en Windows 10 22H2 limpio (máquina virtual o *Windows Sandbox*) | La pantalla muestra cada paso (§3.1); servicios `-DB`, `-Server`, `-TerminalAgent`, `-Updater` en ejecución sin iniciarlos a mano; el asistente se abre solo y sin "rechazó la conexión" |
+| 2 | Completar el asistente | Empresa creada, licencia o demostración, código confirmado; "Abrir BusinessPost" lleva al ingreso |
 | 3 | Repetir en Windows 11 | Igual |
 | 4 | Servidor + una caja en la misma red | La caja encuentra el servidor y muestra la huella correcta |
 | 5 | Recuperar un backup en otro equipo | Tienda con los datos del backup en menos de una hora |
@@ -91,7 +134,10 @@ da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a 
 - **Precalentamiento (automático):** al descomprimir una versión nueva, el actualizador corre sus programas con `--precalentar` (cargan sus
   archivos y terminan, sin abrir puertos ni tocar la base de datos) mientras la tienda sigue vendiendo con la versión anterior. En pruebas:
   precalentar tomó 44 s y el arranque real después del cambio, **4 s** (sin precalentar: 4 min 23 s).
+- **Al instalar (Fase 13-B):** el instalador hace lo mismo antes de crear los servicios (paso "Revisando los archivos con Windows
+  Defender"): servidor, migrador, agente de caja y actualizador a la vez, con un límite de 15 minutos. En la instalación de la 1.0.1, sin
+  este paso, Windows se rindió a los 30 s ("El servicio no respondió a tiempo", eventos 7009 y 7000) porque Defender tardó 356 s.
 - **Mientras no haya certificado:** después de instalar o actualizar, espere unos minutos al primer arranque y no reinicie el servicio a
-  mano; el instalador ya configura reinicios automáticos si falla.
+  mano; el instalador espera a que BusinessPost responda (y lo vuelve a iniciar si hace falta) y Windows lo reinicia solo si se cae.
 - **En desarrollo:** para evitar la espera después de cada compilación, arranque el servidor con
   `dotnet src/Server/Pos.Server.Host/bin/Debug/net10.0/Pos.Server.Host.dll` en lugar del `.exe`.

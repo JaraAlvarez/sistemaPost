@@ -82,6 +82,8 @@ services:
       Payments__Wompi__IntegritySecret: ${WOMPI_INTEGRITY_SECRET:-}
       Payments__Wompi__EventsSecret: ${WOMPI_EVENTS_SECRET:-}
       Payments__PublicBaseUrl: ${PAYMENTS_PUBLIC_BASE_URL:-}
+      # Portal → Descargas (Fase 13-B): manifiesto que dice cuál es la última versión (vacío = <portal>/updates/stable.json).
+      Downloads__ManifestUrl: ${DOWNLOADS_MANIFEST_URL:-}
       TZ: America/Bogota
       # Registros: información propia; el detalle de ASP.NET Core y EF Core solo desde advertencias.
       Serilog__MinimumLevel__Default: Information
