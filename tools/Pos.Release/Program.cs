@@ -9,12 +9,12 @@ using Pos.Updates.Contracts;
 //        Genera la clave de firma de actualizaciones. Guárdela FUERA del VPS (como la de licencias). Imprime kid y x para update-keys.json.
 //   Pos.Release sign --package BusinessPost-1.4.0.zip --version 1.4.0 --key clave.pem --out stable.json
 //                    [--channel stable] [--package-url BusinessPost-1.4.0.zip] [--min-terminal 1.4.0] [--notes "Novedades…"] [--product BusinessPost]
-//                    [--expires-days 30] [--sequence N]
-//        Firma el manifiesto de una versión (huella SHA-256 y tamaño del paquete). Lleva caducidad (por defecto 30 días: hay que volver a
+//                    [--expires-days 90] [--sequence N]
+//        Firma el manifiesto de una versión (huella SHA-256 y tamaño del paquete). Lleva caducidad (por defecto 90 días: hay que volver a
 //        firmar antes de que venza) y número de secuencia creciente (por defecto la hora Unix de la firma): el actualizador rechaza un
 //        manifiesto vencido o con una secuencia menor que la última que vio.
 //   Pos.Release verify --manifest stable.json --public-key <x> [--product BusinessPost]
-// Códigos de salida: 0 = correcto, 1 = manifiesto inválido, 2 = uso incorrecto.
+// Códigos de salida: 0 = correcto, 1 = manifiesto inválido, 2 = uso incorrecto, 3 = válido pero vence en menos de 15 días (volver a firmar).
 var options = new Dictionary<string, string>(StringComparer.Ordinal);
 for (var i = 1; i < args.Length; i++)
 {
@@ -112,6 +112,12 @@ try
             Console.WriteLine(status == ManifestStatus.Valid
                 ? $"Manifiesto válido: {JsonSerializer.Serialize(manifest)}"
                 : $"MANIFIESTO INVÁLIDO: {status}");
+            if (status == ManifestStatus.Valid && manifest?.ExpiresAt is { } expires && expires - DateTimeOffset.UtcNow < ManifestFreshness.RenewalWarning)
+            {
+                // M5: aviso para quien publica (también sirve como tarea programada en el VPS: código 3 = renovar).
+                Console.WriteLine($"ATENCIÓN: el manifiesto vence el {expires:yyyy-MM-dd}: vuelva a firmarlo (sign) y súbalo antes de esa fecha.");
+                return 3;
+            }
             return status == ManifestStatus.Valid ? 0 : 1;
         }
 

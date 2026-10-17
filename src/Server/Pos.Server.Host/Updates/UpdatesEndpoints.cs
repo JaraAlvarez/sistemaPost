@@ -40,7 +40,56 @@ public sealed record UpdateStatusDto(
     DateTimeOffset? LastCheckAt,
     string? LastError,
     bool InstallRequested,
-    IReadOnlyList<UpdateHistoryEntry> History);
+    IReadOnlyList<UpdateHistoryEntry> History,
+    string? MinimumTerminalVersion = null,
+    IReadOnlyList<string>? OutdatedTerminals = null);
+
+/// <summary>ALTA 4: manifiesto de la versión instalada y las cajas que tienen una versión anterior a la mínima que exige.</summary>
+internal static class TerminalVersions
+{
+    /// <summary>Cabecera con la que el endpoint del manifiesto de las cajas propaga "instalar ahora".</summary>
+    public const string InstallNowHeader = "X-Pos-Install-Now";
+
+    /// <summary>Cuánto dura el pedido "instalar ahora" para las cajas (las que estaban apagadas lo reciben al encender).</summary>
+    public static readonly TimeSpan InstallNowLifetime = TimeSpan.FromHours(24);
+
+    private static readonly System.Text.Json.JsonSerializerOptions Json = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    public static UpdateManifest? Installed(string dataRoot)
+    {
+        var path = Path.Combine(UpdateFiles.Directory(dataRoot), UpdateFiles.InstalledManifest);
+        try
+        {
+            // El actualizador (o el instalador) solo deja aquí un manifiesto que ya verificó; para el aviso basta leer su contenido.
+            return File.Exists(path) && UpdateSigning.Deserialize(File.ReadAllText(path)) is { Payload.Length: > 0 } signed
+                ? System.Text.Json.JsonSerializer.Deserialize<UpdateManifest>(System.Buffers.Text.Base64Url.DecodeFromChars(signed.Payload), Json)
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or FormatException)
+        {
+            return null;
+        }
+    }
+
+    public static IReadOnlyList<string> Outdated(IEnumerable<(string Hostname, string? AppVersion)> terminals, string? minimum)
+    {
+        if (!SemanticVersion.TryParse(minimum, out var min))
+        {
+            return [];
+        }
+
+        return [.. terminals
+            .Where(t => !SemanticVersion.TryParse(t.AppVersion, out var version) || version < min)
+            .Select(t => $"{t.Hostname} ({(string.IsNullOrEmpty(t.AppVersion) ? "versión desconocida" : t.AppVersion)})")
+            .Order(StringComparer.Ordinal)];
+    }
+
+    public static bool InstallNowRequested(string dataRoot, DateTimeOffset now)
+    {
+        var path = Path.Combine(UpdateFiles.Directory(dataRoot), UpdateFiles.TerminalsInstallNow);
+        return File.Exists(path) && now - File.GetLastWriteTimeUtc(path) < InstallNowLifetime;
+    }
+}
 
 internal static class UpdatesEndpoints
 {
@@ -48,14 +97,26 @@ internal static class UpdatesEndpoints
     {
         var group = api.MapGroup("/system/updates").WithTags("Sistema");
 
-        group.MapGet("/", (ProductPaths paths) =>
+        group.MapGet("/", async (ProductPaths paths, PosDbContext context, CancellationToken ct) =>
             {
                 var state = UpdateFiles.ReadState(paths.DataRoot);
                 var history = UpdateFiles.ReadHistory(paths.DataRoot);
+
+                // ALTA 4: aviso del Tablero con las cajas emparejadas que tienen una versión anterior a la mínima de esta versión.
+                var minimum = TerminalVersions.Installed(paths.DataRoot)?.MinimumTerminalVersion;
+                IReadOnlyList<string> outdated = [];
+                if (minimum is not null)
+                {
+                    var connection = context.Database.GetDbConnection();
+                    var terminals = await connection.QueryAsync<(string Hostname, string? AppVersion)>(new CommandDefinition(
+                        "SELECT hostname, app_version FROM org.devices WHERE status = 'ACTIVE' AND kind = 'TERMINAL'", cancellationToken: ct));
+                    outdated = TerminalVersions.Outdated(terminals, minimum);
+                }
+
                 return Results.Ok(new UpdateStatusDto(
                     ProductInfo.Version, state?.AvailableVersion, state?.AvailableNotes, state?.Ready ?? false, state?.NextWindow, state?.LastCheckAt,
                     state?.LastError, File.Exists(Path.Combine(UpdateFiles.Directory(paths.DataRoot), UpdateFiles.InstallNowRequest)),
-                    [.. history.OrderByDescending(h => h.At).Take(30)]));
+                    [.. history.OrderByDescending(h => h.At).Take(30)], minimum, outdated));
             })
             .RequirePermission(UpdatePermissions.View)
             .WithSummary("Versión instalada, actualización descargada, próxima ventana e historial (lo publica el actualizador)");
@@ -70,6 +131,8 @@ internal static class UpdatesEndpoints
 
                 Directory.CreateDirectory(UpdateFiles.Directory(paths.DataRoot));
                 await File.WriteAllTextAsync(Path.Combine(UpdateFiles.Directory(paths.DataRoot), UpdateFiles.InstallNowRequest), version, ct);
+                // ALTA 4: también las cajas instalan sin esperar la madrugada (durante 24 h, para las que estén apagadas).
+                await File.WriteAllTextAsync(Path.Combine(UpdateFiles.Directory(paths.DataRoot), UpdateFiles.TerminalsInstallNow), version, ct);
                 await audit.WriteAsync(
                     new AuditEntry("system", "UPDATE_INSTALL_REQUESTED", "Update", null, version,
                         $"Se pidió instalar ya la versión {version} (sin esperar la ventana). El actualizador la aplica en el próximo minuto, aunque haya jornadas abiertas.",
@@ -82,10 +145,20 @@ internal static class UpdatesEndpoints
             .WithSummary("Instala ahora la actualización descargada (el servidor se reinicia; úselo sin cajas vendiendo)");
 
         // Las cajas se actualizan desde el servidor de la tienda (D13-09): software firmado y público, sin datos del negocio.
-        group.MapGet("/manifest", (ProductPaths paths) =>
+        group.MapGet("/manifest", (ProductPaths paths, HttpContext http, Pos.SharedKernel.Time.IClock clock) =>
             {
                 var path = Path.Combine(UpdateFiles.Directory(paths.DataRoot), UpdateFiles.InstalledManifest);
-                return File.Exists(path) ? Results.File(path, "application/json") : Results.NotFound();
+                if (!File.Exists(path))
+                {
+                    return Results.NotFound();
+                }
+
+                if (TerminalVersions.InstallNowRequested(paths.DataRoot, clock.UtcNow))
+                {
+                    http.Response.Headers[TerminalVersions.InstallNowHeader] = "1";
+                }
+
+                return Results.File(path, "application/json");
             })
             .AllowAnonymousByDesign("Manifiesto firmado de la versión instalada: las cajas lo verifican con su clave de confianza.")
             .WithSummary("Manifiesto firmado de la versión instalada (para las cajas)");

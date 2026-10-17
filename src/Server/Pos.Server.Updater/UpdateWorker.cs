@@ -119,10 +119,11 @@ public static class UpdateKeys
 /// <summary>
 /// Ciclo del actualizador (D13-08): consulta el manifiesto cada ⚙️ 6 h, descarga y verifica el paquete, y lo aplica en la ventana segura
 /// (⚙️ 02:00, sin jornadas abiertas) o cuando el propietario pide "instalar ahora". Publica su estado para el servidor.
-/// Revisión del actualizador: manifiesto solo por https (servidor), con caducidad y número de secuencia creciente (el último visto se
-/// guarda); la firma y la huella se vuelven a revisar justo antes de instalar; la descarga va a un archivo nuevo (no se reutiliza uno
-/// existente); si falla, se reintenta con espera creciente sin hacer un backup nuevo cada minuto; en la caja también se espera la
-/// madrugada (no se detiene el agente en plena venta); si quedó una actualización a medias, al arrancar se vuelve atrás.
+/// Revisión del actualizador: manifiesto solo por https (servidor), con caducidad y número de secuencia creciente por canal (el último visto
+/// se guarda); la firma y la huella se vuelven a revisar justo antes de instalar; la descarga va a un archivo nuevo; si la instalación
+/// falla, se reintenta con espera creciente sin hacer un backup nuevo cada minuto; la caja instala de madrugada, al encender el equipo o
+/// cuando el servidor propaga "instalar ahora" (no se detiene el agente en plena venta); si quedó una actualización a medias, al arrancar
+/// se vuelve atrás y, mientras no se resuelva, no se empieza otra.
 /// </summary>
 public sealed partial class UpdateWorker(
     UpdaterSettings settings,
@@ -137,11 +138,14 @@ public sealed partial class UpdateWorker(
     /// <summary>Espera máxima entre reintentos de una instalación que falló.</summary>
     public static readonly TimeSpan MaxRetryDelay = TimeSpan.FromHours(6);
 
+    /// <summary>ALTA 4: la caja instala lo descargado en los primeros minutos después de encender el equipo, antes de empezar a vender.</summary>
+    public static readonly TimeSpan BootWindow = TimeSpan.FromMinutes(15);
+
     private readonly HttpClient _http = new(handler ?? CreateHandler(settings)) { Timeout = TimeSpan.FromMinutes(10) };
     private DateTimeOffset _nextCheck = DateTimeOffset.MinValue;
     private DateTimeOffset _retryAt = DateTimeOffset.MinValue;
     private int _failures;
-    private string? _failedVersion;
+    private bool _serverAsksInstallNow;
     private (UpdateManifest Manifest, string Package, SignedUpdateManifest Signed)? _ready;
     private string? _lastError;
 
@@ -150,25 +154,20 @@ public sealed partial class UpdateWorker(
 
     internal UpdateManifest? ReadyManifest => _ready?.Manifest;
 
-    /// <summary>Si la instalación vigente no pasa la revisión de seguridad (permisos), no se instala nada (R5).</summary>
+    /// <summary>Si la instalación vigente no pasa la revisión de seguridad (permisos), no se instala ni se deshace nada (R5, B1).</summary>
     public string? SecurityProblem { get; init; }
+
+    /// <summary>ALTA 1: ¿el archivo de control es de SYSTEM o de los Administradores? (registro en curso, secuencias, versión fallida).</summary>
+    public Func<string, bool>? IsTrustedFile { get; init; }
+
+    /// <summary>Tiempo desde que se encendió el equipo (ALTA 4, la caja instala al arrancar).</summary>
+    public Func<TimeSpan> Uptime { get; init; } = () => TimeSpan.FromMilliseconds(Environment.TickCount64);
+
+    private UpdateOrchestrator Orchestrator() => new(host, settings.Mode, settings.DataRoot, time, IsTrustedFile);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try
-        {
-            // U4: una actualización que quedó a medias (corte de luz) se deshace antes de cualquier otra cosa.
-            if (await new UpdateOrchestrator(host, settings.Mode, settings.DataRoot, time).RecoverAsync(stoppingToken) is { } recovered)
-            {
-                LogRecovered(logger, recovered);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _lastError = $"No se pudo deshacer una actualización a medias: {ex.Message}";
-            LogFailed(logger, ex);
-        }
-
+        await RecoverAtStartupAsync(stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -177,13 +176,42 @@ public sealed partial class UpdateWorker(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                // M2: un error al CONSULTAR (red, servidor) no alarga la espera de las instalaciones.
                 _lastError = ex.Message;
-                Backoff();
                 LogFailed(logger, ex);
             }
 
             Publish();
             await Task.Delay(TimeSpan.FromMinutes(1), time, stoppingToken);
+        }
+    }
+
+    /// <summary>U4: una actualización que quedó a medias (corte de luz) se deshace antes de cualquier otra cosa (salvo con un problema de seguridad).</summary>
+    internal async Task RecoverAtStartupAsync(CancellationToken cancellationToken)
+    {
+        if (SecurityProblem is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            var orchestrator = Orchestrator();
+            var recovered = await orchestrator.RecoverAsync(cancellationToken);
+            if (orchestrator.JournalProblem is { } problem)
+            {
+                _lastError = problem;
+            }
+
+            if (recovered is { } result)
+            {
+                LogRecovered(logger, result);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _lastError = $"No se pudo deshacer una actualización a medias: {ex.Message}";
+            LogFailed(logger, ex);
         }
     }
 
@@ -202,25 +230,29 @@ public sealed partial class UpdateWorker(
             await CheckAsync(cancellationToken);
         }
 
-        if (_ready is not { } ready || now < _retryAt)
+        if (_ready is not { } ready)
         {
             return;
         }
 
         var request = Path.Combine(UpdateFiles.Directory(settings.DataRoot), UpdateFiles.InstallNowRequest);
-        var forced = File.Exists(request);
+        var forced = File.Exists(request) || _serverAsksInstallNow;
         var inWindow = TimeZoneInfo.ConvertTime(now, TimeZoneInfo.Local).Hour == settings.WindowHour;
 
-        // También en la caja: el agente no se detiene en plena venta; se espera la madrugada o "instalar ahora" (bajas).
-        if (!forced && !inWindow)
+        // También en la caja: el agente no se detiene en plena venta; se espera la madrugada, el arranque del equipo (antes de vender) o
+        // "instalar ahora". M2: "instalar ahora" se atiende aunque haya una espera por un fallo anterior.
+        var atBoot = settings.Mode == UpdaterMode.Terminal && Uptime() < BootWindow;
+        if (!forced && (!(inWindow || atBoot) || now < _retryAt))
         {
             return;
         }
 
-        if (forced)
+        if (File.Exists(request))
         {
             File.Delete(request);
         }
+
+        _serverAsksInstallNow = false;
 
         // U2: justo antes de instalar se vuelven a revisar la firma del manifiesto y la huella del paquete (pudo cambiar en el disco).
         if (UpdateSigning.Verify(ready.Signed, trustedKeys, settings.Product, out var again) != ManifestStatus.Valid
@@ -232,19 +264,37 @@ public sealed partial class UpdateWorker(
             return;
         }
 
-        var result = await new UpdateOrchestrator(host, settings.Mode, settings.DataRoot, time).ApplyAsync(ready.Manifest, ready.Package, forced, cancellationToken);
+        UpdateResult result;
+        var orchestrator = Orchestrator();
+        try
+        {
+            result = await orchestrator.ApplyAsync(ready.Manifest, ready.Package, forced, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // M2: la espera creciente es para los fallos de INSTALACIÓN.
+            _lastError = ex.Message;
+            Backoff();
+            LogFailed(logger, ex);
+            return;
+        }
+
         LogResult(logger, ready.Manifest.Version, result);
         switch (result)
         {
             case UpdateResult.Deferred:
+                return;
+            case UpdateResult.Pending:
+                _lastError = orchestrator.JournalProblem
+                    ?? "Hay una actualización anterior a medias que no se pudo deshacer: requiere soporte (no se instala otra hasta resolverla).";
                 return;
             case UpdateResult.FailedNoChanges:
                 // Nada cambió (backup, servicios o migración): se reintenta más tarde, cada vez con más espera.
                 Backoff();
                 return;
             case UpdateResult.RolledBack or UpdateResult.RollbackFailed:
-                // Esa versión no sirve en este equipo: no se reintenta hasta que haya una más nueva.
-                _failedVersion = ready.Manifest.Version;
+                // Esa versión no sirve en este equipo: no se reintenta hasta que haya una más nueva (M2: se guarda en el disco).
+                SaveFailedVersion(ready.Manifest.Version);
                 _ready = null;
                 return;
         }
@@ -254,9 +304,10 @@ public sealed partial class UpdateWorker(
         if (settings.Mode == UpdaterMode.Server)
         {
             // Las cajas se actualizan desde aquí (D13-09): el servidor ofrece el manifiesto firmado y el paquete de la versión instalada.
+            // El paquete primero: una caja que ve el manifiesto nuevo ya encuentra su paquete.
             var folder = UpdateFiles.Directory(settings.DataRoot);
-            await File.WriteAllTextAsync(Path.Combine(folder, UpdateFiles.InstalledManifest), UpdateSigning.Serialize(ready.Signed), cancellationToken);
             File.Copy(ready.Package, Path.Combine(folder, UpdateFiles.InstalledPackage), overwrite: true);
+            await File.WriteAllTextAsync(Path.Combine(folder, UpdateFiles.InstalledManifest), UpdateSigning.Serialize(ready.Signed), cancellationToken);
         }
 
         _ready = null;
@@ -278,11 +329,39 @@ public sealed partial class UpdateWorker(
             return;
         }
 
-        var signed = await _http.GetFromJsonAsync<SignedUpdateManifest>(manifestUrl, Json, cancellationToken);
+        using var response = await _http.GetAsync(manifestUrl, cancellationToken);
+        if (settings.Mode == UpdaterMode.Terminal && response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // B3: el equipo principal todavía no tiene manifiesto (instalación sin versión firmada): no hay nada que instalar, no es un error.
+            _lastError = null;
+            _ready = null;
+            return;
+        }
+
+        response.EnsureSuccessStatusCode();
+        _serverAsksInstallNow = settings.Mode == UpdaterMode.Terminal
+            && response.Headers.TryGetValues(TerminalInstallNowHeader, out var values) && values.Contains("1");
+        var signed = await response.Content.ReadFromJsonAsync<SignedUpdateManifest>(Json, cancellationToken);
         var status = UpdateSigning.Verify(signed, trustedKeys, settings.Product, out var manifest);
+        if (status == ManifestStatus.Valid && manifest is not null && settings.Mode == UpdaterMode.Server && manifest.Channel != settings.Channel)
+        {
+            // M4: el canal se valida ANTES de mirar o guardar la secuencia.
+            _lastError = null;
+            _ready = null;
+            return;
+        }
+
         if (status == ManifestStatus.Valid && manifest is not null)
         {
-            status = ManifestFreshness.Check(manifest, time.GetUtcNow(), LastSequence(), requireNotExpired: settings.Mode == UpdaterMode.Server);
+            status = ManifestFreshness.Check(manifest, time.GetUtcNow(), LastSequence(manifest.Channel), requireNotExpired: settings.Mode == UpdaterMode.Server);
+        }
+
+        if (status == ManifestStatus.MissingFreshness && settings.Mode == UpdaterMode.Terminal)
+        {
+            // B3: el equipo principal ofrece el manifiesto de una versión firmada antes de esta revisión: no se instala, sin error permanente.
+            _lastError = null;
+            _ready = null;
+            return;
         }
 
         if (status != ManifestStatus.Valid || manifest is null)
@@ -292,11 +371,11 @@ public sealed partial class UpdateWorker(
             return;
         }
 
-        SaveSequence(manifest.Sequence);
-        if (settings.Mode == UpdaterMode.Server && manifest.Channel != settings.Channel
-            || !SemanticVersion.TryParse(manifest.Version, out var available)
+        SaveSequence(manifest.Channel, manifest.Sequence);
+        _failures = 0;
+        if (!SemanticVersion.TryParse(manifest.Version, out var available)
             || available <= current
-            || string.Equals(manifest.Version, _failedVersion, StringComparison.Ordinal))
+            || string.Equals(manifest.Version, FailedVersion(), StringComparison.Ordinal))
         {
             _lastError = null;
             _ready = null;
@@ -331,6 +410,9 @@ public sealed partial class UpdateWorker(
         _ready = (manifest, package, signed!);
         _lastError = null;
     }
+
+    /// <summary>Cabecera con la que el equipo principal propaga "instalar ahora" a sus cajas (UpdatesEndpoints del servidor).</summary>
+    public const string TerminalInstallNowHeader = "X-Pos-Install-Now";
 
     /// <summary>
     /// R5 (TOCTOU): la descarga va a un archivo NUEVO (se borra el que hubiera y se crea con <see cref="FileMode.CreateNew"/>, en exclusiva)
@@ -394,34 +476,85 @@ public sealed partial class UpdateWorker(
 
     internal DateTimeOffset RetryAt => _retryAt;
 
-    private string SequenceFile => Path.Combine(UpdateFiles.Directory(settings.DataRoot), UpdateFiles.LastSequence);
+    private string ControlFile(string name) => Path.Combine(UpdateFiles.Directory(settings.DataRoot), name);
 
-    private long LastSequence()
+    /// <summary>ALTA 1: un archivo de control que no es de SYSTEM ni de los Administradores se borra y no se usa.</summary>
+    private JsonDocument? ReadControl(string name)
     {
+        var path = ControlFile(name);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        if (IsTrustedFile is not null && !IsTrustedFile(path))
+        {
+            File.Delete(path);
+            return null;
+        }
+
         try
         {
-            return File.Exists(SequenceFile) && JsonDocument.Parse(File.ReadAllText(SequenceFile)).RootElement.GetProperty("sequence").GetInt64() is var value
-                ? value
-                : 0;
+            return JsonDocument.Parse(File.ReadAllText(path));
         }
-        catch (Exception ex) when (ex is JsonException or IOException or KeyNotFoundException or InvalidOperationException or FormatException)
+        catch (Exception ex) when (ex is JsonException or IOException)
         {
-            // Dañado: se sigue con la secuencia del manifiesto actual (no se bloquea el equipo).
-            return 0;
+            return null;
         }
     }
 
-    private void SaveSequence(long sequence)
+    private void WriteControl(string name, object content)
     {
-        if (sequence <= LastSequence())
+        Directory.CreateDirectory(UpdateFiles.Directory(settings.DataRoot));
+        var path = ControlFile(name);
+        File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(content));
+        File.Move(path + ".tmp", path, overwrite: true);
+    }
+
+    /// <summary>M4: última secuencia aceptada, por canal (la caja usa el canal del manifiesto que le sirve el equipo principal).</summary>
+    private long LastSequence(string channel)
+    {
+        using var document = ReadControl(UpdateFiles.LastSequence);
+        return document is not null && document.RootElement.ValueKind == JsonValueKind.Object
+            && document.RootElement.TryGetProperty(channel, out var value) && value.TryGetInt64(out var sequence)
+                ? sequence
+                : 0;
+    }
+
+    private void SaveSequence(string channel, long sequence)
+    {
+        if (sequence <= LastSequence(channel))
         {
             return;
         }
 
-        Directory.CreateDirectory(UpdateFiles.Directory(settings.DataRoot));
-        File.WriteAllText(SequenceFile + ".tmp", JsonSerializer.Serialize(new { sequence }));
-        File.Move(SequenceFile + ".tmp", SequenceFile, overwrite: true);
+        var all = new Dictionary<string, long>(StringComparer.Ordinal);
+        using (var document = ReadControl(UpdateFiles.LastSequence))
+        {
+            if (document is not null && document.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (property.Value.TryGetInt64(out var value))
+                    {
+                        all[property.Name] = value;
+                    }
+                }
+            }
+        }
+
+        all[channel] = sequence;
+        WriteControl(UpdateFiles.LastSequence, all);
     }
+
+    private string? FailedVersion()
+    {
+        using var document = ReadControl(UpdateFiles.FailedVersion);
+        return document is not null && document.RootElement.ValueKind == JsonValueKind.Object
+            && document.RootElement.TryGetProperty("version", out var value) ? value.GetString() : null;
+    }
+
+    private void SaveFailedVersion(string version) => WriteControl(UpdateFiles.FailedVersion, new { version });
 
     private static async Task<bool> MatchesAsync(string path, UpdateManifest manifest, CancellationToken cancellationToken)
     {

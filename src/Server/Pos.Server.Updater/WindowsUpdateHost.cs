@@ -35,6 +35,21 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
     {
         get
         {
+            // ALTA 2: primero el destino REAL de la unión app\current (si apunta a una versión válida de app); current.json, si no hay unión.
+            try
+            {
+                if (Directory.Exists(CurrentLink) && UpdaterSecurity.IsReparsePoint(CurrentLink) && ReadJunctionTarget(CurrentLink) is { } target
+                    && Path.GetFileName(target.TrimEnd(Path.DirectorySeparatorChar)) is { } name && HasVersion(name)
+                    && string.Equals(Path.GetFullPath(Path.Combine(AppDirectory, name)).TrimEnd(Path.DirectorySeparatorChar), target.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                {
+                    return name;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Se sigue con current.json.
+            }
+
             try
             {
                 return File.Exists(CurrentFile)
@@ -54,7 +69,21 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
     /// U1: la versión está preparada si su carpeta tiene el manifiesto de huellas que dejó <see cref="StageAsync"/> (del paquete verificado)
     /// y TODOS sus archivos coinciden, sin enlaces. Una carpeta que solo existe (a medio copiar, o alterada) no cuenta.
     /// </summary>
-    public bool IsStaged(string version) => StagedContents.Verify(Path.Combine(AppDirectory, version)) is null;
+    public bool IsStaged(string version, string packageSha256) =>
+        SemanticVersion.IsSafeFolderName(version) && StagedContents.Verify(Path.Combine(AppDirectory, version), packageSha256) is null;
+
+    /// <summary>ALTA 1: <c>app\{versión}</c> con versión SemVer estricta, carpeta real (no un enlace), hija directa de <c>app</c> y existente.</summary>
+    public bool HasVersion(string version)
+    {
+        if (!SemanticVersion.IsSafeFolderName(version))
+        {
+            return false;
+        }
+
+        var path = Path.GetFullPath(Path.Combine(AppDirectory, version));
+        return string.Equals(Path.GetDirectoryName(path), Path.GetFullPath(AppDirectory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+            && Directory.Exists(path) && !UpdaterSecurity.IsReparsePoint(path);
+    }
 
     /// <summary>
     /// TOCTOU (R5): el paquete se abre UNA vez, en exclusiva (nadie puede cambiarlo mientras tanto); con ese mismo handle se comprueban
@@ -245,10 +274,19 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
     /// </summary>
     public void Activate(string version)
     {
-        var target = Path.Combine(AppDirectory, version);
-        if (!Directory.Exists(target) || UpdaterSecurity.IsReparsePoint(target))
+        if (!HasVersion(version))
         {
-            throw new InvalidOperationException($"La carpeta de la versión {version} no existe o es un enlace.");
+            throw new InvalidOperationException($"La carpeta de la versión {version} no existe, no es válida o es un enlace.");
+        }
+
+        var target = Path.GetFullPath(Path.Combine(AppDirectory, version));
+
+        // ALTA 2: idempotente según el destino REAL de la unión (no current.json): si ya apunta ahí, solo se deja current.json al día.
+        if (Directory.Exists(CurrentLink) && UpdaterSecurity.IsReparsePoint(CurrentLink)
+            && string.Equals(ReadJunctionTarget(CurrentLink)?.TrimEnd(Path.DirectorySeparatorChar), target.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            WriteCurrentFile(version);
+            return;
         }
 
         var staged = CurrentLink + ".nueva";
@@ -291,8 +329,7 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
             throw new InvalidOperationException($"No se pudo activar la versión {version} ({ex.Message}); app\\current sigue en la anterior.", ex);
         }
 
-        File.WriteAllText(CurrentFile + ".tmp", JsonSerializer.Serialize(new { version }));
-        File.Move(CurrentFile + ".tmp", CurrentFile, overwrite: true);
+        WriteCurrentFile(version);
 
         // Ventana: los accesos directos nuevos ya apuntan a app\current; los de instalaciones anteriores, a {InstallRoot}\desktop. La
         // ventana abierta no se cierra: sigue funcionando y la versión nueva se usa la próxima vez que se abra (también en la vuelta atrás).
@@ -381,6 +418,12 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
             LogMigrator(logger, version, start.ArgumentList[0], process.ExitCode, stdout, stderr);
         }
         return process.ExitCode;
+    }
+
+    private void WriteCurrentFile(string version)
+    {
+        File.WriteAllText(CurrentFile + ".tmp", JsonSerializer.Serialize(new { version }));
+        File.Move(CurrentFile + ".tmp", CurrentFile, overwrite: true);
     }
 
     private static void Junction(string link, string target)

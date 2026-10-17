@@ -68,12 +68,20 @@ public static class StagedContents
         await File.WriteAllTextAsync(Path.Combine(root, ManifestFile), JsonSerializer.Serialize(new Contents(packageSha256, files), Json), cancellationToken);
     }
 
-    /// <summary><c>null</c> si la carpeta está completa y sin cambios; si no, el problema.</summary>
-    public static string? Verify(string directory)
+    /// <summary>
+    /// <c>null</c> si la carpeta está completa y sin cambios y (M3) salió del paquete con esa huella (<paramref name="packageSha256"/>, si se
+    /// indica); si no, el problema.
+    /// </summary>
+    public static string? Verify(string directory, string? packageSha256 = null)
     {
         if (Read(directory, out var contents) is { } problem)
         {
             return problem;
+        }
+
+        if (packageSha256 is not null && !string.Equals(contents!.PackageSha256, packageSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{directory} es de otro paquete (otra huella).";
         }
 
         if (FindLink(directory) is { } link)

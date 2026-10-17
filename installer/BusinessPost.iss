@@ -72,6 +72,11 @@ Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"
 Source: "{#PackageDir}\app\{#AppVersion}\desktop\*"; DestDir: "{app}\app\{#AppVersion}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist
 Source: "{#PackageDir}\app\{#AppVersion}\desktop\*"; DestDir: "{app}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist; Check: HasLegacyDesktopApp
 ; Ayudantes del primer arranque (Fase 13-B): no se instalan; se usan desde la carpeta temporal durante la instalación.
+; B3: manifiesto firmado y paquete de esta versión (los deja build-installer.ps1 en {#PackageDir}\update): el equipo principal los ofrece a
+; sus cajas desde el primer día, sin esperar una actualización automática. Se copian SOLO cuando la instalación terminó bien (si vuelve
+; atrás, las cajas no deben recibir una versión más nueva que la del equipo principal). Si la versión no se firmó, no existen.
+Source: "{#PackageDir}\update\installed-manifest.json"; Flags: dontcopy skipifsourcedoesntexist
+Source: "{#PackageDir}\update\installed-package.zip";   Flags: dontcopy skipifsourcedoesntexist nocompression
 Source: "scripts\precalentar.ps1";      Flags: dontcopy
 Source: "scripts\esperar-servicio.ps1"; Flags: dontcopy
 
@@ -751,6 +756,25 @@ begin
     Log('Advertencia: no se pudo ' + What + ' (sc ' + Params + ', código ' + IntToStr(Code) + ').');
 end;
 
+// B3: el manifiesto firmado y el paquete de esta versión quedan como "versión instalada" del equipo principal (las cajas se actualizan
+// desde aquí). Mejor esfuerzo: si la versión no se firmó, no vienen en el instalador.
+procedure PublishInstalledRelease(const Data: String);
+begin
+  try
+    ExtractTemporaryFile('installed-manifest.json');
+    ExtractTemporaryFile('installed-package.zip');
+  except
+    Log('Esta versión no trae manifiesto firmado: las cajas se actualizarán cuando el equipo principal se actualice solo.');
+    exit;
+  end;
+  ForceDirectories(Data + '\updates');
+  if FileCopy(ExpandConstant('{tmp}\installed-package.zip'), Data + '\updates\installed-package.zip', False)
+    and FileCopy(ExpandConstant('{tmp}\installed-manifest.json'), Data + '\updates\installed-manifest.json', False) then
+    Log('Manifiesto y paquete de la versión {#AppVersion} listos para las cajas.')
+  else
+    Log('Advertencia: no se pudieron copiar el manifiesto y el paquete para las cajas.');
+end;
+
 procedure IcaclsOptional(const Params: String);
 var
   Code: Integer;
@@ -764,6 +788,10 @@ end;
 // normal) solo necesita LEER updater.json (dirección y huella del equipo principal). El actualizador vuelve a aplicarlo al arrancar.
 procedure RestrictTerminalDataRoot(const Data: String);
 begin
+  // ALTA 1: primero la propiedad a los Administradores y sin permisos propios en cada archivo (un usuario dueño podría volver a darse
+  // permisos); después, sin herencia y solo SYSTEM y Administradores.
+  IcaclsOptional('"' + Data + '" /setowner *S-1-5-32-544 /T /C /Q');
+  IcaclsOptional('"' + Data + '" /reset /T /C /Q');
   IcaclsOptional('"' + Data + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /Q');
   if FileExists(Data + '\config\updater.json') then
     IcaclsOptional('"' + Data + '\config\updater.json" /grant *S-1-5-32-545:R /Q');
@@ -1054,6 +1082,16 @@ begin
   KeepPreviousInstallData;
   App := ExpandConstant('{app}');
   Data := ExpandConstant('{#DataDir}');
+  // ALTA 3: una actualización automática que quedó a medias la resuelve esta instalación: su registro se archiva (el actualizador ya no la
+  // intenta deshacer otra vez ni deja de buscar versiones nuevas).
+  if FileExists(Data + '\updates\update-in-progress.json') then
+  begin
+    if RenameFile(Data + '\updates\update-in-progress.json',
+      Data + '\updates\update-in-progress.json.' + GetDateTimeString('yyyymmddhhnnss', #0, #0) + '.archivado') then
+      Log('Se archivó el registro de una actualización automática a medias (la resuelve esta instalación).')
+    else
+      DeleteFile(Data + '\updates\update-in-progress.json');
+  end;
   // Se trabaja con la versión NUEVA por su carpeta (app\<versión>); la unión app\current se cambia recién cuando la base de datos quedó
   // lista (I4): si la actualización de la base falla, app\current sigue en la versión anterior y sus servicios vuelven a arrancar.
   Version := App + '\app\{#AppVersion}';
@@ -1238,6 +1276,8 @@ begin
   StartService('{#Product}-Updater');
   // IR3: todo quedó instalado (aunque todavía no responda): ahora sí se registran la versión y el modo nuevos.
   RegisterNewInstallData;
+  if IsServerMode then
+    PublishInstalledRelease(Data);
 
   // 5. Esperar a que responda y solo entonces abrir el navegador (antes: "localhost rechazó la conexión").
   if Premium then

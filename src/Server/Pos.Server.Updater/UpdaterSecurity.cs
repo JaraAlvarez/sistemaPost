@@ -87,9 +87,10 @@ public static class UpdaterSecurity
     internal static string? WritableByUnprivileged(DirectorySecurity security, string what)
     {
         ArgumentNullException.ThrowIfNull(security);
+        // B1: también los derechos genéricos (GENERIC_WRITE 0x40000000, GENERIC_ALL 0x10000000), que aparecen en ACE heredables.
         const FileSystemRights Dangerous = FileSystemRights.WriteData | FileSystemRights.AppendData | FileSystemRights.WriteExtendedAttributes
             | FileSystemRights.WriteAttributes | FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles
-            | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership;
+            | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership | (FileSystemRights)0x40000000 | (FileSystemRights)0x10000000;
         var unprivileged = new[]
         {
             new SecurityIdentifier(WellKnownSidType.WorldSid, null),
@@ -110,6 +111,68 @@ public static class UpdaterSecurity
     }
 
     /// <summary>
+    /// ALTA 1: ¿el dueño del archivo es SYSTEM o el grupo Administradores? Un archivo de control (registro en curso, secuencia, configuración)
+    /// creado por un usuario normal antes de restringir la carpeta no se usa.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static bool IsOwnedByTrusted(string path)
+    {
+        try
+        {
+            if (IsReparsePoint(path))
+            {
+                return false;
+            }
+
+            var owner = new FileInfo(path).GetAccessControl().GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+            return owner is not null && (owner.IsWellKnown(WellKnownSidType.LocalSystemSid) || owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// ALTA 1: borra los archivos de control (registro en curso, secuencias, versión fallida y, en una caja adicional, un
+    /// <c>config\server.json</c>) cuyo dueño no es SYSTEM ni Administradores. Devuelve los avisos.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static IReadOnlyList<string> PurgeUntrustedControlFiles(string dataRoot)
+    {
+        var avisos = new List<string>();
+        var updates = Path.Combine(dataRoot, "updates");
+        var candidates = new List<string>
+        {
+            Path.Combine(updates, "update-in-progress.json"), Path.Combine(updates, "manifest-sequence.json"), Path.Combine(updates, "failed-version.json"),
+        };
+        var updaterJson = Path.Combine(dataRoot, "config", "updater.json");
+        if (File.Exists(updaterJson) && IsOwnedByTrusted(updaterJson) && File.ReadAllText(updaterJson).Contains("\"Terminal\"", StringComparison.OrdinalIgnoreCase))
+        {
+            // En la caja adicional server.json no lo escribe nadie de confianza (es del equipo principal): si apareció, lo dejó otro.
+            candidates.Add(Path.Combine(dataRoot, "config", "server.json"));
+        }
+
+        foreach (var file in candidates.Where(File.Exists))
+        {
+            if (!IsOwnedByTrusted(file))
+            {
+                try
+                {
+                    File.Delete(file);
+                    avisos.Add($"Se borró {file}: no era de SYSTEM ni de los Administradores.");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    avisos.Add($"No se pudo borrar {file} ({ex.Message}).");
+                }
+            }
+        }
+
+        return avisos;
+    }
+
+    /// <summary>
     /// R5 en la caja adicional: la carpeta de datos (configuración, descargas, estado del actualizador) solo para SYSTEM y Administradores,
     /// igual que el migrador la deja en el equipo principal (<c>RestrictDataRootAsync</c>), y lectura para los usuarios de
     /// <see cref="UserReadableConfig"/>. Devuelve los avisos (vacío si todo salió bien).
@@ -125,6 +188,10 @@ public static class UpdaterSecurity
             return avisos;
         }
 
+        // ALTA 1: primero se quita la propiedad a los usuarios (el dueño de un archivo puede volver a darse permisos) y se borran los
+        // permisos propios de cada archivo; recién entonces la carpeta deja de heredar y queda solo para SYSTEM y Administradores.
+        Icacls(avisos, dataRoot, "/setowner", "*S-1-5-32-544", "/T", "/C", "/Q");
+        Icacls(avisos, dataRoot, "/reset", "/T", "/C", "/Q");
         Icacls(avisos, dataRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/Q");
         foreach (var name in UserReadableConfig)
         {

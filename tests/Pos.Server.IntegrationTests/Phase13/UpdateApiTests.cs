@@ -47,8 +47,20 @@ public class UpdateApiTests
         var anonymous = factory.CreateClient();
         (await anonymous.GetAsync("/api/v1/system/updates/manifest", Ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         await File.WriteAllTextAsync(Path.Combine(UpdateFiles.Directory(factory.DataRoot), UpdateFiles.InstalledManifest), "{\"payload\":\"x\"}", Ct);
-        (await anonymous.GetAsync("/api/v1/system/updates/manifest", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        using (var manifest = await anonymous.GetAsync("/api/v1/system/updates/manifest", Ct))
+        {
+            manifest.StatusCode.ShouldBe(HttpStatusCode.OK);
+            // ALTA 4: "instalar ahora" del propietario también llega a las cajas (las que estaban apagadas lo reciben al encender).
+            manifest.Headers.GetValues(TerminalVersions.InstallNowHeader).ShouldBe(["1"]);
+        }
+
         (await anonymous.GetAsync("/api/v1/system/updates", Ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+
+        // ALTA 4: aviso del Tablero con las cajas por debajo de la versión mínima que exige esta versión.
+        TerminalVersions.Outdated([("CAJA-1", "1.3.0"), ("CAJA-2", "1.4.0"), ("CAJA-3", null)], "1.4.0")
+            .ShouldBe(["CAJA-1 (1.3.0)", "CAJA-3 (versión desconocida)"]);
+        TerminalVersions.Outdated([("CAJA-1", "1.3.0")], null).ShouldBeEmpty();
+        (await GetAsync<UpdateStatusDto>(owner, "/api/v1/system/updates")).OutdatedTerminals.ShouldBeEmpty("El manifiesto de prueba no trae versión mínima.");
 
         // El asistente inicial mínimo se sirve también fuera de desarrollo.
         (await (await anonymous.GetAsync("/instalacion", Ct)).Content.ReadAsStringAsync(Ct)).ShouldContain("Configuración inicial");

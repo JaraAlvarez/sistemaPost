@@ -115,6 +115,11 @@ if ($SigningKey) {
     & dotnet run --project (Join-Path $root 'tools\Pos.Release\Pos.Release.csproj') -c Release -- sign --package $zip --version $Version `
         --channel $Channel --key $SigningKey --package-url (Split-Path $zip -Leaf) --notes $Notes --out (Join-Path $releases "$Channel.json")
     if ($LASTEXITCODE -ne 0) { throw 'Falló la firma del manifiesto.' }
+    # B3: el instalador deja el manifiesto firmado y el paquete como "versión instalada" del equipo principal (lo que ofrece a sus cajas).
+    $update = Join-Path $package 'update'
+    New-Item -ItemType Directory -Force $update | Out-Null
+    Copy-Item (Join-Path $releases "$Channel.json") (Join-Path $update 'installed-manifest.json') -Force
+    Copy-Item $zip (Join-Path $update 'installed-package.zip') -Force
 } else {
     Write-Warning 'Sin -SigningKey: no se firmó el manifiesto (las tiendas no instalarán esta versión automáticamente).'
 }

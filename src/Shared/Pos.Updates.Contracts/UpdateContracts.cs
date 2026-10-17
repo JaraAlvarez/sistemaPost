@@ -85,8 +85,11 @@ public enum ManifestStatus
 /// </summary>
 public static class ManifestFreshness
 {
-    /// <summary>Vigencia que pone Pos.Release por defecto.</summary>
-    public static readonly TimeSpan DefaultLifetime = TimeSpan.FromDays(30);
+    /// <summary>Vigencia que pone Pos.Release por defecto (M5: 90 días; hay que volver a firmar antes, ver docs/guia-instalacion.md).</summary>
+    public static readonly TimeSpan DefaultLifetime = TimeSpan.FromDays(90);
+
+    /// <summary>Con menos de esto por vencer, Pos.Release verify avisa que hay que volver a firmar.</summary>
+    public static readonly TimeSpan RenewalWarning = TimeSpan.FromDays(15);
 
     public static ManifestStatus Check(UpdateManifest manifest, DateTimeOffset now, long lastSequence, bool requireNotExpired)
     {
@@ -190,19 +193,35 @@ public static class UpdateSigning
 /// <summary>Versión <c>MAYOR.MENOR.PARCHE</c>; ignora los metadatos de compilación (<c>+abc</c>) y ordena las preliminares (<c>-beta.1</c>) antes.</summary>
 public readonly record struct SemanticVersion(int Major, int Minor, int Patch, string? PreRelease) : IComparable<SemanticVersion>
 {
+    /// <summary>
+    /// SemVer ESTRICTA: <c>MAYOR.MENOR.PARCHE</c> con dígitos, preliminar y metadatos opcionales con identificadores no vacíos de
+    /// <c>[0-9A-Za-z-]</c>, sin espacios ni otros caracteres y de hasta 64 caracteres. La versión se usa como nombre de carpeta
+    /// (<c>app\{versión}</c>): nada de <c>..</c>, barras, dos puntos ni espacios.
+    /// </summary>
     public static bool TryParse(string? text, out SemanticVersion version)
     {
         version = default;
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrEmpty(text) || text.Length > 64 || !text.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+'))
         {
             return false;
         }
 
-        var core = text.Trim().Split('+')[0];
+        var plus = text.Split('+');
+        if (plus.Length > 2 || (plus.Length == 2 && !Identifiers(plus[1])))
+        {
+            return false;
+        }
+
+        var core = plus[0];
         var dash = core.IndexOf('-', StringComparison.Ordinal);
         var pre = dash >= 0 ? core[(dash + 1)..] : null;
+        if (pre is not null && !Identifiers(pre))
+        {
+            return false;
+        }
+
         var parts = (dash >= 0 ? core[..dash] : core).Split('.');
-        if (parts.Length != 3
+        if (parts.Length != 3 || parts.Any(p => p.Length == 0)
             || !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var major)
             || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var minor)
             || !int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var patch))
@@ -213,6 +232,13 @@ public readonly record struct SemanticVersion(int Major, int Minor, int Patch, s
         version = new SemanticVersion(major, minor, patch, string.IsNullOrEmpty(pre) ? null : pre);
         return true;
     }
+
+    /// <summary>Identificadores separados por puntos, cada uno no vacío y solo con <c>[0-9A-Za-z-]</c>.</summary>
+    private static bool Identifiers(string text) =>
+        text.Length > 0 && text.Split('.').All(i => i.Length > 0 && i.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'));
+
+    /// <summary>¿Sirve como nombre de la carpeta de una versión (<c>app\{versión}</c>)? SemVer estricta.</summary>
+    public static bool IsSafeFolderName(string? text) => TryParse(text, out _);
 
     public int CompareTo(SemanticVersion other)
     {
@@ -313,8 +339,14 @@ public static class UpdateFiles
     /// <summary>U4: actualización en curso (se escribe al empezar y se borra al terminar; si queda, al arrancar se vuelve atrás).</summary>
     public const string InProgress = "update-in-progress.json";
 
-    /// <summary>Último número de secuencia de manifiesto aceptado en este equipo.</summary>
+    /// <summary>Último número de secuencia de manifiesto aceptado en este equipo, por canal (M4).</summary>
     public const string LastSequence = "manifest-sequence.json";
+
+    /// <summary>M2: versión que tuvo que volver atrás en este equipo (no se reintenta hasta que haya una más nueva).</summary>
+    public const string FailedVersion = "failed-version.json";
+
+    /// <summary>ALTA 4: el propietario pidió "instalar ahora": el servidor lo propaga a las cajas (24 h) en el manifiesto que les sirve.</summary>
+    public const string TerminalsInstallNow = "terminals-install-now.request";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

@@ -219,7 +219,7 @@ La guía `docs/guia-instalacion.md` tiene la lista de pasos.
     BD del backup previo si ya se había migrado). El servidor no atiende con un esquema que no es el suyo (SCHEMA_OUTDATED).
 - **Bajas:**
   - El manifiesto vence (`expiresAt`, obligatorio en el servidor) y lleva una secuencia creciente (`sequence`, la última vista se guarda en
-    `updates\manifest-sequence.json`). Pos.Release las pone por defecto (30 días, hora Unix).
+    `updates\manifest-sequence.json`). Pos.Release las pone por defecto (90 días, hora Unix).
   - El manifiesto y el paquete van solo por https.
   - Las claves `REVOKED` no se cargan.
   - Las preliminares se ordenan por SemVer (`beta.2 < beta.10`).
@@ -228,3 +228,38 @@ La guía `docs/guia-instalacion.md` tiene la lista de pasos.
   - Si no se detienen los servicios o falla algo sin cambios, se reintenta con espera creciente (5, 10, 20… minutos, hasta 6 h), con un
     solo backup PRE_UPDATE por intento.
   - Si la migración falla, se vuelve a la BD del backup previo antes de arrancar la versión anterior.
+
+**Segunda ronda (ALTA 1-4, M1-M5, B1-B3).**
+- **ALTA 1:**
+  - La versión es SemVer estricta: preliminar y metadatos solo con `[0-9A-Za-z.-]`, sin espacios ni rutas.
+  - El registro en curso solo se usa si sus versiones tienen su carpeta real como hija directa de `app`.
+  - Los archivos de control (registro en curso, secuencias, versión fallida y, en la caja, un `config\server.json`) que no son de SYSTEM
+    ni de los Administradores se borran o se ignoran.
+  - Al restringir la carpeta de datos de la caja (instalador y actualizador) primero se pasa la propiedad a los Administradores
+    (`/setowner /T`), se quitan los permisos propios de cada archivo (`/reset /T`) y recién entonces se corta la herencia.
+- **ALTA 2:** al deshacer, desde "detenido" siempre se activa la versión anterior. `Activate` es idempotente: decide por el destino real
+  de la unión y la recrea si falta. La versión activa sale de la unión, no de `current.json`.
+- **ALTA 3:**
+  - Hay un paso nuevo, "Restored": el backup no se restaura dos veces.
+  - Se hacen como máximo 3 intentos de deshacer. Después queda "requiere soporte": no se toca la BD y los servicios se arrancan siempre.
+  - No se empieza otra actualización mientras haya un registro pendiente.
+  - El instalador archiva el registro pendiente.
+- **ALTA 4:**
+  - La caja instala lo descargado en los primeros 15 minutos después de encender el equipo, antes de vender.
+  - "Instalar ahora" del equipo principal llega a las cajas durante 24 h (cabecera `X-Pos-Install-Now` del manifiesto).
+  - El backoffice avisa qué cajas tienen una versión anterior a la mínima de la versión instalada.
+  - No se implementó instalar cuando el agente lleva un rato inactivo: el agente no sabe si hay una venta abierta.
+- **M1-M5:**
+  - Si falla `Activate`, se vuelve atrás y los servicios arrancan.
+  - La espera creciente es solo para los fallos de instalación; "instalar ahora" se atiende igual.
+  - La versión que volvió atrás se guarda en el disco.
+  - `IsStaged` compara la huella del paquete.
+  - La secuencia se guarda por canal y después de validar el canal.
+  - Los manifiestos vencen a los 90 días y `Pos.Release verify` avisa (código 3) cuando faltan menos de 15 (tarea en
+    docs/guia-instalacion.md).
+- **B1-B3:**
+  - Se consideran también los permisos genéricos de escritura y se revisan `updater\` y la versión activa.
+  - Con un problema de seguridad tampoco se deshace nada al arrancar.
+  - Un registro dañado se avisa y se archiva.
+  - El instalador deja el manifiesto y el paquete de su versión para las cajas (solo si la instalación terminó bien), y una caja sin
+    manifiesto en el equipo principal no muestra un error permanente.

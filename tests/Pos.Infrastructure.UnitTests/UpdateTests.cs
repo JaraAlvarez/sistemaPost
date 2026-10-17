@@ -145,8 +145,9 @@ public sealed class UpdateTests : IDisposable
 
         var paquete = Path.Combine(_dataRoot, "BusinessPost-1.4.0.zip");
         CrearPaquete(paquete, "1.4.0");
-        await host.StageAsync("1.4.0", paquete, ManifestOf(paquete, "1.4.0"), Ct);
-        host.IsStaged("1.4.0").ShouldBeTrue();
+        var manifiesto = ManifestOf(paquete, "1.4.0");
+        await host.StageAsync("1.4.0", paquete, manifiesto, Ct);
+        host.IsStaged("1.4.0", manifiesto.PackageSha256).ShouldBeTrue();
         File.Exists(Path.Combine(install, "app", "1.4.0", "desktop", "LICENSE-WebView2.txt")).ShouldBeTrue();
         Ventana(install).ShouldBe("ventana 1.3.0"); // preparada pero todavía no activa
 
@@ -309,7 +310,9 @@ public sealed class UpdateTests : IDisposable
 
         public string CurrentVersion { get; private set; } = version;
 
-        public bool IsStaged(string v) => _staged.Contains(v);
+        public bool IsStaged(string v, string packageSha256) => _staged.Contains(v);
+
+        public bool HasVersion(string v) => true;
 
         public Task StageAsync(string v, string packagePath, UpdateManifest manifest, CancellationToken cancellationToken) => Step($"stage {v}", () => _staged.Add(v));
 
