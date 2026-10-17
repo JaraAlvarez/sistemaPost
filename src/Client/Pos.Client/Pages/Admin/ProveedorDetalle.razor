@@ -1,0 +1,464 @@
+@page "/admin/proveedores/nuevo"
+@page "/admin/proveedores/{Id:guid}"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject NavigationManager Navigation
+
+<PageTitle>@Titulo · BusinessPost</PageTitle>
+
+<Pagina Titulo="@Titulo" Subtitulo="@Subtitulo" Miga="@Titulo" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (EsExistente && PuedeEditar)
+        {
+            @if (Estado == "ACTIVE")
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="_busy"
+                           OnClick="@(() => EstadoAsync("Blocked", "Proveedor bloqueado: no admite órdenes ni compras nuevas."))">Bloquear</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="InactivarAsync">Inactivar</MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => EstadoAsync("Active", "Proveedor activado."))">Activar</MudButton>
+            }
+        }
+    </Acciones>
+    <ChildContent>
+        @if (Id is null || _proveedor.ValueKind == JsonValueKind.Object)
+        {
+            <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Outlined="true" TabPanelsClass="pa-4">
+                <MudTabPanel Text="Datos">
+                    @if (!EsExistente)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-3">Si el tercero ya existe con esa identificación, se usa el existente y solo se le agrega el rol de proveedor.</MudText>
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="4">
+                                <MudSelect T="string" @bind-Value="_personType" Label="Tipo de persona">
+                                    <MudSelectItem T="string" Value="@("Legal")">Persona jurídica</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("Natural")">Persona natural</MudSelectItem>
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" sm="4">
+                                <MudSelect T="string" @bind-Value="_idType" Label="Tipo de identificación">
+                                    <MudSelectItem T="string" Value="@("NIT")">NIT</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("CC")">Cédula de ciudadanía</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@("CE")">Cédula de extranjería</MudSelectItem>
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="@(_idType == "NIT" ? 8 : 12)" sm="@(_idType == "NIT" ? 3 : 4)">
+                                <MudTextField @bind-Value="_idNumber" Label="Número de identificación" Immediate="true" />
+                            </MudItem>
+                            @if (_idType == "NIT")
+                            {
+                                <MudItem xs="4" sm="1"><MudTextField @bind-Value="_checkDigit" Label="DV" Immediate="true" /></MudItem>
+                            }
+                            @if (_personType == "Legal")
+                            {
+                                <MudItem xs="12"><MudTextField @bind-Value="_legalName" Label="Razón social" Immediate="true" /></MudItem>
+                            }
+                            else
+                            {
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_firstNames" Label="Nombres" Immediate="true" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_lastNames" Label="Apellidos" Immediate="true" /></MudItem>
+                            }
+                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_phone" Label="Teléfono de contacto" Immediate="true" /></MudItem>
+                            <MudItem xs="12" sm="6"><MudTextField @bind-Value="_email" Label="Correo electrónico" Immediate="true" /></MudItem>
+                        </MudGrid>
+                    }
+                    else
+                    {
+                        <MudGrid Spacing="2">
+                            <MudItem xs="12" sm="6">
+                                <MudTextField T="string" Value="@_proveedor.Str("identification")" Label="Identificación (no se puede cambiar)" ReadOnly="true" />
+                            </MudItem>
+                            @if (_party.ValueKind == JsonValueKind.Object)
+                            {
+                                @if (_party.Str("personType") == "LEGAL")
+                                {
+                                    <MudItem xs="12" sm="6"><MudTextField @bind-Value="_legalName" Label="Razón social" Immediate="true" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                                }
+                                else
+                                {
+                                    <MudItem xs="12" sm="3"><MudTextField @bind-Value="_firstNames" Label="Nombres" Immediate="true" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                                    <MudItem xs="12" sm="3"><MudTextField @bind-Value="_lastNames" Label="Apellidos" Immediate="true" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                                }
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_phone" Label="Teléfono de contacto" Immediate="true" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField @bind-Value="_email" Label="Correo electrónico" Immediate="true" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                            }
+                            else
+                            {
+                                <MudItem xs="12" sm="6"><MudTextField T="string" Value="@_proveedor.Str("name")" Label="Nombre" ReadOnly="true" /></MudItem>
+                            }
+                        </MudGrid>
+                    }
+
+                    <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-5 mb-2">Condiciones del proveedor</MudText>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="4">
+                            <MudTextField @bind-Value="_code" Label="Código del proveedor" Immediate="true" ReadOnly="@(!PuedeEditar)"
+                                          HelperText="@(EsExistente ? null : "Vacío = se toma la identificación")" />
+                        </MudItem>
+                        <MudItem xs="6" sm="4"><MudNumericField T="int" @bind-Value="_termDays" Label="Plazo de pago (días)" Min="0" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                        <MudItem xs="6" sm="4"><MudNumericField T="decimal?" @bind-Value="_creditLimit" Label="Cupo de crédito (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                        <MudItem xs="12">
+                            <MudCheckBox T="bool" @bind-Value="_issuesInvoices" Label="Expide factura electrónica (si no, sus compras requieren documento soporte)" ReadOnly="@(!PuedeEditar)" />
+                        </MudItem>
+                        <MudItem xs="12"><MudTextField @bind-Value="_notes" Label="Notas" Immediate="true" Lines="2" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                    </MudGrid>
+
+                    @if (PuedeEditar)
+                    {
+                        <MudStack Row="true" Class="mt-4" Spacing="2">
+                            @if (EsExistente)
+                            {
+                                <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="LlenarFormulario">Descartar cambios</MudButton>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarAsync">Guardar</MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Variant="Variant.Text" Href="/admin/proveedores">Cancelar</MudButton>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_idNumber))" OnClick="CrearAsync">Crear proveedor</MudButton>
+                            }
+                        </MudStack>
+                    }
+                </MudTabPanel>
+
+                @if (EsExistente && Session.Has("purchasing.payable.view"))
+                {
+                    <MudTabPanel Text="Estado de cuenta">
+                        @if (_errorCuenta is not null)
+                        {
+                            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_errorCuenta</MudAlert>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.overline" Class="d-block">Saldo por pagar</MudText>
+                            <MudText Typo="Typo.h4" Class="num mb-3">@Format.Money(_cuenta.Dec("balance"))</MudText>
+                            @if (_resumen.ValueKind == JsonValueKind.Object)
+                            {
+                                <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
+                                    <tbody>
+                                        <tr><td>Comprado del @Dia(_resumen, "from") al @Dia(_resumen, "to")</td><td class="num">@Format.Money(_resumen.Dec("purchasedTotal")) (@_resumen.Dec("purchaseCount") compra(s))</td></tr>
+                                        <tr><td>Última compra</td><td class="num">@UltimaCompra()</td></tr>
+                                        <tr><td>Devoluciones en el período</td><td class="num">@Format.Money(_resumen.Dec("returnsTotal")) (@_resumen.Dec("returnCount"))</td></tr>
+                                        <tr><td>Vencido</td><td class="num">@Format.Money(_resumen.Dec("overdueBalance")) (@_resumen.Dec("overdueCount") factura(s))</td></tr>
+                                    </tbody>
+                                </MudSimpleTable>
+                            }
+                            <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-1">Facturas</MudText>
+                            <MudTable Items="Facturas" Dense="true" Striped="true" Hover="true" Class="mb-4">
+                                <HeaderContent>
+                                    <MudTh>Documento</MudTh><MudTh>Emisión</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">Saldo</MudTh><MudTh>Estado</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd>@context.Str("documentNumber")</MudTd>
+                                    <MudTd>@Dia(context, "issueDate")</MudTd>
+                                    <MudTd>@Dia(context, "dueDate")</MudTd>
+                                    <MudTd Class="num">@Format.Money(context.Dec("originalAmount"))</MudTd>
+                                    <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                                    <MudTd>@EstadoCuenta(context)</MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent><EstadoVacio Mensaje="Sin facturas." Compacto="true" /></NoRecordsContent>
+                            </MudTable>
+                            <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-1">Pagos</MudText>
+                            <MudTable Items="Pagos" Dense="true" Striped="true" Hover="true">
+                                <HeaderContent>
+                                    <MudTh>Número</MudTh><MudTh>Fecha</MudTh><MudTh>Referencia</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Estado</MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd>@context.Str("number")</MudTd>
+                                    <MudTd>@Dia(context, "date")</MudTd>
+                                    <MudTd>@context.Str("reference")</MudTd>
+                                    <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
+                                    <MudTd>@(context.Str("status") == "VOIDED" ? "Anulado" : "Registrado")</MudTd>
+                                </RowTemplate>
+                                <NoRecordsContent><EstadoVacio Mensaje="Sin pagos." Compacto="true" /></NoRecordsContent>
+                            </MudTable>
+                        }
+                    </MudTabPanel>
+                }
+            </MudTabs>
+        }
+    </ChildContent>
+</Pagina>
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private JsonElement _proveedor, _party, _cuenta, _resumen;
+    private string? _clave, _error, _errorCuenta;
+    private bool _loading = true, _busy;
+    private int _tab;
+
+    private string? _idNumber, _checkDigit, _legalName, _firstNames, _lastNames, _phone, _email, _code, _notes;
+    private string _personType = "Legal", _idType = "NIT";
+    private int _termDays = 30;
+    private decimal? _creditLimit;
+    private bool _issuesInvoices = true;
+
+    private bool EsExistente => Id is not null && _proveedor.ValueKind == JsonValueKind.Object;
+
+    private bool PuedeEditar => Session.Has("purchasing.supplier.manage");
+
+    private string Estado => _proveedor.Str("status");
+
+    private string Titulo => EsExistente ? _proveedor.Str("name") : Id is null ? "Nuevo proveedor" : "Proveedor";
+
+    private string? Subtitulo => EsExistente ? $"Código {_proveedor.Str("code")} · {_proveedor.Str("identification")} · {NombreEstado(Estado)}" : null;
+
+    private List<JsonElement> Facturas => _cuenta.Prop("accounts").Items();
+
+    private List<JsonElement> Pagos => _cuenta.Prop("payments").Items();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Solo se carga al cambiar de ruta (nuevo → proveedor creado, o de un proveedor a otro), no en cada re-render del enrutador.
+        var clave = Id?.ToString() ?? "nuevo";
+        if (clave == _clave)
+        {
+            return;
+        }
+
+        _clave = clave;
+        _loading = true;
+        _error = null;
+        _tab = 0;
+        try
+        {
+            if (Id is { } id)
+            {
+                await CargarAsync(id);
+            }
+            else
+            {
+                _proveedor = _party = _cuenta = _resumen = default;
+                _personType = "Legal";
+                _idType = "NIT";
+                _idNumber = _checkDigit = null;
+                LlenarFormulario();
+                _termDays = 30;
+                _issuesInvoices = true;
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+
+        _loading = false;
+    }
+
+    private async Task CargarAsync(Guid id)
+    {
+        _proveedor = await Api.GetAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}");
+        _party = default;
+        if (Session.Has("parties.party.manage"))
+        {
+            try
+            {
+                _party = await Api.GetAsync<JsonElement>($"api/v1/parties/{_proveedor.GetProperty("partyId").GetGuid()}");
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Texto, Severity.Warning);
+            }
+        }
+
+        LlenarFormulario();
+        await CargarCuentaAsync(id);
+    }
+
+    private async Task CargarCuentaAsync(Guid id)
+    {
+        if (!Session.Has("purchasing.payable.view"))
+        {
+            return;
+        }
+
+        try
+        {
+            _resumen = await Api.GetAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}/summary");
+            _cuenta = await Api.GetAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}/statement");
+            _errorCuenta = null;
+        }
+        catch (ApiException ex)
+        {
+            _errorCuenta = ex.Texto;
+        }
+    }
+
+    /// <summary>Copia los datos del proveedor y su tercero al formulario (o lo deja en blanco para uno nuevo).</summary>
+    private void LlenarFormulario()
+    {
+        _legalName = Texto(_party, "legalName");
+        _firstNames = Texto(_party, "firstNames");
+        _lastNames = Texto(_party, "lastNames");
+        _phone = Texto(_party, "phone");
+        _email = Texto(_party, "email");
+        _code = Texto(_proveedor, "code");
+        _notes = Texto(_proveedor, "notes");
+        if (_proveedor.ValueKind == JsonValueKind.Object)
+        {
+            _termDays = (int)_proveedor.Dec("paymentTermDays");
+            _creditLimit = _proveedor.Str("creditLimit") == "" ? null : _proveedor.Dec("creditLimit");
+            _issuesInvoices = _proveedor.Bool("issuesInvoices");
+        }
+        else
+        {
+            _creditLimit = null;
+        }
+    }
+
+    private static string? Texto(JsonElement element, string name) => element.Str(name) is { Length: > 0 } value ? value : null;
+
+    private async Task CrearAsync()
+    {
+        _busy = true;
+        try
+        {
+            var partyId = await TerceroAsync();
+            var created = await Api.PostAsync<JsonElement>("api/v1/purchasing/suppliers", new
+            {
+                partyId,
+                supplier = new
+                {
+                    code = string.IsNullOrWhiteSpace(_code) ? null : _code.Trim(), paymentTermDays = _termDays, preferredPaymentMethodId = (Guid?)null,
+                    creditLimit = _creditLimit, issuesInvoices = _issuesInvoices, notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes,
+                },
+            });
+            Snackbar.Add("Proveedor creado.", Severity.Success);
+            Navigation.NavigateTo($"/admin/proveedores/{created.GetProperty("id").GetGuid()}", replace: true);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    /// <summary>El tercero con esa identificación: el existente o uno nuevo con los datos del formulario.</summary>
+    private async Task<Guid> TerceroAsync()
+    {
+        var number = (_idNumber ?? "").Trim();
+        try
+        {
+            var existing = await Api.GetAsync<JsonElement>($"api/v1/parties/by-identification?type={Uri.EscapeDataString(_idType)}&number={Uri.EscapeDataString(number)}");
+            if (existing.ValueKind == JsonValueKind.Object)
+            {
+                return existing.GetProperty("id").GetGuid();
+            }
+        }
+        catch (ApiException ex) when (ex.Status == HttpStatusCode.NotFound)
+        {
+            // No existe: se crea abajo.
+        }
+
+        var legal = _personType == "Legal";
+        var party = await Api.PostAsync<JsonElement>("api/v1/parties", new
+        {
+            personType = _personType, identificationType = _idType, identificationNumber = number,
+            checkDigit = _idType == "NIT" && !string.IsNullOrWhiteSpace(_checkDigit) ? _checkDigit.Trim() : null,
+            legalName = legal ? _legalName : null, firstNames = legal ? null : _firstNames, lastNames = legal ? null : _lastNames, tradeName = (string?)null,
+            taxRegime = (string?)null, fiscalResponsibilities = (string[]?)null,
+            email = string.IsNullOrWhiteSpace(_email) ? null : _email.Trim(), phone = string.IsNullOrWhiteSpace(_phone) ? null : _phone.Trim(),
+            address = (string?)null, municipalityCode = (string?)null, notes = (string?)null, contacts = (object[]?)null,
+        });
+        return party.GetProperty("id").GetGuid();
+    }
+
+    private async Task GuardarAsync()
+    {
+        await EjecutarAsync(async id =>
+        {
+            if (_party.ValueKind == JsonValueKind.Object)
+            {
+                var legal = _party.Str("personType") == "LEGAL";
+                await Api.PutAsync<JsonElement>($"api/v1/parties/{_party.GetProperty("id").GetGuid()}", new
+                {
+                    personType = legal ? "Legal" : "Natural", identificationType = _party.Str("identificationType"), identificationNumber = _party.Str("identificationNumber"),
+                    checkDigit = _party.Str("checkDigit") is { Length: > 0 } dv ? dv : null,
+                    legalName = legal ? _legalName : null, firstNames = legal ? null : _firstNames, lastNames = legal ? null : _lastNames,
+                    tradeName = _party.Str("tradeName") is { Length: > 0 } trade ? trade : null, taxRegime = _party.Str("taxRegime"),
+                    fiscalResponsibilities = _party.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()).ToList(),
+                    email = string.IsNullOrWhiteSpace(_email) ? null : _email.Trim(), phone = string.IsNullOrWhiteSpace(_phone) ? null : _phone.Trim(),
+                    address = _party.Str("address") is { Length: > 0 } address ? address : null,
+                    municipalityCode = _party.Str("municipalityCode") is { Length: > 0 } municipality ? municipality : null,
+                    notes = _party.Str("notes") is { Length: > 0 } partyNotes ? partyNotes : null, contacts = (object[]?)null,
+                });
+            }
+
+            await Api.PutAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}", new
+            {
+                code = string.IsNullOrWhiteSpace(_code) ? null : _code.Trim(), paymentTermDays = _termDays,
+                preferredPaymentMethodId = _proveedor.Str("preferredPaymentMethodId") is { Length: > 0 } method ? Guid.Parse(method) : (Guid?)null,
+                creditLimit = _creditLimit, issuesInvoices = _issuesInvoices, notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes,
+            });
+            return "Proveedor actualizado.";
+        });
+    }
+
+    private async Task InactivarAsync()
+    {
+        if (await Dialogs.ConfirmarAsync("Inactivar proveedor", $"{_proveedor.Str("name")} quedará inactivo: no podrá usarse en compras nuevas.", "Inactivar", true))
+        {
+            await EstadoAsync("Inactive", "Proveedor inactivado.");
+        }
+    }
+
+    private Task EstadoAsync(string status, string message) =>
+        EjecutarAsync(async id =>
+        {
+            await Api.PostAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}/status", new { status });
+            return message;
+        });
+
+    /// <summary>Ejecuta una acción sobre el proveedor, avisa el resultado y recarga la ficha.</summary>
+    private async Task EjecutarAsync(Func<Guid, Task<string>> accion)
+    {
+        if (Id is not { } id)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var aviso = await accion(id);
+            Snackbar.Add(aviso, Severity.Success);
+            await CargarAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private string UltimaCompra() =>
+        _resumen.Str("lastPurchaseDate") == "" ? "Sin compras" : $"{Dia(_resumen, "lastPurchaseDate")} · {Format.Money(_resumen.Dec("lastPurchaseTotal"))}";
+
+    private static string NombreEstado(string status) => status switch
+    {
+        "ACTIVE" => "Activo",
+        "BLOCKED" => "Bloqueado",
+        "INACTIVE" => "Inactivo",
+        _ => status,
+    };
+
+    private static string EstadoCuenta(JsonElement account) => account.Str("status") switch
+    {
+        "OPEN" when account.Dec("daysOverdue") > 0 => $"Vencida ({account.Dec("daysOverdue")} días)",
+        "OPEN" => "Pendiente",
+        "SETTLED" => "Pagada",
+        "VOIDED" => "Anulada",
+        var other => other,
+    };
+
+    /// <summary>Fecha sin hora (DateOnly del servidor, "yyyy-MM-dd").</summary>
+    private static string Dia(JsonElement element, string name) =>
+        DateOnly.TryParse(element.Str(name), CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "—";
+}

@@ -1,0 +1,446 @@
+@page "/admin/traslados/nuevo"
+@page "/admin/traslados/{Id:guid}"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject NavigationManager Navigation
+
+<PageTitle>@Titulo · BusinessPost</PageTitle>
+
+<Pagina Titulo="@Titulo" Miga="@Titulo" Subtitulo="@Resumen" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (Id is null)
+        {
+            <MudButton Variant="Variant.Outlined" Href="/admin/traslados">Cancelar</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(false))">Guardar borrador</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(true))">Guardar y despachar</MudButton>
+        }
+        else if (_traslado.ValueKind == JsonValueKind.Object)
+        {
+            @if (_recibiendo)
+            {
+                <MudButton Variant="Variant.Outlined" OnClick="@(() => _recibiendo = false)">Volver</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RecibirAsync">Confirmar recepción</MudButton>
+            }
+            else if (Session.Has("inventory.transfer.manage"))
+            {
+                @if (Status == "DRAFT")
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="@(() => AccionAsync("cancel", "Traslado anulado."))">
+                        Anular
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AccionAsync("dispatch", "Traslado despachado: la mercancía quedó en tránsito."))">
+                        Despachar
+                    </MudButton>
+                }
+                @if (Status == "IN_TRANSIT")
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="IniciarRecepcion">Recibir</MudButton>
+                }
+            }
+        }
+    </Acciones>
+    <ChildContent>
+        @if (Id is null)
+        {
+            <MudPaper Outlined="true" Class="pa-4">
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="Guid?" @bind-Value="_origen" Label="Bodega de origen">
+                            @foreach (var warehouse in Elegibles)
+                            {
+                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="Guid?" @bind-Value="_destino" Label="Bodega de destino">
+                            @foreach (var warehouse in Elegibles)
+                            {
+                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField T="string" @bind-Value="_notas" Label="Observación (opcional)" Immediate="true" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudStack Row="true" AlignItems="AlignItems.Center">
+                            <MudTextField T="string" @bind-Value="_buscar" Label="Producto: nombre, SKU o código (Enter busca)" Immediate="true" OnKeyDown="BuscarTeclaAsync"
+                                          Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
+                            <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Style="max-width: 140px" />
+                        </MudStack>
+                        @if (_resultados.Count > 0)
+                        {
+                            <MudSimpleTable Dense="true" Class="my-2">
+                                <tbody>
+                                    @foreach (var product in _resultados)
+                                    {
+                                        <tr>
+                                            <td>@product.Str("sku")</td>
+                                            <td>@product.Str("name")</td>
+                                            <td>@product.Str("baseUnitCode")</td>
+                                            <td><MudButton Size="Size.Small" OnClick="@(() => AgregarLinea(product))">Agregar</MudButton></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+            <MudSimpleTable Dense="true" Class="my-3">
+                <thead><tr><th>SKU</th><th>Producto</th><th class="num">Cantidad</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var line in _lineas)
+                    {
+                        <tr>
+                            <td>@line.Sku</td>
+                            <td>@line.Nombre</td>
+                            <td class="num">@Format.Quantity(line.Cantidad) @line.Unidad</td>
+                            <td><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" aria-label="Quitar" OnClick="@(() => _lineas.Remove(line))" /></td>
+                        </tr>
+                    }
+                    @if (_lineas.Count == 0)
+                    {
+                        <tr><td colspan="4">Agregue al menos un producto.</td></tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <MudText Typo="Typo.caption">Al despachar, la mercancía sale del origen al costo promedio y queda en tránsito hasta que el destino la reciba.</MudText>
+        }
+        else if (_traslado.ValueKind == JsonValueKind.Object)
+        {
+            @if (_traslado.Str("notes") is { Length: > 0 } notes)
+            {
+                <MudText Typo="Typo.body2" Class="mb-2">Observación: @notes</MudText>
+            }
+            @if (_recibiendo)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">Indique lo que llegó. Lo que falte frente a lo despachado queda como pérdida (faltante en traslado).</MudAlert>
+            }
+            <MudSimpleTable Dense="true" Class="my-2">
+                <thead>
+                    <tr>
+                        <th>SKU</th><th>Producto</th><th class="num">Despachado</th><th class="num">Recibido</th>
+                        @if (VerCostos)
+                        {
+                            <th class="num">Costo unitario</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in _traslado.Prop("lines").Items())
+                    {
+                        var productId = line.GetProperty("productId").GetGuid();
+                        <tr>
+                            <td>@line.Str("sku")</td>
+                            <td>@line.Str("productName")</td>
+                            <td class="num">@Format.Quantity(line.Dec("quantitySent"))</td>
+                            <td class="num">
+                                @if (_recibiendo)
+                                {
+                                    <MudNumericField T="decimal" Value="@_recibido.GetValueOrDefault(productId)" ValueChanged="@((decimal v) => _recibido[productId] = v)"
+                                                     Min="0" Max="@line.Dec("quantitySent")" Style="max-width: 140px; margin-left: auto" />
+                                }
+                                else
+                                {
+                                    @(line.Prop("quantityReceived").ValueKind == JsonValueKind.Number ? Format.Quantity(line.Dec("quantityReceived")) : "—")
+                                }
+                            </td>
+                            @if (VerCostos)
+                            {
+                                <td class="num">@(line.Prop("unitCost").ValueKind == JsonValueKind.Number ? Format.Money(line.Dec("unitCost")) : "—")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </ChildContent>
+</Pagina>
+
+@code {
+    private List<JsonElement> _bodegas = [];
+    private List<JsonElement> _resultados = [];
+    private readonly List<Linea> _lineas = [];
+    private readonly Dictionary<Guid, decimal> _recibido = [];
+    private JsonElement _traslado;
+    private string? _error, _notas, _buscar, _cargado;
+    private Guid? _origen, _destino;
+    private decimal _cantidad = 1;
+    private bool _loading = true, _busy, _recibiendo;
+
+    /// <summary>Traslado que se muestra; nulo en <c>/admin/traslados/nuevo</c>.</summary>
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private string Status => _traslado.Str("status");
+
+    private bool VerCostos => Session.Has("inventory.cost.view");
+
+    private string Titulo => Id is null ? "Nuevo traslado" : _traslado.ValueKind == JsonValueKind.Object ? $"Traslado {_traslado.Str("number")}" : "Traslado";
+
+    private string? Resumen
+    {
+        get
+        {
+            if (Id is null || _traslado.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var texto = $"{Estado(Status)} · De {Bodega(_traslado.Str("originWarehouseId"))} a {Bodega(_traslado.Str("destinationWarehouseId"))}";
+            if (_traslado.Date("dispatchedAt") is { } dispatched)
+            {
+                texto += $" · Despachado {Format.Date(dispatched)}";
+            }
+
+            if (_traslado.Date("receivedAt") is { } received)
+            {
+                texto += $" · Recibido {Format.Date(received)}";
+            }
+
+            return texto;
+        }
+    }
+
+    private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarBodegasAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Al crear se pasa de /nuevo a /{id} en la misma instancia: solo se recarga cuando cambia la ruta.
+        var clave = Id?.ToString() ?? "nuevo";
+        if (clave == _cargado)
+        {
+            return;
+        }
+
+        _cargado = clave;
+        if (Id is { } id)
+        {
+            await VerAsync(id);
+        }
+        else
+        {
+            Nuevo();
+        }
+    }
+
+    private async Task CargarBodegasAsync()
+    {
+        if (Session.Me is not { } me)
+        {
+            return;
+        }
+
+        try
+        {
+            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
+        }
+    }
+
+    private string Bodega(string id)
+    {
+        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
+        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
+    }
+
+    private static string Estado(string status) => status switch
+    {
+        "DRAFT" => "Borrador",
+        "IN_TRANSIT" => "En tránsito",
+        "RECEIVED" => "Recibido",
+        "RECEIVED_WITH_DIFFERENCES" => "Recibido con diferencias",
+        "CANCELLED" => "Anulado",
+        _ => status,
+    };
+
+    private void Nuevo()
+    {
+        _origen = _destino = null;
+        _notas = _buscar = null;
+        _cantidad = 1;
+        _resultados = [];
+        _lineas.Clear();
+        _loading = false;
+    }
+
+    private async Task BuscarTeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await BuscarAsync();
+        }
+    }
+
+    private async Task BuscarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_buscar))
+        {
+            _resultados = [];
+            return;
+        }
+
+        try
+        {
+            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            if (_resultados.Count == 1)
+            {
+                AgregarLinea(_resultados[0]);
+            }
+            else if (_resultados.Count == 0)
+            {
+                Snackbar.Add("No hay productos que coincidan.", Severity.Info);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+    }
+
+    private void AgregarLinea(JsonElement product)
+    {
+        var id = product.GetProperty("id").GetGuid();
+        if (_lineas.Any(l => l.ProductId == id))
+        {
+            Snackbar.Add("El producto ya está en el traslado.", Severity.Warning);
+            return;
+        }
+
+        _lineas.Add(new Linea(id, product.Str("sku"), product.Str("name"), product.Str("baseUnitCode"), _cantidad));
+        _resultados = [];
+        _buscar = null;
+        _cantidad = 1;
+    }
+
+    private async Task CrearAsync(bool despachar)
+    {
+        _busy = true;
+        Guid? creado = null;
+        try
+        {
+            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/transfers", new
+            {
+                originWarehouseId = _origen,
+                destinationWarehouseId = _destino,
+                notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
+                lines = _lineas.Select(l => new { productId = l.ProductId, quantity = l.Cantidad }).ToList(),
+            });
+            creado = created.GetProperty("id").GetGuid();
+            if (despachar)
+            {
+                await Api.PostAsync($"api/v1/inventory/transfers/{creado}/dispatch");
+                Snackbar.Add("Traslado creado y despachado: la mercancía quedó en tránsito.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Traslado guardado en borrador.", Severity.Success);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+        if (creado is { } id)
+        {
+            // Si se creó pero no se pudo despachar, queda en borrador: se abre igual para no perderlo de vista.
+            Navigation.NavigateTo($"/admin/traslados/{id}", replace: true);
+        }
+    }
+
+    private async Task VerAsync(Guid id)
+    {
+        _loading = true;
+        try
+        {
+            _traslado = await Api.GetAsync<JsonElement>($"api/v1/inventory/transfers/{id}");
+            _recibiendo = false;
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+
+        _loading = false;
+    }
+
+    private void IniciarRecepcion()
+    {
+        _recibido.Clear();
+        foreach (var line in _traslado.Prop("lines").Items())
+        {
+            _recibido[line.GetProperty("productId").GetGuid()] = line.Dec("quantitySent");
+        }
+
+        _recibiendo = true;
+    }
+
+    private async Task RecibirAsync()
+    {
+        _busy = true;
+        var id = _traslado.GetProperty("id").GetGuid();
+        try
+        {
+            await Api.PostAsync($"api/v1/inventory/transfers/{id}/receive", new
+            {
+                received = _recibido.Select(r => new { productId = r.Key, quantity = r.Value }).ToList(),
+            });
+            Snackbar.Add("Traslado recibido.", Severity.Success);
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task AccionAsync(string action, string message)
+    {
+        if (Confirmaciones.TryGetValue(action, out var confirmacion)
+            && !await Dialogs.ConfirmarAsync(confirmacion.Titulo, confirmacion.Mensaje, confirmacion.Accion, action == "cancel"))
+        {
+            return;
+        }
+
+        _busy = true;
+        var id = _traslado.GetProperty("id").GetGuid();
+        try
+        {
+            await Api.PostAsync($"api/v1/inventory/transfers/{id}/{action}");
+            Snackbar.Add(message, Severity.Success);
+            await VerAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private sealed record Linea(Guid ProductId, string Sku, string Nombre, string Unidad, decimal Cantidad);
+
+    /// <summary>Acciones que se confirman con el diálogo uniforme: título, mensaje y texto del botón.</summary>
+    private static readonly Dictionary<string, (string Titulo, string Mensaje, string Accion)> Confirmaciones = new()
+    {
+        ["cancel"] = ("Anular traslado", "El traslado quedará anulado.", "Anular"),
+        ["dispatch"] = ("Despachar traslado", "La mercancía sale de la bodega de origen y queda en tránsito hasta que la reciban.", "Despachar"),
+    };
+}

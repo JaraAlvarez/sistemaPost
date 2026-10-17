@@ -1,0 +1,745 @@
+@page "/admin/productos/nuevo"
+@page "/admin/productos/{Id:guid}"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject NavigationManager Navigation
+
+<PageTitle>@Titulo · BusinessPost</PageTitle>
+
+<Pagina Titulo="@Titulo" Subtitulo="@Subtitulo" Miga="@Titulo" Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (EsExistente)
+        {
+            @if (Session.Has("catalog.price.manage"))
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Sell" OnClick="AbrirPrecio">Cambiar precio</MudButton>
+            }
+            @if (PuedeEditar)
+            {
+                @if (Estado == "ACTIVE")
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="@(() => CambiarEstadoAsync("Inactive"))">Inactivar</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Outlined" OnClick="@(() => CambiarEstadoAsync("Active"))">Activar</MudButton>
+                }
+                @if (Estado != "DISCONTINUED")
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="@(() => CambiarEstadoAsync("Discontinued"))">Descontinuar</MudButton>
+                }
+            }
+        }
+    </Acciones>
+    <ChildContent>
+        @if (Id is null || _producto.ValueKind == JsonValueKind.Object)
+        {
+            <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Outlined="true" TabPanelsClass="pa-4">
+                <MudTabPanel Text="Datos">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="4">
+                            <MudTextField @bind-Value="_sku" Label="SKU (código interno)" Immediate="true" ReadOnly="@(!PuedeEditar)"
+                                          HelperText="@(EsExistente ? null : "Vacío = se genera uno automáticamente")" />
+                        </MudItem>
+                        <MudItem xs="12" sm="8"><MudTextField @bind-Value="_name" Label="Nombre" Immediate="true" ReadOnly="@(!PuedeEditar)" /></MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="_shortName" Label="Nombre corto (tirilla y caja)" Immediate="true" ReadOnly="@(!PuedeEditar)"
+                                          HelperText="Vacío = se toma del nombre" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="Guid?" @bind-Value="_category" Label="Categoría" ReadOnly="@(!PuedeEditar)">
+                                @foreach (var category in _categories)
+                                {
+                                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="Guid?" @bind-Value="_brand" Label="Marca (opcional)" Clearable="true" ReadOnly="@(!PuedeEditar)">
+                                @foreach (var brand in _brands.Where(b => b.Str("status") == "ACTIVE" || b.GetProperty("id").GetGuid() == _brand))
+                                {
+                                    <MudSelectItem T="Guid?" Value="@brand.GetProperty("id").GetGuid()">@brand.Str("name")</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudSelect T="string" Value="_unit" ValueChanged="CambiarUnidad" Label="Unidad base" ReadOnly="@(!PuedeEditar)">
+                                @foreach (var unit in _units)
+                                {
+                                    <MudSelectItem T="string" Value="@unit.Str("code")">@unit.Str("name") (@unit.Str("code"))</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudSelect T="string" @bind-Value="_productType" Label="Tipo" ReadOnly="@(!PuedeEditar)">
+                                <MudSelectItem T="string" Value="@("Stockable")">Maneja inventario</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("Service")">Servicio (sin inventario)</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12">
+                            <MudTextField @bind-Value="_description" Label="Descripción (opcional)" Immediate="true" Lines="2" ReadOnly="@(!PuedeEditar)" />
+                        </MudItem>
+                        <MudItem xs="12" sm="4">
+                            <MudTextField @bind-Value="_plu" Label="PLU de báscula (opcional)" Immediate="true" ReadOnly="@(!PuedeEditar)" HelperText="Hasta 6 dígitos" />
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudNumericField T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudSelect T="string" @bind-Value="_netUnit" Label="Unidad del contenido" Clearable="true" ReadOnly="@(!PuedeEditar)">
+                                @foreach (var unit in _units)
+                                {
+                                    <MudSelectItem T="string" Value="@unit.Str("code")">@unit.Str("name") (@unit.Str("code"))</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            @if (_unit == "KG")
+                            {
+                                <MudCheckBox T="bool" @bind-Value="_scale" Label="Se vende por báscula (requiere PLU)" ReadOnly="@(!PuedeEditar)" />
+                            }
+                            @if (ModoVenta == "Unit")
+                            {
+                                <MudCheckBox T="bool" @bind-Value="_decimal" Label="Permite cantidades con decimales" ReadOnly="@(!PuedeEditar)" />
+                            }
+                            <MudCheckBox T="bool" @bind-Value="_openPrice" Label="Permite precio abierto en la caja" ReadOnly="@(!PuedeEditar)" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            @if (_productType == "Stockable")
+                            {
+                                <MudCheckBox T="bool" @bind-Value="_lots" Label="Maneja lotes" ReadOnly="@(!PuedeEditar)" />
+                                <MudCheckBox T="bool" @bind-Value="_expiry" Label="Maneja fecha de vencimiento (requiere lotes)" ReadOnly="@(!PuedeEditar)" />
+                            }
+                        </MudItem>
+                        @if (!EsExistente)
+                        {
+                            <MudItem xs="12" sm="6">
+                                <MudTextField @bind-Value="_barcode" Label="Código de barras" Immediate="true" HelperText="Vacío = se genera uno interno" />
+                            </MudItem>
+                            <MudItem xs="12" sm="6">
+                                <MudNumericField T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
+                            </MudItem>
+                        }
+                    </MudGrid>
+                    @if (PuedeEditar)
+                    {
+                        <MudStack Row="true" Class="mt-4" Spacing="2">
+                            @if (EsExistente)
+                            {
+                                <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="LlenarFormulario">Descartar cambios</MudButton>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !FormularioValido)" OnClick="GuardarAsync">Guardar</MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Variant="Variant.Text" Href="/admin/productos">Cancelar</MudButton>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !FormularioValido)" OnClick="CrearAsync">Crear producto</MudButton>
+                            }
+                        </MudStack>
+                    }
+                </MudTabPanel>
+
+                @if (EsExistente)
+                {
+                    <MudTabPanel Text="Precios">
+                        <MudText Typo="Typo.overline" Class="d-block">Precio vigente (lista por defecto)</MudText>
+                        <MudText Typo="Typo.h4" Class="num mb-3">@Format.Money(PrecioVigente)</MudText>
+                        <MudTable Items="_precios" Dense="true" Striped="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh>Lista</MudTh><MudTh>Presentación</MudTh><MudTh>Sucursal</MudTh><MudTh Class="num">Precio</MudTh>
+                                <MudTh>Desde</MudTh><MudTh>Hasta</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@NombreLista(context)</MudTd>
+                                <MudTd>@NombrePresentacion(context.Str("packagingId"))</MudTd>
+                                <MudTd>@(context.Str("branchId") == "" ? "Todas" : "Solo una sucursal")</MudTd>
+                                <MudTd Class="num">@Format.Money(context.Dec("price"))</MudTd>
+                                <MudTd>@Format.Date(context.Date("validFrom"))</MudTd>
+                                <MudTd>@Format.Date(context.Date("validTo"))</MudTd>
+                                <MudTd>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@ColorEstadoPrecio(context.Str("state"))">@EstadoPrecio(context.Str("state"))</MudChip>
+                                </MudTd>
+                                <MudTd>
+                                    @if (context.Str("state") == "SCHEDULED" && Session.Has("catalog.price.manage"))
+                                    {
+                                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => CancelarPrecioAsync(context))">Cancelar</MudButton>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent><EstadoVacio Mensaje="El producto no tiene precios." Detalle="Use «Cambiar precio» para fijar el primero." Compacto="true" /></NoRecordsContent>
+                        </MudTable>
+                    </MudTabPanel>
+
+                    <MudTabPanel Text="Códigos de barras">
+                        @if (PuedeEditar)
+                        {
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap">
+                                <MudTextField @bind-Value="_nuevoCodigo" Label="Código de fábrica" Immediate="true" Style="min-width:240px" />
+                                <MudCheckBox T="bool" @bind-Value="_nuevoPrincipal" Label="Principal" />
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_nuevoCodigo))"
+                                           OnClick="@(() => AgregarCodigoAsync(false))">Agregar</MudButton>
+                                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => AgregarCodigoAsync(true))">Generar código interno</MudButton>
+                            </MudStack>
+                        }
+                        <MudTable Items="Codigos" Dense="true" Striped="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh>Código</MudTh><MudTh>Tipo</MudTh><MudTh>Presentación</MudTh><MudTh>Principal</MudTh><MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd Class="num">@context.Str("code")</MudTd>
+                                <MudTd>@TipoCodigo(context.Str("codeType"))</MudTd>
+                                <MudTd>@NombrePresentacion(context.Str("packagingId"))</MudTd>
+                                <MudTd>@(context.Bool("isPrimary") ? "Sí" : "")</MudTd>
+                                <MudTd>
+                                    @if (PuedeEditar)
+                                    {
+                                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => QuitarCodigoAsync(context))">Quitar</MudButton>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent><EstadoVacio Mensaje="El producto no tiene códigos de barras." Compacto="true" /></NoRecordsContent>
+                        </MudTable>
+                    </MudTabPanel>
+
+                    <MudTabPanel Text="Impuestos">
+                        @if (PuedeEditar)
+                        {
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap">
+                                <MudSelect T="Guid?" @bind-Value="_nuevoImpuesto" Label="Agregar impuesto" Style="min-width:260px">
+                                    @foreach (var tax in ImpuestosDisponibles)
+                                    {
+                                        <MudSelectItem T="Guid?" Value="@tax.GetProperty("id").GetGuid()">@tax.Str("code") · @tax.Str("name")</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                @if (ImpuestoNuevoEsFijo)
+                                {
+                                    <MudNumericField T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
+                                }
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _nuevoImpuesto is null)" OnClick="AgregarImpuestoAsync">Agregar</MudButton>
+                            </MudStack>
+                        }
+                        <MudTable Items="Impuestos" Dense="true" Striped="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Clase</MudTh><MudTh Class="num">Tarifa vigente</MudTh><MudTh Class="num">Valor fijo del producto</MudTh><MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@context.Str("code")</MudTd>
+                                <MudTd>@context.Str("name")</MudTd>
+                                <MudTd>@ClaseImpuesto(context.Str("kind"))</MudTd>
+                                <MudTd Class="num">@TarifaVigente(context)</MudTd>
+                                <MudTd Class="num">@(context.Str("fixedAmount") == "" ? "—" : Format.Money(context.Dec("fixedAmount")))</MudTd>
+                                <MudTd>
+                                    @if (PuedeEditar)
+                                    {
+                                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => QuitarImpuestoAsync(context))">Quitar</MudButton>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent><EstadoVacio Mensaje="El producto no tiene impuestos." Detalle="Sin impuestos el producto se vende como excluido." Compacto="true" /></NoRecordsContent>
+                        </MudTable>
+                    </MudTabPanel>
+
+                    @if (Session.Has("inventory.stock.view"))
+                    {
+                        <MudTabPanel Text="Existencias">
+                            @if (_errorExistencias is not null)
+                            {
+                                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_errorExistencias</MudAlert>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.overline" Class="d-block">Total en la sucursal</MudText>
+                                <MudText Typo="Typo.h4" Class="num mb-3">@Format.Quantity(_existencias.Sum(e => e.Dec("quantity"))) @_unit</MudText>
+                                <MudTable Items="_existencias" Dense="true" Striped="true" Hover="true">
+                                    <HeaderContent>
+                                        <MudTh>Bodega</MudTh><MudTh Class="num">Cantidad</MudTh><MudTh Class="num">Mínimo</MudTh>
+                                        <MudTh Class="num">Costo promedio</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Último movimiento</MudTh>
+                                    </HeaderContent>
+                                    <RowTemplate>
+                                        <MudTd>
+                                            @context.Str("warehouseCode")
+                                            @if (context.Bool("belowMinimum"))
+                                            {
+                                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Bajo el mínimo</MudChip>
+                                            }
+                                        </MudTd>
+                                        <MudTd Class="num">@Format.Quantity(context.Dec("quantity")) @context.Str("baseUnitCode")</MudTd>
+                                        <MudTd Class="num">@(context.Str("minQuantity") == "" ? "—" : Format.Quantity(context.Dec("minQuantity")))</MudTd>
+                                        <MudTd Class="num">@(context.Str("averageCost") == "" ? "—" : Format.Money(context.Dec("averageCost")))</MudTd>
+                                        <MudTd Class="num">@(context.Str("totalValue") == "" ? "—" : Format.Money(context.Dec("totalValue")))</MudTd>
+                                        <MudTd>@Format.Date(context.Date("lastMovementAt"))</MudTd>
+                                    </RowTemplate>
+                                    <NoRecordsContent><EstadoVacio Mensaje="Sin existencias registradas en las bodegas de la sucursal." Compacto="true" /></NoRecordsContent>
+                                </MudTable>
+                            }
+                        </MudTabPanel>
+                    }
+                }
+            </MudTabs>
+        }
+    </ChildContent>
+</Pagina>
+
+@if (_cambiandoPrecio)
+{
+    <div class="panel-fondo">
+        <div class="panel" role="dialog" aria-modal="true" aria-labelledby="titulo-precio">
+            <h2 id="titulo-precio">Precio de @_producto.Str("name")</h2>
+            <MudText Typo="Typo.body2">Precio actual: @Format.Money(PrecioVigente). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
+            <MudNumericField T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" />
+            <div class="acciones">
+                <MudButton OnClick="@(() => _cambiandoPrecio = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarPrecioAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private List<JsonElement> _categories = [], _brands = [], _units = [], _taxes = [], _priceLists = [], _precios = [], _existencias = [];
+    private JsonElement _producto;
+    private string? _clave;
+    private bool _maestros, _loading = true, _busy, _cambiandoPrecio;
+    private int _tab;
+    private string? _error, _errorExistencias;
+
+    // Formulario de datos.
+    private string? _sku, _name, _shortName, _description, _plu, _netUnit, _barcode;
+    private string _unit = "UND", _productType = "Stockable";
+    private Guid? _category, _brand;
+    private decimal? _netContent;
+    private decimal _price;
+    private bool _scale, _decimal, _openPrice, _lots, _expiry;
+
+    // Precio, códigos e impuestos.
+    private decimal _nuevoPrecio;
+    private DateTime? _desde;
+    private string? _nuevoCodigo;
+    private bool _nuevoPrincipal;
+    private Guid? _nuevoImpuesto;
+    private decimal? _nuevoValorFijo;
+
+    private bool EsExistente => Id is not null && _producto.ValueKind == JsonValueKind.Object;
+
+    private bool PuedeEditar => Session.Has("catalog.product.manage");
+
+    private string Estado => _producto.Str("status");
+
+    private string Titulo => EsExistente ? _producto.Str("name") : Id is null ? "Nuevo producto" : "Producto";
+
+    private string? Subtitulo => EsExistente ? $"SKU {_producto.Str("sku")} · {NombreEstado(Estado)}" : null;
+
+    private bool FormularioValido => !string.IsNullOrWhiteSpace(_name) && _category is not null && !string.IsNullOrWhiteSpace(_unit);
+
+    private List<JsonElement> Codigos => _producto.Prop("barcodes").Items();
+
+    private List<JsonElement> Impuestos => _producto.Prop("taxes").Items();
+
+    private List<JsonElement> Presentaciones => _producto.Prop("packagings").Items();
+
+    /// <summary>Modo de venta según la dimensión de la unidad base (el servidor exige que coincidan).</summary>
+    private string ModoVenta => _units.FirstOrDefault(u => u.Str("code") == _unit).Str("dimension") switch
+    {
+        "WEIGHT" => "Weight",
+        "VOLUME" => "Volume",
+        _ => "Unit",
+    };
+
+    private IEnumerable<JsonElement> ImpuestosDisponibles =>
+        _taxes.Where(t => t.Str("status") == "ACTIVE" && Impuestos.All(i => i.Str("taxId") != t.Str("id")));
+
+    private bool ImpuestoNuevoEsFijo =>
+        _nuevoImpuesto is { } id && _taxes.FirstOrDefault(t => t.Str("id") == id.ToString()).Str("calculation") == "FIXED_PER_UNIT";
+
+    private Guid? ListaPorDefecto =>
+        _priceLists.FirstOrDefault(l => l.Bool("isDefault")) is { ValueKind: JsonValueKind.Object } list ? list.GetProperty("id").GetGuid() : null;
+
+    /// <summary>Precio vigente por unidad base en la lista por defecto, para todas las sucursales.</summary>
+    private decimal? PrecioVigente =>
+        _precios.Where(p => p.Str("state") == "CURRENT" && p.Str("packagingId") == "" && p.Str("branchId") == ""
+                            && (ListaPorDefecto is not { } lista || p.Str("priceListId") == lista.ToString()))
+            .Select(p => (decimal?)p.Dec("price")).FirstOrDefault();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Solo se carga al cambiar de ruta (nuevo → producto creado, o de un producto a otro), no en cada re-render del enrutador.
+        var clave = Id?.ToString() ?? "nuevo";
+        if (clave == _clave)
+        {
+            return;
+        }
+
+        _clave = clave;
+
+        _loading = true;
+        _error = null;
+        try
+        {
+            await CargarMaestrosAsync();
+            if (Id is { } id)
+            {
+                await CargarProductoAsync(id);
+            }
+            else
+            {
+                _producto = default;
+                _tab = 0;
+                LlenarFormulario();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+
+        _loading = false;
+    }
+
+    private async Task CargarMaestrosAsync()
+    {
+        if (_maestros)
+        {
+            return;
+        }
+
+        _categories = (await Api.GetAsync<JsonElement>("api/v1/catalog/categories")).Items();
+        _brands = (await Api.GetAsync<JsonElement>("api/v1/catalog/brands")).Items();
+        _units = (await Api.GetAsync<JsonElement>("api/v1/catalog/units")).Items();
+        _taxes = (await Api.GetAsync<JsonElement>("api/v1/catalog/taxes")).Items();
+        _priceLists = (await Api.GetAsync<JsonElement>("api/v1/catalog/price-lists")).Items();
+        _maestros = true;
+    }
+
+    private async Task CargarProductoAsync(Guid id)
+    {
+        _producto = await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{id}");
+        _precios = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{id}/prices")).Items();
+        LlenarFormulario();
+        await CargarExistenciasAsync(id);
+    }
+
+    private async Task CargarExistenciasAsync(Guid id)
+    {
+        if (!Session.Has("inventory.stock.view"))
+        {
+            return;
+        }
+
+        try
+        {
+            _existencias = (await Api.GetAsync<JsonElement>($"api/v1/inventory/stock?productId={id}")).Items();
+            _errorExistencias = null;
+        }
+        catch (ApiException ex)
+        {
+            _errorExistencias = ex.Texto;
+        }
+    }
+
+    /// <summary>Copia los datos del producto al formulario (o lo deja en blanco para uno nuevo).</summary>
+    private void LlenarFormulario()
+    {
+        var p = _producto;
+        var existe = p.ValueKind == JsonValueKind.Object;
+        _sku = existe ? p.Str("sku") : null;
+        _name = existe ? p.Str("name") : null;
+        _shortName = existe ? p.Str("shortName") : null;
+        _description = existe && p.Str("description") is { Length: > 0 } description ? description : null;
+        _category = existe ? p.GetProperty("categoryId").GetGuid() : null;
+        _brand = existe && p.Str("brandId") is { Length: > 0 } brand ? Guid.Parse(brand) : null;
+        _unit = existe ? p.Str("baseUnitCode") : "UND";
+        _productType = existe && p.Str("productType") == "SERVICE" ? "Service" : "Stockable";
+        _scale = p.Bool("isSoldByScale");
+        _decimal = p.Bool("allowsDecimalQuantity");
+        _openPrice = p.Bool("allowsOpenPrice");
+        _lots = p.Bool("tracksLots");
+        _expiry = p.Bool("tracksExpiry");
+        _plu = existe && p.Str("pluCode") is { Length: > 0 } plu ? plu : null;
+        _netContent = existe && p.Str("netContent") != "" ? p.Dec("netContent") : null;
+        _netUnit = existe && p.Str("netContentUnit") is { Length: > 0 } netUnit ? netUnit : null;
+        _barcode = null;
+        _price = 0;
+    }
+
+    private void CambiarUnidad(string unit)
+    {
+        _unit = unit;
+        if (unit != "KG")
+        {
+            _scale = false;
+        }
+    }
+
+    /// <summary>Cuerpo de ProductInput (enums como los espera el servidor: Unit/Weight/Volume, Stockable/Service).</summary>
+    private object DatosProducto()
+    {
+        var mode = ModoVenta;
+        var stockable = _productType == "Stockable";
+        return new
+        {
+            sku = string.IsNullOrWhiteSpace(_sku) ? null : _sku.Trim(),
+            name = (_name ?? "").Trim(),
+            shortName = string.IsNullOrWhiteSpace(_shortName) ? null : _shortName.Trim(),
+            description = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            categoryId = _category,
+            brandId = _brand,
+            baseUnitCode = _unit,
+            saleMode = mode,
+            productType = _productType,
+            isSoldByScale = _unit == "KG" && _scale,
+            allowsDecimalQuantity = mode != "Unit" || _decimal,
+            allowsOpenPrice = _openPrice,
+            tracksLots = stockable && _lots,
+            tracksExpiry = stockable && _expiry,
+            pluCode = string.IsNullOrWhiteSpace(_plu) ? null : _plu.Trim(),
+            netContent = _netContent,
+            netContentUnit = _netContent is null || string.IsNullOrWhiteSpace(_netUnit) ? null : _netUnit,
+        };
+    }
+
+    private async Task CrearAsync()
+    {
+        _busy = true;
+        try
+        {
+            var created = await Api.PostAsync<JsonElement>("api/v1/catalog/products", new
+            {
+                product = DatosProducto(),
+                barcode = string.IsNullOrWhiteSpace(_barcode) ? null : _barcode.Trim(),
+                generateBarcode = string.IsNullOrWhiteSpace(_barcode),
+                taxes = (object?)null,
+                price = _price,
+            });
+            Snackbar.Add("Producto creado.", Severity.Success);
+            Navigation.NavigateTo($"/admin/productos/{created.GetProperty("id").GetGuid()}", replace: true);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task GuardarAsync()
+    {
+        await EjecutarAsync(async id =>
+        {
+            await Api.PutAsync<JsonElement>($"api/v1/catalog/products/{id}", DatosProducto());
+            return "Producto actualizado.";
+        });
+    }
+
+    private async Task CambiarEstadoAsync(string status)
+    {
+        var name = _producto.Str("name");
+        var (titulo, mensaje, accion, peligro, aviso) = status switch
+        {
+            "Inactive" => ("Inactivar producto", $"{name} quedará inactivo: no se podrá vender hasta activarlo de nuevo.", "Inactivar", true, "Producto inactivado."),
+            "Discontinued" => ("Descontinuar producto", $"{name} quedará descontinuado: deja de venderse y de comprarse.", "Descontinuar", true, "Producto descontinuado."),
+            _ => ("Activar producto", $"{name} quedará activo y se podrá vender.", "Activar", false, "Producto activado."),
+        };
+        if (!await Dialogs.ConfirmarAsync(titulo, mensaje, accion, peligro))
+        {
+            return;
+        }
+
+        await EjecutarAsync(async id =>
+        {
+            await Api.PostAsync($"api/v1/catalog/products/{id}/status", new { status });
+            return aviso;
+        });
+    }
+
+    private void AbrirPrecio()
+    {
+        _nuevoPrecio = PrecioVigente ?? 0;
+        _desde = null;
+        _cambiandoPrecio = true;
+    }
+
+    private async Task GuardarPrecioAsync()
+    {
+        await EjecutarAsync(async id =>
+        {
+            var result = await Api.PostAsync<JsonElement>($"api/v1/catalog/products/{id}/prices", new
+            {
+                price = _nuevoPrecio, priceListId = (Guid?)null, packagingId = (Guid?)null, branchId = (Guid?)null,
+                validFrom = _desde is { } d ? new DateTimeOffset(d.Date) : (DateTimeOffset?)null,
+            });
+            foreach (var warning in result.Prop("warnings").Items())
+            {
+                Snackbar.Add(warning.ToString(), Severity.Warning);
+            }
+
+            _cambiandoPrecio = false;
+            return _desde is null ? "Precio actualizado." : "Precio programado.";
+        });
+    }
+
+    private async Task CancelarPrecioAsync(JsonElement price)
+    {
+        if (!await Dialogs.ConfirmarAsync("Cancelar precio programado",
+                $"El precio de {Format.Money(price.Dec("price"))} que iba a regir desde el {Format.Date(price.Date("validFrom"))} no se aplicará.", "Cancelar precio", true))
+        {
+            return;
+        }
+
+        await EjecutarAsync(async id =>
+        {
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/prices/{price.GetProperty("id").GetGuid()}", null);
+            return "Precio programado cancelado.";
+        });
+    }
+
+    private async Task AgregarCodigoAsync(bool generar)
+    {
+        await EjecutarAsync(async id =>
+        {
+            await Api.PostAsync($"api/v1/catalog/products/{id}/barcodes", new
+            {
+                code = generar ? null : _nuevoCodigo?.Trim(), packagingId = (Guid?)null, type = (string?)null, generate = generar, isPrimary = _nuevoPrincipal,
+            });
+            _nuevoCodigo = null;
+            _nuevoPrincipal = false;
+            return generar ? "Código interno generado." : "Código agregado.";
+        });
+    }
+
+    private async Task QuitarCodigoAsync(JsonElement barcode)
+    {
+        if (!await Dialogs.ConfirmarAsync("Quitar código de barras", $"El código {barcode.Str("code")} dejará de reconocerse en la caja.", "Quitar", true))
+        {
+            return;
+        }
+
+        await EjecutarAsync(async id =>
+        {
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/barcodes/{barcode.GetProperty("id").GetGuid()}", null);
+            return "Código quitado.";
+        });
+    }
+
+    private async Task AgregarImpuestoAsync()
+    {
+        if (_nuevoImpuesto is not { } taxId)
+        {
+            return;
+        }
+
+        var fixedAmount = ImpuestoNuevoEsFijo ? _nuevoValorFijo : null;
+        var taxes = Impuestos.Select(t => new { taxId = t.GetProperty("taxId").GetGuid(), fixedAmount = t.Str("fixedAmount") == "" ? (decimal?)null : t.Dec("fixedAmount") })
+            .Append(new { taxId, fixedAmount }).ToList();
+        await GuardarImpuestosAsync(taxes, "Impuesto agregado.");
+        _nuevoImpuesto = null;
+        _nuevoValorFijo = null;
+    }
+
+    private async Task QuitarImpuestoAsync(JsonElement tax)
+    {
+        if (!await Dialogs.ConfirmarAsync("Quitar impuesto", $"El producto dejará de llevar {tax.Str("name")} en las ventas nuevas.", "Quitar", true))
+        {
+            return;
+        }
+
+        var taxes = Impuestos.Where(t => t.Str("id") != tax.Str("id"))
+            .Select(t => new { taxId = t.GetProperty("taxId").GetGuid(), fixedAmount = t.Str("fixedAmount") == "" ? (decimal?)null : t.Dec("fixedAmount") }).ToList();
+        await GuardarImpuestosAsync(taxes, "Impuesto quitado.");
+    }
+
+    private Task GuardarImpuestosAsync(object taxes, string aviso) =>
+        EjecutarAsync(async id =>
+        {
+            await Api.PutAsync<JsonElement>($"api/v1/catalog/products/{id}/taxes", taxes);
+            return aviso;
+        });
+
+    /// <summary>Ejecuta una acción sobre el producto, avisa el resultado y recarga la ficha.</summary>
+    private async Task EjecutarAsync(Func<Guid, Task<string>> accion)
+    {
+        if (Id is not { } id)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var aviso = await accion(id);
+            Snackbar.Add(aviso, Severity.Success);
+            await CargarProductoAsync(id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private string NombreLista(JsonElement price) =>
+        _priceLists.FirstOrDefault(l => l.Str("id") == price.Str("priceListId")) is { ValueKind: JsonValueKind.Object } list ? list.Str("name") : price.Str("priceListCode");
+
+    private string NombrePresentacion(string packagingId) =>
+        packagingId == "" ? "Unidad base" : Presentaciones.FirstOrDefault(p => p.Str("id") == packagingId).Str("name") is { Length: > 0 } name ? name : "Presentación";
+
+    private string TarifaVigente(JsonElement productTax)
+    {
+        var rate = _taxes.FirstOrDefault(t => t.Str("id") == productTax.Str("taxId")).Prop("currentRate");
+        if (rate.ValueKind != JsonValueKind.Object)
+        {
+            return "—";
+        }
+
+        return rate.Str("rate") != "" ? $"{rate.Dec("rate").ToString("0.##", Format.Colombia)} %" : Format.Money(rate.Dec("fixedAmount"));
+    }
+
+    private static string NombreEstado(string status) => status switch
+    {
+        "ACTIVE" => "Activo",
+        "INACTIVE" => "Inactivo",
+        "DISCONTINUED" => "Descontinuado",
+        _ => status,
+    };
+
+    private static string EstadoPrecio(string state) => state switch
+    {
+        "CURRENT" => "Vigente",
+        "SCHEDULED" => "Programado",
+        "EXPIRED" => "Vencido",
+        _ => state,
+    };
+
+    private static Color ColorEstadoPrecio(string state) => state switch
+    {
+        "CURRENT" => Color.Success,
+        "SCHEDULED" => Color.Info,
+        _ => Color.Default,
+    };
+
+    private static string TipoCodigo(string type) => type.Replace("_", "", StringComparison.Ordinal) switch
+    {
+        "EAN13" => "EAN-13",
+        "EAN8" => "EAN-8",
+        "UPCA" => "UPC-A",
+        "CODE128" => "Code 128",
+        "INTERNAL" => "Interno",
+        _ => type,
+    };
+
+    private static string ClaseImpuesto(string kind) => kind switch
+    {
+        "VAT" => "IVA",
+        "CONSUMPTION" => "Impuesto al consumo (INC)",
+        "BAG_CONSUMPTION" => "Impuesto a las bolsas",
+        "SUGARY_DRINKS" => "Bebidas azucaradas (IBUA)",
+        "ULTRA_PROCESSED_FOOD" => "Ultraprocesados (ICUI)",
+        "OTHER" => "Otro",
+        _ => kind,
+    };
+}

@@ -63,21 +63,32 @@ public static class Navegacion
         ]),
     ];
 
-    /// <summary>Grupo y opción de una ruta (sin la consulta), o nulos si la ruta no está en el menú.</summary>
-    public static (GrupoMenu? Grupo, OpcionMenu? Opcion) Buscar(string ruta)
+    /// <summary>
+    /// Grupo y opción de una ruta (sin la consulta), o nulos si la ruta no está en el menú. Una página de detalle
+    /// (<c>/admin/compras/{id}</c>, <c>/admin/compras/nueva</c>) pertenece a la opción cuya ruta la contiene; <c>Exacta</c> dice si
+    /// es la lista misma.
+    /// </summary>
+    public static (GrupoMenu? Grupo, OpcionMenu? Opcion, bool Exacta) Buscar(string ruta)
     {
         var path = "/" + ruta.Split('?', '#')[0].Trim('/');
+        (GrupoMenu? Grupo, OpcionMenu? Opcion) mejor = (null, null);
         foreach (var grupo in Grupos)
         {
             foreach (var opcion in grupo.Opciones)
             {
                 if (string.Equals(opcion.Ruta, path, StringComparison.OrdinalIgnoreCase))
                 {
-                    return (grupo, opcion);
+                    return (grupo, opcion, true);
+                }
+
+                if (opcion.Ruta.Length > 1 && path.StartsWith(opcion.Ruta + "/", StringComparison.OrdinalIgnoreCase)
+                    && opcion.Ruta.Length > (mejor.Opcion?.Ruta.Length ?? 0))
+                {
+                    mejor = (grupo, opcion);
                 }
             }
         }
 
-        return (null, null);
+        return (mejor.Grupo, mejor.Opcion, false);
     }
 }

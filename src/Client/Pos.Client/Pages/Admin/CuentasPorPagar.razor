@@ -9,7 +9,7 @@
     <Acciones>
         @if (Session.Has("purchasing.payable.pay"))
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Payments" OnClick="@(() => NuevoPagoAsync(null, null))">Registrar pago</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Payments" Href="/admin/cuentas-por-pagar/pago">Registrar pago</MudButton>
         }
     </Acciones>
     <ChildContent>
@@ -58,7 +58,7 @@
                         <MudTd>
                             @if (Session.Has("purchasing.payable.pay") && context.Str("status") == "OPEN" && context.Dec("balance") > 0)
                             {
-                                <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => NuevoPagoAsync(context.GetProperty("supplierId").GetGuid(), context.GetProperty("id").GetGuid()))">Pagar</MudButton>
+                                <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/admin/cuentas-por-pagar/pago?proveedor={context.GetProperty("supplierId").GetGuid()}&factura={context.GetProperty("id").GetGuid()}")">Pagar</MudButton>
                             }
                         </MudTd>
                     </RowTemplate>
@@ -153,57 +153,6 @@
     </ChildContent>
 </Pagina>
 
-@if (_pagando)
-{
-    <div class="panel-fondo">
-        <div class="panel" role="dialog" aria-modal="true" style="width:min(760px, 96vw)">
-            <h2>Registrar pago a proveedor</h2>
-            <MudSelect T="Guid?" Value="_pagoProveedor" ValueChanged="@(v => ElegirProveedorAsync(v))" Label="Proveedor">
-                @foreach (var supplier in _conSaldo)
-                {
-                    <MudSelectItem T="Guid?" Value="@supplier.Id">@supplier.Nombre</MudSelectItem>
-                }
-            </MudSelect>
-            @if (_aplicaciones.Count > 0)
-            {
-                <MudSimpleTable Dense="true" Outlined="true" Class="my-2">
-                    <thead><tr><th></th><th>Documento</th><th>Vence</th><th class="num">Saldo</th><th class="num">Valor a pagar</th></tr></thead>
-                    <tbody>
-                        @foreach (var item in _aplicaciones)
-                        {
-                            <tr>
-                                <td><MudCheckBox T="bool" @bind-Value="item.Incluir" Dense="true" /></td>
-                                <td>@item.Documento</td>
-                                <td>@item.Vence</td>
-                                <td class="num">@Format.Money(item.Saldo)</td>
-                                <td style="min-width:140px"><MudNumericField T="decimal" @bind-Value="item.Valor" Min="0" Max="item.Saldo" Disabled="!item.Incluir" /></td>
-                            </tr>
-                        }
-                    </tbody>
-                </MudSimpleTable>
-                <MudText Class="num mb-2"><b>Total del pago: @Format.Money(TotalPago)</b></MudText>
-            }
-            else if (_pagoProveedor is not null)
-            {
-                <MudText Typo="Typo.body2" Class="my-2">El proveedor no tiene facturas con saldo.</MudText>
-            }
-            <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
-                @foreach (var method in _medios)
-                {
-                    <MudSelectItem T="Guid?" Value="@method.GetProperty("id").GetGuid()">@method.Str("name")@(method.Bool("requiresReference") ? " (exige referencia)" : "")</MudSelectItem>
-                }
-            </MudSelect>
-            <MudTextField @bind-Value="_referencia" Label="Referencia (transferencia, cheque…)" Immediate="true" />
-            <MudDatePicker @bind-Date="_fecha" Label="Fecha del pago" DateFormat="dd/MM/yyyy" />
-            <MudTextField @bind-Value="_notas" Label="Notas" Immediate="true" />
-            <div class="acciones">
-                <MudButton OnClick="@(() => _pagando = false)">Cancelar</MudButton>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="PagarAsync">Registrar pago</MudButton>
-            </div>
-        </div>
-    </div>
-}
-
 @if (_anular.ValueKind == JsonValueKind.Object)
 {
     <div class="panel-fondo">
@@ -222,15 +171,11 @@
 @code {
     private List<JsonElement> _cuentas = [];
     private List<JsonElement> _pagos = [];
-    private List<JsonElement> _medios = [];
     private List<Proveedor> _proveedores = [];
-    private List<Proveedor> _conSaldo = [];
-    private List<Aplicacion> _aplicaciones = [];
     private JsonElement _vencimientos, _edades, _anular;
-    private Guid? _proveedor, _pagoProveedor, _medio;
-    private DateTime? _fecha;
-    private string? _error, _referencia, _notas, _motivo;
-    private bool _loading = true, _busy, _soloAbiertas = true, _pagando;
+    private Guid? _proveedor;
+    private string? _error, _motivo;
+    private bool _loading = true, _busy, _soloAbiertas = true;
 
     private List<JsonElement> Vencidas => _vencimientos.Prop("overdue").Items();
 
@@ -239,8 +184,6 @@
     private List<JsonElement> Edades => _edades.Prop("rows").Items();
 
     private JsonElement Totales => _edades.Prop("totals");
-
-    private decimal TotalPago => _aplicaciones.Where(a => a.Incluir).Sum(a => a.Valor);
 
     protected override Task OnInitializedAsync() => CargarAsync();
 
@@ -314,103 +257,6 @@
         }
     }
 
-    private async Task NuevoPagoAsync(Guid? supplierId, Guid? accountId)
-    {
-        try
-        {
-            if (_medios.Count == 0)
-            {
-                _medios = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
-            }
-
-            _conSaldo = Proveedores((await Api.GetAsync<JsonElement>("api/v1/purchasing/payables?openOnly=true")).Items());
-            _medio = null;
-            _referencia = _notas = null;
-            _fecha = DateTime.Today;
-            _aplicaciones = [];
-            _pagoProveedor = null;
-            _pagando = true;
-            if (supplierId is not null)
-            {
-                await ElegirProveedorAsync(supplierId);
-                if (accountId is { } only)
-                {
-                    foreach (var item in _aplicaciones)
-                    {
-                        item.Incluir = item.AccountId == only;
-                    }
-                }
-            }
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Texto, Severity.Error);
-        }
-    }
-
-    private async Task ElegirProveedorAsync(Guid? supplierId)
-    {
-        _pagoProveedor = supplierId;
-        _aplicaciones = [];
-        if (supplierId is not { } id)
-        {
-            return;
-        }
-
-        try
-        {
-            var accounts = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/payables?supplierId={id}&openOnly=true")).Items();
-            _aplicaciones = [.. accounts.OrderBy(a => a.Str("dueDate")).Select(a => new Aplicacion
-            {
-                AccountId = a.GetProperty("id").GetGuid(),
-                Documento = a.Str("documentNumber"),
-                Vence = Dia(a, "dueDate"),
-                Saldo = a.Dec("balance"),
-                Valor = a.Dec("balance"),
-                Incluir = true,
-            })];
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Texto, Severity.Error);
-        }
-    }
-
-    private async Task PagarAsync()
-    {
-        if (_pagoProveedor is null || _medio is null)
-        {
-            Snackbar.Add("Seleccione el proveedor y el medio de pago.", Severity.Warning);
-            return;
-        }
-
-        _busy = true;
-        try
-        {
-            var payment = await Api.PostAsync<JsonElement>("api/v1/purchasing/payments", new
-            {
-                supplierId = _pagoProveedor, paymentDate = DateOnly.FromDateTime(_fecha ?? DateTime.Today), paymentMethodId = _medio,
-                reference = string.IsNullOrWhiteSpace(_referencia) ? null : _referencia.Trim(), notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
-                allocations = _aplicaciones.Where(a => a.Incluir && a.Valor > 0).Select(a => new { accountId = a.AccountId, amount = a.Valor }).ToList(),
-                cashSessionId = (Guid?)null,
-            });
-            Snackbar.Add($"Pago {payment.Str("number")} registrado por {Format.Money(payment.Dec("amount"))}.", Severity.Success);
-            foreach (var warning in payment.Prop("warnings").Items())
-            {
-                Snackbar.Add(warning.Str("message"), Severity.Warning);
-            }
-
-            _pagando = false;
-            await CargarAsync();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Texto, Severity.Error);
-        }
-
-        _busy = false;
-    }
-
     private void PedirAnulacion(JsonElement payment)
     {
         _motivo = null;
@@ -436,19 +282,4 @@
     }
 
     private sealed record Proveedor(Guid Id, string Nombre);
-
-    private sealed class Aplicacion
-    {
-        public Guid AccountId { get; init; }
-
-        public string Documento { get; init; } = "";
-
-        public string Vence { get; init; } = "";
-
-        public decimal Saldo { get; init; }
-
-        public bool Incluir { get; set; }
-
-        public decimal Valor { get; set; }
-    }
 }
