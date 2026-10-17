@@ -86,6 +86,7 @@ public sealed class IdentityModule : IModule
 
         group.MapGet("/credentials", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetMyCredentialsQuery(), ct)).ToHttpResult())
             .RequireAuthenticatedUser()
+            .AllowWhilePasswordChangeRequired()
             .WithSummary("Código de caja, si tiene PIN, y las longitudes de PIN y contraseña que exige la empresa");
 
         group.MapPost("/authorizations", async (CreateAuthorizationCommand command, IDispatcher d, CancellationToken ct) =>

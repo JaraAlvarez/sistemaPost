@@ -66,6 +66,9 @@ public interface IIdentityStore
     /// <summary>Usuarios humanos activos con rol OWNER para todas las sucursales, sin contar <paramref name="excludingUserId"/> (DU-07).</summary>
     Task<int> CountActiveOwnersAsync(Guid? excludingUserId, CancellationToken cancellationToken);
 
+    /// <summary>Usuarios que tienen el rol (en cualquier alcance).</summary>
+    Task<IReadOnlyList<Guid>> ListUserIdsWithRoleAsync(Guid roleId, CancellationToken cancellationToken);
+
     /// <summary>
     /// Bloqueo transaccional (pg_advisory_xact_lock) de los Propietarios/Administradores de la empresa: se toma antes de contarlos para que
     /// dos cambios simultáneos no dejen la empresa sin ninguno (PU4). Se libera al confirmar o revertir.
@@ -104,6 +107,9 @@ public interface ISessionStore
     void Add(NewSession session);
 
     Task<bool> RevokeAsync(Guid sessionId, Guid? revokedBy, string reason, CancellationToken cancellationToken);
+
+    /// <summary>Usuario dueño de una sesión activa, o <c>null</c>.</summary>
+    Task<Guid?> GetActiveSessionUserAsync(Guid sessionId, CancellationToken cancellationToken);
 
     /// <summary>Revoca las sesiones activas del usuario, salvo <paramref name="exceptSessionId"/>.</summary>
     Task<int> RevokeAllForUserAsync(Guid userId, Guid? revokedBy, string reason, Guid? exceptSessionId, CancellationToken cancellationToken);

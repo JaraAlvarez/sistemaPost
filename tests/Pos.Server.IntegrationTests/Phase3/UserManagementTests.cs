@@ -13,6 +13,8 @@ public class UserManagementTests
 {
     private const string LicenseManage = "licensing.license.manage";
 
+    private static readonly string[] UserView = ["identity.user.view"];
+
     private static readonly string[] ManagerPermissions = ["identity.user.manage", "identity.user.view", "identity.role.manage", "identity.permission.view"];
 
     private const string ActiveOwnersSql = """
@@ -289,6 +291,100 @@ public class UserManagementTests
         await scenario.Owner.PutAsJsonAsync($"/api/v1/identity/users/{partnerId}/roles", new[] { new { roleId = adminRole, branchId = (Guid?)null } }, Json, Ct)
             .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
         (await Phase2.OrganizationApiTests.ScalarAsync<long>(factory, ActiveOwnersSql)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Editar_o_borrar_el_rol_de_un_superior_no_sirve_para_degradarlo()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        await scenario.CreateUserAsync("admin2", "ADMIN");
+        var admin = await scenario.LocalClientAsync("admin2");
+
+        // SOCIO: copia del rol Propietario (todos los permisos), asignada a un socio.
+        var clone = await scenario.Owner.PostAsJsonAsync(
+            $"/api/v1/identity/roles/{await scenario.RoleIdAsync("OWNER")}/clone", new { code = "SOCIO", name = "Socio" }, Json, Ct);
+        clone.StatusCode.ShouldBe(HttpStatusCode.Created, await clone.Content.ReadAsStringAsync(Ct));
+        var socio = (await clone.Content.ReadFromJsonAsync<RoleDto>(Json, Ct))!;
+        await scenario.CreateUserAsync("socio", "SOCIO");
+
+        var fewer = socio.Permissions.Where(p => p != LicenseManage).ToArray();
+        await admin.PutAsJsonAsync($"/api/v1/identity/roles/{socio.Id}", new { name = "Socio", permissions = fewer }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
+        await admin.DeleteAsync($"/api/v1/identity/roles/{socio.Id}", Ct).ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
+
+        // El mensaje dice qué permisos faltan.
+        var problem = await SecurityScenario.ProblemAsync(await admin.DeleteAsync($"/api/v1/identity/roles/{socio.Id}", Ct));
+        problem.GetProperty("detail").GetString()!.ShouldContain("tiene permisos que usted no tiene:");
+
+        // Un rol cuyos permisos el Administrador sí tiene, pero que también tiene el Propietario: tampoco.
+        var helper = await scenario.Owner.PostAsJsonAsync(
+            "/api/v1/identity/roles", new { code = "AYUDANTE", name = "Ayudante", permissions = UserView }, Json, Ct);
+        helper.StatusCode.ShouldBe(HttpStatusCode.Created, await helper.Content.ReadAsStringAsync(Ct));
+        var helperId = (await helper.Content.ReadFromJsonAsync<RoleDto>(Json, Ct))!.Id;
+        var ownerRoles = new[]
+        {
+            new { roleId = await scenario.RoleIdAsync("OWNER"), branchId = (Guid?)null },
+            new { roleId = helperId, branchId = (Guid?)null },
+        };
+        await scenario.CreateUserAsync("dueno2", "OWNER");
+        var partner = await scenario.LocalClientAsync("dueno2");
+        (await partner.PutAsJsonAsync($"/api/v1/identity/users/{scenario.Setup.OwnerUserId}/roles", ownerRoles, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await admin.DeleteAsync($"/api/v1/identity/roles/{helperId}", Ct).ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
+        await admin.PutAsJsonAsync($"/api/v1/identity/roles/{helperId}", new { name = "Ayudante", permissions = Array.Empty<string>() }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
+
+        // Un rol sin superiores y con permisos que tiene: sí.
+        var free = await admin.PostAsJsonAsync("/api/v1/identity/roles", new { code = "LIBRE", name = "Libre", permissions = UserView }, Json, Ct);
+        free.StatusCode.ShouldBe(HttpStatusCode.Created, await free.Content.ReadAsStringAsync(Ct));
+        var freeId = (await free.Content.ReadFromJsonAsync<RoleDto>(Json, Ct))!.Id;
+        (await admin.PutAsJsonAsync($"/api/v1/identity/roles/{freeId}", new { name = "Libre 2", permissions = Array.Empty<string>() }, Json, Ct))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await admin.DeleteAsync($"/api/v1/identity/roles/{freeId}", Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Un_DENY_por_sucursal_no_se_esquiva_con_un_objetivo_global()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        var adminId = await scenario.CreateUserAsync("admin2", "ADMIN");
+        var deny = new[] { new { permissionCode = "sales.sale.void", effect = "Deny", branchId = (Guid?)scenario.Setup.BranchId, reason = "Solo supervisores anulan aquí" } };
+        (await scenario.Owner.PutAsJsonAsync($"/api/v1/identity/users/{adminId}/overrides", deny, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var admin = await scenario.LocalClientAsync("admin2");
+        var supervisor = await scenario.CreateUserAsync("supervisora", "CASH_SUPERVISOR");
+        var target = await scenario.CreateUserAsync("nueva", null);
+        var supervisorRole = new[] { new { roleId = await scenario.RoleIdAsync("CASH_SUPERVISOR"), branchId = (Guid?)null } };
+
+        // Asignar en TODAS las sucursales un rol que anula ventas incluiría la sucursal donde él no puede.
+        await admin.PutAsJsonAsync($"/api/v1/identity/users/{target}/roles", supervisorRole, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.PRIVILEGE_ESCALATION");
+        // Y quien anula en todas las sucursales tiene más poder que él.
+        await admin.PostAsJsonAsync($"/api/v1/identity/users/{supervisor}/reset-pin", new { posCode = "333", pin = "5937" }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
+        // Lo que no niega, sí.
+        var cashierRole = new[] { new { roleId = await scenario.RoleIdAsync("CASHIER"), branchId = (Guid?)null } };
+        (await admin.PutAsJsonAsync($"/api/v1/identity/users/{target}/roles", cashierRole, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task No_se_cierra_la_sesion_de_quien_tiene_mas_poder_y_la_politica_se_lee_con_clave_temporal()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        await scenario.CreateUserAsync("admin2", "ADMIN");
+        var admin = await scenario.LocalClientAsync("admin2");
+        var ownerSession = (await GetAsync<MeDto>(scenario.Owner, "/api/v1/auth/me")).SessionId;
+
+        await admin.PostAsync($"/api/v1/identity/sessions/{ownerSession}/revoke", null, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.Forbidden, "IDENTITY.TARGET_OUTRANKS");
+        (await scenario.Owner.GetAsync("/api/v1/auth/me", Ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // UR4: con la contraseña temporal pendiente de cambio también se lee la política (la pantalla muestra la longitud real).
+        await scenario.CreateUserAsync("temporal", "CASHIER");
+        var temporary = factory.CreateClient();
+        (await LoginAsync(temporary, "temporal", SecurityScenario.UserPassword)).User.MustChangePassword.ShouldBeTrue();
+        (await GetAsync<CredentialStatusDto>(temporary, "/api/v1/auth/credentials")).PasswordHistory.ShouldBe(5);
     }
 
     [Fact]

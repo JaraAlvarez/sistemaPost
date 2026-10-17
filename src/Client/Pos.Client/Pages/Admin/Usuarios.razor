@@ -274,6 +274,23 @@
         }
     }
 
+    /// <summary>
+    /// Error de la API. La jerarquía (IDENTITY.TARGET_OUTRANKS) ya trae los permisos que le faltan a quien actúa; se agrega la causa típica:
+    /// un rol personalizado copiado antes de una actualización no recibe los permisos nuevos de los roles de sistema.
+    /// </summary>
+    private void MostrarError(ApiException ex)
+    {
+        if (ex.Code == "IDENTITY.TARGET_OUTRANKS")
+        {
+            Snackbar.Add(
+                $"{ex.Texto} Si su rol es una copia personalizada (p. ej. «Gerente»), puede que le falten permisos que la versión nueva agregó a los roles de sistema: pida al Propietario que se los agregue en el rol.",
+                Severity.Warning, o => o.VisibleStateDuration = 12000);
+            return;
+        }
+
+        Snackbar.Add(ex.Texto, Severity.Error);
+    }
+
     /// <summary>Estado del usuario en mayúsculas (la API puede enviar "Active" o "ACTIVE").</summary>
     private static string Estado(UserDto user) => EnumText.Normalize(user.Status);
 
@@ -314,7 +331,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;
@@ -392,7 +409,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;
@@ -439,7 +456,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;
@@ -460,7 +477,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
 
         _busy = false;
@@ -486,7 +503,7 @@
         }
         catch (ApiException ex)
         {
-            Snackbar.Add(ex.Texto, Severity.Error);
+            MostrarError(ex);
         }
     }
 }

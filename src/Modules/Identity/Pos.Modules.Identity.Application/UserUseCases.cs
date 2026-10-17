@@ -383,6 +383,12 @@ internal sealed class SetUserOverridesHandler(IIdentityStore store, PrivilegeGua
             return allowed.Error;
         }
 
+        // UR5: un DENY a un Propietario o Administrador se serializa con los demás cambios que los cuentan.
+        if (await guard.IsAdministratorAsync(user, cancellationToken))
+        {
+            await store.LockAdministratorsAsync(user.CompanyId, cancellationToken);
+        }
+
         var catalog = (await store.ListActivePermissionCodesAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
         if (request.Overrides.FirstOrDefault(o => !catalog.Contains(o.PermissionCode)) is { } unknown)
         {

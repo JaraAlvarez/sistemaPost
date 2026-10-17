@@ -53,6 +53,24 @@ public class EndpointProtectionTests
         unexpected.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task Los_permisos_que_exigen_los_endpoints_existen_en_el_catalogo()
+    {
+        // Incluye los alternativos de RequireAnyPermission: un código mal escrito dejaría la alternativa sin efecto.
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        var catalog = (await GetAsync<List<Pos.Modules.Identity.Contracts.PermissionDto>>(scenario.Owner, "/api/v1/identity/permissions"))
+            .Select(p => p.Code).ToHashSet(StringComparer.Ordinal);
+
+        factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()
+            .Select(e => (Route: e.RoutePattern.RawText, Requirement: e.Metadata.GetMetadata<PermissionRequirement>()))
+            .Where(e => e.Requirement is not null)
+            .SelectMany(e => new[] { e.Requirement!.PermissionCode }.Concat(e.Requirement.Alternatives ?? []).Select(code => (e.Route, Code: code)))
+            .Where(e => !catalog.Contains(e.Code))
+            .Select(e => $"{e.Route}: {e.Code}")
+            .ShouldBeEmpty();
+    }
+
     [Theory]
     [InlineData("/api/v1/sales")]
     [InlineData("/api/v1/exchanges")]

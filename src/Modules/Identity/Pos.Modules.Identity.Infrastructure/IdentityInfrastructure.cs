@@ -371,6 +371,9 @@ internal sealed class IdentityStore(PosDbContext context) : IIdentityStore
                 .CountAsync(u => u.Roles.Any(r => r.BranchId == null && r.RoleId == owner), cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Guid>> ListUserIdsWithRoleAsync(Guid roleId, CancellationToken cancellationToken) =>
+        await context.Set<User>().Where(u => u.Roles.Any(r => r.RoleId == roleId)).Select(u => u.Id).ToListAsync(cancellationToken);
+
     public async Task LockAdministratorsAsync(Guid companyId, CancellationToken cancellationToken)
     {
         var key = "identity:administrators:" + companyId.ToString("D");
@@ -478,6 +481,9 @@ internal sealed class SessionStore(PosDbContext context, Pos.SharedKernel.Time.I
             .ExecuteUpdateAsync(
                 u => u.SetProperty(s => s.RevokedAt, clock.UtcNow).SetProperty(s => s.RevokedBy, revokedBy).SetProperty(s => s.RevokedReason, reason),
                 cancellationToken);
+
+    public Task<Guid?> GetActiveSessionUserAsync(Guid sessionId, CancellationToken cancellationToken) =>
+        context.Set<UserSessionRecord>().Where(s => s.Id == sessionId && s.RevokedAt == null).Select(s => (Guid?)s.UserId).SingleOrDefaultAsync(cancellationToken);
 
     public Task<int> RevokeTerminalSessionsForUserAsync(Guid userId, Guid? revokedBy, string reason, Guid? exceptSessionId, CancellationToken cancellationToken) =>
         context.Set<UserSessionRecord>()

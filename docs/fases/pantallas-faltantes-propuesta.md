@@ -34,6 +34,18 @@
 | DU-12 | El PIN tampoco puede ser igual al código de caja ni uno de una lista corta de PINs comunes (1212, 2580, 1122…) (PU7) | Son los primeros que se prueban |
 | DU-13 | `ResetPinCommand` y `ResetPasswordCommand` se permiten con la licencia restringida (R10) (PU11) | La tienda debe poder recuperar el acceso |
 | DU-14 | La contraseña temporal sugerida usa `RandomNumberGenerator` y respeta la longitud mínima de la empresa (PU9) | Imprevisible y válida a la primera |
+| DU-15 | Editar o borrar un rol personalizado exige tener **todos** sus permisos actuales y poder gestionar a cada usuario que lo tiene (UR1) | Quitarle permisos al rol de un superior, o borrarlo, lo degradaría |
+| DU-16 | Para el alcance "todas las sucursales", los permisos propios son los que se tienen en **cada** sucursal: se restan los que niega un DENY por sucursal de quien actúa. Vale para la jerarquía y para conceder roles o excepciones (UR2) | Un DENY en una sucursal no se esquiva concediendo o gestionando en global |
+| DU-17 | Cerrar la sesión de otro aplica la jerarquía; con autorización de supervisor, se compara con el supervisor que autorizó (UR3) | Un supervisor no cierra la sesión del Propietario |
+| DU-18 | `GET auth/credentials` funciona con la contraseña temporal pendiente (UR4) y `SetUserOverrides` toma el mismo candado cuando el objetivo es Propietario o Administrador (UR5) | La pantalla de contraseña temporal muestra la longitud real; los cambios que cuentan administradores se serializan |
+
+### Nota de versión: roles personalizados antiguos y jerarquía
+
+Los roles **de sistema** reciben los permisos nuevos de cada versión; las **copias personalizadas** (p. ej. un "Gerente" clonado de
+Supervisor de caja antes de la versión con báscula) no. Con la jerarquía, quien tiene esa copia ya no puede gestionar a los Supervisores
+de caja, que sí tienen los permisos nuevos. El error `IDENTITY.TARGET_OUTRANKS` lista los permisos que faltan (sus descripciones del
+catálogo; quien gestiona usuarios ya ve los roles de cada uno), y la pantalla Usuarios agrega la causa y la salida: pedir al
+Propietario que agregue esos permisos al rol personalizado.
 
 Sin migraciones: el modelo ya tiene `pos_code`, `pin_hash` y `must_change_password`.
 
