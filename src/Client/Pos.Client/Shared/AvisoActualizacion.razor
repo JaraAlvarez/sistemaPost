@@ -28,6 +28,25 @@
     }
 }
 
+@* Ronda 3 (7): una actualización automática quedó a medias y no se pudo deshacer sola. *@
+@if (_status.ValueKind == JsonValueKind.Object && _status.Bool("needsSupport"))
+{
+    <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2 aviso-actualizacion">
+        <b>Una actualización automática quedó a medias y requiere soporte.</b> BusinessPost sigue con la versión anterior y no instalará otra
+        hasta resolverlo: vuelva a ejecutar el instalador de la versión actual o llame a soporte.
+    </MudAlert>
+}
+
+@* ALTA 4: cajas emparejadas con una versión anterior a la mínima que exige la versión instalada en este equipo. *@
+@if (CajasDesactualizadas is { Count: > 0 } cajas)
+{
+    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2 aviso-actualizacion">
+        <b>@(cajas.Count == 1 ? "Una caja tiene" : $"{cajas.Count} cajas tienen") una versión anterior a la @_status.Str("minimumTerminalVersion")</b>
+        que necesita este equipo: @string.Join(", ", cajas). Se actualizan solas desde este equipo al encenderlas o de madrugada:
+        enciéndalas (o reinícielas) para que tomen la versión nueva.
+    </MudAlert>
+}
+
 @if (_confirmar)
 {
     <div class="panel-fondo">
@@ -51,6 +70,11 @@
     private readonly CancellationTokenSource _stop = new();
     private JsonElement _status;
     private bool _busy, _confirmar;
+
+    private List<string>? CajasDesactualizadas =>
+        _status.ValueKind == JsonValueKind.Object && _status.TryGetProperty("outdatedTerminals", out var lista) && lista.ValueKind == JsonValueKind.Array
+            ? [.. lista.EnumerateArray().Select(c => c.GetString()).OfType<string>()]
+            : null;
 
     protected override async Task OnInitializedAsync()
     {

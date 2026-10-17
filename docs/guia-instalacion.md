@@ -28,6 +28,15 @@
    clásico adentro, §10), el paquete clásico `BusinessPost-Clasico-1.0.0.exe` (soporte), el paquete `BusinessPost-1.0.0.zip` y el
    manifiesto firmado `stable.json`. El portal (Descargas) entrega `BusinessPost-Setup-<versión>.exe`.
 5. Para que las tiendas se actualicen solas, suba el ZIP y `stable.json` a la carpeta `updates/` del VPS (despliegue-nube §16).
+   El manifiesto **vence** (90 días por defecto, `--expires-days`) y lleva un **número de secuencia** creciente (la hora de la firma,
+   `--sequence`): el actualizador rechaza uno vencido o con una secuencia menor que la última que vio, y solo lo descarga por **https**.
+   Antes de que venza, vuelva a firmar la misma versión (`dotnet run --project tools/Pos.Release -- sign …`) y suba el `stable.json`
+   nuevo. **Tarea periódica (cada semana, en el VPS o en el equipo de quien publica):**
+   `dotnet run --project tools/Pos.Release -- verify --manifest stable.json --public-key <x>`: si faltan menos de 15 días para que
+   venza, responde con el código 3 y el aviso "vuelva a firmarlo"; entonces firme otra vez y suba el `stable.json` nuevo. Si vence, los
+   equipos principales dejan de aceptarlo (las tiendas no se actualizan, pero siguen funcionando).
+   Una clave de actualizaciones comprometida se marca `"status": "REVOKED"` en `update-keys.json` (deja de aceptarse en la
+   versión siguiente).
 
 ## 3. Instalar
 
@@ -113,6 +122,19 @@ las cajas.
   Si está abierta durante la actualización **no se cierra**: sigue funcionando (muestra la pantalla de carga mientras el servicio
   reinicia y vuelve a entrar sola) y la versión nueva se usa **la próxima vez que se abra BusinessPost**. Si la actualización vuelve
   atrás, también vuelve la ventana anterior. Detalle en §9.
+- **Cajas:** se actualizan de madrugada, en los primeros 15 minutos después de encender el equipo (antes de vender) o, si el
+  propietario pidió "Instalar ahora" en el equipo principal, en los 30 minutos siguientes al pedido (o al encender, durante 24 horas).
+  Mientras haya un pedido vigente consultan cada 15 minutos. Para reconocer que el equipo "acaba de encender" aunque Windows tenga el
+  **inicio rápido** activado (el sistema hiberna en vez de apagarse), el actualizador combina el arranque del sistema, el de su propio
+  servicio y un salto de más de 10 minutos en el reloj entre dos ciclos. **Hay que probarlo en una caja real** con el inicio rápido
+  activado: apagar en la noche y comprobar en la mañana, en el historial de Actualizaciones, que instaló al encender.
+- Cada caja informa su versión al equipo principal; el backoffice avisa de las cajas que tengan una versión anterior a la mínima que
+  pide la versión instalada (`--min-terminal` al firmar; sin ese dato no hay mínimo).
+- **"Una actualización automática quedó a medias y requiere soporte"** (aviso rojo del backoffice; `needsSupport` en el estado del
+  actualizador): una actualización se cortó y no se pudo deshacer sola en 3 intentos. BusinessPost sigue con la versión anterior y no
+  instala otra mientras tanto. Salida: **vuelva a ejecutar el instalador de la versión actual** (archiva el registro pendiente y deja todo
+  coherente) o **llame a soporte** (paquete de soporte y `C:\ProgramData\BusinessPost\updates\update-in-progress.json`; si hubo que
+  restaurar la base, docs/guia-recuperacion.md).
 
 ## 5. Desinstalar
 
