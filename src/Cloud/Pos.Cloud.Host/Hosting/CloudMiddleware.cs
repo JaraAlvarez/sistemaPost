@@ -48,12 +48,24 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next)
         "connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 
     /// <summary>
+    /// Origen al que redirige el botón "Continuar con Google" (POST /cuenta/google → 302 a Google). Los navegadores aplican
+    /// <c>form-action</c> también a las redirecciones de un envío de formulario: sin este origen, Chrome bloquea el clic y el
+    /// formulario de Google nunca aparece.
+    /// </summary>
+    public const string GoogleSignInOrigin = "https://accounts.google.com";
+
+    /// <summary>
     /// Páginas públicas de pago (/pagar): el formulario "Pagar" redirige al checkout alojado por la pasarela, así que
     /// <c>form-action</c> admite además ese origen (solo en estas páginas).
     /// </summary>
-    public static string PaymentPagesPolicy(string? checkoutOrigin) =>
-        checkoutOrigin is { Length: > 0 }
-            ? ContentSecurityPolicy.Replace("form-action 'self'", $"form-action 'self' {checkoutOrigin}", StringComparison.Ordinal)
+    public static string PaymentPagesPolicy(string? checkoutOrigin) => WithFormAction(checkoutOrigin);
+
+    /// <summary>Pantallas de acceso (/cuenta): <c>form-action</c> admite además Google (solo en estas páginas).</summary>
+    public static string AccountPagesPolicy => WithFormAction(GoogleSignInOrigin);
+
+    private static string WithFormAction(string? origin) =>
+        origin is { Length: > 0 }
+            ? ContentSecurityPolicy.Replace("form-action 'self'", $"form-action 'self' {origin}", StringComparison.Ordinal)
             : ContentSecurityPolicy;
 
     public Task InvokeAsync(HttpContext context, Pos.Cloud.Licensing.Application.PaymentsOptions payments)
@@ -65,7 +77,9 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next)
                 ? PaymentPagesPolicy(Uri.TryCreate(payments.Wompi.CheckoutUrl, UriKind.Absolute, out var checkout) && checkout.Scheme == Uri.UriSchemeHttps
                     ? checkout.GetLeftPart(UriPartial.Authority)
                     : null)
-                : ContentSecurityPolicy;
+                : context.Request.Path.StartsWithSegments("/cuenta")
+                    ? AccountPagesPolicy
+                    : ContentSecurityPolicy;
             headers.XContentTypeOptions = "nosniff";
             headers.XFrameOptions = "DENY";
             headers["Referrer-Policy"] = "no-referrer";

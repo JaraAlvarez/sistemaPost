@@ -64,6 +64,19 @@ public class PortalAccountFormTests(CloudFixture cloud) : IClassFixture<CloudFix
     }
 
     [Fact]
+    public async Task La_pantalla_de_ingreso_permite_enviar_a_Google_y_el_resto_del_portal_no()
+    {
+        // Chrome aplica form-action también a la redirección del POST /cuenta/google hacia Google: sin el origen, el botón no
+        // hace nada (pasó en producción con la 1.2.0).
+        using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
+        using var login = await browser.GetAsync(new Uri("cuenta/ingresar", UriKind.Relative), Ct);
+        login.Headers.GetValues("Content-Security-Policy").Single().ShouldContain("form-action 'self' https://accounts.google.com;");
+
+        using var health = await browser.GetAsync(new Uri("health/live", UriKind.Relative), Ct);
+        health.Headers.GetValues("Content-Security-Policy").Single().ShouldContain("form-action 'self';");
+    }
+
+    [Fact]
     public async Task Sin_Google_configurado_no_hay_boton_ni_rutas_de_Google()
     {
         using var browser = cloud.Factory.CreateDefaultClient(Base, new CookieContainerHandler());
