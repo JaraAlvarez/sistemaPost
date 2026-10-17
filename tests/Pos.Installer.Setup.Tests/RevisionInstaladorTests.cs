@@ -307,6 +307,21 @@ public class ModoYAvisosTests
         ModoInstalado.Detectar(guardado, null, server).ShouldBe(esperado);
 
     [Fact]
+    public void IL5_migrar_o_restaurar_es_un_paso_que_no_se_corta()
+    {
+        var lector = new RegistroInno();
+        lector.TocoElEquipo.ShouldBeFalse();
+        lector.Procesar("2026-10-17 09:20:01.123   Paso: Deteniendo BusinessPost para actualizar sus archivos…");
+        (lector.TocoElEquipo, lector.EnPasoCritico).ShouldBe((true, false));
+        lector.Procesar("2026-10-17 09:21:01.123   Paso: Revisando los archivos con Windows Defender (la primera vez puede tardar varios minutos)…");
+        lector.EnPasoCritico.ShouldBeFalse();
+        lector.Procesar("2026-10-17 09:22:01.123   Paso: Creando la base de datos…");
+        lector.EnPasoCritico.ShouldBeTrue();
+        lector.Procesar("2026-10-17 09:23:01.123   Resultado: OK");
+        lector.EnPasoCritico.ShouldBeFalse("Terminado: ya no hay nada que esperar.");
+    }
+
+    [Fact]
     public void IN7_el_codigo_de_salida_del_paquete_da_un_mensaje_claro()
     {
         SalidaPaquete.Mensaje(SalidaPaquete.RestaurarConSoporte, "Base de datos").ShouldContain("soporte restaure el backup previo");

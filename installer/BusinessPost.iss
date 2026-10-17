@@ -128,10 +128,9 @@ var
   PreviousMode: Integer;
   ModeChangeConfirmed: Boolean;
   PublicNetwork: Boolean;
-  // Lo que había antes de esta instalación, para la vuelta atrás (IN3, IN5, IN7): versión y modo guardados por Inno y los servicios que
-  // estaban EN MARCHA cuando se detuvieron (lista "|nombre|nombre|").
+  // Lo que había antes de esta instalación, para la vuelta atrás (IN3, IN5, IN7): versión guardada por Inno (el modo anterior es
+  // PreviousMode) y los servicios que estaban EN MARCHA cuando se detuvieron (lista "|nombre|nombre|").
   PreviousVersion: String;
-  PreviousModeSaved: String;
   StoppedServices: String;
   // IN6: la base de datos de una caja adicional que pasa a equipo principal se habilita antes de migrar; si falla, se vuelve a deshabilitar.
   DbReEnabled: Boolean;
@@ -291,7 +290,9 @@ end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
 begin
-  SetPreviousData(PreviousDataKey, 'Modo', ModeToRemember);
+  // Una instalación NUEVA que falló no recuerda ningún modo (no quedó instalada en ninguno).
+  if (FailureCode = 0) or (PreviousMode >= 0) then
+    SetPreviousData(PreviousDataKey, 'Modo', ModeToRemember);
 end;
 
 // IN7: Inno registra la versión y los datos previos ANTES de ssPostInstall; si después falla la base de datos (o la recuperación, o el
@@ -307,6 +308,15 @@ begin
   begin
     if RegWriteStringValue(HKLM, UninstallKey, 'DisplayVersion', PreviousVersion) then
       Log('Vuelta atrás: se conserva la versión ' + PreviousVersion);
+  end
+  else
+  begin
+    // Instalación NUEVA que falló: no queda registrada como si la versión nueva estuviera instalada (sigue en "Aplicaciones" para
+    // poder desinstalarla).
+    RegDeleteValue(HKLM, UninstallKey, 'DisplayVersion');
+    if PreviousMode < 0 then
+      RegDeleteValue(HKLM, UninstallKey, 'Inno Setup CodeFile: Modo');
+    Log('Instalación nueva sin terminar: no se registra la versión {#AppVersion}.');
   end;
 end;
 
@@ -373,20 +383,27 @@ end;
 // IN8: después se cierran los procesos sueltos que corren desde la carpeta de la instalación (actualizador, migrador, "discover", servidor
 // o agente lanzados a mano) y que dejarían archivos en uso.
 // Escribe "Deteniendo <servicio>" por cada servicio que estaba en marcha (para volver a arrancarlo si se cancela, IN3).
+// IL8: si la base de datos no se detiene a tiempo, antes de cerrar su proceso se le pide a PostgreSQL que pare (pg_ctl stop -m fast y,
+// como último recurso, -m immediate: la próxima vez arranca con recuperación). Si así se detiene, no cuenta como fallo.
 // Código 0 = todos detenidos (o no existen); 1 = alguno no se detuvo a tiempo y se cerró su proceso a la fuerza (nombres en el registro).
 function StopServicesCommand(const Seconds: Integer; const AppDir: String): String;
 begin
   Result := '$ErrorActionPreference = ''SilentlyContinue''; $fallos = @(); ' +
+    '$pgctl = ' + PsText(AddBackslash(AppDir) + 'pgsql\bin\pg_ctl.exe') + '; $pgdata = ' + PsText(ExpandConstant('{#DataDir}\data\pg')) + '; ' +
     'foreach ($n in @(''{#Product}-Updater'', ''{#Product}-Server'', ''{#Product}-TerminalAgent'', ''{#Product}-DB'')) { ' +
     '$s = Get-Service -Name $n; if ($s -and $s.Status -ne ''Stopped'') { Write-Output (''Deteniendo '' + $n); ' +
     'try { $s.Stop() } catch { }; ' +
     'try { $s.WaitForStatus(''Stopped'', [TimeSpan]::FromSeconds(' + IntToStr(Seconds) + ')) } catch { ' +
+    'if (($n -eq ''{#Product}-DB'') -and (Test-Path $pgctl)) { foreach ($modo in @(''fast'', ''immediate'')) { $s.Refresh(); ' +
+    'if ($s.Status -ne ''Stopped'') { Write-Output (''La base de datos no se detuvo: pg_ctl stop -m '' + $modo); ' +
+    '& $pgctl stop -D $pgdata -m $modo -w -t 60 2>&1 | Out-Null; try { $s.WaitForStatus(''Stopped'', [TimeSpan]::FromSeconds(20)) } catch { } } } }; ' +
+    '$s.Refresh(); if ($s.Status -eq ''Stopped'') { continue }; ' +
     '$p = (Get-CimInstance -ClassName Win32_Service | Where-Object { $_.Name -eq $n }).ProcessId; ' +
     'if ($p -gt 0) { Write-Output (''Cerrando a la fuerza '' + $n + '' (proceso '' + $p + '')''); Stop-Process -Id $p -Force }; ' +
     '$fallos += $n } } }; ' +
     '$carpeta = ' + PsText(AddBackslash(AppDir)) + '; ' +
     'Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($carpeta, [StringComparison]::OrdinalIgnoreCase) -and ' +
-    '($_.ProcessName -in @(''Pos.Server.Updater'', ''Pos.Server.Migrator'', ''Pos.Server.Host'', ''Pos.Terminal.Agent'')) } | ' +
+    '($_.ProcessName -in @(''Pos.Server.Updater'', ''Pos.Server.Migrator'', ''Pos.Server.Host'', ''Pos.Terminal.Agent'', ''postgres'', ''pg_ctl'')) } | ' +
     'ForEach-Object { Write-Output (''Cerrando '' + $_.Path); Stop-Process -Id $_.Id -Force }; ' +
     'if ($fallos.Count -gt 0) { Write-Output (''No se detuvieron a tiempo: '' + ($fallos -join '', '')); exit 1 }; exit 0';
 end;
@@ -528,7 +545,6 @@ begin
   FailureCode := 0;
   DbReEnabled := False;
   StoppedServices := '';
-  PreviousModeSaved := GetPreviousData('Modo', '');
   if not RegQueryStringValue(HKLM, UninstallKey, 'DisplayVersion', PreviousVersion) then
     PreviousVersion := '';
   PreviousMode := DetectPreviousMode;
@@ -557,6 +573,23 @@ var
   Tmp, Url, Print: String;
   P: Integer;
 begin
+  // IN7: si algo falló después de copiar, la página final no dice "completado".
+  if (CurPageID = wpFinished) and (FailureCode <> 0) then
+  begin
+    WizardForm.FinishedHeadingLabel.Caption := 'BusinessPost no quedó listo';
+    case FailureCode of
+      ExitNeedsSupport:
+        WizardForm.FinishedLabel.Caption := 'La actualización de la base de datos falló y no se pudo volver a los datos de antes. No use ' +
+          'BusinessPost: genere un paquete de soporte (menú Inicio → BusinessPost → Paquete de soporte) y contacte a soporte.';
+      ExitActivationFailed:
+        WizardForm.FinishedLabel.Caption := 'No se pudo activar la versión nueva. Reinicie el computador y vuelva a ejecutar el instalador; ' +
+          'si sigue igual, genere un paquete de soporte.';
+    else
+      WizardForm.FinishedLabel.Caption := 'No se pudo preparar la base de datos o recuperar el backup. Revise el mensaje anterior y el ' +
+        'registro de la instalación; vuelva a ejecutar el instalador o genere un paquete de soporte.';
+    end;
+    exit;
+  end;
   if (CurPageID = TerminalPage.ID) and (TerminalPage.Values[0] = '') then
   begin
     ExtractTemporaryFile('Pos.Server.Updater.exe');
@@ -740,6 +773,18 @@ end;
 // el actualizador anterior (IN5), se deshace lo que se cambió del modo (IN6), se conservan la versión y el modo de antes en el registro
 // de Windows (IN7) y se vuelven a iniciar los servicios que estaban en marcha (IN3). Sin StartServer el servidor y el actualizador
 // quedan detenidos: la base de datos quedó para restaurar con soporte (IN4) y la versión anterior no debe arrancar sobre ella.
+// IL4: con la base de datos para restaurar con soporte (código 21) o la versión nueva sin activar (código 22) el servidor y el
+// actualizador quedan en inicio MANUAL: ni al reiniciar el equipo arrancan sobre una base que no les corresponde. La próxima instalación o
+// actualización que termine bien los vuelve a dejar automáticos (CreateService usa "start= auto").
+procedure LeaveServicesManual;
+begin
+  if ServiceExists('{#Product}-Server') then
+    ScOptional('config {#Product}-Server start= demand', 'dejar en inicio manual el servidor');
+  if ServiceExists('{#Product}-Updater') then
+    ScOptional('config {#Product}-Updater start= demand', 'dejar en inicio manual el actualizador');
+  Log('Aviso: El servidor y el actualizador de BusinessPost quedaron en inicio MANUAL hasta que una instalación termine bien.');
+end;
+
 procedure RollBack(const StartServer: Boolean);
 begin
   Log('Vuelta atrás: la instalación no terminó; se deja la versión anterior.');
@@ -747,6 +792,8 @@ begin
   if DbReEnabled then
     ScOptional('config {#Product}-DB start= disabled', 'volver a deshabilitar la base de datos de la caja adicional');
   KeepPreviousInstallData;
+  if not StartServer then
+    LeaveServicesManual;
   RestartStoppedServices(StartServer);
 end;
 
@@ -981,7 +1028,8 @@ begin
       if not Premium then
         MsgBox('La actualización de la base de datos falló y no se pudo volver automáticamente a los datos de antes.' + #13#10#13#10 +
           'NO use BusinessPost hasta que soporte restaure el backup previo (está en ' + Data + '\backups; el detalle quedó en el registro de ' +
-          'la instalación y en ' + Data + '\logs). Genere un paquete de soporte y contacte a soporte.', mbCriticalError, MB_OK);
+          'la instalación y en ' + Data + '\logs). Genere un paquete de soporte y contacte a soporte.' + #13#10#13#10 +
+          'El servidor y el actualizador de BusinessPost quedaron en inicio manual (no arrancan solos) hasta que se resuelva.', mbCriticalError, MB_OK);
       WizardForm.ProgressGauge.Style := npbstNormal;
       exit;
     end;
@@ -1004,10 +1052,26 @@ begin
       Code := RunMigrator(Migrator, 'restore --file "' + RecoveryFilePage.Values[0] + '" --recovery-code-file "' + CodeFile + '" --data-root "' +
         Data + '" --yes', 'Recuperación desde el backup');
       DeleteFile(CodeFile);
+      if (Code <> 0) and (PreviousVersion <> '') and (PreviousVersion <> '{#AppVersion}') then
+      begin
+        // IL3: actualización a otra versión: "install" ya dejó la BD activa en el esquema NUEVO (la restauración no la tocó: restaura en
+        // una BD aparte). El servidor anterior no sirve sobre ese esquema: no se arranca y queda el estado de fallo de la versión activa
+        // (código 22, inicio manual). Volver a ejecutar el instalador termina el cambio de versión con los datos actuales.
+        MarkFailed(ExitActivationFailed, 'Recuperación desde el backup');
+        RollBack(False);
+        if not Premium then
+          MsgBox('No se pudo recuperar el backup (revise el archivo y el código de recuperación). La base de datos de este equipo ya quedó ' +
+            'en la versión nueva, así que la versión anterior de BusinessPost no se volvió a iniciar.' + #13#10#13#10 +
+            'Vuelva a ejecutar el instalador (con el backup y el código correctos, o sin backup para seguir con los datos actuales). El ' +
+            'servidor y el actualizador quedaron en inicio manual hasta entonces.', mbError, MB_OK);
+        WizardForm.ProgressGauge.Style := npbstNormal;
+        exit;
+      end;
       if Code <> 0 then
       begin
-        // I8: sin los datos del backup no se sigue con una base vacía (antes se abría /instalacion como si fuera una tienda nueva). La
-        // restauración no tocó la BD activa: en una reinstalación vuelven a arrancar los servicios que había.
+        // I8: sin los datos del backup no se sigue con una base vacía (antes se abría /instalacion como si fuera una tienda nueva). Instalación
+        // nueva o reinstalación de la MISMA versión: la restauración no tocó la BD activa y su esquema es el de estos programas, así que
+        // vuelven a arrancar los servicios que había.
         MarkFailed(ExitDatabaseFailed, 'Recuperación desde el backup');
         RollBack(True);
         if not Premium then
@@ -1027,7 +1091,8 @@ begin
     RollBack(not IsServerMode);
     if not Premium then
       MsgBox('No se pudo activar la versión nueva de BusinessPost (app\current). Reinicie el computador y vuelva a ejecutar el instalador; ' +
-        'si el problema sigue, genere un paquete de soporte.', mbError, MB_OK);
+        'si el problema sigue, genere un paquete de soporte.' + #13#10#13#10 +
+        'Mientras tanto el servidor y el actualizador quedaron en inicio manual.', mbError, MB_OK);
     WizardForm.ProgressGauge.Style := npbstNormal;
     exit;
   end;

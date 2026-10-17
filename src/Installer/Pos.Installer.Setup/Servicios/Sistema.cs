@@ -374,6 +374,42 @@ internal static partial class Sistema
         }
     }
 
+    /// <summary>
+    /// IL5: si hubo que cortar el paquete después de que detuvo los servicios o copió archivos, el equipo queda como en un fallo de versión
+    /// activa (código 22 del paquete): el servidor y el actualizador en inicio MANUAL (no arrancan solos sobre una instalación a medias) y
+    /// el aviso en el registro. La próxima instalación que termine bien los deja automáticos.
+    /// </summary>
+    public static void DejarServiciosEnManual(string? registro)
+    {
+        var sc = Path.Combine(Environment.SystemDirectory, "sc.exe");
+        var lineas = new List<string> { "Instalador premium: se cortó el paquete con el equipo a medias." };
+        foreach (var servicio in new[] { "BusinessPost-Server", "BusinessPost-Updater" })
+        {
+            try
+            {
+                using var proceso = Process.Start(new ProcessStartInfo(sc) { ArgumentList = { "config", servicio, "start=", "demand" }, UseShellExecute = false, CreateNoWindow = true });
+                var termino = proceso?.WaitForExit(TimeSpan.FromSeconds(15)) ?? false;
+                lineas.Add($"Aviso: {servicio} quedó en inicio manual (sc config: {(termino ? proceso!.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture) : "sin respuesta")}).");
+            }
+            catch (Win32Exception ex)
+            {
+                lineas.Add($"Aviso: no se pudo dejar {servicio} en inicio manual ({ex.Message}).");
+            }
+        }
+
+        if (registro is not null)
+        {
+            try
+            {
+                File.AppendAllLines(registro, lineas);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Sin registro: el estado de los servicios ya quedó cambiado.
+            }
+        }
+    }
+
     public static string CarpetaTemporal()
     {
         var carpeta = Path.Combine(Path.GetTempPath(), "BusinessPost-Setup");

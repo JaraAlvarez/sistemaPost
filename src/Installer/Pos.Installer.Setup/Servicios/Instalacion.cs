@@ -60,6 +60,7 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
             {
                 LeerNuevo(Registro, registroInno, lector);
                 Avanzar(lector);
+                Program.PasoCritico = lector.EnPasoCritico;
                 await Task.Delay(700, cancellationToken);
             }
 
@@ -69,12 +70,31 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         }
         catch (OperationCanceledException)
         {
-            // Se cerró el instalador: el paquete (y lo que haya lanzado, p. ej. el migrador) no debe seguir solo en segundo plano.
-            Detener(proceso);
+            LeerNuevo(Registro, registroInno, lector);
+            if (lector.EnPasoCritico)
+            {
+                // IL5: migrando o restaurando NO se corta (Inno, el migrador o pg_restore a mitad dejan una base a medias): se espera a que
+                // el paquete termine solo. Main espera esta tarea (Program.PasoCritico). Si ni así termina, sigue solo: no se mata.
+                Program.PasoCritico = true;
+                Anotar(Registro, "Instalador premium: se cerró la ventana durante la base de datos; se espera a que el paquete termine.");
+                await EsperarSinCortarAsync(proceso, Registro);
+            }
+            else
+            {
+                // Antes de la base de datos: el paquete (y lo que haya lanzado) no debe seguir solo en segundo plano. Si ya había detenido los
+                // servicios o copiado archivos, el equipo queda como en un fallo de versión activa (código 22): inicio manual y registro.
+                Detener(proceso);
+                if (lector.TocoElEquipo)
+                {
+                    Sistema.DejarServiciosEnManual(Registro);
+                }
+            }
+
             throw;
         }
         finally
         {
+            Program.PasoCritico = false;
             // El archivo del código se borra SOLO cuando el paquete ya terminó (Inno lo lee y lo borra; esto es por si no llegó a leerlo).
             if (archivoCodigo is not null && (proceso is null || proceso.HasExited))
             {
@@ -261,6 +281,44 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         catch (IOException)
         {
             // Inno lo tiene bloqueado justo ahora: se lee en la próxima vuelta (la posición no avanzó).
+        }
+    }
+
+    /// <summary>Límite para esperar un paso crítico del paquete (una restauración grande tarda; el migrador tiene su propio límite de 60 min).</summary>
+    public static readonly TimeSpan EsperaPasoCritico = TimeSpan.FromMinutes(65);
+
+    private static async Task EsperarSinCortarAsync(Process? proceso, string? registro)
+    {
+        if (proceso is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await proceso.WaitForExitAsync(CancellationToken.None).WaitAsync(EsperaPasoCritico);
+            Anotar(registro, $"Instalador premium: el paquete terminó (código {proceso.ExitCode}).");
+        }
+        catch (TimeoutException)
+        {
+            Anotar(registro, "Instalador premium: el paquete sigue trabajando; NO se cortó (terminará solo).");
+        }
+    }
+
+    private static void Anotar(string? registro, string texto)
+    {
+        if (registro is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.AppendAllText(registro, Environment.NewLine + texto);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Inno tiene el registro abierto: el aviso no es indispensable.
         }
     }
 

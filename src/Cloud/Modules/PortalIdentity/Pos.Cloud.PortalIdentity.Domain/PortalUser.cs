@@ -494,7 +494,7 @@ public static class PortalIdentityErrors
         "PORTAL.BOOTSTRAP_DONE", "Ya existe un superadministrador: los demás usuarios se crean desde el portal.");
 
     public static readonly Error CannotChangeSelf = Error.BusinessRule(
-        "PORTAL.CANNOT_CHANGE_SELF", "No puede cambiar su propio rol ni deshabilitarse.");
+        "PORTAL.CANNOT_CHANGE_SELF", "No puede cambiar su propio rol, su cuenta asociada ni desactivarse.");
 
     /// <summary>Contraseña: mínimo 12 caracteres, al menos una letra y un dígito, distinta del correo.</summary>
     public static bool IsAcceptablePassword(string? password, string email) =>

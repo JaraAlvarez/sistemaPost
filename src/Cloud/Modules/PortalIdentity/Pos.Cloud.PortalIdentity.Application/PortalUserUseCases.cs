@@ -96,9 +96,10 @@ internal sealed class CreatePortalUserHandler(IPortalIdentityStore store, Portal
 public sealed record PortalUserChangedDto(Guid UserId);
 
 /// <summary>
-/// Cambia el nombre, el rol o el estado de otro usuario. PN6: cambiar el ROL o DESACTIVAR exige la misma confirmación que restablecer la
-/// contraseña (ingreso reciente o contraseña/TOTP; siempre el TOTP si la cuenta es o pasa a ser de superadministrador). Cambiar solo el
-/// nombre no la pide.
+/// Cambia el nombre, el rol o el estado de otro usuario. PN6/IL6: cambiar el ROL, DESACTIVAR (también a un usuario bloqueado por intentos),
+/// REACTIVAR o cambiar la CUENTA asociada exige la misma confirmación que restablecer la contraseña (ingreso reciente o contraseña/TOTP;
+/// siempre el TOTP si la cuenta es o pasa a ser de superadministrador). Cambiar solo el nombre no la pide. Sobre sí mismo esos cambios
+/// no se permiten (<see cref="PortalIdentityErrors.CannotChangeSelf"/>).
 /// </summary>
 [RequiresPermission(CloudPermissions.PortalUserManage)]
 public sealed record UpdatePortalUserCommand(Guid UserId, string DisplayName, string Role, Guid? ResellerAccountId, bool IsActive, string? Confirmation = null)
@@ -120,7 +121,12 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
             return PortalIdentityErrors.InvalidUser;
         }
 
-        if (user.Id == current.UserId && (role != user.Role || !request.IsActive))
+        // IL6: cambios delicados = rol, estado (desactivar, también a un usuario bloqueado por intentos, o reactivar) y cuenta asociada.
+        var newStatus = request.IsActive ? PortalUserStatus.Active : PortalUserStatus.Disabled;
+        var changesRole = role != user.Role;
+        var changesStatus = newStatus != user.Status;
+        var changesAccount = request.ResellerAccountId != user.ResellerAccountId;
+        if (user.Id == current.UserId && (changesRole || changesStatus || changesAccount))
         {
             return PortalIdentityErrors.CannotChangeSelf;
         }
@@ -131,10 +137,9 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
             return PortalIdentityErrors.LastSuperadmin;
         }
 
-        var deactivates = !request.IsActive && user.Status == PortalUserStatus.Active;
-        if (role != user.Role || deactivates)
+        if (changesRole || changesStatus || changesAccount)
         {
-            var action = role != user.Role ? "cambiar el rol" : "desactivar";
+            var action = changesRole ? "cambiar el rol" : changesStatus ? (request.IsActive ? "reactivar" : "desactivar") : "cambiar la cuenta asociada";
             var confirmed = await AdminReauthentication.CheckAsync(
                 current, auth, new AdminTarget(user.Id, user.Email, user.Role == PortalRole.Superadmin || role == PortalRole.Superadmin), request.Confirmation,
                 action, cancellationToken);

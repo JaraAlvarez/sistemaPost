@@ -294,6 +294,12 @@ internal sealed class DecideOwnerLinkRequestHandler(
             InstallerSignInStatus.Denied => OwnerLinkRequestPageState.Denied,
             _ => OwnerLinkRequestPageState.Pending,
         };
+
+        // PN3: el motivo de la cancelación por intentos se deduce de lo guardado (code_attempts): también al recargar la página.
+        if (state == OwnerLinkRequestPageState.Denied && message is null && request.CodeAttempts >= InstallerSignInRules.MaxCodeAttempts)
+        {
+            message = OwnerLinkRequestMessages.CanceledByWrongCodes;
+        }
         return Outcome.Ok(new OwnerLinkRequestView(
             state, organization.LegalName, organization.NitNumber.ToString(), request.ExpiresAt, request.CreatedAt, request.CreatedIp?.ToString(),
             check.TotpRequired, message));

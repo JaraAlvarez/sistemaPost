@@ -57,7 +57,8 @@ internal static class Program
 
         // PN1: al cerrar la ventana durante la instalación, la tarea en segundo plano detiene el paquete (y lo que lanzó) y borra el
         // archivo del código de recuperación. Antes el proceso salía sin esperarla. Se espera con límite (Detener espera hasta 30 s).
-        EsperarTrabajoPendiente(TimeSpan.FromSeconds(45));
+        // IL5: si el paquete está en la base de datos (migrar o restaurar) no se corta: se espera a que termine (con un límite amplio).
+        EsperarTrabajoPendiente(PasoCritico ? Instalacion.EsperaPasoCritico + TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(45));
         Sistema.BorrarArchivosDeCodigo();
         if (copiaTemporal)
         {
@@ -69,6 +70,15 @@ internal static class Program
     }
 
     private static readonly List<Task> TrabajosPendientes = [];
+
+    private static volatile bool _pasoCritico;
+
+    /// <summary>IL5: el paquete Inno está migrando o restaurando la base de datos (no se debe cortar).</summary>
+    public static bool PasoCritico
+    {
+        get => _pasoCritico;
+        set => _pasoCritico = value;
+    }
 
     /// <summary>Instalación o desinstalación en segundo plano: <see cref="Main"/> la espera (con límite) antes de salir.</summary>
     public static void RegistrarTrabajo(Task tarea)

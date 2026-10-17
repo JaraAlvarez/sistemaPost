@@ -143,7 +143,8 @@ public class PortalGoogleTests(GoogleCloudFixture cloud) : IClassFixture<GoogleC
         var (unverified, _) = await NewUserAsync();
         var (disabled, disabledId) = await NewUserAsync();
         (await PortalApi.SendAsync(cloud.Superadmin, HttpMethod.Put, $"/admin/users/{disabledId}",
-            new { displayName = "Deshabilitado", role = "SUPPORT", resellerAccountId = (Guid?)null, isActive = false })).Status.ShouldBe(HttpStatusCode.NoContent);
+            new { displayName = "Deshabilitado", role = "SUPPORT", resellerAccountId = (Guid?)null, isActive = false, confirmation = PortalApi.NewPassword }))
+            .Status.ShouldBe(HttpStatusCode.NoContent);
         var (locked, _) = await NewUserAsync();
         using (var api = cloud.Factory.CreateClient())
         {

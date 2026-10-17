@@ -24,6 +24,9 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public string SuperuserConnectionString => _container.GetConnectionString();
 
+    /// <summary>El contenedor (pg_dump/pg_restore se ejecutan dentro: este equipo no los tiene instalados).</summary>
+    public PostgreSqlContainer Container => _container;
+
     public async ValueTask InitializeAsync() => await _container.StartAsync();
 
     public async ValueTask DisposeAsync()
@@ -80,6 +83,9 @@ public sealed record TestDatabase(PostgresFixture Fixture, string Name)
 
     public string AppConnectionString =>
         Fixture.ConnectionString(Name, DatabaseCreator.AppRole, PostgresFixture.Passwords.App);
+
+    public string BackupConnectionString =>
+        Fixture.ConnectionString(Name, DatabaseCreator.BackupRole, PostgresFixture.Passwords.Backup);
 
     public async Task<T?> ScalarAsync<T>(string sql, string? connectionString = null)
     {

@@ -70,7 +70,8 @@ public static class SalidaPaquete
     {
         RestaurarConSoporte =>
             "La actualización de la base de datos falló y no se pudo volver automáticamente a los datos de antes. No uses BusinessPost " +
-            "hasta que soporte restaure el backup previo (quedó en la carpeta de backups de BusinessPost). Comunícate con soporte y comparte el registro.",
+            "hasta que soporte restaure el backup previo (quedó en la carpeta de backups de BusinessPost). Comunícate con soporte y comparte el registro. " +
+            "Mientras tanto BusinessPost quedó en inicio manual: no arranca solo al encender el equipo.",
         BaseDeDatos when pasoConError is { } paso && paso.StartsWith("Recuperación", StringComparison.OrdinalIgnoreCase) =>
             "No se pudo recuperar el backup (revisa el archivo y el código de recuperación). BusinessPost no quedó listo: vuelve a intentarlo " +
             "con el backup y el código correctos, o comunícate con soporte.",
@@ -78,8 +79,8 @@ public static class SalidaPaquete
             "No se pudo preparar la base de datos. BusinessPost sigue con la versión anterior y tus datos quedaron como estaban. Comunícate " +
             "con soporte y comparte el registro.",
         VersionActiva =>
-            "No se pudo activar la versión nueva de BusinessPost. Reinicia el computador y vuelve a ejecutar el instalador; si sigue igual, " +
-            "comunícate con soporte.",
+            "No se pudo terminar el cambio a la versión nueva de BusinessPost. Reinicia el computador y vuelve a ejecutar el instalador; si sigue " +
+            "igual, comunícate con soporte. Mientras tanto BusinessPost quedó en inicio manual.",
         _ when pasoConError is { } paso => $"La instalación no pudo terminar el paso \"{paso}\".",
         _ => $"La instalación no pudo terminar (código {salida}).",
     };

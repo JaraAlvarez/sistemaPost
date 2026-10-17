@@ -315,3 +315,23 @@ exige también para crear un superadministrador, cambiar el rol, desactivar y de
 
 **Pendiente (decisión de producto, M14):** revocar los enlaces del dueño ya autorizados (hoy, una vez entregado, el enlace firmado vale
 hasta que vence) y exigir el TOTP (`Portal:RequireTotp`) a los usuarios Cliente dueños de una cuenta. No se implementa sin decidirlo.
+
+**Tercera revisión (IL1-IL10).** *Vuelta atrás de la base de datos:* la BD restaurada desde el backup PRE_UPDATE (`pos_rb…`, sin dueños
+ni privilegios en el volcado y sin los scripts "always" de la versión nueva) recibe ahora los privilegios que tenía la BD activa para
+`pos_app`, `pos_backup` y `pos_migrator`, que son los de la versión ANTERIOR (la migración fallida no llegó a sus scripts "always"); los de
+objetos que solo creó la migración fallida se omiten. Antes `pos_app` quedaba sin permisos y el servidor anterior respondía 503. La
+revisión posterior usa solo lo que trae el backup (sello y conteos de su encabezado, tolerando objetos que no existen) y no el verificador
+de auditoría de la versión nueva. Antes de restaurar se revisa el espacio libre (BD actual + 20 % en el disco de los datos, el doble del
+paquete en la carpeta temporal) y hay un límite de 60 minutos (pg_restore se cierra si vence). Hay una prueba con PostgreSQL 18 real
+(`Pos.Database.Tests/PreUpdateRollbackTests`): esquema anterior, backup, migración que falla a mitad, restauración y `pos_app` leyendo y
+escribiendo con las mismas restricciones de antes. *Paquete:* con los códigos 21 y 22 el servidor y el actualizador quedan en inicio
+manual (`sc config start= demand`, con aviso en el registro y en el mensaje) hasta que una instalación termine bien (vuelven a `auto`). Si
+en una actualización a otra versión falla la recuperación del backup elegido después de que la base ya se migró, no se arranca el servidor
+anterior (código 22). Si la base de datos no se detiene en 90 s se usa `pg_ctl stop -m fast` y luego `-m immediate` antes de cerrar el
+proceso; `postgres.exe`/`pg_ctl.exe` de `{app}\pgsql` se cierran solo si siguen vivos. La página final del asistente clásico ya no dice
+"completado" cuando algo falló, y una instalación NUEVA que falla no deja registrada la versión nueva. *Premium:* al cerrar la ventana
+durante la base de datos ya no se corta el paquete (ni el migrador ni pg_restore): se espera a que termine; si hay que cortarlo antes,
+queda el mismo estado del código 22. *Portal:* reactivar, cambiar la cuenta asociada y desactivar a un usuario bloqueado por intentos
+también piden confirmar; cambiarse el propio rol, la cuenta o desactivarse da `PORTAL.CANNOT_CHANGE_SELF`; el motivo "se canceló por
+demasiados códigos incorrectos" se mantiene al recargar la página (se deduce de `code_attempts`). `confirmation` quedó documentado en
+`http/fase-12a.http`.

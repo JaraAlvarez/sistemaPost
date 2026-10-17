@@ -47,6 +47,15 @@ public sealed class RegistroInno
     /// <summary>Primer paso que falló (texto del instalador), si hubo.</summary>
     public string? Error { get; private set; }
 
+    /// <summary>
+    /// IL5: el paquete está en un paso que NO se debe cortar (base de datos o recuperación y lo que sigue: versión activa y servicios):
+    /// matar a Inno o al migrador a mitad deja una base o una versión a medias.
+    /// </summary>
+    public bool EnPasoCritico => Etapa >= Etapa.CreandoBaseDeDatos && Resultado == ResultadoInno.EnCurso;
+
+    /// <summary>El paquete ya empezó a trabajar (detuvo los servicios o copió archivos): cortarlo deja el equipo a medias.</summary>
+    public bool TocoElEquipo => PasoActual is not null || PorcentajeCopia > 0;
+
     /// <summary>Procesa una línea del registro; devuelve <c>true</c> si cambió algo visible.</summary>
     public bool Procesar(string? linea)
     {

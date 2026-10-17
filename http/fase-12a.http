@@ -307,6 +307,10 @@ Authorization: Bearer {{token}}
 ### ─────────────────────────── Usuarios del portal y sesiones (solo superadministrador) ───────────────────────────
 
 ### 16. Crear usuario (role: SUPERADMIN o SUPPORT; RESELLER existe pero sin permisos en 12-A). Devuelve la contraseña temporal.
+# "confirmation" (opcional, N2/PN6/IL6): contraseña o código TOTP del superadministrador que actúa. Crear un SUPERADMIN exige SIEMPRE el
+# código TOTP; si falta responde 403 PORTAL.TOTP_CONFIRMATION_REQUIRED (o 422 PORTAL.ACTOR_TOTP_REQUIRED si quien actúa no tiene TOTP activo).
+# Con un ingreso de hace más de 10 minutos, las acciones delicadas sobre otro usuario responden 403 PORTAL.REAUTH_REQUIRED hasta que se
+# repiten con "confirmation"; una confirmación incorrecta responde 401 PORTAL.INVALID_CONFIRMATION y cuenta como intento fallido.
 # @name user
 POST {{host}}/admin/users
 Authorization: Bearer {{token}}
@@ -327,20 +331,35 @@ Content-Type: application/json
 
 { "displayName": "Soporte nivel 1", "role": "SUPPORT", "resellerAccountId": null, "isActive": true }
 
-### 16.1 Restablecer la contraseña (nueva temporal), reiniciar el TOTP (obliga a enrolar de nuevo) y desbloquear
+### 16.0 Cambiar el rol, desactivar o reactivar, o cambiar la cuenta asociada: con "confirmation" si el ingreso no es reciente (TOTP si la
+# cuenta es o pasa a ser de superadministrador). Sobre sí mismo responde 422 PORTAL.CANNOT_CHANGE_SELF.
+PUT {{host}}/admin/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "displayName": "Soporte nivel 1", "role": "SUPPORT", "resellerAccountId": null, "isActive": false, "confirmation": "mi-contraseña-o-123456" }
+
+### 16.1 Restablecer la contraseña (nueva temporal), reiniciar el TOTP (obliga a enrolar de nuevo) y desbloquear. Los tres aceptan
+# "confirmation" (ver 16) en el cuerpo.
 POST {{host}}/admin/users/{{userId}}/reset-password
 Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "confirmation": "mi-contraseña-o-123456" }
 
 ###
 POST {{host}}/admin/users/{{userId}}/reset-totp
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "reason": "Cambió de celular" }
+{ "reason": "Cambió de celular", "alsoResetPassword": true, "confirmation": "123456" }
 
 ###
 POST {{host}}/admin/users/{{userId}}/unlock
 Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "confirmation": "mi-contraseña-o-123456" }
 
 ### 17. Sesiones (filtro opcional userId) y revocar una
 # @name sessions

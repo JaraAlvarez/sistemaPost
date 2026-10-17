@@ -275,6 +275,9 @@ public sealed class InstallerGoogleSignInTests(ShiftableClockCloudFixture cloud)
             }
         }
 
+        // PN3: al recargar la página el motivo sigue a la vista.
+        WebUtility.HtmlDecode(await browser.GetStringAsync(page, Ct)).ShouldContain("se canceló por demasiados códigos incorrectos");
+
         // Ni con el código correcto después.
         using (var late = await BrowserForms.PostFormAsync(browser, page, html, new() { ["Input.Decision"] = "autorizar", ["Input.Code"] = started.UserCode }))
         {
