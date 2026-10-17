@@ -293,6 +293,13 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
         var before = Status;
         LastCheckedAt = now;
 
+        // Sistecrédito ya dio el cobro por fallido (rechazado, vencido, cancelado…): un "Approved" posterior es una respuesta vieja y no
+        // cambia nada (nunca sobrescribe un estado final distinto).
+        if (SistecreditoProtocol.IsFailed(ProviderStatus) && SistecreditoProtocol.Map(providerStatus) == SistecreditoAttemptStatus.Approved)
+        {
+            return false;
+        }
+
         // Un estado intermedio después de aprobado no borra la aprobación (solo un estado final distinto de Approved la invalida), y una
         // respuesta "Approved" (posiblemente vieja) nunca revive un cobro que ya quedó en revisión porque Sistecrédito dejó de aprobarlo.
         if (!string.IsNullOrWhiteSpace(providerStatus)
@@ -373,6 +380,11 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
         if (SaleId != saleId)
         {
             return SistecreditoErrors.OtherSale;
+        }
+
+        if (ReleasedAt is not null)
+        {
+            return Result.Success(); // ya se había autorizado no usarlo: repetir no cambia nada
         }
 
         if (!IsUsable)

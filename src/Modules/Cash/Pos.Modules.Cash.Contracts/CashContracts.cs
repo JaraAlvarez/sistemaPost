@@ -147,7 +147,14 @@ public sealed record CashSessionDto(
     long? ZSealNo,
     string? ZSealCode,
     IReadOnlyList<CashMethodTotalDto> Totals,
-    IReadOnlyList<CashMovementDto> Movements);
+    IReadOnlyList<CashMovementDto> Movements,
+    IReadOnlyList<SistecreditoNotUsedDto>? SistecreditoNotUsed = null);
+
+/// <summary>
+/// Crédito de Sistecrédito aprobado que, con autorización de supervisor, NO se usó en una venta de la jornada («No usar este crédito»): no
+/// es plata de la caja; la administración debe reversarlo en el portal de Sistecrédito (<c>Reviewed</c>: ya lo hizo).
+/// </summary>
+public sealed record SistecreditoNotUsedDto(Guid AttemptId, decimal Amount, string? TransactionId, string MaskedDocument, DateTimeOffset ReleasedAt, bool Reviewed);
 
 public sealed record CashSessionSummaryDto(
     Guid Id, string Number, string TerminalCode, string CashierName, DateOnly BusinessDate, string Status, decimal? Difference, bool ReviewRequired,

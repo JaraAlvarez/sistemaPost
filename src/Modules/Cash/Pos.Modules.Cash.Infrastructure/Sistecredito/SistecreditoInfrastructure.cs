@@ -101,6 +101,13 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
             .Take(limit)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SistecreditoAttempt>> ListReleasedAsync(
+        Guid posTerminalId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken) =>
+        await context.Set<SistecreditoAttempt>().AsNoTracking()
+            .Where(a => a.PosTerminalId == posTerminalId && a.ReleasedAt != null && a.ReleasedAt >= from && (to == null || a.ReleasedAt <= to))
+            .OrderBy(a => a.ReleasedAt)
+            .ToListAsync(cancellationToken);
+
     public Task<int> CountPendingReviewsAsync(CancellationToken cancellationToken) =>
         context.Set<SistecreditoAttempt>().CountAsync(a => a.Status == SistecreditoAttemptStatus.ReviewRequired && a.ReviewedAt == null, cancellationToken);
 }

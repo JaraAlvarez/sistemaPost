@@ -17,14 +17,23 @@ namespace Pos.Modules.Sales.Application;
 /// <summary>Carga una venta de esta caja para editarla y la recalcula con las promociones vigentes.</summary>
 public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, PromotionRules promotions, ISistecreditoPayments sistecredito)
 {
+    /// <summary>Lo que faltaba por pagar de cada venta al cargarla (antes del cambio), para saber si el cambio la baja.</summary>
+    private readonly Dictionary<Guid, decimal> _loadedDue = [];
+
     /// <summary>
-    /// Sistecrédito (revisión TP1): con un crédito ya aprobado y sin usar, la venta no puede quedar por debajo de ese valor (eliminar o
-    /// bajar cantidades, descuentos, precio…): no se podría completar ni con el crédito ni sin él.
+    /// Sistecrédito (revisión TP1/SC3): con un crédito ya aprobado y sin usar, un cambio que BAJA la venta (eliminar o bajar cantidades,
+    /// descuentos, precio, promociones al recuperarla…) no puede dejarla por debajo de ese crédito: no se podría completar ni con el crédito
+    /// ni sin él. Un cambio que no la baja (p. ej. agregar productos o asignar cliente) siempre pasa.
     /// </summary>
     public async Task<Result> GuardApprovedCreditAsync(Sale sale, CancellationToken cancellationToken)
     {
-        var approved = (await sistecredito.ListUsableAsync(sale.Id, cancellationToken)).Sum(a => a.Amount);
         var due = Math.Max(0m, sale.Total - sale.ExchangeCredit);
+        if (_loadedDue.TryGetValue(sale.Id, out var before) && due >= before)
+        {
+            return Result.Success();
+        }
+
+        var approved = (await sistecredito.ListUsableAsync(sale.Id, cancellationToken)).Sum(a => a.Amount);
         return approved > 0m && approved > due
             ? Error.BusinessRule(
                 "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL",
@@ -48,7 +57,13 @@ public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, Pr
         }
 
         var same = TerminalResolver.EnsureSameTerminal(sale, scope.Value);
-        return same.IsSuccess ? (sale, scope.Value) : same.Error;
+        if (same.IsFailure)
+        {
+            return same.Error;
+        }
+
+        _loadedDue.TryAdd(sale.Id, Math.Max(0m, sale.Total - sale.ExchangeCredit));
+        return (sale, scope.Value);
     }
 
     /// <summary>Recalcula con las promociones vigentes y verifica que no quede por debajo de un crédito de Sistecrédito aprobado.</summary>

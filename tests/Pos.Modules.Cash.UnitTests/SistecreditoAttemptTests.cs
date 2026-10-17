@@ -278,6 +278,27 @@ public class SistecreditoAttemptTests
         attempt.NextCheckAt.ShouldBeNull();
     }
 
+    [Fact]
+    public void Un_Approved_viejo_no_cambia_un_cobro_que_Sistecredito_ya_dio_por_fallido_y_No_usar_es_idempotente()
+    {
+        // Revisión SC6 y SC4.
+        var rejected = Pending(Guid.NewGuid());
+        rejected.Apply("Rejected", null, null, null, Now).ShouldBeTrue();
+        rejected.Apply("Approved", null, null, null, Now.AddMinutes(1)).ShouldBeFalse();
+        rejected.Status.ShouldBe(SistecreditoAttemptStatus.Rejected);
+        rejected.ProviderStatus.ShouldBe("Rejected");
+        rejected.ApprovedAt.ShouldBeNull();
+
+        var sale = Guid.NewGuid();
+        var approved = Pending(sale);
+        approved.Apply("Approved", null, null, null, Now);
+        var user = Guid.NewGuid();
+        approved.Release(sale, user, Now.AddMinutes(1)).IsSuccess.ShouldBeTrue();
+        approved.Release(sale, Guid.NewGuid(), Now.AddMinutes(2)).IsSuccess.ShouldBeTrue(); // repetir: OK sin cambios
+        approved.ReleasedBy.ShouldBe(user);
+        approved.ReleasedAt.ShouldBe(Now.AddMinutes(1));
+    }
+
     /// <summary>Fija la cultura mientras dura la prueba (los mensajes formatean valores con la cultura actual).</summary>
     private sealed class CultureScope : IDisposable
     {

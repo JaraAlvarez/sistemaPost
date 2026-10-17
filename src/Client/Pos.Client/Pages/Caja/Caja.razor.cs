@@ -52,7 +52,8 @@ public sealed partial class Caja
     /// <summary>Tipos de documento que acepta Sistecrédito en la caja (D7B-07).</summary>
     private static readonly string[] TiposDocumento = ["CC", "CE", "NIT", "PA", "TI"];
 
-    private sealed record PendingAction(ApiException Error, Func<Guid?, Task> Retry);
+    /// <summary>Acción que espera autorización de supervisor; <c>Return</c>: pantalla a la que se vuelve después (p. ej. el cobro).</summary>
+    private sealed record PendingAction(ApiException Error, Func<Guid?, Task> Retry, Panel Return = Panel.None);
 
     private sealed record PaymentLine(Guid PaymentMethodId, decimal Amount, string? Reference);
 
@@ -1522,7 +1523,7 @@ public sealed partial class Caja
             }
 
             Snackbar.Add("Crédito de Sistecrédito no usado: quedó en revisión para que la administración lo reverse. Cobre con otro medio.", Severity.Info);
-        });
+        }, _panel == Panel.Cobro ? Panel.Cobro : Panel.None); // después de la autorización se sigue en el cobro
     }
 
 
@@ -1676,7 +1677,7 @@ public sealed partial class Caja
     }
 
     /// <summary>Ejecuta una acción; si el servidor pide autorización de supervisor, abre el panel y la repite con la autorización.</summary>
-    private async Task RunAsync(Func<Guid?, Task> action)
+    private async Task RunAsync(Func<Guid?, Task> action, Panel volverA = Panel.None)
     {
         _busy = true;
         try
@@ -1686,7 +1687,7 @@ public sealed partial class Caja
         }
         catch (ApiException ex) when (ex.NeedsSupervisor)
         {
-            _pending = new PendingAction(ex, action);
+            _pending = new PendingAction(ex, action, volverA);
             _supervisorCode = _supervisorPin = _supervisorReason = null;
             _panel = Panel.Supervisor;
         }
@@ -1737,7 +1738,7 @@ public sealed partial class Caja
                 action = pending.Error.Action, targetId = pending.Error.TargetId, targetType = "Sale",
                 reason = string.IsNullOrWhiteSpace(_supervisorReason) ? "Autorizado en la caja" : _supervisorReason,
             });
-            _panel = Panel.None;
+            _panel = pending.Return;
             _pending = null;
             _busy = false;
             await RunAsync(_ => pending.Retry(grant.GetProperty("grantId").GetGuid()));

@@ -18,7 +18,8 @@ public sealed record CountLineRequest(Guid PaymentMethodId, Guid? DenominationId
 
 
 /// <summary>Arma DTOs y reportes de una jornada (nombres, totales por medio, arqueo ciego).</summary>
-public sealed class SessionViews(ICashStore store, ICashLedger ledger, ICashReadModel readModel, SessionAccess access, IClock clock)
+public sealed class SessionViews(
+    ICashStore store, ICashLedger ledger, ICashReadModel readModel, SessionAccess access, ISistecreditoStore sistecredito, IClock clock)
 {
     public async Task<IReadOnlyList<CashMethodTotalDto>> TotalsAsync(CashSession session, bool showExpected, CancellationToken cancellationToken)
     {
@@ -47,7 +48,9 @@ public sealed class SessionViews(ICashStore store, ICashLedger ledger, ICashRead
             !showExpected, session.ClosingStartedAt, session.ClosedAt, session.ClosedBySupervisor, session.CloseReason,
             showExpected ? session.ExpectedTotal : null, session.CountedTotal, showExpected ? session.Difference : null, session.DifferenceNote,
             session.ReviewRequired, session.ReviewedAt, session.ReviewNote, session.ZSealNo, session.ZSealCode,
-            await TotalsAsync(session, showExpected, cancellationToken), movements);
+            await TotalsAsync(session, showExpected, cancellationToken), movements,
+            [.. (await sistecredito.ListReleasedAsync(session.PosTerminalId, session.OpenedAt, session.ClosedAt, cancellationToken))
+                .Select(a => new SistecreditoNotUsedDto(a.Id, a.Amount, a.TransactionId, a.MaskedDocument, a.ReleasedAt!.Value, a.ReviewedAt is not null))]);
     }
 
     public async Task<CashReportDto> ReportAsync(string kind, CashSession session, CancellationToken cancellationToken)

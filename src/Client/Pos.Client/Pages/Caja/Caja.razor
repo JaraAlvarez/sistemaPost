@@ -143,6 +143,13 @@ else
                                 </MudItem>
                             }
                         </MudGrid>
+                        @if (_session?.SistecreditoNotUsed is { Count: > 0 } noUsados)
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                                Créditos de Sistecrédito aprobados que NO se usaron en este turno (no son plata de la caja; la administración debe reversarlos en el portal de Sistecrédito):
+                                @string.Join(", ", noUsados.Select(n => $"{Format.Money(n.Amount)} ({n.MaskedDocument})")).
+                            </MudAlert>
+                        }
                         <MudTextField @bind-Value="_closingNote" Label="Nota sobre la diferencia (si la hay)" Variant="Variant.Outlined" Immediate="true" Class="mt-2" Lines="2" />
                         <div class="acciones">
                             <MudButton OnClick="CancelarCierreAsync">Volver a vender</MudButton>

@@ -12,6 +12,7 @@ using Pos.Modules.Cash.Domain;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Organization.Contracts;
 using Pos.Server.IntegrationTests.Phase3;
+using Pos.Modules.Promotions.Contracts;
 using Pos.Modules.Sales.Contracts;
 using Pos.Server.IntegrationTests.Phase7;
 using static Pos.Server.IntegrationTests.Phase2.ApiClient;
@@ -390,7 +391,7 @@ public class SistecreditoReviewFixesTests
         released.Usable.ShouldBeFalse();
         (await GetAsync<List<SistecreditoPaymentDto>>(shop.Cashier, $"/api/v1/cash/sistecredito/sales/{sale.Id}/open")).ShouldBeEmpty();
         (await shop.Catalog.ScalarAsync<long>(
-                "SELECT count(*) FROM audit.audit_log WHERE action = 'SISTECREDITO_REVIEW_REQUIRED' AND authorized_by IS NOT NULL AND summary LIKE '%no usado en la venta%'"))
+                "SELECT count(*) FROM audit.audit_log WHERE action = 'SISTECREDITO_RELEASED' AND authorized_by IS NOT NULL AND summary LIKE '%no usado en la venta%'"))
             .ShouldBe(1);
 
         // Ahora sí: baja la cantidad y se completa en efectivo; la administración tiene el aviso para reversarlo.
@@ -533,6 +534,144 @@ public class SistecreditoReviewFixesTests
         (await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}/cancel")).Status.ShouldBe("CANCELLED");
         factory.Gateway.Queries.Where(q => q.TransactionId == payment.TransactionId).Select(q => q.Environment).Distinct()
             .ShouldBe([SistecreditoEnvironment.Staging]);
+    }
+
+    [Fact]
+    public async Task Cancelar_un_aprobado_no_lo_pasa_a_revision_y_la_venta_no_se_completa_sin_el_credito()
+    {
+        // SC1: cancelar contra consultar, de punta a punta.
+        var (factory, shop, method) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 2);
+        var payment = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, sale.AmountDue));
+        var url = $"/api/v1/cash/sistecredito/payments/{payment.Id}";
+
+        // El cliente aprueba mientras la cajera pulsa "Cancelar": se devuelve aprobado, sin cambiarlo.
+        factory.Gateway.SetStatus(payment.TransactionId!, "Approved");
+        var cancel = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"{url}/cancel");
+        cancel.Status.ShouldBe("APPROVED");
+        cancel.Usable.ShouldBeTrue();
+        cancel.Warning!.ShouldContain("No usar este crédito");
+        (await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"{url}/check")).Status.ShouldBe("APPROVED");
+
+        // Cancelar otra vez un aprobado tampoco lo manda a revisión (eso solo con «No usar este crédito» y supervisor).
+        (await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"{url}/cancel")).Status.ShouldBe("APPROVED");
+        (await GetAsync<MeDto>(shop.Owner, "/api/v1/auth/me")).SistecreditoReviews.ShouldBe(0);
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/complete", new { payments = new[] { Pay(shop.Cash, sale.AmountDue) } })
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "CASH.SISTECREDITO_APPROVED_NOT_INCLUDED");
+
+        // Respaldo: aunque pase a "Requiere revisión" (15 minutos sin usarlo), sigue siendo plata del cliente: tampoco se completa sin él.
+        await ReconcileAsync(factory, DateTimeOffset.UtcNow.AddMinutes(20));
+        (await GetAsync<SistecreditoPaymentDto>(shop.Cashier, url)).Status.ShouldBe("REVIEW_REQUIRED");
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/complete", new { payments = new[] { Pay(shop.Cash, sale.AmountDue) } })
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "CASH.SISTECREDITO_APPROVED_NOT_INCLUDED");
+
+        // Con «No usar este crédito» (supervisor), sí.
+        await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = payment.TransactionId });
+        (await shop.CompleteAsync(sale.Id, [Pay(shop.Cash, sale.AmountDue)])).Sale.Status.ShouldBe("COMPLETED");
+        _ = method;
+    }
+
+    [Fact]
+    public async Task Venta_suspendida_con_credito_tiene_salida_con_No_usar_este_credito()
+    {
+        // SC2: suspender con crédito → baja el total (promoción nueva) → recuperar bloqueado → «No usar» con supervisor → recuperar y cancelar.
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 3);
+        var part = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 6_000m));
+        factory.Gateway.SetStatus(part.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{part.Id}/check");
+        await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/hold", new { label = "Cliente vuelve" });
+
+        var promotion = await PostAsync<PromotionDto>(shop.Owner, "/api/v1/promotions", new
+        {
+            name = "Arroz a mitad de precio", type = "PercentOff", validFrom = DateTimeOffset.UtcNow.AddHours(-1), percent = 50m,
+            items = new[] { new { productId = shop.Rice } },
+        }, HttpStatusCode.Created);
+        await PostAsync<PromotionDto>(shop.Owner, $"/api/v1/promotions/{promotion.Id}/activate");
+
+        await RawAsync(shop.Cashier, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/resume")
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "SALES.SISTECREDITO_CREDIT_ABOVE_TOTAL");
+
+        // «No usar este crédito» también sobre la venta suspendida; repetirlo no cambia nada ni duplica la bitácora.
+        await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = part.TransactionId });
+        await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/sistecredito/release", new { transactionId = part.TransactionId });
+        (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'SISTECREDITO_RELEASED'")).ShouldBe(1);
+
+        var resumed = await PostAsync<SaleDto>(shop.Cashier, $"/api/v1/sales/{sale.Id}/resume");
+        resumed.Total.ShouldBe(4_500m);
+        (await shop.AuthorizedAsync<SaleDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Id}/cancel", new { reason = "El cliente desistió" })).Status.ShouldBe("CANCELLED");
+
+        // El cierre de la jornada muestra el crédito no usado para reversarlo en el portal.
+        var session = await GetAsync<CashSessionDto>(shop.Cashier, "/api/v1/cash/sessions/current");
+        session.SistecreditoNotUsed!.Single().TransactionId.ShouldBe(part.TransactionId);
+        session.SistecreditoNotUsed!.Single().Amount.ShouldBe(6_000m);
+    }
+
+    [Fact]
+    public async Task Solo_bloquea_lo_que_baja_la_venta_por_debajo_del_credito()
+    {
+        // SC3: descuento global y cambio de cliente bajo la regla.
+        var (factory, shop, method) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 3);
+        var part = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, 6_000m));
+        factory.Gateway.SetStatus(part.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{part.Id}/check");
+
+        // Descuento global del 50 %: la venta (4.500) quedaría por debajo del crédito (6.000) → no.
+        (await AuthorizedRawAsync(shop, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/discounts", new { percent = 50m, reason = "Cliente frecuente" }))
+            .StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        // Descuento global del 10 %: baja (8.100) pero sigue por encima del crédito → sí.
+        var discounted = await AuthorizedRawAsync(shop, HttpMethod.Post, $"/api/v1/sales/{sale.Id}/discounts", new { percent = 10m, reason = "Cliente frecuente" });
+        discounted.StatusCode.ShouldBe(HttpStatusCode.OK, await discounted.Content.ReadAsStringAsync(Ct));
+
+        // Cambiar (quitar) el cliente o agregar productos no baja la venta: siempre pasa.
+        await SendAsync<SaleDto>(shop.Cashier, HttpMethod.Put, $"/api/v1/sales/{sale.Id}/customer", new { partyId = (Guid?)null });
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        sale.Total.ShouldBeGreaterThan(8_100m);
+        await shop.CompleteAsync(sale.Id, [Pay(method, 6_000m, part.TransactionId), Pay(shop.Cash, sale.AmountDue - 6_000m)]);
+    }
+
+    [Fact]
+    public async Task No_usar_este_credito_dos_veces_a_la_vez_deja_un_solo_registro()
+    {
+        // SC4: «No usar» repetido o en conflicto (dos autorizaciones al mismo tiempo).
+        var (factory, shop, _) = await ShopAsync();
+        await using var __ = factory;
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        var payment = await PostAsync<SistecreditoPaymentDto>(shop.Cashier, "/api/v1/cash/sistecredito/payments", Start(sale.Id, sale.AmountDue));
+        factory.Gateway.SetStatus(payment.TransactionId!, "Approved");
+        await PostAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}/check");
+
+        var url = $"/api/v1/sales/{sale.Id}/sistecredito/release";
+        var body = new { transactionId = payment.TransactionId };
+        var grants = new[]
+        {
+            await shop.GrantAsync(await RawAsync(shop.Cashier, HttpMethod.Post, url, body)),
+            await shop.GrantAsync(await RawAsync(shop.Cashier, HttpMethod.Post, url, body)),
+        };
+        var responses = await Task.WhenAll(grants.Select(g => RawAsync(shop.Cashier, HttpMethod.Post, url, body, g)));
+        responses.Select(r => r.StatusCode).ShouldAllBe(c => c == HttpStatusCode.OK || c == HttpStatusCode.Conflict);
+        responses.ShouldContain(r => r.StatusCode == HttpStatusCode.OK);
+
+        (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'SISTECREDITO_RELEASED'")).ShouldBe(1);
+        var released = await GetAsync<SistecreditoPaymentDto>(shop.Cashier, $"/api/v1/cash/sistecredito/payments/{payment.Id}");
+        released.Status.ShouldBe("REVIEW_REQUIRED");
+        released.Usable.ShouldBeFalse();
+    }
+
+    /// <summary>Envía la petición y, si pide autorización de supervisor, la autoriza y la repite.</summary>
+    private static async Task<HttpResponseMessage> AuthorizedRawAsync(SalesScenario shop, HttpMethod method, string url, object body)
+    {
+        var first = await RawAsync(shop.Cashier, method, url, body);
+        return first.StatusCode == HttpStatusCode.Forbidden ? await RawAsync(shop.Cashier, method, url, body, await shop.GrantAsync(first)) : first;
     }
 
     private static async Task<(SistecreditoServerFactory Factory, SalesScenario Shop, Guid Method)> ShopAsync()

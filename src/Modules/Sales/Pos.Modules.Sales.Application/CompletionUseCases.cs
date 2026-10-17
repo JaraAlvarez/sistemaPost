@@ -303,8 +303,9 @@ internal sealed class ReleaseSistecreditoCreditHandler(
             return loaded.Error;
         }
 
+        // En curso o suspendida (una venta suspendida con crédito también necesita salida).
         var sale = loaded.Value.Sale;
-        if (sale.Status != SaleStatus.Open)
+        if (sale.Status is not (SaleStatus.Open or SaleStatus.OnHold))
         {
             return SalesErrors.NotOpen;
         }
@@ -418,7 +419,8 @@ internal sealed class CompleteSaleHandler(
             return Error.BusinessRule(
                 "CASH.SISTECREDITO_APPROVED_NOT_INCLUDED",
                 $"Esta venta tiene un pago con Sistecrédito ya aprobado por {approvedNotIncluded.Sum(a => a.Amount):N0} que no está en los pagos: el cliente ya pagó con "
-                + "Sistecrédito. Vuelva a abrir el cobro (se agrega solo) y cobre únicamente lo que falta.");
+                + "Sistecrédito. Inclúyalo como pago (al abrir el cobro se agrega solo) y cobre únicamente lo que falta; si el cliente paga con otro medio o "
+                + "Sistecrédito está inactivo, use «No usar este crédito» (con autorización de supervisor).");
         }
 
         var allocation = PaymentAllocator.Allocate(
