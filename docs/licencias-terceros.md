@@ -33,7 +33,7 @@ de copyright y la licencia junto con ella (`src/Client/Pos.Client/wwwroot/fonts/
 | libsodium (binario nativo incluido en NSec) | 1.0.22 | ISC | Implementación criptográfica de Argon2id |
 | MiniExcel *(desde la Fase 4)* | 1.46.0 | Apache-2.0 | Leer archivos Excel (.xlsx) en las importaciones y exportar reportes (Fase 9) |
 | PostgreSQL 18 · `pg_dump` / `pg_restore` *(desde la Fase 11)* | 18 | PostgreSQL | Volcado y restauración de los backups (binarios que instala el instalador, Fase 13) |
-| PDFsharp-MigraDoc *(desde la Fase 9)* | 6.2.4 | MIT | Exportar reportes a PDF (tabla con encabezado de la empresa); QuestPDF se descartó por su licencia comercial |
+| PDFsharp-MigraDoc *(desde la Fase 9)* | 6.2.4 | MIT | Exportar reportes a PDF (tabla con encabezado de la empresa) y las etiquetas de góndola (barras dibujadas por el sistema, sin otra biblioteca); QuestPDF se descartó por su licencia comercial |
 | MudBlazor *(desde la Fase 12-A en la nube; Fase 15 en la interfaz de la tienda)* | 9.11.0 | MIT | Componentes del portal web de licencias y de la interfaz de caja y administración (Blazor) |
 | Inter (fuente tipográfica, variable, subconjuntos latin y latin-ext) *(desde la guía de diseño)* | variable 100–900 (paquete Fontsource) | SIL OFL 1.1 · © 2016 The Inter Project Authors | Tipografía de la interfaz; empaquetada en `wwwroot/fonts` (sin CDN, funciona sin Internet) con su `OFL.txt` |
 | QRCoder *(desde la Fase 12-A en la nube; Fase 12-C en el servidor de la tienda)* | 1.8.0 | MIT | Código QR del enrolamiento del doble factor (TOTP) en la nube y del enlace de pago de la mensualidad en la administración de la tienda (SVG) |

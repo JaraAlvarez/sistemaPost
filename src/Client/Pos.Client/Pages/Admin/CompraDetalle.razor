@@ -31,6 +31,10 @@
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ContabilizarAsync" Class="ml-2">Confirmar compra</MudButton>
             }
+            @if (EnumText.Same(compra.Status, "POSTED") && Session.Has("catalog.product.view"))
+            {
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Label" Href="@($"/admin/etiquetas?compra={Uri.EscapeDataString(compra.Number)}")" Class="ml-2">Imprimir etiquetas</MudButton>
+            }
             @if (EnumText.Same(compra.Status, "POSTED") && Session.Has("purchasing.purchase.void"))
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="PedirAnulacion" Class="ml-2">Anular</MudButton>

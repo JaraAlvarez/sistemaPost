@@ -201,3 +201,36 @@ solo ordena los menús y los formularios para que su negocio vea lo que usa.
 - Los menús se ajustan enseguida para quien hizo el cambio; los demás usuarios lo ven al abrir el Tablero o al volver a ingresar. La
   caja deja de leer (o vuelve a leer) la báscula la próxima vez que se abre la pantalla de venta.
 - El portal de BusinessPost muestra el tipo de negocio de cada empresa (lo envía la tienda en su verificación diaria de la licencia).
+
+## 12. Etiquetas de góndola
+
+En **Inventario → Etiquetas** se imprimen las etiquetas de precio de la góndola (habladores) y los adhesivos con código de barras. Lo
+puede usar quien consulta productos; generar códigos internos exige poder modificar productos.
+
+**1. Arme la lista** (se pueden combinar varias formas; si un producto ya estaba, se toma la cantidad nueva):
+- **Buscar productos** uno por uno (nombre, SKU o código).
+- **Una categoría**: todos sus productos activos, incluidas las subcategorías.
+- **Cambios de precio desde una fecha**: los productos cuyo precio nuevo ya rige y empezó desde ese día (para cambiar las etiquetas
+  después de subir o bajar precios).
+- **Productos de una compra** (si Compras está encendida): escriba el número de la compra o el de la factura del proveedor. La cantidad
+  de cada producto es lo que llegó en unidades (2 cajas × 12 = 24 etiquetas). Lo que se vende por peso lleva una sola. También está el
+  botón **Imprimir etiquetas** en la compra confirmada.
+- **Productos sin código de barras**.
+
+**2. Revise**: precio al público (con IVA), oferta vigente hoy en la sucursal (precio especial o porcentaje con el precio normal
+tachado; "Lleve 3 pague 2" o "Desde 3 und" como texto), precio por kilo o por litro cuando el producto tiene contenido neto
+(500 g, 750 ml) y la cantidad de copias (0 = no se imprime).
+
+Si un producto **no tiene código de barras**, la etiqueta lleva el SKU (la caja también lo lee). Con el botón **Generar código interno**
+el sistema le crea un código EAN-13 que empieza por 29; pide confirmación, queda guardado en el producto y en la **Auditoría**
+("Códigos internos generados para etiquetas").
+
+**3. Imprima**:
+- **Hoja A4 · 24 etiquetas (66 × 35 mm)** u **Hoja A4 · 14 etiquetas grandes (100 × 40 mm)**: imprima al **100 %** (sin "ajustar a la
+  página") en papel adhesivo o normal y recorte por las líneas grises.
+- **Adhesivo 40 × 25 mm** o **50 × 30 mm**: el PDF viene al tamaño exacto del rollo, una etiqueta por página. En la impresora de
+  etiquetas (Zebra, Xprinter, TSC…) elija ese tamaño de papel en Windows y la opción de etiquetas con separación (gap).
+- **Imprimir en la impresora de tiquetes** (solo en un computador de caja): nombre, precio y código de barras CODE128 una tras otra en
+  el papel de 80 mm, para recortar a mano. Sirve para salir del paso; para la góndola es mejor el PDF.
+
+Máximo 2.000 etiquetas por archivo y 500 copias por producto: si es más, imprima por partes (por ejemplo, por categoría).

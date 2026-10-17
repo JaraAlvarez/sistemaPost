@@ -484,5 +484,6 @@ public static class CatalogInfrastructureRegistration
         services.AddScoped<ICatalogQueries, CatalogQueries>();
         services.AddScoped<ICatalogImportRepository, CatalogImportRepository>();
         services.AddScoped<ICatalogReader, CatalogReader>();
+        services.AddSingleton<ILabelRenderer, LabelPdfRenderer>();
     }
 }

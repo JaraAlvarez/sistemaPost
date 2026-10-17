@@ -303,5 +303,41 @@ public static class PurchasingInfrastructureRegistration
         services.AddSingleton<IConstraintErrorProvider, PurchasingConstraintErrors>();
         services.AddScoped<IPurchasingStore, PurchasingStore>();
         services.AddScoped<IPurchasingQueries, PurchasingQueries>();
+        services.AddScoped<Contracts.IPurchaseReceipts, PurchaseReceipts>();
+    }
+}
+
+/// <summary>Contrato <see cref="Contracts.IPurchaseReceipts"/>: compra por número con sus unidades recibidas por producto.</summary>
+internal sealed class PurchaseReceipts(PosDbContext context, Pos.Application.Abstractions.Installation.IInstallationContext installation)
+    : Contracts.IPurchaseReceipts
+{
+    public async Task<Contracts.ReceivedPurchase?> FindAsync(string number, CancellationToken cancellationToken = default)
+    {
+        var text = (number ?? string.Empty).Trim();
+        if (text.Length == 0)
+        {
+            return null;
+        }
+
+        // ILIKE sin comodines: compara sin distinguir mayúsculas.
+        var pattern = text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal);
+        var branchId = installation.BranchId;
+        var candidates = context.Set<Purchase>().AsNoTracking();
+        var purchase = await candidates.Where(p => EF.Functions.ILike(p.Number, pattern))
+                .OrderByDescending(p => p.BranchId == branchId).ThenByDescending(p => p.InvoiceDate).FirstOrDefaultAsync(cancellationToken)
+            ?? await candidates.Where(p => EF.Functions.ILike(p.SupplierInvoiceNumber, pattern))
+                .OrderByDescending(p => p.BranchId == branchId).ThenByDescending(p => p.InvoiceDate).FirstOrDefaultAsync(cancellationToken);
+        if (purchase is null)
+        {
+            return null;
+        }
+
+        var lines = await context.Set<PurchaseLine>().AsNoTracking().Where(l => EF.Property<Guid>(l, "PurchaseId") == purchase.Id)
+            .OrderBy(l => l.LineNumber)
+            .Select(l => new { l.ProductId, l.BaseQuantity, l.ReturnedBaseQuantity })
+            .ToListAsync(cancellationToken);
+        return new Contracts.ReceivedPurchase(
+            purchase.Id, purchase.Number, purchase.Status.ToString().ToUpperInvariant(), purchase.SupplierInvoiceNumber, purchase.InvoiceDate,
+            [.. lines.Select(l => new Contracts.ReceivedPurchaseLine(l.ProductId, Math.Max(0m, l.BaseQuantity - l.ReturnedBaseQuantity)))]);
     }
 }

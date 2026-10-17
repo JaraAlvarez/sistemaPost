@@ -136,7 +136,41 @@ public interface ICatalogQueries
     Task<IReadOnlyList<(TaxLineDto Line, bool IsVat)>> GetTaxLinesAsync(Guid productId, DateOnly date, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<PriceDto>> GetPriceHistoryAsync(Guid productId, DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Ids de productos para etiquetas según el origen (en orden alfabético, máximo <paramref name="limit"/>): activos de una categoría y sus
+    /// subcategorías, con precio que empezó a regir entre <c>Since</c> y ahora en la lista por defecto, o sin código de barras propio.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> FindLabelProductIdsAsync(LabelFilter filter, int limit, CancellationToken cancellationToken);
+
+    /// <summary>Datos de cada producto para su etiqueta (los borrados no aparecen): código principal y precio vigente de la lista por defecto.</summary>
+    Task<IReadOnlyList<LabelProductData>> GetLabelProductsAsync(
+        IReadOnlyCollection<Guid> productIds, Guid? branchId, DateTimeOffset at, CancellationToken cancellationToken);
 }
+
+/// <summary>Filtro de productos para etiquetas. <c>Source</c>: CATEGORY, PRICE_CHANGES o WITHOUT_BARCODE (ver LabelSources).</summary>
+public sealed record LabelFilter(string Source, Guid? CategoryId, DateTimeOffset? Since, DateTimeOffset Now, Guid? BranchId);
+
+/// <summary>
+/// Producto para su etiqueta. <c>Barcode</c>: código principal de la unidad base (sin presentación); <c>ListPrice</c>: precio vigente por
+/// unidad base en la lista por defecto (el de la sucursal gana) e <c>IncludesTax</c> si la lista ya trae los impuestos.
+/// </summary>
+public sealed record LabelProductData(
+    Guid Id,
+    string Sku,
+    string Name,
+    Guid CategoryId,
+    Guid? BrandId,
+    string BaseUnitCode,
+    SaleMode SaleMode,
+    bool IsSoldByScale,
+    decimal? NetContent,
+    string? NetContentUnit,
+    ProductStatus Status,
+    string? Barcode,
+    decimal? ListPrice,
+    bool IncludesTax,
+    bool AllowsPromotions);
 
 /// <summary>Filtro de búsqueda de productos (texto sin tildes por palabras, SKU o código exacto).</summary>
 public sealed record ProductSearch(string? Text, Guid? CategoryId, Guid? BrandId, ProductStatus? Status, int Page, int PageSize, Guid? BranchId);

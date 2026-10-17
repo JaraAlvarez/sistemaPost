@@ -319,3 +319,19 @@ public sealed record SupplierReturnDto(
     DateTimeOffset? PostedAt,
     DateTimeOffset? SettledAt,
     IReadOnlyList<SupplierReturnLineDto> Lines);
+
+/// <summary>Línea recibida de una compra: unidades base recibidas (cajas × factor) menos las devueltas al proveedor.</summary>
+public sealed record ReceivedPurchaseLine(Guid ProductId, decimal BaseQuantity);
+
+/// <summary>Compra vista por otros módulos (p. ej. para imprimir las etiquetas de lo que llegó). <c>Status</c>: DRAFT, POSTED o VOIDED.</summary>
+public sealed record ReceivedPurchase(Guid Id, string Number, string Status, string SupplierInvoiceNumber, DateOnly InvoiceDate, IReadOnlyList<ReceivedPurchaseLine> Lines);
+
+/// <summary>Consulta de compras recibidas para otros módulos.</summary>
+public interface IPurchaseReceipts
+{
+    /// <summary>
+    /// Compra por su número interno (sin distinguir mayúsculas) o, si no hay, por el número de la factura del proveedor; la más reciente de
+    /// la sucursal de este equipo primero. Null si no existe.
+    /// </summary>
+    Task<ReceivedPurchase?> FindAsync(string number, CancellationToken cancellationToken = default);
+}

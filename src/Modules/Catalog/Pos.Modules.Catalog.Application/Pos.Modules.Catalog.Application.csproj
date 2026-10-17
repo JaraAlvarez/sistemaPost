@@ -10,6 +10,10 @@
     <ProjectReference Include="../Pos.Modules.Catalog.Contracts/Pos.Modules.Catalog.Contracts.csproj" />
     <ProjectReference Include="../../Inventory/Pos.Modules.Inventory.Contracts/Pos.Modules.Inventory.Contracts.csproj" />
     <ProjectReference Include="../../Organization/Pos.Modules.Organization.Contracts/Pos.Modules.Organization.Contracts.csproj" />
+    <!-- Etiquetas de góndola: promociones vigentes, compras recibidas y el tiquete neutro para la impresora de la caja. -->
+    <ProjectReference Include="../../Promotions/Pos.Modules.Promotions.Contracts/Pos.Modules.Promotions.Contracts.csproj" />
+    <ProjectReference Include="../../Purchasing/Pos.Modules.Purchasing.Contracts/Pos.Modules.Purchasing.Contracts.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/Pos.Printing/Pos.Printing.csproj" />
   </ItemGroup>
 
   <ItemGroup>
