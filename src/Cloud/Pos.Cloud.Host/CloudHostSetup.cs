@@ -139,6 +139,8 @@ internal static class CloudHostSetup
                 PerIp(context, "login", c => c.LoginPermitsPerMinute));
             options.AddPolicy(LicensingModule.PaymentEventsRateLimit, context =>
                 PerIp(context, "payment-events", c => c.PaymentEventsPermitsPerMinute));
+            options.AddPolicy(SistecreditoEndpoints.RateLimit, context =>
+                PerIp(context, "sistecredito", c => c.SistecreditoPermitsPerMinute));
         });
 
     private static RateLimitPartition<string> PerIp(HttpContext context, string name, Func<CloudSecurityOptions, int> permits)
@@ -195,6 +197,7 @@ internal static class CloudHostSetup
 
         app.MapPortalAccountEndpoints();
         app.MapPortalGoogleEndpoints();
+        app.MapSistecreditoEndpoints();
         app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
         return app;
     }

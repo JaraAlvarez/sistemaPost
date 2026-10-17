@@ -56,6 +56,9 @@ public interface ILicensingStore
 
     void Add(SigningKey key);
 
+    /// <summary>Solicitud de "Continuar con Google" del instalador.</summary>
+    void Add(InstallerSignInRequest request);
+
     Task<Account?> GetAccountAsync(Guid id, CancellationToken cancellationToken);
 
     Task<Organization?> GetOrganizationAsync(Guid id, CancellationToken cancellationToken);
@@ -91,6 +94,12 @@ public interface ILicensingStore
     Task<bool> HasActiveStoreServersAsync(Guid organizationId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<SigningKey>> GetSigningKeysAsync(CancellationToken cancellationToken);
+
+    /// <summary>Solicitud de "Continuar con Google" con su fila BLOQUEADA hasta el fin de la transacción (consultar y autorizar no se cruzan).</summary>
+    Task<InstallerSignInRequest?> GetOwnerLinkRequestForUpdateAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>Solicitudes pendientes o autorizadas que aún no vencen, de la licencia.</summary>
+    Task<int> CountOpenOwnerLinkRequestsAsync(Guid licenseId, DateTimeOffset now, CancellationToken cancellationToken);
 
     /// <summary>Guarda lo pendiente dentro de la transacción en curso (p. ej. revocar antes de insertar la licencia nueva).</summary>
     Task FlushAsync(CancellationToken cancellationToken);

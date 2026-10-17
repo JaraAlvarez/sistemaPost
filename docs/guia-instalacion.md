@@ -215,6 +215,14 @@ empresa, con las mismas reglas del portal (bloqueo por intentos, nada de contras
 Propietario con el **correo del portal** como usuario y la **misma contraseña** (el hash se calcula en el equipo). La contraseña solo
 viaja del premium al servidor local por `localhost`.
 
+**"Continuar con Google" (§9.5 de la propuesta 13-B):** Google no deja entrar dentro de la ventana del instalador (WebView), así que
+el premium pide a la nube `POST /v1/owner-link-requests` (la clave), abre la página `…/cuenta/vincular-instalador?r=<id>` en el
+**navegador de Windows** (solo HTTPS y del mismo servidor de licencias) y muestra un código corto para comparar. El dueño entra al
+portal como siempre (Google o contraseña) y pulsa **Autorizar**; el premium consulta `POST /v1/owner-link-requests/{id}/poll` cada 5 s
+y recibe el **mismo enlace firmado**. Como con Google no hay contraseña del portal que reutilizar, el premium pide entonces una
+**contraseña de BusinessPost** (12+ caracteres, letras y números): con el correo y esa contraseña el dueño entra a la administración en
+el equipo, también sin internet.
+
 ### 10.4 Desinstalación premium
 
 Después de instalar, el premium se copia a `{app}\instalador\BusinessPost-Setup.exe` y queda como `UninstallString` de BusinessPost

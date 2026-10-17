@@ -16,7 +16,10 @@ internal static class PortalAccountEndpoints
             {
                 await dispatcher.Send(new PortalLogoutCommand(), ct);
                 PortalCookie.Delete(http.Response);
-                return TypedResults.LocalRedirect(http.Request.PathBase + PortalAuthenticationHandler.LoginPath);
+                // "Salir y entrar con otra cuenta" en la autorización del instalador vuelve a esa página después de ingresar.
+                var target = PortalCookie.SafeReturnUrl(returnUrl);
+                return TypedResults.LocalRedirect(http.Request.PathBase + PortalAuthenticationHandler.LoginPath
+                    + (target == "/" ? string.Empty : $"?returnUrl={Uri.EscapeDataString(target)}"));
             })
             .AllowAnonymous();
         return endpoints;

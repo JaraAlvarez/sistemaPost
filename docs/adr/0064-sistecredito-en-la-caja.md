@@ -31,7 +31,13 @@ Sistecrédito, y la caja nunca se debe bloquear por falta de internet.
   Sistecrédito las informa: se buscan los nombres usuales del campo), fechas y venta completada. El documento completo solo se guarda
   en esa tabla (Sistecrédito lo necesita); bitácora, registros y API muestran los **últimos 4**.
 - **Sin webhooks** (D7B-03): la caja consulta el estado **cada 3 s** mientras espera; la `urlConfirmation` obligatoria apunta a una
-  página informativa (⚙️ `Pos:Sistecredito:ConfirmationUrl`). Internet solo en ese momento (D7B-04): sin conexión el cobro responde
+  página informativa (⚙️ `Pos:Sistecredito:ConfirmationUrl`). **Nota 2026-10-17:** la nube publica ambas direcciones, por si
+  Sistecrédito las valida: `GET /sistecredito/respuesta` (⚙️ `Pos:Sistecredito:ResponseUrl`, por defecto
+  `https://businesspost.tutiendanueva.com/sistecredito/respuesta`; página amable "Tu pago con Sistecrédito se está procesando; vuelve
+  a la caja", sin datos ni scripts, CSP `default-src 'none'`) y `GET|POST /sistecredito/confirmacion` (por defecto
+  `…/sistecredito/confirmacion`): responde 200 de inmediato y **no guarda nada**; solo registra (Information) el id y el estado de la
+  transacción saneados (nunca el cuerpo, que puede traer el documento), con límite por IP (⚙️ `Cloud:Security:SistecreditoPermitsPerMinute`,
+  60) y cuerpo de hasta 16 KB. El POS sigue confirmando por consulta. Internet solo en ese momento (D7B-04): sin conexión el cobro responde
   `CASH.SISTECREDITO_OFFLINE` ("Sistecrédito necesita internet…") y la caja elige otro medio; consultar un cobro pendiente sin
   conexión no falla (aviso y sigue intentando). Tiempo máximo por petición ⚙️ 20 s; al crear se consulta la URL hasta 3 veces cada
   1,5 s ⚙️ y, si no llega, la caja la sigue pidiendo.

@@ -139,8 +139,8 @@ public class CloudArchitectureTests
         var pos = endpoints.Where(e => e.RoutePattern.RawText?.StartsWith("/v1", StringComparison.Ordinal) == true).ToList();
         // Activación, check-in, liberación, claves públicas, lotes de sincronización (Fase 16) y pago en línea (Fase 12-C: eventos
         // firmados de Wompi, resumen del enlace de pago y creación de la orden) e instalador premium (Fase 13-B: vista previa de la clave y
-        // cuenta del portal del dueño).
-        pos.Count.ShouldBe(10);
+        // cuenta del portal del dueño; "Continuar con Google": crear la solicitud y consultarla).
+        pos.Count.ShouldBe(12);
         pos.ShouldAllBe(e => e.Metadata.GetMetadata<Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute>() != null);
     }
 }

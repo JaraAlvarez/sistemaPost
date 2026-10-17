@@ -530,6 +530,10 @@ Notas:
 - Un usuario deshabilitado o bloqueado en el portal no entra aunque Google lo autentique. Para quitar el acceso de alguien,
   deshabilítelo en el portal (no basta con quitarle la cuenta de Google si conoce su contraseña).
 - Rotar el secreto: cree uno nuevo en la consola, cámbielo en `.env`, `docker compose up -d app` y borre el anterior.
+- **"Continuar con Google" del instalador** (Fase 13-B §9.5) no necesita otra configuración de Google: el instalador abre en el
+  navegador `https://businesspost.tutiendanueva.com/cuenta/vincular-instalador?r=…`, el dueño entra con este mismo ingreso y autoriza.
+  Requiere la migración `V2026.10.010` (se aplica sola al arrancar con `MigrateOnStartup`). El proxy debe dejar pasar
+  `/v1/owner-link-requests…` y `/cuenta/vincular-instalador` como el resto del portal.
 
 ## 20. Pago en línea (Wompi, ADR-0063)
 
@@ -593,3 +597,16 @@ Notas:
 - **Devoluciones** se hacen en el panel de Wompi; en el portal, "Marcar revisado" con la nota de lo que hizo.
 - **Rotar llaves:** genere nuevas en Wompi, cámbielas en `.env`, `docker compose up -d app`. Rotar el secreto de eventos invalida
   los eventos en tránsito firmados con el anterior (la conciliación los recupera).
+
+## 21. Direcciones de Sistecrédito (ADR-0064)
+
+El POS confirma los pagos con Sistecrédito **consultando** (no recibe avisos), pero la API de Sistecrédito exige dos direcciones
+públicas al crear el cobro. La nube las publica y el POS las usa por defecto (`Pos:Sistecredito:ResponseUrl` / `ConfirmationUrl`):
+
+- `https://businesspost.tutiendanueva.com/sistecredito/respuesta`: página para el cliente al terminar ("Tu pago con Sistecrédito se
+  está procesando; vuelve a la caja"), sin datos ni scripts.
+- `https://businesspost.tutiendanueva.com/sistecredito/confirmacion` (GET o POST): responde 200 y no guarda nada; en el registro del
+  contenedor queda una línea Information con el id y el estado de la transacción. Límite por IP ⚙️
+  `Cloud__Security__SistecreditoPermitsPerMinute` (60) y cuerpo de hasta 16 KB.
+
+Prueba: `curl -s -o /dev/null -w "%{http_code}" https://businesspost.tutiendanueva.com/sistecredito/respuesta` → `200`.

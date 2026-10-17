@@ -76,12 +76,23 @@ internal static class PortalCookie
         IsEssential = true,
     };
 
-    /// <summary>Solo rutas locales del portal (evita redirecciones abiertas).</summary>
+    /// <summary>
+    /// Página de /cuenta a la que SÍ se vuelve después de ingresar: la autorización del instalador ("Continuar con Google"), que el
+    /// dueño abre desde el instalador antes de tener sesión.
+    /// </summary>
+    public const string InstallerLinkPath = "/cuenta/vincular-instalador";
+
+    /// <summary>Solo rutas locales del portal (evita redirecciones abiertas); de /cuenta, solo la autorización del instalador.</summary>
     public static string SafeReturnUrl(string? returnUrl) =>
         returnUrl is { Length: > 0 and < 500 } url && url.StartsWith('/') && !url.StartsWith("//", StringComparison.Ordinal)
-        && !url.StartsWith("/\\", StringComparison.Ordinal) && !url.StartsWith("/cuenta", StringComparison.OrdinalIgnoreCase)
+        && !url.StartsWith("/\\", StringComparison.Ordinal)
+        && (!url.StartsWith("/cuenta", StringComparison.OrdinalIgnoreCase) || IsInstallerLink(url))
             ? url
             : "/";
+
+    private static bool IsInstallerLink(string url) =>
+        url.StartsWith(InstallerLinkPath + "?", StringComparison.OrdinalIgnoreCase) && !url.Contains('#', StringComparison.Ordinal)
+        && !url.Contains('\\', StringComparison.Ordinal);
 }
 
 /// <summary>Enlaces del portal relativos a <c>&lt;base href&gt;</c> (que incluye <c>Cloud:PathBase</c>).</summary>

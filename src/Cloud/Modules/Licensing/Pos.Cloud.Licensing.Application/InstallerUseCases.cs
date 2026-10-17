@@ -138,22 +138,9 @@ internal sealed class CreateOwnerLinkHandler(
             return Outcome.Fail<OwnerLinkResponse>(error);
         }
 
-        var now = clock.UtcNow;
-        var claims = new OwnerLinkClaims
-        {
-            TokenId = ids.NewId(),
-            Email = check.Email!,
-            DisplayName = check.DisplayName!,
-            OrganizationNit = organization.NitNumber.ToString(),
-            IssuedAt = now,
-            ExpiresAt = now + OwnerLinkToken.Lifetime,
-        };
-        var token = signer.SignOwnerLink(claims);
-        await audit.WriteAsync(
-            new AuditEntry("licensing", "OWNER_LINK_ISSUED", nameof(Organization), organization.Id, organization.AuditLabel,
-                $"{organization.LegalName}: enlace del propietario para {claims.Email} (licencia {license.KeyPrefix}…) desde {command.IpAddress?.ToString() ?? "IP desconocida"}; vence {claims.ExpiresAt:yyyy-MM-dd HH:mm} UTC.",
-                Severity: AuditSeverity.Warning),
-            cancellationToken);
-        return Outcome.Ok(new OwnerLinkResponse(token, claims.Email, claims.DisplayName, claims.ExpiresAt));
+        var (link, _) = await OwnerLinkIssuer.IssueAsync(
+            signer, audit, ids, clock.UtcNow, license, organization, check.Email!, check.DisplayName!,
+            $"desde {command.IpAddress?.ToString() ?? "IP desconocida"}", cancellationToken);
+        return Outcome.Ok(link);
     }
 }

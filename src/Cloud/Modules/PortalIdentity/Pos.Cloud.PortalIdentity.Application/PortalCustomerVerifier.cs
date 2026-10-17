@@ -85,5 +85,26 @@ public sealed class PortalCustomerVerifier(PortalAuthServices auth, IAuditWriter
         return new(PortalCustomerCheck.Valid, user.Email, user.DisplayName);
     }
 
+    public async Task<PortalCustomerVerification> VerifySignedInAsync(
+        Guid userId, Guid accountId, string organizationLabel, IPAddress? ipAddress, CancellationToken cancellationToken)
+    {
+        var now = auth.Clock.UtcNow;
+        var origin = $"en el navegador, para el instalador ({ipAddress?.ToString() ?? "IP desconocida"})";
+        var user = await auth.Store.GetUserAsync(userId, cancellationToken);
+        if (user is null || user.Kind != PortalUserKind.Human || !user.CanSignIn(now))
+        {
+            return new(PortalCustomerCheck.InvalidCredentials);
+        }
+
+        if (user.Role != PortalRole.Customer || user.ResellerAccountId != accountId)
+        {
+            await auth.AuditAsync(user, "PORTAL_OWNER_LINK_REJECTED",
+                $"{user.Email} no es un usuario Cliente de la cuenta dueña de {organizationLabel} ({origin}).", AuditSeverity.Warning, cancellationToken);
+            return new(PortalCustomerCheck.NotOwner);
+        }
+
+        return new(PortalCustomerCheck.Valid, user.Email, user.DisplayName);
+    }
+
     private static string Shown(string email) => email.Length == 0 ? "(sin correo)" : email.Length > 120 ? email[..120] : email;
 }

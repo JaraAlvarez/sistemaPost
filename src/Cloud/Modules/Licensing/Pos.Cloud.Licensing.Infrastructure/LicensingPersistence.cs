@@ -140,6 +140,23 @@ internal sealed class LicensingModelContributor : ICloudModelContributor
             b.HasOne<Activation>().WithMany().HasForeignKey(x => x.ActivationId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        // "Continuar con Google" del instalador (V2026.10.010).
+        modelBuilder.Entity<InstallerSignInRequest>(b =>
+        {
+            b.ToTable("owner_link_requests", "licensing");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Property(x => x.Status).HasUpperSnakeConversion();
+            b.Property(x => x.PollTokenHash).HasColumnType("char(64)");
+            b.Property(x => x.UserCode).HasColumnType("char(9)");
+            b.Property(x => x.PollIntervalSeconds).HasConversion<short>();
+            b.Property(x => x.CreatedIp).HasColumnType("inet");
+            b.Property(x => x.DecidedIp).HasColumnType("inet");
+            b.HasOne<License>().WithMany().HasForeignKey(x => x.LicenseId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+            b.HasXminConcurrency();
+        });
+
         modelBuilder.Entity<SigningKey>(b =>
         {
             b.ToTable("signing_keys", "licensing");
@@ -183,6 +200,20 @@ internal sealed class LicensingStore(CloudDbContext context) : ILicensingStore
     public void Add(Checkin checkin) => context.Add(checkin);
 
     public void Add(SigningKey key) => context.Add(key);
+
+    public void Add(InstallerSignInRequest request) => context.Add(request);
+
+    public async Task<InstallerSignInRequest?> GetOwnerLinkRequestForUpdateAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await context.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM licensing.owner_link_requests WHERE id = {id} FOR UPDATE", cancellationToken);
+        return await context.Set<InstallerSignInRequest>().SingleOrDefaultAsync(r => r.Id == id, cancellationToken);
+    }
+
+    public Task<int> CountOpenOwnerLinkRequestsAsync(Guid licenseId, DateTimeOffset now, CancellationToken cancellationToken) =>
+        context.Set<InstallerSignInRequest>().CountAsync(
+            r => r.LicenseId == licenseId && r.ExpiresAt > now
+                 && (r.Status == InstallerSignInStatus.Pending || r.Status == InstallerSignInStatus.Approved),
+            cancellationToken);
 
     public Task<Account?> GetAccountAsync(Guid id, CancellationToken cancellationToken) =>
         context.Set<Account>().SingleOrDefaultAsync(a => a.Id == id, cancellationToken);

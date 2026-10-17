@@ -61,6 +61,19 @@ public static class LicenseApiErrors
     public static readonly Error OwnerPasswordChangeRequired = Error.BusinessRule(
         LicenseErrorCodes.OwnerPasswordChangeRequired, "Tu contraseña del portal todavía es la temporal. Entra al portal, cámbiala y vuelve a intentarlo.");
 
+    // "Continuar con Google" desde el instalador (solicitud aprobada en el navegador del sistema).
+    public static readonly Error OwnerLinkRequestNotFound = Error.NotFound(
+        LicenseErrorCodes.OwnerLinkRequestNotFound, "La solicitud no existe. Vuelve a empezar desde el instalador.");
+
+    public static readonly Error OwnerLinkRequestUsed = Error.Conflict(
+        LicenseErrorCodes.OwnerLinkRequestUsed, "Esta autorización ya se usó. Si necesitas otra, vuelve a empezar desde el instalador.");
+
+    public static readonly Error OwnerLinkRequestClosed = Error.BusinessRule(
+        LicenseErrorCodes.OwnerLinkRequestClosed, "Esta solicitud ya no está pendiente (venció, ya se autorizó o se canceló). Vuelve a empezar desde el instalador.");
+
+    public static readonly Error OwnerLinkSlowDown = Error.Conflict(
+        LicenseErrorCodes.OwnerLinkSlowDown, "Consultas demasiado seguidas. Espera unos segundos más entre consultas.");
+
     public static Error InvalidField(string field, string message) =>
         Error.Validation("VALIDATION.FAILED", "Los datos enviados no son válidos.", [new FieldError(field, "INVALID", message)]);
 }
