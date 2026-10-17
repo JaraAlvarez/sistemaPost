@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instalar BusinessPost</title>
+<!-- Instalador premium (Fase 13-B, D13B-08). Diseño aprobado: docs/diseno/instalador-premium-maqueta.html. Todo es local: nada se carga de internet. -->
+<link rel="stylesheet" href="instalador.css">
+<script src="instalador.js" defer></script>
+</head>
+<body>
+<div class="ventana">
+  <div class="barra" id="barra"><button id="btnMinimizar" title="Minimizar">–</button><button id="btnCerrar" class="cerrar" title="Cerrar">✕</button></div>
+
+  <aside class="marca">
+    <div class="logo">
+      <svg width="38" height="38" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#fff" fill-opacity=".14"/><path fill="#fff" fill-rule="evenodd" d="M9 7H17C20 7 22 9 22 11.6C22 13.3 21.1 14.7 19.8 15.4C21.8 16.1 23 17.9 23 20.1C23 23 20.8 25 17.8 25H9ZM12.6 10.2V14H16.7C17.9 14 18.6 13.2 18.6 12.1C18.6 11 17.9 10.2 16.7 10.2ZM12.6 17.1V21.8H17.2C18.6 21.8 19.4 20.9 19.4 19.45C19.4 18 18.6 17.1 17.2 17.1Z"/><circle cx="26" cy="26" r="2.6" fill="#2DD4BF"/></svg>
+      <div>Business<span class="post">Post</span><small id="subtitulo">Instalación</small></div>
+    </div>
+    <ol class="pasos" id="pasos"></ol>
+    <div class="version" id="version">Hecho en Colombia para tu negocio</div>
+    <svg class="onda" viewBox="0 0 340 150" preserveAspectRatio="none" aria-hidden="true"><path d="M0,70 C90,130 220,20 340,80 L340,150 L0,150 Z" fill="rgba(255,255,255,.07)"/><path d="M0,100 C110,150 230,60 340,110 L340,150 L0,150 Z" fill="rgba(255,255,255,.08)"/></svg>
+  </aside>
+
+  <main class="contenido">
+    <!-- 1. Bienvenida -->
+    <section class="pantalla" data-s="bienvenida">
+      <div class="hero">
+        <div>
+          <h1>Bienvenido a BusinessPost</h1>
+          <p class="lead">El punto de venta para tu negocio: caja rápida, inventario al día y facturación electrónica. Instalarlo toma unos minutos y te guiamos en cada paso.</p>
+          <div class="chips"><span class="chip">⚡ Cobros en segundos</span><span class="chip">📦 Inventario y compras</span><span class="chip">🧾 Factura DIAN</span><span class="chip">🔒 Backups automáticos</span></div>
+        </div>
+        <div class="ilus">
+          <svg width="150" height="120" viewBox="0 0 150 120" aria-hidden="true"><rect x="18" y="14" width="114" height="72" rx="10" fill="#fff" stroke="#c9c3ff" stroke-width="2"/><rect x="28" y="24" width="60" height="8" rx="4" fill="#5B3DF5" opacity=".8"/><rect x="28" y="38" width="94" height="6" rx="3" fill="#e2e0f5"/><rect x="28" y="50" width="80" height="6" rx="3" fill="#e2e0f5"/><rect x="96" y="62" width="26" height="14" rx="7" fill="#2DD4BF"/><rect x="58" y="88" width="34" height="10" rx="3" fill="#c9c3ff"/><rect x="40" y="98" width="70" height="8" rx="4" fill="#a99cff"/></svg>
+        </div>
+      </div>
+      <div class="aliado-mini"><img src="tutiendanueva-logo.png" alt=""><div>¿Quieres vender también por internet? Crea tu tienda en <b>tutiendanueva.com</b>, nuestro aliado comercial.</div></div>
+      <div class="pie"><span class="izq">Al continuar aceptas los términos de uso de BusinessPost.</span><button class="btn btn-primario" data-ir="equipo">Comenzar</button></div>
+    </section>
+
+    <!-- 2. Este equipo -->
+    <section class="pantalla" data-s="equipo">
+      <h1>¿Cómo usarás este equipo?</h1>
+      <p class="lead">Elige la opción que describe tu local. Si tienes una sola caja, deja la primera.</p>
+      <div class="modos" id="modos">
+        <div class="modo sel" data-modo="unica"><svg width="44" height="44" viewBox="0 0 44 44"><rect x="6" y="8" width="32" height="22" rx="4" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><rect x="16" y="32" width="12" height="4" rx="2" fill="#5B3DF5"/></svg><h3>Es la única caja</h3><p>Este equipo guarda los datos y es donde cobras. Ideal para negocios con una caja.</p><span class="tag">Plan Caja Única</span></div>
+        <div class="modo" data-modo="principal"><svg width="44" height="44" viewBox="0 0 44 44"><rect x="14" y="6" width="16" height="30" rx="3" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><circle cx="22" cy="14" r="2" fill="#5B3DF5"/><path d="M4 30h8M32 30h8" stroke="#2DD4BF" stroke-width="3" stroke-linecap="round"/></svg><h3>Es el equipo principal</h3><p>Tengo varias cajas. Aquí se guardan los datos y las demás cajas se conectan a él por la red del local.</p><span class="tag">Plan Multicaja</span></div>
+        <div class="modo" data-modo="adicional"><svg width="44" height="44" viewBox="0 0 44 44"><rect x="8" y="10" width="28" height="18" rx="4" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><path d="M22 30v6M14 36h16" stroke="#5B3DF5" stroke-width="2" stroke-linecap="round"/><circle cx="36" cy="10" r="5" fill="#2DD4BF"/></svg><h3>Es una caja adicional</h3><p>Ya instalaste el equipo principal. Esta caja lo busca sola en la red.</p><span class="tag">Plan Multicaja</span></div>
+      </div>
+      <p class="ayuda">¿Reemplazas un equipo dañado? <a id="lnkRecuperar">Recuperar desde un backup</a></p>
+      <div class="pie"><button class="btn btn-sec" data-ir="bienvenida">Atrás</button><button class="btn btn-primario" id="btnEquipo">Continuar</button></div>
+    </section>
+
+    <!-- 2b. Recuperar desde un backup -->
+    <section class="pantalla" data-s="recuperar">
+      <h1>Recuperar desde un backup</h1>
+      <p class="lead">Si este computador reemplaza a uno dañado o robado, elige el archivo del backup (.posbak) y escribe el código de recuperación que guardaste al instalar. Tus datos, usuarios y licencia vuelven con el backup.</p>
+      <div class="archivo"><span id="archivoBackup">Ningún archivo elegido</span><button class="btn btn-borde" id="btnElegirBackup">Elegir archivo</button></div>
+      <div class="campo"><label for="codigoRecuperacion">Código de recuperación</label><input id="codigoRecuperacion" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false"></div>
+      <div class="aviso error oculto" id="errorRecuperar"></div>
+      <div class="pie"><button class="btn btn-sec" data-ir="equipo">Atrás</button><button class="btn btn-primario" id="btnRecuperar">Instalar y recuperar</button></div>
+    </section>
+
+    <!-- 2c. Caja adicional: equipo principal -->
+    <section class="pantalla" data-s="principal">
+      <h1>Busquemos el equipo principal</h1>
+      <p class="lead">Esta caja se conecta al equipo principal de tu local por la red. Lo buscamos solo; si no aparece, copia los datos de la administración del equipo principal (Cajas e impresoras).</p>
+      <div class="servidores" id="servidores"></div>
+      <p class="demo" id="buscandoPrincipal">Buscando en la red del local…</p>
+      <div class="campo"><label for="servidorUrl">Dirección del equipo principal</label><input id="servidorUrl" placeholder="https://192.168.1.10:5443/" spellcheck="false"></div>
+      <div class="campo"><label for="servidorHuella">Huella del certificado</label><input id="servidorHuella" placeholder="64 letras y números" spellcheck="false"></div>
+      <div class="aviso error oculto" id="errorPrincipal"></div>
+      <div class="pie"><button class="btn btn-sec" data-ir="equipo">Atrás</button><button class="btn btn-sec" id="btnBuscarOtra">Buscar otra vez</button><button class="btn btn-primario" id="btnPrincipal">Instalar BusinessPost</button></div>
+    </section>
+
+    <!-- 3. Licencia -->
+    <section class="pantalla" data-s="licencia">
+      <h1>Activa tu licencia</h1>
+      <p class="lead">Escribe la clave que recibiste al comprar BusinessPost. Con ella traemos los datos de tu empresa para que no los escribas de nuevo.</p>
+      <div class="campo"><label for="clave">Clave de licencia</label><input id="clave" placeholder="POS-XXXXX-XXXXX-XXXXX-XXXXX" autocomplete="off" spellcheck="false"></div>
+      <div class="empresa" id="empresa"><span class="ok">✓</span><div><b id="empresaNombre"></b><br><small id="empresaDetalle"></small></div></div>
+      <div class="aviso error oculto" id="errorLicencia"></div>
+      <p class="demo">¿Aún no tienes clave? <a id="lnkPrueba">Probar gratis 30 días</a></p>
+      <div class="pie"><button class="btn btn-sec" data-ir="equipo">Atrás</button><button class="btn btn-primario" id="btnLicencia" disabled>Continuar</button></div>
+    </section>
+
+    <!-- 4. Cuenta (portal) -->
+    <section class="pantalla" data-s="cuenta">
+      <h1 id="cuentaTitulo">Entra con tu cuenta de BusinessPost</h1>
+      <p class="lead" id="cuentaLead">Es la misma cuenta de tu portal. Con ella administrarás la tienda: crear cajeros, cargar productos y ver reportes. Funciona también sin internet.</p>
+      <div id="cuentaPortal">
+        <button class="google" id="btnGoogle"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Continuar con Google</button>
+        <div class="sep">o con tu correo</div>
+      </div>
+      <div class="campo oculto" id="campoNombre"><label for="cuentaNombre">Tu nombre</label><input id="cuentaNombre" placeholder="Nombre y apellido" autocomplete="off"></div>
+      <div class="campo"><label for="cuentaCorreo">Correo</label><input id="cuentaCorreo" type="email" placeholder="tu@correo.com" spellcheck="false"></div>
+      <div class="campo"><label for="cuentaContrasena">Contraseña</label><input id="cuentaContrasena" type="password" placeholder="Tu contraseña del portal"></div>
+      <div class="campo oculto" id="campoConfirmar"><label for="cuentaConfirmar">Escríbela otra vez</label><input id="cuentaConfirmar" type="password"></div>
+      <div class="campo oculto" id="campoTotp"><label for="cuentaTotp">Código de verificación (6 dígitos de tu aplicación)</label><input id="cuentaTotp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
+      <div class="aviso oculto" id="avisoCuenta"></div>
+      <div class="pie"><button class="btn btn-sec" data-ir="licencia">Atrás</button><button class="btn btn-primario" id="btnCuenta">Continuar</button></div>
+    </section>
+
+    <!-- 5. Tu negocio -->
+    <section class="pantalla" data-s="negocio">
+      <h1>Tu negocio</h1>
+      <p class="lead" id="negocioLead">Completa lo que falta. Puedes cambiarlo después en la administración.</p>
+      <div class="rejilla">
+        <div class="campo"><label for="razonSocial">Razón social o nombre</label><input id="razonSocial" maxlength="200"></div>
+        <div class="campo"><label for="nitNumero">NIT (el dígito de verificación sale solo)</label><div class="nit"><input id="nitNumero" inputmode="numeric" maxlength="15" placeholder="900123456"><input id="nitDv" readonly placeholder="DV" title="Dígito de verificación"></div></div>
+        <div class="campo"><label for="nombreComercial">Nombre comercial (el de tu aviso)</label><input id="nombreComercial" maxlength="200"></div>
+        <div class="campo"><label for="tipoPersona">Tipo de persona</label><select id="tipoPersona"><option value="Legal">Empresa (persona jurídica)</option><option value="Natural">Persona natural</option></select></div>
+        <div class="campo"><label for="regimen">Responsabilidad de IVA</label><select id="regimen"><option value="49">No responsable de IVA</option><option value="48">Responsable de IVA</option></select></div>
+        <div class="campo"><label for="municipio">Municipio</label><input id="municipio" placeholder="Escribe y elige" autocomplete="off"><div class="sugerencias oculto" id="sugerencias"></div></div>
+        <div class="campo"><label for="direccion">Dirección del local</label><input id="direccion" maxlength="250" placeholder="Calle 50 # 45-20"></div>
+        <div class="campo"><label for="telefono">Teléfono</label><input id="telefono" maxlength="30" inputmode="tel"></div>
+        <div class="campo ancho"><label for="correoNegocio">Correo del negocio (para la factura electrónica)</label><input id="correoNegocio" type="email" maxlength="120"></div>
+      </div>
+      <div class="aviso error oculto" id="errorNegocio"></div>
+      <div class="pie"><button class="btn btn-sec" data-ir="cuenta">Atrás</button><button class="btn btn-primario" id="btnInstalar">Instalar BusinessPost</button></div>
+    </section>
+
+    <!-- 6. Instalación -->
+    <section class="pantalla" data-s="instalando">
+      <h1>Instalando BusinessPost</h1>
+      <p class="lead">Puedes seguir usando el computador. Te avisamos cuando termine.</p>
+      <div class="progreso">
+        <div style="flex:1">
+          <div class="barra-p"><i id="barraProgreso"></i></div>
+          <div class="nota" id="pct">0 %</div>
+          <div class="lista" id="lista" style="margin-top:16px">
+            <div class="item"><span class="e"></span>Copiando los programas</div>
+            <div class="item"><span class="e"></span>Revisando los archivos con Windows Defender</div>
+            <div class="item"><span class="e"></span>Creando la base de datos</div>
+            <div class="item"><span class="e"></span>Preparando la caja y la impresora</div>
+            <div class="item"><span class="e"></span>Iniciando BusinessPost</div>
+            <div class="item" id="itemConfigurar"><span class="e"></span>Configurando tu negocio</div>
+          </div>
+          <div class="nota" id="notaProgreso" style="margin-top:14px"></div>
+        </div>
+        <div class="carrusel">
+          <div class="puntos"><i class="on"></i><i></i><i></i></div>
+          <div class="slide s1 ver"><h4>Cobra en segundos</h4><p>Lector de códigos, atajos de teclado y pago mixto: efectivo, tarjeta, Nequi y Sistecrédito.</p></div>
+          <div class="slide s2"><h4>Tu inventario siempre al día</h4><p>Compras, traslados y conteos con alertas de existencias bajas y vencimientos.</p></div>
+          <div class="slide s3"><span class="pill">ALIADO COMERCIAL</span><div class="tnu"><img src="tutiendanueva-logo.png" alt="">tutiendanueva.com</div><h4>¿Quieres vender también por internet?</h4><p>Crea tu tienda en línea en minutos con tutiendanueva.com.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6b. Código de recuperación -->
+    <section class="pantalla" data-s="codigo">
+      <h1>Guarda tu código de recuperación</h1>
+      <p class="lead">Con este código, y solo con él, se abren tus backups en otro computador si este se daña o se lo roban. <b>Se muestra una sola vez:</b> imprímelo o anótalo y guárdalo fuera del local.</p>
+      <div class="codigo" id="codigoTexto"></div>
+      <div class="aviso info oculto" id="avisoCodigo"></div>
+      <label class="casilla"><input type="checkbox" id="chkCodigo"> Ya lo imprimí o lo anoté, y lo guardé en un lugar seguro fuera del local.</label>
+      <div class="aviso error oculto" id="errorCodigo"></div>
+      <div class="pie"><button class="btn btn-borde" id="btnImprimir">Imprimir</button><span style="margin-right:auto"></span><button class="btn btn-primario" id="btnCodigo" disabled>Continuar</button></div>
+    </section>
+
+    <!-- 6c. Error -->
+    <section class="pantalla" data-s="error">
+      <h1>No pudimos terminar</h1>
+      <p class="lead" id="errorTexto"></p>
+      <div class="aviso info">Si necesitas ayuda, abre el registro de la instalación y envíaselo a soporte. Tus datos no se pierden.</div>
+      <div class="pie"><button class="btn btn-sec" id="btnVerRegistro">Ver el registro</button><button class="btn btn-primario" id="btnSalirError">Cerrar</button></div>
+    </section>
+
+    <!-- 7. Listo -->
+    <section class="pantalla listo" data-s="listo">
+      <div class="check">✓</div>
+      <h1>¡Todo listo!</h1>
+      <p class="lead" style="margin-inline:auto" id="listoLead">BusinessPost quedó instalado y tus backups automáticos ya están activos.</p>
+      <div class="resumen"><div><b id="resEmpresa">Tu negocio</b>Empresa</div><div><b id="resModo">Única caja</b><span id="resPlan">Caja Única</span></div><div><b id="resLicencia">Licencia activa</b><span id="resVigencia"></span></div></div>
+      <div class="aviso info oculto" id="avisoListo" style="margin-inline:auto;text-align:left"></div>
+      <button class="btn btn-primario" style="padding:14px 34px;font-size:15px" id="btnAbrir">Abrir BusinessPost</button>
+      <label class="aliado-final"><input type="checkbox" id="chkAliado"> Quiero conocer tutiendanueva.com para vender por internet</label>
+    </section>
+
+    <!-- Desinstalar (§8) -->
+    <section class="pantalla" data-s="d-inicio">
+      <h1>Desinstalar BusinessPost</h1>
+      <p class="lead" id="dLead">Antes de quitarlo, revisa qué pasa con tus datos.</p>
+      <div class="desplazable" id="dCuerpo">
+        <div class="columnas">
+          <div><b>Se quita</b>Los programas de BusinessPost, sus servicios de Windows, los accesos directos y la regla del firewall.</div>
+          <div><b>Se conserva</b>Tus ventas, inventario, clientes y backups, en <span id="dDatos"></span>. Si vuelves a instalar, BusinessPost los usa de nuevo.</div>
+        </div>
+        <div id="dBackup">
+          <div class="archivo"><span id="dBackupRuta">Recomendado: haz un backup final y guárdalo en una memoria USB.</span><button class="btn btn-borde" id="btnBackupFinal">Hacer un backup final</button></div>
+        </div>
+        <label class="casilla" style="margin-bottom:12px"><input type="checkbox" id="chkBorrar"> Borrar también los datos del negocio y los backups de este equipo (no se puede deshacer).</label>
+        <div class="seccion">Liberar este equipo de la licencia (opcional, con internet)</div>
+        <p class="demo" style="margin:0 0 8px">Así puedes activar tu clave en otro computador. Entra con tu usuario de administrador de BusinessPost.</p>
+        <div class="rejilla">
+          <div class="campo"><label for="dUsuario">Usuario o correo</label><input id="dUsuario" autocomplete="off" spellcheck="false"></div>
+          <div class="campo"><label for="dContrasena">Contraseña</label><input id="dContrasena" type="password"></div>
+        </div>
+        <div class="seccion">¿Por qué desinstalas BusinessPost? (opcional)</div>
+        <textarea id="dMotivo" rows="2" maxlength="300" placeholder="Cuéntanos qué podemos mejorar"></textarea>
+        <label class="casilla" style="margin-top:8px"><input type="checkbox" id="chkEnviarMotivo"> Enviar el motivo a BusinessPost (viaja con la liberación del equipo).</label>
+      </div>
+      <div class="aviso error oculto" id="dError"></div>
+      <div class="pie"><button class="btn btn-sec" id="btnCancelarD">Cancelar</button><button class="btn btn-primario" id="btnDesinstalar">Desinstalar</button></div>
+    </section>
+
+    <section class="pantalla" data-s="d-progreso">
+      <h1>Desinstalando BusinessPost</h1>
+      <p class="lead">Esto toma un minuto. No apagues el equipo.</p>
+      <div class="barra-p"><i id="dBarra"></i></div>
+      <div class="nota" id="dNota"></div>
+    </section>
+
+    <section class="pantalla listo" data-s="d-listo">
+      <div class="check">✓</div>
+      <h1>BusinessPost se desinstaló</h1>
+      <p class="lead" style="margin-inline:auto" id="dListoLead"></p>
+      <div class="aviso info oculto" id="dAvisos" style="margin-inline:auto;text-align:left"></div>
+      <button class="btn btn-primario" id="btnCerrarD">Cerrar</button>
+    </section>
+  </main>
+</div>
+
+<div class="velo oculto" id="velo"><div class="modal"><h2 id="modalTitulo"></h2><p id="modalTexto"></p><div class="campo oculto" id="modalCampo" style="max-width:none"><input id="modalEntrada" autocomplete="off" spellcheck="false"></div><div class="acciones"><button class="btn btn-sec" id="modalNo">Cancelar</button><button class="btn btn-primario" id="modalSi">Aceptar</button></div></div></div>
+
+<div class="impresion" id="impresion"><h2>BusinessPost · Código de recuperación de los backups</h2><p id="impresionEmpresa"></p><div class="codigo" id="impresionCodigo"></div>
+  <p>Con este código se abren los backups de tu negocio en otro computador. Guárdalo fuera del local, en un lugar seguro. Sin él, los backups no se pueden recuperar en otro equipo.</p><p id="impresionFecha"></p></div>
+</body>
+</html>

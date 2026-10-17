@@ -143,6 +143,14 @@ public sealed class User : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, I
 
     public Guid? EmployeeId { get; private set; }
 
+    /// <summary>
+    /// Fase 13-B (D13B-09): el usuario se creó con la cuenta del portal del dueño (enlace firmado por la nube). Entra con el mismo
+    /// correo y la misma contraseña del portal; la copia (hash) es local y sirve sin Internet. Nulo = usuario local.
+    /// </summary>
+    public DateTimeOffset? PortalLinkedAt { get; private set; }
+
+    public bool IsPortalLinked => PortalLinkedAt is not null;
+
     public IReadOnlyCollection<UserRole> Roles => _roles.AsReadOnly();
 
     public IReadOnlyCollection<UserPermissionOverride> Overrides => _overrides.AsReadOnly();
@@ -171,6 +179,9 @@ public sealed class User : AggregateRoot<Guid>, ICompanyOwned, ISoftDeletable, I
         user.SetPassword(passwordHash, now, mustChangePassword);
         return user;
     }
+
+    /// <summary>Marca al usuario como la cuenta del portal del dueño (solo al crearlo con un enlace firmado válido).</summary>
+    public void LinkToPortal(DateTimeOffset now) => PortalLinkedAt = now;
 
     public void Update(string displayName, string? email, Guid? employeeId)
     {

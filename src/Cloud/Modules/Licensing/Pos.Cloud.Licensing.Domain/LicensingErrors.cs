@@ -45,6 +45,22 @@ public static class LicenseApiErrors
     public static readonly Error SigningUnavailable = Error.Unexpected(
         LicenseErrorCodes.SigningUnavailable, "El servidor de licencias no puede emitir tokens en este momento. Intente más tarde.");
 
+    // Instalador premium (Fase 13-B, D13B-09): cuenta del portal del dueño. Mensajes en lenguaje sencillo: los ve el cliente.
+    public static readonly Error OwnerCredentialsInvalid = Error.Unauthorized(
+        LicenseErrorCodes.OwnerCredentialsInvalid, "El correo o la contraseña del portal no son correctos.");
+
+    public static readonly Error OwnerLocked = Error.Unauthorized(
+        LicenseErrorCodes.OwnerLocked, "Tu cuenta del portal quedó bloqueada unos minutos por intentos fallidos. Espera un rato e intenta de nuevo.");
+
+    public static readonly Error OwnerNotLinked = Error.Forbidden(
+        LicenseErrorCodes.OwnerNotLinked, "Esa cuenta del portal no es la del dueño de esta licencia. Usa el correo con el que entras a tu portal de cliente.");
+
+    public static readonly Error OwnerTotpRequired = Error.Unauthorized(
+        LicenseErrorCodes.OwnerTotpRequired, "Escribe el código de 6 dígitos de tu aplicación de verificación (doble factor).");
+
+    public static readonly Error OwnerPasswordChangeRequired = Error.BusinessRule(
+        LicenseErrorCodes.OwnerPasswordChangeRequired, "Tu contraseña del portal todavía es la temporal. Entra al portal, cámbiala y vuelve a intentarlo.");
+
     public static Error InvalidField(string field, string message) =>
         Error.Validation("VALIDATION.FAILED", "Los datos enviados no son válidos.", [new FieldError(field, "INVALID", message)]);
 }

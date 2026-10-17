@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Instalador premium de BusinessPost (Fase 13-B, D13B-08 y §8): BusinessPost-Setup.exe. Ventana propia sin bordes de Windows (960×600)
+    con WebView2 y el diseño aprobado (docs/diseno/instalador-premium-maqueta.html). Recoge los datos (equipo, licencia, cuenta del
+    portal, negocio), ejecuta EN SILENCIO el paquete Inno Setup de siempre con parámetros, muestra el avance real leyendo su registro y
+    configura la tienda por la API local del servidor. Con ‑‑desinstalar es el desinstalador con el mismo diseño.
+    El build (tools/scripts/build-installer.ps1) lo publica autocontenido en un solo archivo y lo empaqueta con el paquete clásico en un
+    único BusinessPost-Setup-<versión>.exe (installer/BusinessPost-Premium.iss).
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Pos.Installer.Setup</RootNamespace>
+    <AssemblyName>BusinessPost-Setup</AssemblyName>
+    <ApplicationIcon>..\..\Desktop\Pos.Desktop\BusinessPost.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+    <ApplicationDefaultFont>Segoe UI, 9pt</ApplicationDefaultFont>
+    <!-- LibraryImport (arrastrar la ventana sin marco y redondear las esquinas). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- El paquete WebView2 trae también su control WPF (no se usa): su referencia a WindowsBase 5.0 choca con la de net10.0 sin efecto. -->
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+    <EnableCompressionInSingleFile Condition="'$(PublishSingleFile)' == 'true'">true</EnableCompressionInSingleFile>
+    <!-- Servidor de licencias de la versión (lo pasa el build con -p:PosLicenseServer=...). Vacío = solo "Probar gratis 30 días". -->
+    <PosLicenseServer Condition="'$(PosLicenseServer)' == ''"></PosLicenseServer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="PosLicenseServer" Value="$(PosLicenseServer)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Contratos: API de licencias del instalador (vista previa y cuenta del portal) y descubrimiento del equipo principal en la LAN. -->
+    <ProjectReference Include="..\..\Shared\Pos.Updates.Contracts\Pos.Updates.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Páginas locales (nunca remotas): el diseño aprobado, el logo del aliado tutiendanueva.com (aprobado por su dueño) y la tipografía Inter. -->
+    <EmbeddedResource Include="Paginas\instalador.html" LogicalName="instalador.html" />
+    <EmbeddedResource Include="Paginas\instalador.css" LogicalName="instalador.css" />
+    <EmbeddedResource Include="Paginas\instalador.js" LogicalName="instalador.js" />
+    <EmbeddedResource Include="Paginas\tutiendanueva-logo.png" LogicalName="tutiendanueva-logo.png" />
+    <EmbeddedResource Include="..\..\Client\Pos.Client\wwwroot\fonts\inter-latin.woff2" Link="Paginas\inter-latin.woff2" LogicalName="inter-latin.woff2" />
+    <EmbeddedResource Include="..\..\Client\Pos.Client\wwwroot\fonts\inter-latin-ext.woff2" Link="Paginas\inter-latin-ext.woff2" LogicalName="inter-latin-ext.woff2" />
+    <!-- Municipios (DANE DIVIPOLA): la MISMA fuente que usa la base de datos del POS (una sola copia de los datos). -->
+    <EmbeddedResource Include="..\..\Server\Pos.Server.Migrations\Scripts\repeatable\R__ref__seed_colombia.sql" Link="Datos\R__ref__seed_colombia.sql" LogicalName="seed_colombia.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Installer.Setup.Tests" />
+  </ItemGroup>
+</Project>

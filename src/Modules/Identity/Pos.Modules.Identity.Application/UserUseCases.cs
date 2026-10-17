@@ -52,7 +52,7 @@ internal sealed class CreateUserValidator : AbstractValidator<CreateUserCommand>
 {
     public CreateUserValidator()
     {
-        RuleFor(x => x.Username).NotEmpty().MaximumLength(60);
+        RuleFor(x => x.Username).NotEmpty().MaximumLength(120);
         RuleFor(x => x.DisplayName).NotEmpty().MaximumLength(120);
         RuleFor(x => x.Email).EmailAddress().MaximumLength(200).When(x => !string.IsNullOrEmpty(x.Email));
         RuleFor(x => x.Password).NotEmpty();
@@ -423,6 +423,6 @@ internal sealed class CreateOwnerHandler(
             return IdentityErrors.OwnerAlreadyExists;
         }
 
-        return await provisioning.CreateOwnerAsync(companyId, request.Owner, cancellationToken);
+        return await provisioning.CreateOwnerAsync(companyId, request.Owner, cancellationToken: cancellationToken);
     }
 }

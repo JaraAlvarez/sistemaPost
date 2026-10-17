@@ -22,8 +22,13 @@ public static class IdentityPermissions
     ];
 }
 
-/// <summary>Datos del Propietario que crea el asistente inicial.</summary>
-public sealed record OwnerInput(string Username, string DisplayName, string Password, string? Email = null, string? PosCode = null, string? Pin = null);
+/// <summary>
+/// Datos del Propietario que crea el asistente inicial. <c>PortalLinkToken</c> (Fase 13-B, D13B-09): enlace firmado por la nube cuando el
+/// dueño entró en el instalador con su cuenta del portal; entonces el usuario es su CORREO del portal (<c>Username</c> se ignora) y la
+/// contraseña, la misma del portal (llega solo por la conexión local del instalador al servidor y aquí se guarda solo su hash).
+/// </summary>
+public sealed record OwnerInput(
+    string Username, string DisplayName, string Password, string? Email = null, string? PosCode = null, string? Pin = null, string? PortalLinkToken = null);
 
 /// <summary>
 /// Alta de la estructura de identidad de una empresa nueva (lo usa el asistente inicial del módulo Organization):
@@ -33,8 +38,12 @@ public interface IIdentityProvisioning
 {
     Task ProvisionCompanyAsync(Guid companyId, Guid systemUserId, CancellationToken cancellationToken = default);
 
-    /// <summary>Valida la contraseña y el PIN y crea el Propietario (rol OWNER en todas las sucursales).</summary>
-    Task<SharedKernel.Results.Result<Guid>> CreateOwnerAsync(Guid companyId, OwnerInput owner, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Valida la contraseña y el PIN y crea el Propietario (rol OWNER en todas las sucursales). Con <see cref="OwnerInput.PortalLinkToken"/>
+    /// exige que el enlace sea válido y de la empresa <paramref name="organizationNit"/> (NIT con DV).
+    /// </summary>
+    Task<SharedKernel.Results.Result<Guid>> CreateOwnerAsync(
+        Guid companyId, OwnerInput owner, string? organizationNit = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Sesión válida resuelta a partir del token (la usa el middleware de autenticación del host).</summary>

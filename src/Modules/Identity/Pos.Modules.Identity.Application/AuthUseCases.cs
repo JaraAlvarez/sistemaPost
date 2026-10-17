@@ -208,7 +208,7 @@ internal sealed class LoginValidator : AbstractValidator<LoginCommand>
 {
     public LoginValidator()
     {
-        RuleFor(x => x.Username).NotEmpty().MaximumLength(60);
+        RuleFor(x => x.Username).NotEmpty().MaximumLength(120);
         RuleFor(x => x.Password).NotEmpty().MaximumLength(128);
     }
 }

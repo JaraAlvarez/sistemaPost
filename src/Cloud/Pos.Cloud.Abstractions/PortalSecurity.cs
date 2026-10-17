@@ -145,6 +145,40 @@ public static class Outcome
         where T : class => new(null, error);
 }
 
+/// <summary>Resultado de validar la cuenta del portal del dueño de una empresa (D13B-09).</summary>
+public enum PortalCustomerCheck
+{
+    Valid,
+
+    /// <summary>Correo inexistente, usuario no humano, deshabilitado o contraseña incorrecta (la misma respuesta).</summary>
+    InvalidCredentials,
+
+    Locked,
+
+    /// <summary>Contraseña correcta, pero no es un usuario CLIENTE de la cuenta dueña de la empresa.</summary>
+    NotOwner,
+
+    /// <summary>Tiene el doble factor activo (u obligatorio) y falta el código o no es correcto.</summary>
+    TotpRequired,
+
+    /// <summary>La contraseña del portal sigue siendo la temporal.</summary>
+    PasswordChangeRequired,
+}
+
+/// <summary>Usuario CLIENTE validado: correo (en minúsculas) y nombre para mostrar.</summary>
+public sealed record PortalCustomerVerification(PortalCustomerCheck Result, string? Email = null, string? DisplayName = null);
+
+/// <summary>
+/// Lo implementa el módulo de usuarios del portal; lo usa el de licencias para el instalador premium sin depender de él. Cuenta los
+/// intentos fallidos y bloquea igual que el ingreso al portal, y deja todo en la auditoría (el llamador confirma la transacción aunque
+/// el resultado sea un rechazo).
+/// </summary>
+public interface IPortalCustomerVerifier
+{
+    Task<PortalCustomerVerification> VerifyAsync(
+        string email, string password, string? totpCode, Guid accountId, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
+}
+
 /// <summary>Instalación del POS autenticada con su token de licencia y la huella de su equipo (sincronización, Fase 16, D16-03).</summary>
 public sealed record PosInstallationIdentity(Guid InstallationId, Guid OrganizationId, Guid AccountId, string OrganizationName, string? BranchName);
 

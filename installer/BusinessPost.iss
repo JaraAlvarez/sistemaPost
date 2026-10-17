@@ -23,6 +23,10 @@
 #ifndef UpdateManifest
   #define UpdateManifest ""
 #endif
+#ifndef OutputName
+  ; El build arma con este paquete el instalador premium (BusinessPost-Setup-<versión>.exe, Fase 13-B D13B-08) y lo llama "Clasico".
+  #define OutputName "BusinessPost-Setup-" + AppVersion
+#endif
 #define Product "BusinessPost"
 #define DataDir "{commonappdata}\BusinessPost"
 
@@ -45,7 +49,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 OutputDir=..\artifacts\releases
-OutputBaseFilename=BusinessPost-Setup-{#AppVersion}
+OutputBaseFilename={#OutputName}
 UninstallDisplayName=BusinessPost
 SetupLogging=yes
 CloseApplications=no
@@ -87,6 +91,10 @@ Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N {#Product}-DB
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#Product} LAN"""; Flags: runhidden; RunOnceId: "DelFirewall"
 Filename: "{cmd}"; Parameters: "/c rmdir ""{app}\app\current"""; Flags: runhidden; RunOnceId: "DelJunction"
 
+[UninstallDelete]
+; Copia del instalador premium que deja la instalación para desinstalar con el mismo diseño (Fase 13-B §8).
+Type: filesandordirs; Name: "{app}\instalador"
+
 [Code]
 var
   ModePage: TInputOptionWizardPage;
@@ -94,6 +102,63 @@ var
   RecoveryFilePage: TInputFileWizardPage;
   TerminalPage: TInputQueryWizardPage;
   DeleteData: Boolean;
+  LastProgress: Integer;
+
+// ------------------------------------------------------------------------------------------------------------------------------------
+// Instalador premium (Fase 13-B, D13B-08): BusinessPost-Setup.exe recoge los datos con su propio diseño y ejecuta ESTE paquete en
+// silencio (/VERYSILENT /SUPPRESSMSGBOXES /LOG=...) con estos parámetros. Lee el avance del registro: líneas "Progreso: N" (copia de
+// archivos), "Paso: ..." (cada etapa) y "Resultado: ..." (al final). Sin /PREMIUM=1 el asistente clásico funciona como siempre.
+//   /PREMIUM=1                          no abre el navegador al final (el instalador premium configura y abre BusinessPost)
+//   /MODO=unica|principal|adicional     tipo de instalación
+//   /SERVIDOR=https://...:5443/ /HUELLA=...   caja adicional: equipo principal y huella de su certificado
+//   /BACKUP=ruta.posbak /RECUPERACION=archivo  recuperar: el archivo con el código se borra apenas se lee (el código no va en la línea
+//                                               de comandos)
+// Desinstalar: /BORRARDATOS=si (solo en silencio; el premium ya pidió la doble confirmación).
+// ------------------------------------------------------------------------------------------------------------------------------------
+function Premium: Boolean;
+begin
+  Result := ExpandConstant('{param:PREMIUM|0}') = '1';
+end;
+
+procedure ApplyPremiumParams;
+var
+  Mode, CodeFile: String;
+  Code: AnsiString;
+begin
+  Mode := Lowercase(ExpandConstant('{param:MODO|}'));
+  if Mode = 'unica' then ModePage.SelectedValueIndex := 0;
+  if Mode = 'principal' then ModePage.SelectedValueIndex := 1;
+  if Mode = 'adicional' then ModePage.SelectedValueIndex := 2;
+  if ExpandConstant('{param:SERVIDOR|}') <> '' then
+    TerminalPage.Values[0] := ExpandConstant('{param:SERVIDOR|}');
+  if ExpandConstant('{param:HUELLA|}') <> '' then
+    TerminalPage.Values[1] := ExpandConstant('{param:HUELLA|}');
+  if ExpandConstant('{param:BACKUP|}') <> '' then
+    RecoveryFilePage.Values[0] := ExpandConstant('{param:BACKUP|}');
+  CodeFile := ExpandConstant('{param:RECUPERACION|}');
+  if (CodeFile <> '') and LoadStringFromFile(CodeFile, Code) then
+  begin
+    RecoveryPage.Values[0] := Trim(String(Code));
+    DeleteFile(CodeFile);
+  end;
+  if Mode <> '' then
+    Log('Instalador premium: modo ' + Mode);
+end;
+
+// Avance real de la copia de archivos para el instalador premium (una línea por cada punto porcentual).
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+var
+  Percent: Integer;
+begin
+  if MaxProgress <= 0 then
+    exit;
+  Percent := (CurProgress * 100) div MaxProgress;
+  if Percent <> LastProgress then
+  begin
+    LastProgress := Percent;
+    Log('Progreso: ' + IntToStr(Percent));
+  end;
+end;
 
 function IsServerMode: Boolean;
 begin
@@ -151,6 +216,9 @@ begin
     'principal (Cajas e impresoras). La dirección se ve así: https://192.168.1.10:5443/');
   TerminalPage.Add('Dirección del equipo principal:', False);
   TerminalPage.Add('Huella del certificado (SHA-256):', False);
+
+  LastProgress := -1;
+  ApplyPremiumParams;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -218,7 +286,10 @@ begin
   Log(Step + ': ' + FileName + ' ' + Params);
   Result := Exec(FileName, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
   if not Result then
+  begin
+    Log('Resultado: ERROR ' + Step + ' (código ' + IntToStr(ResultCode) + ')');
     MsgBox(Step + ' falló (código ' + IntToStr(ResultCode) + '). Revise el registro de la instalación y genere un paquete de soporte.', mbError, MB_OK);
+  end;
 end;
 
 // Inicio "auto" (no "delayed-auto") para todos: con los programas ya precalentados el arranque al encender el equipo es rápido, y un
@@ -377,6 +448,9 @@ begin
       ', ' + WarmupItem(App + '\app\current\migrator\Pos.Server.Migrator.exe', '--precalentar');
   if ModePage.SelectedValueIndex <> 1 then
     Items := Items + ', ' + WarmupItem(App + '\app\current\agent\Pos.Terminal.Agent.exe', '--precalentar');
+  // Ventana propia BusinessPost.exe (D13B-07): así abre rápido la primera vez que el dueño pulsa "Abrir BusinessPost".
+  if FileExists(App + '\desktop\BusinessPost.exe') then
+    Items := Items + ', ' + WarmupItem(App + '\desktop\BusinessPost.exe', '--precalentar');
   Warmup(Items);
 
   // 2. Base de datos (y recuperación, si se eligió un backup).
@@ -432,7 +506,22 @@ begin
   StartService('{#Product}-Updater');
 
   // 5. Esperar a que responda y solo entonces abrir el navegador (antes: "localhost rechazó la conexión").
-  if IsServerMode then
+  if Premium then
+  begin
+    // Instalador premium: él configura la tienda y abre BusinessPost; aquí solo se deja el resultado en el registro.
+    if IsServerMode then
+    begin
+      if WaitForService('{#Product}-Server', 'http://localhost:5480/health/live') then
+        Log('Resultado: OK')
+      else
+        Log('Resultado: SIN_RESPUESTA');
+    end
+    else if WaitForService('{#Product}-TerminalAgent', 'http://localhost:5490/status') then
+      Log('Resultado: OK')
+    else
+      Log('Resultado: SIN_RESPUESTA');
+  end
+  else if IsServerMode then
   begin
     if WaitForService('{#Product}-Server', 'http://localhost:5480/health/live') then
       OpenPage('http://localhost:5480/instalacion')
@@ -461,6 +550,12 @@ function InitializeUninstall: Boolean;
 begin
   Result := True;
   DeleteData := False;
+  // Desde el desinstalador premium (en silencio): la doble confirmación ya se hizo allí.
+  if UninstallSilent then
+  begin
+    DeleteData := Lowercase(ExpandConstant('{param:BORRARDATOS|no}')) = 'si';
+    exit;
+  end;
   if MsgBox('¿Desea BORRAR también los datos de la tienda (ventas, inventario, clientes) y los backups de este equipo?' + #13#10 +
     'Si elige No, se conservan en ' + ExpandConstant('{#DataDir}') + ' y una reinstalación los reutiliza.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
     if MsgBox('ÚLTIMA CONFIRMACIÓN: se borrarán definitivamente los datos y los backups de este equipo. Haga antes una copia en un disco externo.' + #13#10 +

@@ -24,11 +24,16 @@
        -LicenseServer https://businesspost.tutiendanueva.com/ -UpdateBaseUrl https://businesspost.tutiendanueva.com/updates/ `
        -SigningKey D:\claves\actualizaciones.pem -Notes "Primera versión"
    ```
-   Queda en `artifacts\releases`: el instalador `BusinessPost-Setup-1.0.0.exe`, el paquete `BusinessPost-1.0.0.zip` y el
-   manifiesto firmado `stable.json`.
+   Queda en `artifacts\releases`: el instalador descargable `BusinessPost-Setup-1.0.0.exe` (instalador premium con el paquete
+   clásico adentro, §10), el paquete clásico `BusinessPost-Clasico-1.0.0.exe` (soporte), el paquete `BusinessPost-1.0.0.zip` y el
+   manifiesto firmado `stable.json`. El portal (Descargas) entrega `BusinessPost-Setup-<versión>.exe`.
 5. Para que las tiendas se actualicen solas, suba el ZIP y `stable.json` a la carpeta `updates/` del VPS (despliegue-nube §16).
 
 ## 3. Instalar
+
+Desde la 1.1.0 el archivo descargable abre el **instalador premium** (§10): una ventana con la marca que pregunta lo mismo con tarjetas,
+trae la empresa con la clave de licencia, crea al Propietario con la cuenta del portal y configura la tienda sola. Lo que sigue describe
+las opciones y los pasos por debajo; el manual para el cliente es `docs/manual-instalacion.md`.
 
 El instalador pregunta **"¿Cómo usará este equipo?"** con tres opciones:
 
@@ -100,8 +105,11 @@ las cajas.
 
 ## 5. Desinstalar
 
-Panel de control → Programas → BusinessPost. Por defecto se **conservan** los datos y los backups en `C:\ProgramData\BusinessPost`, y
-una reinstalación los reutiliza. Para borrarlos hay que confirmar dos veces. Haga antes una copia en un disco externo.
+Configuración → Aplicaciones → BusinessPost → Desinstalar abre la **desinstalación premium** (§10.4): explica qué se quita y qué se
+conserva, ofrece **Hacer un backup final** (queda en Documentos\BusinessPost - backup final), **liberar el equipo de la licencia** con el
+usuario de la tienda y, si se marca, borra los datos con doble confirmación. Por defecto se **conservan** los datos y los backups en
+`C:\ProgramData\BusinessPost`, y una reinstalación los reutiliza. Con el paquete clásico (o si falta la copia del instalador premium),
+el desinstalador de siempre pregunta dos veces antes de borrar los datos.
 
 ## 6. Soporte
 
@@ -165,3 +173,58 @@ da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a 
   página oficial de descarga. `BusinessPost.exe --precalentar` carga el programa y termina (para el paso de Windows Defender del instalador).
 - **Actualizaciones:** `BusinessPost.exe` se actualiza con el instalador (no va en el ZIP del actualizador). El ícono se genera con
   `tools/scripts/generar-icono-escritorio.ps1`.
+
+## 10. Instalador premium (Fase 13-B, D13B-08 y D13B-09)
+
+### 10.1 Cómo está armado
+
+| Pieza | Qué es |
+|---|---|
+| `BusinessPost-Setup-<versión>.exe` (descargable) | Envoltorio Inno sin páginas (`installer/BusinessPost-Premium.iss`): pide permisos de administrador **una vez**, muestra "Preparando el instalador…", saca los dos programas a su carpeta temporal y abre el premium. No se registra en "Aplicaciones instaladas". |
+| `BusinessPost-Setup.exe` (premium) | `src/Installer/Pos.Installer.Setup`: ventana WinForms sin marco de 960×600 con WebView2 y las páginas del diseño aprobado incrustadas (nada se carga de internet). Autocontenido, un solo archivo. |
+| `BusinessPost-Paquete.exe` | El paquete clásico (`installer/BusinessPost.iss`, `BusinessPost-Clasico-<versión>.exe`), ejecutado **en silencio** por el premium. |
+
+- **Permisos:** el envoltorio pide la elevación; el premium y el paquete la heredan (un solo aviso de Windows). Abierto solo (por
+  ejemplo, para desinstalar), el premium se vuelve a abrir como administrador con un aviso. `--maqueta` no pide permisos.
+- **Sin WebView2** (Windows muy desactualizado): el premium sale con código 3 y el envoltorio abre el asistente clásico.
+- **Servidor de licencias:** se compila dentro del premium (`-p:PosLicenseServer`, el mismo `-LicenseServer` del build). Sin él solo
+  queda "Probar gratis 30 días".
+
+### 10.2 Parámetros del paquete clásico en silencio
+
+`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP- /LOG="<registro>" /PREMIUM=1 /MODO=unica|principal|adicional`, más
+`/SERVIDOR=` y `/HUELLA=` (caja adicional) o `/BACKUP=` y `/RECUPERACION=<archivo con el código>` (recuperar; el código no va en la
+línea de comandos y el archivo se borra al leerlo). Con `/PREMIUM=1` el paquete no abre el navegador al final.
+
+El premium lee el registro mientras se escribe: `Progreso: N` (copia de archivos, de `CurInstallProgressChanged`), `Paso: …` (las
+mismas etapas de §3.1) y `Resultado: OK | SIN_RESPUESTA | ERROR <paso>`. Los registros quedan en `%TEMP%\BusinessPost-Setup\`
+(`instalacion-<fecha>.log`, `desinstalacion-<fecha>.log`) del administrador que instaló.
+
+### 10.3 Configuración automática (equipo principal o única caja)
+
+Cuando el paquete termina, el premium espera `http://localhost:5480/health/live` (hasta 10 minutos) y, por la API local:
+`POST /api/v1/setup` (empresa con los datos de la licencia y de "Tu negocio", sucursal **S01 · Principal**, caja **C01 · Caja 1** y
+el Propietario) → `POST /auth/login` → `POST /license/activate` (si falla, sigue en prueba y lo avisa) → `POST /backups/recovery-code`
+(se muestra con **Imprimir**) → `POST /backups/recovery-code/confirm` cuando el dueño marca que lo guardó. Si la tienda ya estaba
+configurada (reinstalación sobre los datos conservados), no cambia nada.
+
+**Cuenta del propietario = cuenta del portal (D13B-09):** con la clave, el premium envía a la nube `POST /v1/owner-links` (clave,
+correo, contraseña y, si el usuario tiene doble factor, el código). La nube acepta solo un usuario **Cliente** de la cuenta dueña de la
+empresa, con las mismas reglas del portal (bloqueo por intentos, nada de contraseñas temporales) y devuelve un **enlace firmado**
+(Ed25519, misma clave de las licencias, vence en 2 horas, sin la contraseña). El servidor local lo verifica sin conexión y crea al
+Propietario con el **correo del portal** como usuario y la **misma contraseña** (el hash se calcula en el equipo). La contraseña solo
+viaja del premium al servidor local por `localhost`.
+
+### 10.4 Desinstalación premium
+
+Después de instalar, el premium se copia a `{app}\instalador\BusinessPost-Setup.exe` y queda como `UninstallString` de BusinessPost
+(el desinstalador de Inno se guarda en `BusinessPostInnoUninstallString`). Al desinstalar se copia a la carpeta temporal, hace el
+backup final con el migrador (`backup --kind MANUAL --output Documentos\BusinessPost - backup final`), libera el equipo con
+`POST /license/deactivate` si el dueño escribe su usuario (el motivo viaja solo si lo autoriza) y ejecuta el desinstalador de Inno en
+silencio con `/BORRARDATOS=si|no`. Una reinstalación vuelve a registrar el premium.
+
+### 10.5 Revisar el diseño sin instalar
+
+`BusinessPost-Setup.exe --maqueta` recorre las pantallas con datos de ejemplo (no instala, no pide permisos);
+`--maqueta --pantalla licencia|cuenta|negocio|instalando|codigo|principal` abre directo una pantalla y `--maqueta --desinstalar` la
+desinstalación.

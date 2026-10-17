@@ -52,7 +52,7 @@ internal sealed class SetupCommandValidator : AbstractValidator<SetupCommand>
         RuleFor(x => x.Company).NotNull().SetValidator(new CompanyInputValidator());
         RuleFor(x => x.Branch).NotNull().SetValidator(new BranchInputValidator());
         RuleFor(x => x.Owner).NotNull();
-        RuleFor(x => x.Owner.Username).NotEmpty().MaximumLength(60).When(x => x.Owner is not null);
+        RuleFor(x => x.Owner.Username).NotEmpty().MaximumLength(120).When(x => x.Owner is not null);
         RuleFor(x => x.Owner.DisplayName).NotEmpty().MaximumLength(120).When(x => x.Owner is not null);
         RuleFor(x => x.Owner.Password).NotEmpty().When(x => x.Owner is not null);
         RuleFor(x => x.Terminal!.Code).Matches("^[A-Z0-9]{2,6}$").When(x => x.Terminal is not null);
@@ -172,7 +172,9 @@ internal sealed class SetupCommandHandler(
 
         await identity.ProvisionCompanyAsync(companyId, systemUserId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        var owner = await identity.CreateOwnerAsync(companyId, request.Owner, cancellationToken);
+        // Fase 13-B (D13B-09): con la cuenta del portal, el enlace firmado debe ser de ESTA empresa (NIT con DV).
+        var nit = input.IdentificationType == Company.NitType ? $"{input.IdentificationNumber.Trim()}-{input.CheckDigit?.Trim()}" : null;
+        var owner = await identity.CreateOwnerAsync(companyId, request.Owner, nit, cancellationToken);
         if (owner.IsFailure)
         {
             return owner.Error;

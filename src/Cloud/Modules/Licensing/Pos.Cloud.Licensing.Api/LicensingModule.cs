@@ -113,6 +113,19 @@ public sealed class LicensingModule : IModule
             .WithSummary("Libera el equipo desde el propio POS");
         pos.MapGet("/public-keys", async (IDispatcher d, CancellationToken ct) => ToHttp(await d.Send(new GetPublicKeysQuery(), ct)))
             .WithSummary("Claves públicas de confianza por kid (JWK OKP Ed25519)");
+
+        // Instalador premium (Fase 13-B, D13B-08 y D13B-09).
+        pos.MapPost("/license-previews", async (LicensePreviewRequest request, IDispatcher d, CancellationToken ct) =>
+                ToHttp(await d.Send(new PreviewLicenseCommand(request), ct)))
+            .WithSummary("Datos públicos de la empresa de una clave vigente (razón social, NIT, edición, vencimiento) para el instalador");
+        pos.MapPost("/owner-links", async (OwnerLinkRequest request, HttpContext http, IDispatcher d, CancellationToken ct) =>
+            {
+                var result = await d.Send(new CreateOwnerLinkCommand(request, http.Connection.RemoteIpAddress), ct);
+                return result.IsFailure ? LicenseProblem(result.Error)
+                    : result.Value.Error is { } error ? LicenseProblem(error)
+                    : TypedResults.Ok(result.Value.Value);
+            })
+            .WithSummary("Valida la cuenta del portal del dueño de la licencia y devuelve el enlace firmado para crear al Propietario del POS");
     }
 
     private static void MapAdminApi(IEndpointRouteBuilder app)

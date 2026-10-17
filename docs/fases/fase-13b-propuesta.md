@@ -142,3 +142,62 @@ Con el mismo diseño del instalador premium (parte D):
 - **Libera el equipo en la licencia** (para activar la misma clave en otro computador) si hay internet.
 - Pregunta opcional "¿Por qué desinstalas BusinessPost?" (se envía a la nube solo si el usuario acepta).
 - Detiene los servicios con orden y quita la regla del firewall (ya lo hace hoy).
+
+## 9. Informe parcial D/E (2026-10-17)
+
+Producto para **cualquier comercio**: los textos nuevos dicen "tu negocio"; el lema del ingreso pasa a "El punto de venta de su negocio."
+y "Hecho en Colombia para su negocio".
+
+### 9.1 Parte D · Instalador premium (D13B-08)
+
+| Decisión | Elegido | Motivo |
+|---|---|---|
+| Empaque | **Envoltorio Inno sin páginas** (`installer/BusinessPost-Premium.iss`) que lleva el premium y el paquete clásico (sin recomprimir) y abre el premium; un solo archivo `BusinessPost-Setup-<versión>.exe` | Lo más simple y confiable: no se incrusta un paquete de cientos de MB dentro de un ensamblado .NET (arranque lento, memoria), se firma igual que hoy y el clásico queda de respaldo si falta WebView2 |
+| Programa | `src/Installer/Pos.Installer.Setup` → `BusinessPost-Setup.exe`: WinForms + WebView2 (misma versión que la ventana propia, `Microsoft.Web.WebView2` 1.0.3912.50), ventana sin marco de 960×600, barra propia (arrastrar, minimizar, cerrar con confirmación), páginas incrustadas | Reproduce la maqueta aprobada tal cual (mismo CSS) |
+| Permisos | El envoltorio pide administrador; el premium (manifiesto `asInvoker`) y el paquete lo heredan. Abierto solo, el premium se reabre como administrador | **Un solo aviso** de Windows en todos los caminos; `--maqueta` sin permisos |
+| Avance real | El paquete corre con `/VERYSILENT /LOG=`; el premium lee el registro mientras se escribe: `Progreso: N` (copia), `Paso: …` (parte A) y `Resultado: …` | Sin adivinar: las etapas son las del instalador; la copia es un porcentaje real |
+| Parámetros | `/PREMIUM=1 /MODO= /SERVIDOR= /HUELLA= /BACKUP= /RECUPERACION=<archivo>` (`ExpandConstant('{param:…}')`) y `/BORRARDATOS=` al desinstalar | El asistente clásico sigue igual sin parámetros |
+| Datos faltantes | Paso **"Tu negocio"** (nombre comercial, persona, IVA, municipio con buscador, dirección, teléfono, correo; DV automático). Municipios del mismo `R__ref__seed_colombia.sql` del POS, incrustado | La licencia solo trae razón social, NIT y ciudad |
+| Configuración | Asistente inicial por la API local en una llamada + ingreso + activación + código de recuperación (mostrado con "Imprimir" y casilla "Ya lo guardé") | Sin navegador ni segundo asistente |
+| Desinstalar (§8) | Mismo programa con `--desinstalar` (queda como `UninstallString`); backup final con el migrador en Documentos; liberar con usuario de la tienda; borrar datos con doble confirmación ("BORRAR"); motivo solo con autorización | — |
+
+**Nube:** `POST /v1/license-previews` (clave → razón social, NIT, edición, estado y vencimiento; solo claves vigentes ACTIVE/TRIAL; misma
+búsqueda en tiempo constante que la activación, límite por IP y por licencia; ningún id ni dato de contacto).
+
+### 9.2 Parte E · Cuenta del propietario = cuenta del portal (D13B-09)
+
+- **Nube:** `POST /v1/owner-links` (clave + correo + contraseña [+ código TOTP]). Solo un usuario **Cliente** de la cuenta dueña de la
+  empresa de la clave; mismas reglas que el ingreso al portal (tiempo constante, bloqueo tras 5 intentos, TOTP si lo tiene activo o si
+  el portal lo exige, no acepta contraseñas temporales). Devuelve un **enlace firmado** (JWS EdDSA `pos-owner-link+jws`, misma clave de
+  las licencias, vence en 2 h; lleva correo, nombre y NIT, nunca la contraseña). Auditoría: `PORTAL_OWNER_LINK_ISSUED/FAILED/REJECTED`
+  y `OWNER_LINK_ISSUED`. El módulo de licencias usa `IPortalCustomerVerifier` (Abstractions) sin depender del de usuarios.
+- **POS:** `OwnerInput.PortalLinkToken`. El asistente verifica el enlace sin conexión (`IPortalOwnerLinkVerifier`), exige el NIT de la
+  empresa que se configura, crea al Propietario con el **correo como usuario** y la **misma contraseña** (hash local; la política local
+  no se aplica porque ya cumplió la del portal) y lo marca (`identity.users.portal_linked_at`). Migración `V2026.10.035`: el usuario
+  admite un correo (hasta 120). Cajeros y roles siguen locales.
+- **Actualizar la contraseña en el check-in diario: FUTURO.** La nube no tiene hoy un verificador seguro para el POS (enviar el hash
+  Argon2 del portal a cada tienda multiplicaría las copias atacables). Por ahora la contraseña local se conserva; si el dueño la cambia
+  en el portal, la cambia también en BusinessPost.
+- **Google: FUTURO (TODO).** Google bloquea con frecuencia el ingreso dentro de un WebView incrustado, así que la opción prevista es
+  de tipo "código de dispositivo": el premium pide a la nube un código de un solo uso atado a la clave, abre el ingreso con Google del
+  portal en el **navegador del sistema** y consulta cada pocos segundos hasta que el CLIENTE de la cuenta lo aprueba; entonces la nube
+  entrega el mismo enlace firmado. Como con Google no hay contraseña, el premium pediría además una contraseña local para el
+  Propietario (para entrar sin internet). Hoy el botón "Continuar con Google" explica que por ahora se usa el correo y la contraseña del portal.
+
+### 9.3 Pruebas
+
+Nube: `InstallerApiTests` (vista previa válida/sin secretos, inválida/revocada/suspendida; enlace del dueño con TOTP, cuenta de otra
+empresa, superadministrador, contraseña incorrecta = correo inexistente, bloqueo, límite por licencia y por IP). POS:
+`PortalOwnerSetupTests` (crea al Propietario con el correo y la contraseña del portal; rechaza enlace alterado, vencido, de otra clave
+o de otro NIT; el propietario local sigue igual). Lógica del instalador: `Pos.Installer.Setup.Tests` (registro de Inno, DV del NIT
+contra el del POS, municipios, parámetros).
+
+### 9.4 Qué revisar en la instalación real
+
+1. Un solo aviso de permisos; "Preparando el instalador…" y luego la ventana con la marca. 2. Clave → empresa; cuenta del portal (con
+y sin doble factor). 3. La lista avanza con el paso real (Defender puede tardar). 4. Código de recuperación: Imprimir. 5. "Abrir
+BusinessPost" abre la ventana propia sin permisos de administrador; el ingreso con el correo y la contraseña del portal. 6. La casilla
+del aliado abre tutiendanueva.com solo si se marcó. 7. Configuración → Aplicaciones → Desinstalar abre la desinstalación premium.
+
+**Riesgos:** sin firma de código, SmartScreen avisa en el archivo descargado; WebView2 elevado (funciona, pero es un caso menos común);
+el desinstalador de Inno se copia a sí mismo (el premium espera hasta 5 minutos a que la instalación desaparezca del registro).

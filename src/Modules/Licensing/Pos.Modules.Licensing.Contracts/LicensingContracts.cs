@@ -86,6 +86,19 @@ public interface ILicenseStatus
     LicenseSummaryDto Summary { get; }
 }
 
+/// <summary>Enlace del propietario ya verificado: correo (en minúsculas), nombre y NIT con DV de la empresa de la licencia.</summary>
+public sealed record PortalOwnerLink(string Email, string DisplayName, string OrganizationNit);
+
+/// <summary>
+/// Verifica sin conexión el enlace firmado por la nube con el que el instalador premium crea al Propietario con su cuenta del portal
+/// (Fase 13-B, D13B-09): misma clave de confianza que el token de licencia, tipo propio, vigencia corta. <c>null</c> si no es válido,
+/// está vencido o fue firmado con una clave que este equipo no conoce.
+/// </summary>
+public interface IPortalOwnerLinkVerifier
+{
+    PortalOwnerLink? Verify(string token);
+}
+
 /// <summary>Token de licencia y huella del equipo con los que la tienda se identifica ante la nube (sincronización, Fase 16, D16-03).</summary>
 public sealed record LicenseCredentials(string Token, string Fingerprint);
 

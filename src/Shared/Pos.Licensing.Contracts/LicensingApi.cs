@@ -7,6 +7,12 @@ public static class LicensingRoutes
     public const string Checkins = "/v1/checkins";
     public const string Deactivations = "/v1/deactivations";
     public const string PublicKeys = "/v1/public-keys";
+
+    /// <summary>Instalador premium (Fase 13-B): datos públicos de la empresa de una clave, para no volver a escribirlos.</summary>
+    public const string LicensePreviews = "/v1/license-previews";
+
+    /// <summary>Instalador premium (Fase 13-B, D13B-09): valida la cuenta del portal del dueño y entrega el enlace firmado.</summary>
+    public const string OwnerLinks = "/v1/owner-links";
 }
 
 /// <summary>
@@ -55,7 +61,43 @@ public static class LicenseErrorCodes
 
     /// <summary>El servidor no tiene cargada su clave de firma (configuración); reintentar más tarde.</summary>
     public const string SigningUnavailable = "LICENSE.SIGNING_UNAVAILABLE";
+
+    /// <summary>Cuenta del portal: correo o contraseña incorrectos (misma respuesta si el correo no existe).</summary>
+    public const string OwnerCredentialsInvalid = "LICENSE.OWNER_CREDENTIALS_INVALID";
+
+    /// <summary>Cuenta del portal bloqueada un rato por intentos fallidos.</summary>
+    public const string OwnerLocked = "LICENSE.OWNER_LOCKED";
+
+    /// <summary>La cuenta existe y la contraseña es correcta, pero no es un CLIENTE dueño de la empresa de esta clave.</summary>
+    public const string OwnerNotLinked = "LICENSE.OWNER_NOT_LINKED";
+
+    /// <summary>La cuenta tiene el doble factor activo: falta (o no es correcto) el código de la aplicación autenticadora.</summary>
+    public const string OwnerTotpRequired = "LICENSE.OWNER_TOTP_REQUIRED";
+
+    /// <summary>La contraseña del portal todavía es la temporal: hay que cambiarla primero en el portal.</summary>
+    public const string OwnerPasswordChangeRequired = "LICENSE.OWNER_PASSWORD_CHANGE_REQUIRED";
 }
+
+/// <summary>Vista previa de la clave en el instalador (Fase 13-B, D13B-08).</summary>
+public sealed record LicensePreviewRequest(string LicenseKey);
+
+/// <summary>
+/// Solo lo necesario para mostrar la empresa en el instalador: nada secreto (ni ids, ni la clave, ni datos de contacto). Solo se
+/// entrega para una clave vigente cuya suscripción está ACTIVE o TRIAL.
+/// </summary>
+/// <param name="LegalName">Razón social.</param>
+/// <param name="Nit">NIT con DV: <c>900123456-7</c>.</param>
+/// <param name="Edition"><see cref="LicenseEditions"/>.</param>
+/// <param name="SubscriptionStatus"><see cref="SubscriptionStatuses"/> (ACTIVE o TRIAL).</param>
+/// <param name="ValidUntil">Fin del periodo pagado o de la prueba.</param>
+/// <param name="City">Ciudad registrada en la nube (ayuda a buscar el municipio), si la hay.</param>
+public sealed record LicensePreviewResponse(string LegalName, string Nit, string Edition, string SubscriptionStatus, DateTimeOffset ValidUntil, string? City);
+
+/// <summary>Correo y contraseña del portal del dueño (y el código TOTP si lo tiene activo), con la clave que identifica la empresa.</summary>
+public sealed record OwnerLinkRequest(string LicenseKey, string Email, string Password, string? TotpCode = null);
+
+/// <summary>Enlace firmado (<see cref="OwnerLinkToken"/>) para crear al Propietario del POS con la cuenta del portal.</summary>
+public sealed record OwnerLinkResponse(string Token, string Email, string DisplayName, DateTimeOffset ExpiresAt);
 
 /// <summary>Activación de una instalación con la clave de licencia (asistente inicial del POS o simulador).</summary>
 /// <param name="LicenseKey">Clave tal como la escribió el usuario (se normaliza).</param>

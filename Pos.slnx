@@ -127,6 +127,9 @@
   <Folder Name="/src/Desktop/">
     <Project Path="src/Desktop/Pos.Desktop/Pos.Desktop.csproj" />
   </Folder>
+  <Folder Name="/src/Installer/">
+    <Project Path="src/Installer/Pos.Installer.Setup/Pos.Installer.Setup.csproj" />
+  </Folder>
   <Folder Name="/src/Terminal/">
     <Project Path="src/Terminal/Pos.Terminal.Agent/Pos.Terminal.Agent.csproj" />
   </Folder>
@@ -162,6 +165,7 @@
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />
     <Project Path="tests/Pos.SharedKernel.UnitTests/Pos.SharedKernel.UnitTests.csproj" />
     <Project Path="tests/Pos.Desktop.Tests/Pos.Desktop.Tests.csproj" />
+    <Project Path="tests/Pos.Installer.Setup.Tests/Pos.Installer.Setup.Tests.csproj" />
     <Project Path="tests/Pos.Terminal.Agent.Tests/Pos.Terminal.Agent.Tests.csproj" />
   </Folder>
 </Solution>

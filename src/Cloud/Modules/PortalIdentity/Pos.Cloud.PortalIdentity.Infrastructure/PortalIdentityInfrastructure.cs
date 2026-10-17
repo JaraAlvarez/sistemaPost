@@ -131,6 +131,9 @@ public static class PortalIdentityInfrastructureRegistration
         services.AddScoped<IPortalIdentityStore, PortalIdentityStore>();
         services.AddScoped<PortalAuthServices>();
         services.AddScoped<PortalSessionAuthenticator>();
+
+        // Instalador premium (Fase 13-B, D13B-09): el módulo de licencias valida la cuenta del dueño sin depender de este módulo.
+        services.AddScoped<Pos.Cloud.Abstractions.IPortalCustomerVerifier, PortalCustomerVerifier>();
         services.TryAddSingleton<ITotpSecretProtector, DataProtectionTotpProtector>();
         services.Replace(ServiceDescriptor.Scoped<IPermissionChecker, PortalPermissionChecker>());
     }
