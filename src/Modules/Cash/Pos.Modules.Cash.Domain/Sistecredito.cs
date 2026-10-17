@@ -153,6 +153,9 @@ public sealed class SistecreditoSettings : ICompanyOwned
 /// </summary>
 public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
 {
+    /// <summary>Motivo del cobro que no se usó en la venta ("No usar este crédito").</summary>
+    public const string ReleasedMessage = "No usado en la venta: reverse el pago en el portal de Sistecrédito";
+
     private SistecreditoAttempt(Guid id)
         : base(id)
     {
@@ -210,6 +213,17 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
 
     public string? ReviewNote { get; private set; }
 
+    /// <summary>Con autorización de supervisor, este crédito aprobado NO se usa en la venta ("No usar este crédito"): queda en revisión.</summary>
+    public DateTimeOffset? ReleasedAt { get; private set; }
+
+    public Guid? ReleasedBy { get; private set; }
+
+    /// <summary>Veces seguidas que la revisión automática no pudo guardar este cobro (espera creciente entre intentos).</summary>
+    public int CheckFailures { get; private set; }
+
+    /// <summary>La revisión automática no lo vuelve a consultar antes de esta hora.</summary>
+    public DateTimeOffset? NextCheckAt { get; private set; }
+
     public string MaskedDocument => SistecreditoProtocol.Mask(DocumentNumber);
 
     /// <summary>
@@ -218,7 +232,8 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
     /// </summary>
     public bool IsUsable =>
         Status is SistecreditoAttemptStatus.Approved or SistecreditoAttemptStatus.ReviewRequired
-        && ApprovedAt is not null && CompletedSaleId is null && ReviewedAt is null && ProviderStatus == SistecreditoProtocol.ApprovedStatus;
+        && ApprovedAt is not null && CompletedSaleId is null && ReviewedAt is null && ReleasedAt is null
+        && ProviderStatus == SistecreditoProtocol.ApprovedStatus;
 
     public static Result<SistecreditoAttempt> Create(
         Guid id, Guid companyId, Guid saleId, Guid? posTerminalId, decimal amount, string? documentType, string? documentNumber,
@@ -278,9 +293,12 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
         var before = Status;
         LastCheckedAt = now;
 
-        // Un estado intermedio después de aprobado no borra la aprobación (solo un estado final distinto de Approved la invalida).
+        // Un estado intermedio después de aprobado no borra la aprobación (solo un estado final distinto de Approved la invalida), y una
+        // respuesta "Approved" (posiblemente vieja) nunca revive un cobro que ya quedó en revisión porque Sistecrédito dejó de aprobarlo.
         if (!string.IsNullOrWhiteSpace(providerStatus)
-            && !(ApprovedAt is not null && SistecreditoProtocol.Map(providerStatus) == SistecreditoAttemptStatus.Pending))
+            && !(ApprovedAt is not null && SistecreditoProtocol.Map(providerStatus) == SistecreditoAttemptStatus.Pending)
+            && !(Status == SistecreditoAttemptStatus.ReviewRequired && ProviderStatus != SistecreditoProtocol.ApprovedStatus
+                 && providerStatus == SistecreditoProtocol.ApprovedStatus))
         {
             ProviderStatus = providerStatus.Length > 40 ? providerStatus[..40] : providerStatus;
         }
@@ -331,7 +349,42 @@ public sealed class SistecreditoAttempt : Entity<Guid>, ICompanyOwned
     }
 
     /// <summary>Se consultó (o se intentó consultar) a Sistecrédito: la revisión automática le da turno al que lleva más tiempo sin mirar.</summary>
-    public void Checked(DateTimeOffset now) => LastCheckedAt = now;
+    public void Checked(DateTimeOffset now)
+    {
+        LastCheckedAt = now;
+        CheckFailures = 0;
+        NextCheckAt = null;
+    }
+
+    /// <summary>La revisión automática no pudo guardar este cobro: espera 2, 4, 8… minutos (máximo 60) antes de volver a intentarlo.</summary>
+    public void CheckFailed(DateTimeOffset now)
+    {
+        CheckFailures = Math.Min(CheckFailures + 1, 1000);
+        LastCheckedAt = now;
+        NextCheckAt = now.AddMinutes(Math.Min(60, Math.Pow(2, Math.Min(CheckFailures, 6))));
+    }
+
+    /// <summary>
+    /// "No usar este crédito" (con autorización de supervisor): el cliente aprobó pero paga con otro medio. Queda "Requiere revisión" para
+    /// que la administración reverse el pago en el portal de Sistecrédito, y ya no se ofrece como pago ni bloquea la venta.
+    /// </summary>
+    public Result Release(Guid saleId, Guid userId, DateTimeOffset now)
+    {
+        if (SaleId != saleId)
+        {
+            return SistecreditoErrors.OtherSale;
+        }
+
+        if (!IsUsable)
+        {
+            return SistecreditoErrors.NotApproved;
+        }
+
+        ReleasedAt = now;
+        ReleasedBy = userId;
+        RequireReview(ReleasedMessage, now);
+        return Result.Success();
+    }
 
     /// <summary>
     /// No se alcanzó a crear la transacción en Sistecrédito (error o sin conexión): el registro local queda cancelado con el motivo. Si

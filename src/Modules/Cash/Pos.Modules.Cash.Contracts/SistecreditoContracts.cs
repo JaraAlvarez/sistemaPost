@@ -66,6 +66,15 @@ public interface ISistecreditoPayments
     /// </summary>
     Task RecheckForSaleAsync(Guid saleId, CancellationToken cancellationToken = default);
 
+    /// <summary>Cobros aprobados y sin usar de la venta (aunque estén en revisión): la venta no puede quedar por debajo de su valor.</summary>
+    Task<IReadOnlyList<SistecreditoPendingUse>> ListUsableAsync(Guid saleId, CancellationToken cancellationToken = default);
+
+    /// <summary>«No usar este crédito»: con autorización de supervisor, el cobro aprobado de la venta queda en revisión y ya no se usa.</summary>
+    Task<Result> ReleaseAsync(Guid saleId, string transactionId, Guid userId, Guid? authorizedBy, CancellationToken cancellationToken = default);
+
+    /// <summary>Después de completar la venta, FUERA de su transacción: cancela (o revisa, si ya se aprobaron) los cobros que seguían pendientes.</summary>
+    Task SettleAfterSaleAsync(Guid saleId, CancellationToken cancellationToken = default);
+
     /// <summary>Cobros recién aprobados y sin usar de la venta: la venta no se completa sin incluirlos (el cliente ya pagó con ellos).</summary>
     Task<IReadOnlyList<SistecreditoPendingUse>> ListApprovedUnusedAsync(Guid saleId, CancellationToken cancellationToken = default);
 

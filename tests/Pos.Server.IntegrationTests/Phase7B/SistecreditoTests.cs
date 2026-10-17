@@ -250,13 +250,13 @@ public class SistecreditoTests
 }
 
 /// <summary>Caja Única con Sistecrédito simulado, sin la revisión automática en segundo plano y con la licencia controlable.</summary>
-public sealed class SistecreditoServerFactory : PosServerFactory
+public sealed class SistecreditoServerFactory(string edition = "SINGLE") : PosServerFactory
 {
     public FakeSistecreditoGateway Gateway { get; } = new();
 
     public SwitchableLicenseGate License { get; } = new();
 
-    protected override string Edition => "SINGLE";
+    protected override string Edition => edition;
 
     protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
     [

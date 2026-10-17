@@ -73,6 +73,7 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
 
         // El que lleva más tiempo sin consultarse va primero: así todos tienen turno aunque haya más de "limit" abiertos.
         return await context.Set<SistecreditoAttempt>()
+            .Where(a => a.NextCheckAt == null || a.NextCheckAt <= now)
             .Where(a => (a.Status == SistecreditoAttemptStatus.Pending && a.StartedAt < pendingBefore)
                         || (a.Status == SistecreditoAttemptStatus.Cancelled && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > cancelledSince
                             && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus))

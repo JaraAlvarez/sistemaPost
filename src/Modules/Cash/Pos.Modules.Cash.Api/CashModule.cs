@@ -38,6 +38,7 @@ public sealed class CashModule : IModule
 
         // Fase 7-B: cobrar con Sistecrédito.
         services.AddScoped<SistecreditoConnections>();
+        services.AddScoped<SistecreditoAccess>();
         services.AddScoped<SistecreditoSettingsViews>();
         services.AddScoped<SistecreditoReconciler>();
         services.AddScoped<ISistecreditoPayments, SistecreditoPaymentsService>();

@@ -295,7 +295,7 @@ else
                                 <span>@_methods.First(m => m.Id == payment.PaymentMethodId).Name @(payment.Reference is null ? null : $"({payment.Reference})")</span>
                                 <span>
                                     <b>@Format.Money(payment.Amount)</b>
-                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" OnClick="@(() => _payments.Remove(payment))" aria-label="Quitar este pago" />
+                                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close" OnClick="@(() => QuitarPagoAsync(payment))" aria-label="Quitar este pago" />
                                 </span>
                             </div>
                         }

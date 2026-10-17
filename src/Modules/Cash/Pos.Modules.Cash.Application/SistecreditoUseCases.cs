@@ -344,7 +344,8 @@ internal sealed class DisableSistecreditoHandler(ISistecreditoStore store, Siste
 /// <summary>
 /// "Verificar conexión" (D7B-02): crea una transacción de verificación (vence sola, no mueve dinero) y dice si Sistecrédito reconoce las
 /// llaves; si no sirven en el ambiente elegido pero sí en el otro, dice cuál elegir. Hasta dos llamadas a Sistecrédito: va por fuera de
-/// la transacción (<see cref="ISelfTransactedCommand"/>) y guarda el resultado en una transacción corta.
+/// la transacción (<see cref="ISelfTransactedCommand"/>) y guarda el resultado en una transacción corta (solo si mientras tanto no
+/// cambiaron las llaves ni el ambiente).
 /// </summary>
 public sealed record VerifySistecreditoCommand : ICommand<SistecreditoVerificationDto>, ISelfTransactedCommand;
 
@@ -370,23 +371,65 @@ internal sealed class VerifySistecreditoHandler(
         }
 
         var environment = settings.Environment;
+        var keysChangedAt = settings.CredentialsUpdatedAt;
         var result = await gateway.VerifyCredentialsAsync(new SistecreditoConnection(credentials, environment), cancellationToken);
         var now = clock.UtcNow;
-        settings.RecordVerification(now, result.Ok, result.Message);
+
+        // El resultado es de ESTAS llaves en ESTE ambiente: si mientras se verificaba alguien las cambió, no se marca nada.
+        void Record()
+        {
+            if (settings.Environment == environment && settings.CredentialsUpdatedAt == keysChangedAt)
+            {
+                settings.RecordVerification(now, result.Ok, result.Message);
+            }
+        }
+
+        Record();
+        var saved = await transactions.SaveAsync(Record, CancellationToken.None);
+        if (saved.IsFailure)
+        {
+            return saved.Error;
+        }
+
         await audit.WriteAsync(
             new AuditEntry("cash", "SISTECREDITO_CONNECTION_VERIFIED", nameof(SistecreditoSettings), null, "Sistecrédito",
                 $"Verificación de Sistecrédito en {SistecreditoMapping.Name(environment)}: {(result.Ok ? "correcta" : "con problema")}. {result.Message}"),
             CancellationToken.None);
-        var saved = await transactions.SaveAsync(() => settings.RecordVerification(now, result.Ok, result.Message), CancellationToken.None);
-        return saved.IsFailure ? saved.Error : new SistecreditoVerificationDto(result.Ok, result.Message, result.WorkingEnvironment?.UpperSnake());
+        await transactions.SaveAsync(cancellationToken: CancellationToken.None);
+        return new SistecreditoVerificationDto(result.Ok, result.Message, result.WorkingEnvironment?.UpperSnake());
     }
 }
 
 // ─────────────────────────────── Cobro en la caja ───────────────────────────────
 
 /// <summary>
+/// Quién puede ver y operar los cobros: la caja de la venta (sesión de caja con su jornada ABIERTA) o, para consultarlos, la administración
+/// (permiso de configurar medios de pago). Las URL de pago y los números de transacción no se muestran a otras cajas.
+/// </summary>
+public sealed class SistecreditoAccess(ISaleChargeProbe sales, ICurrentUser current, ICashStore cash, IPermissionChecker permissions)
+{
+    public async Task<Result<SaleChargeInfo>> OpenSaleOfThisTerminalAsync(Guid saleId, CancellationToken cancellationToken)
+    {
+        if (current.PosTerminalId is not { } terminal
+            || await sales.GetAsync(saleId, cancellationToken) is not { Status: "OPEN" } sale || sale.PosTerminalId != terminal
+            || await cash.GetUnclosedSessionAsync(terminal, null, cancellationToken) is not { Status: CashSessionStatus.Open })
+        {
+            return SistecreditoErrors.SaleNotOpen;
+        }
+
+        return sale;
+    }
+
+    public async Task<bool> CanSeeAsync(SistecreditoAttempt attempt, CancellationToken cancellationToken) =>
+        current.PosTerminalId is { } terminal
+            ? attempt.PosTerminalId == terminal
+            : await permissions.HasPermissionAsync(CashPermissions.PaymentMethodManage, null, cancellationToken);
+}
+
+/// <summary>
 /// Crea el cobro en Sistecrédito por el valor indicado (todo lo que falta o una parte, en pago mixto, en pesos enteros) con el documento
-/// del cliente y devuelve la URL de pago para el QR cuando Sistecrédito ya la entregó. Necesita internet SOLO aquí (D7B-04).
+/// del cliente y devuelve la URL de pago para el QR cuando Sistecrédito ya la entregó. Necesita internet SOLO aquí (D7B-04). Solo desde la
+/// caja de la venta, con su jornada abierta.
 /// <para>Nunca se cobra dos veces: los cobros aprobados y sin usar de la venta (aunque estén en "Requiere revisión") cuentan contra lo que
 /// falta; si hay uno por el mismo valor que la caja todavía no tiene como pago (<c>HeldTransactionIds</c>), se devuelve ese, y si el nuevo
 /// más los aprobados supera lo que falta, se rechaza.</para>
@@ -404,10 +447,9 @@ public sealed record StartSistecreditoPaymentCommand(
 
 internal sealed class StartSistecreditoPaymentHandler(
     SistecreditoConnections connections,
+    SistecreditoAccess access,
     ISistecreditoStore store,
     ISistecreditoGateway gateway,
-    ISaleChargeProbe sales,
-    ICurrentUser current,
     IInstallationContext installation,
     SistecreditoOptions options,
     IAuditWriter audit,
@@ -424,12 +466,13 @@ internal sealed class StartSistecreditoPaymentHandler(
         }
 
         var (settings, connection) = enabled.Value;
-        if (await sales.GetAsync(request.SaleId, cancellationToken) is not { Status: "OPEN" } sale
-            || (current.PosTerminalId is { } terminal && terminal != sale.PosTerminalId))
+        var open = await access.OpenSaleOfThisTerminalAsync(request.SaleId, cancellationToken);
+        if (open.IsFailure)
         {
-            return SistecreditoErrors.SaleNotOpen;
+            return open.Error;
         }
 
+        var sale = open.Value;
         var created = SistecreditoAttempt.Create(
             ids.NewId(), installation.CompanyId!.Value, sale.SaleId, sale.PosTerminalId, request.Amount, request.DocumentType, request.DocumentNumber,
             settings.Environment, clock.UtcNow);
@@ -498,7 +541,15 @@ internal sealed class StartSistecreditoPaymentHandler(
             new AuditEntry("cash", "SISTECREDITO_PAYMENT_STARTED", nameof(SistecreditoAttempt), attempt.Id, $"Sistecrédito {attempt.TransactionId}",
                 $"Cobro con Sistecrédito por {attempt.Amount:N0} al cliente {attempt.DocumentType} {attempt.MaskedDocument} ({SistecreditoMapping.Name(attempt.Environment)})."),
             CancellationToken.None);
-        saved = await transactions.SaveAsync(() => attempt.Started(response.TransactionId, response.TransactionStatus, startedAt), CancellationToken.None);
+        saved = await transactions.SaveAsync(
+            () =>
+            {
+                if (attempt.TransactionId is null)
+                {
+                    attempt.Started(response.TransactionId, response.TransactionStatus, startedAt);
+                }
+            },
+            CancellationToken.None);
         if (saved.IsFailure)
         {
             return saved.Error;
@@ -523,6 +574,7 @@ internal sealed class StartSistecreditoPaymentHandler(
 
         // 4) Esperar la URL de pago, también por fuera de la base de datos (si no llega, la caja la sigue consultando).
         string? warning = null;
+        var fetchedAt = clock.UtcNow;
         SistecreditoTransaction? transaction = null;
         try
         {
@@ -536,43 +588,74 @@ internal sealed class StartSistecreditoPaymentHandler(
             warning = ex.Failure == SistecreditoFailure.Network ? "Sin conexión con Sistecrédito por un momento; se sigue consultando." : ex.Message;
         }
 
-        if (transaction is { } found)
+        if (transaction is { } found && await SistecreditoChecks.ApplyAndSaveAsync(attempt, found, fetchedAt, clock.UtcNow, transactions, audit) is { IsFailure: true } failed)
         {
-            var checkedAt = clock.UtcNow;
-            if (attempt.Apply(found.Status, found.RedirectUrl, found.Installments, found.Description, checkedAt) && attempt.Status == SistecreditoAttemptStatus.Approved)
-            {
-                await SistecreditoAudit.ApprovedAsync(audit, attempt, CancellationToken.None);
-            }
+            return failed.Error;
+        }
 
-            await transactions.SaveAsync(() => attempt.Apply(found.Status, found.RedirectUrl, found.Installments, found.Description, checkedAt), CancellationToken.None);
-            if (attempt.Status == SistecreditoAttemptStatus.Pending && attempt.RedirectUrl is null)
-            {
-                warning = "Sistecrédito está tardando más de lo normal en entregar el enlace; se sigue consultando.";
-            }
+        if (attempt.Status == SistecreditoAttemptStatus.Pending && attempt.RedirectUrl is null && warning is null)
+        {
+            warning = "Sistecrédito está tardando más de lo normal en entregar el enlace; se sigue consultando.";
         }
 
         return attempt.ToDto(warning);
     }
 }
 
+/// <summary>Aplicar una respuesta de Sistecrédito y guardarla sin pisar datos más nuevos; la bitácora de "aprobado" va después de guardar.</summary>
+internal static class SistecreditoChecks
+{
+    public static async Task<Result> ApplyAndSaveAsync(
+        SistecreditoAttempt attempt, SistecreditoTransaction transaction, DateTimeOffset fetchedAt, DateTimeOffset now, IShortTransactions transactions,
+        IAuditWriter audit)
+    {
+        var before = attempt.Status;
+        attempt.Apply(transaction.Status, transaction.RedirectUrl, transaction.Installments, transaction.Description, now);
+
+        // Si al recargar otro proceso ya consultó DESPUÉS de esta respuesta, la respuesta es vieja: no se aplica.
+        var saved = await transactions.SaveAsync(
+            () =>
+            {
+                before = attempt.Status;
+                if (attempt.LastCheckedAt is null || attempt.LastCheckedAt <= fetchedAt)
+                {
+                    attempt.Apply(transaction.Status, transaction.RedirectUrl, transaction.Installments, transaction.Description, now);
+                }
+            },
+            CancellationToken.None);
+        if (saved.IsFailure)
+        {
+            return saved;
+        }
+
+        if (before != SistecreditoAttemptStatus.Approved && attempt.Status == SistecreditoAttemptStatus.Approved)
+        {
+            await SistecreditoAudit.ApprovedAsync(audit, attempt, CancellationToken.None);
+            await transactions.SaveAsync(cancellationToken: CancellationToken.None);
+        }
+
+        return Result.Success();
+    }
+}
+
 /// <summary>
-/// Cobros abiertos de una venta en curso de ESTA caja: los aprobados y sin usar (aunque estén en "Requiere revisión"), que la caja vuelve a
-/// poner como pago al abrir el cobro, y los pendientes, que la caja vuelve a mostrar y a vigilar. Así nunca se genera otro cobro por lo mismo.
+/// Cobros abiertos de una venta en curso de ESTA caja (con su jornada abierta): los aprobados y sin usar (aunque estén en "Requiere
+/// revisión"), que la caja vuelve a poner como pago al abrir el cobro, y los pendientes, que la caja vuelve a mostrar y a vigilar.
 /// </summary>
 public sealed record ListOpenSistecreditoPaymentsQuery(Guid SaleId) : IQuery<IReadOnlyList<SistecreditoPaymentDto>>;
 
-internal sealed class ListOpenSistecreditoPaymentsHandler(ISistecreditoStore store, ISaleChargeProbe sales, ICurrentUser current)
+internal sealed class ListOpenSistecreditoPaymentsHandler(ISistecreditoStore store, SistecreditoAccess access)
     : IQueryHandler<ListOpenSistecreditoPaymentsQuery, IReadOnlyList<SistecreditoPaymentDto>>
 {
     public async Task<Result<IReadOnlyList<SistecreditoPaymentDto>>> Handle(ListOpenSistecreditoPaymentsQuery request, CancellationToken cancellationToken)
     {
-        // Solo la caja de la venta (las URL de pago y las transacciones no se muestran a otras cajas).
-        if (await sales.GetAsync(request.SaleId, cancellationToken) is not { Status: "OPEN" } sale || current.PosTerminalId != sale.PosTerminalId)
+        var open = await access.OpenSaleOfThisTerminalAsync(request.SaleId, cancellationToken);
+        if (open.IsFailure)
         {
-            return SistecreditoErrors.SaleNotOpen;
+            return open.Error;
         }
 
-        return (await store.ListForSaleAsync(sale.SaleId, cancellationToken))
+        return (await store.ListForSaleAsync(open.Value.SaleId, cancellationToken))
             .Where(a => a.IsUsable || (a.Status == SistecreditoAttemptStatus.Pending && a.TransactionId is not null))
             .Select(a => a.ToDto())
             .ToList();
@@ -582,16 +665,17 @@ internal sealed class ListOpenSistecreditoPaymentsHandler(ISistecreditoStore sto
 /// <summary>
 /// Estado del cobro: si sigue pendiente, consulta a Sistecrédito con el ambiente del cobro (la caja lo llama cada pocos segundos). Sin
 /// conexión no falla: devuelve el último estado con un aviso y la caja sigue consultando. La consulta va por fuera de la transacción.
+/// Solo la caja del cobro.
 /// </summary>
 public sealed record CheckSistecreditoPaymentCommand(Guid AttemptId) : ICommand<SistecreditoPaymentDto>, IAllowedWhenRestricted, ISelfTransactedCommand;
 
 internal sealed class CheckSistecreditoPaymentHandler(
-    SistecreditoConnections connections, ISistecreditoStore store, ISistecreditoGateway gateway, IAuditWriter audit, IShortTransactions transactions, IClock clock)
-    : ICommandHandler<CheckSistecreditoPaymentCommand, SistecreditoPaymentDto>
+    SistecreditoConnections connections, SistecreditoAccess access, ISistecreditoStore store, ISistecreditoGateway gateway, IAuditWriter audit,
+    IShortTransactions transactions, IClock clock) : ICommandHandler<CheckSistecreditoPaymentCommand, SistecreditoPaymentDto>
 {
     public async Task<Result<SistecreditoPaymentDto>> Handle(CheckSistecreditoPaymentCommand request, CancellationToken cancellationToken)
     {
-        if (await store.GetAttemptAsync(request.AttemptId, cancellationToken) is not { } attempt)
+        if (await store.GetAttemptAsync(request.AttemptId, cancellationToken) is not { } attempt || !await access.CanSeeAsync(attempt, cancellationToken))
         {
             return SistecreditoErrors.AttemptNotFound;
         }
@@ -607,6 +691,7 @@ internal sealed class CheckSistecreditoPaymentHandler(
             return attempt.ToDto(enabled.Error.Message);
         }
 
+        var fetchedAt = clock.UtcNow;
         SistecreditoTransaction transaction;
         try
         {
@@ -617,15 +702,7 @@ internal sealed class CheckSistecreditoPaymentHandler(
             return attempt.ToDto(ex.Failure == SistecreditoFailure.Network ? "Sin conexión con Sistecrédito; se sigue intentando." : ex.Message);
         }
 
-        var now = clock.UtcNow;
-        if (attempt.Apply(transaction.Status, transaction.RedirectUrl, transaction.Installments, transaction.Description, now)
-            && attempt.Status == SistecreditoAttemptStatus.Approved)
-        {
-            await SistecreditoAudit.ApprovedAsync(audit, attempt, CancellationToken.None);
-        }
-
-        var saved = await transactions.SaveAsync(
-            () => attempt.Apply(transaction.Status, transaction.RedirectUrl, transaction.Installments, transaction.Description, now), CancellationToken.None);
+        var saved = await SistecreditoChecks.ApplyAndSaveAsync(attempt, transaction, fetchedAt, clock.UtcNow, transactions, audit);
         return saved.IsFailure ? saved.Error : attempt.ToDto();
     }
 }
@@ -633,17 +710,20 @@ internal sealed class CheckSistecreditoPaymentHandler(
 /// <summary>
 /// Cancela el cobro en la caja (Sistecrédito no tiene cómo anularlo). Antes pregunta (con el ambiente del cobro, por fuera de la
 /// transacción): si el cliente ya aprobó, lo devuelve APROBADO para completar la venta; si ya estaba aprobado y la caja igual lo cancela,
-/// queda "Requiere revisión" (la plata del cliente no se pierde).
+/// queda "Requiere revisión" (la plata del cliente no se pierde). Si otro proceso tocó el cobro mientras tanto, se decide de nuevo sobre
+/// lo recargado. Solo la caja del cobro.
 /// </summary>
 public sealed record CancelSistecreditoPaymentCommand(Guid AttemptId) : ICommand<SistecreditoPaymentDto>, IAllowedWhenRestricted, ISelfTransactedCommand;
 
 internal sealed class CancelSistecreditoPaymentHandler(
-    SistecreditoConnections connections, ISistecreditoStore store, ISistecreditoGateway gateway, IAuditWriter audit, IShortTransactions transactions, IClock clock)
-    : ICommandHandler<CancelSistecreditoPaymentCommand, SistecreditoPaymentDto>
+    SistecreditoConnections connections, SistecreditoAccess access, ISistecreditoStore store, ISistecreditoGateway gateway, IAuditWriter audit,
+    IShortTransactions transactions, IClock clock) : ICommandHandler<CancelSistecreditoPaymentCommand, SistecreditoPaymentDto>
 {
+    private const string AlreadyApproved = "El cliente ya había aprobado el crédito: complete la venta con Sistecrédito.";
+
     public async Task<Result<SistecreditoPaymentDto>> Handle(CancelSistecreditoPaymentCommand request, CancellationToken cancellationToken)
     {
-        if (await store.GetAttemptAsync(request.AttemptId, cancellationToken) is not { } attempt)
+        if (await store.GetAttemptAsync(request.AttemptId, cancellationToken) is not { } attempt || !await access.CanSeeAsync(attempt, cancellationToken))
         {
             return SistecreditoErrors.AttemptNotFound;
         }
@@ -651,18 +731,15 @@ internal sealed class CancelSistecreditoPaymentHandler(
         if (attempt.Status == SistecreditoAttemptStatus.Pending && attempt.TransactionId is not null
             && await connections.EnabledAsync(cancellationToken) is { IsSuccess: true } enabled)
         {
+            var fetchedAt = clock.UtcNow;
             try
             {
                 var transaction = await gateway.GetTransactionAsync(
                     enabled.Value.Connection with { Environment = attempt.Environment }, attempt.TransactionId, cancellationToken);
-                if (attempt.Apply(transaction.Status, transaction.RedirectUrl, transaction.Installments, transaction.Description, clock.UtcNow)
-                    && attempt.Status == SistecreditoAttemptStatus.Approved)
+                if (SistecreditoProtocol.Map(transaction.Status) == SistecreditoAttemptStatus.Approved)
                 {
-                    await SistecreditoAudit.ApprovedAsync(audit, attempt, CancellationToken.None);
-                    var approved = await transactions.SaveAsync(cancellationToken: CancellationToken.None);
-                    return approved.IsFailure
-                        ? approved.Error
-                        : attempt.ToDto("El cliente ya había aprobado el crédito: complete la venta con Sistecrédito.");
+                    var approved = await SistecreditoChecks.ApplyAndSaveAsync(attempt, transaction, fetchedAt, clock.UtcNow, transactions, audit);
+                    return approved.IsFailure ? approved.Error : attempt.ToDto(AlreadyApproved);
                 }
             }
             catch (SistecreditoGatewayException)
@@ -672,23 +749,57 @@ internal sealed class CancelSistecreditoPaymentHandler(
         }
 
         var now = clock.UtcNow;
-        switch (attempt.Status)
+        var outcome = SistecreditoAttemptStatus.Pending;
+        var reloaded = false;
+
+        void Decide()
         {
-            case SistecreditoAttemptStatus.Pending:
-                attempt.CancelLocally("Cancelado en la caja.", now);
+            outcome = attempt.Status;
+            switch (attempt.Status)
+            {
+                case SistecreditoAttemptStatus.Pending:
+                    attempt.CancelLocally("Cancelado en la caja.", now);
+                    outcome = SistecreditoAttemptStatus.Cancelled;
+                    break;
+
+                // Ya aprobado al pedir cancelar: queda en revisión. Si se aprobó MIENTRAS se cancelaba (lo vio otro proceso), se respeta.
+                case SistecreditoAttemptStatus.Approved when attempt.CompletedSaleId is null && !reloaded:
+                    attempt.RequireReview("Aprobado por el cliente y cancelado en la caja: reverse el pago en el portal de Sistecrédito o complete la venta.", now);
+                    outcome = SistecreditoAttemptStatus.ReviewRequired;
+                    break;
+            }
+        }
+
+        Decide();
+        var saved = await transactions.SaveAsync(
+            () =>
+            {
+                reloaded = true;
+                Decide();
+            },
+            CancellationToken.None);
+        if (saved.IsFailure)
+        {
+            return saved.Error;
+        }
+
+        switch (outcome)
+        {
+            case SistecreditoAttemptStatus.Cancelled:
                 await audit.WriteAsync(
                     new AuditEntry("cash", "SISTECREDITO_PAYMENT_CANCELLED", nameof(SistecreditoAttempt), attempt.Id, $"Sistecrédito {attempt.TransactionId}",
                         $"Cobro con Sistecrédito por {attempt.Amount:N0} cancelado en la caja."),
                     CancellationToken.None);
                 break;
-            case SistecreditoAttemptStatus.Approved when attempt.CompletedSaleId is null:
-                attempt.RequireReview("Aprobado por el cliente y cancelado en la caja: reverse el pago en el portal de Sistecrédito o complete la venta.", now);
+            case SistecreditoAttemptStatus.ReviewRequired:
                 await SistecreditoAudit.ReviewRequiredAsync(audit, attempt, CancellationToken.None);
                 break;
+            case SistecreditoAttemptStatus.Approved when reloaded && attempt.IsUsable:
+                return attempt.ToDto(AlreadyApproved);
         }
 
-        var saved = await transactions.SaveAsync(cancellationToken: CancellationToken.None);
-        return saved.IsFailure ? saved.Error : attempt.ToDto();
+        await transactions.SaveAsync(cancellationToken: CancellationToken.None);
+        return attempt.ToDto();
     }
 }
 
@@ -712,10 +823,13 @@ internal static class SistecreditoAudit
 /// <summary>Un cobro (para el QR y la consulta de la administración).</summary>
 public sealed record GetSistecreditoPaymentQuery(Guid AttemptId) : IQuery<SistecreditoPaymentDto>;
 
-internal sealed class GetSistecreditoPaymentHandler(ISistecreditoStore store) : IQueryHandler<GetSistecreditoPaymentQuery, SistecreditoPaymentDto>
+internal sealed class GetSistecreditoPaymentHandler(ISistecreditoStore store, SistecreditoAccess access) : IQueryHandler<GetSistecreditoPaymentQuery, SistecreditoPaymentDto>
 {
+    /// <summary>Solo la caja del cobro o la administración (el QR y la transacción no se muestran a otras cajas).</summary>
     public async Task<Result<SistecreditoPaymentDto>> Handle(GetSistecreditoPaymentQuery request, CancellationToken cancellationToken) =>
-        await store.GetAttemptAsync(request.AttemptId, cancellationToken) is { } attempt ? attempt.ToDto() : SistecreditoErrors.AttemptNotFound;
+        await store.GetAttemptAsync(request.AttemptId, cancellationToken) is { } attempt && await access.CanSeeAsync(attempt, cancellationToken)
+            ? attempt.ToDto()
+            : SistecreditoErrors.AttemptNotFound;
 }
 
 /// <summary>Cobros recientes (administración); <c>Status</c> opcional, p. ej. REVIEW_REQUIRED.</summary>
@@ -783,6 +897,86 @@ public sealed class SistecreditoPaymentsService(
         }
 
         return attempt.Use(saleId, amount, clock.UtcNow);
+    }
+
+    public async Task<IReadOnlyList<SistecreditoPendingUse>> ListUsableAsync(Guid saleId, CancellationToken cancellationToken = default) =>
+        (await store.ListForSaleAsync(saleId, cancellationToken))
+            .Where(a => a.IsUsable)
+            .Select(a => new SistecreditoPendingUse(a.TransactionId!, a.Amount))
+            .ToList();
+
+    public async Task<Result> ReleaseAsync(Guid saleId, string transactionId, Guid userId, Guid? authorizedBy, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(transactionId) || await store.FindByTransactionAsync(transactionId.Trim(), cancellationToken) is not { } attempt)
+        {
+            return SistecreditoErrors.AttemptNotFound;
+        }
+
+        var released = attempt.Release(saleId, userId, clock.UtcNow);
+        if (released.IsFailure)
+        {
+            return released;
+        }
+
+        await audit.WriteAsync(
+            new AuditEntry("cash", "SISTECREDITO_REVIEW_REQUIRED", nameof(SistecreditoAttempt), attempt.Id, $"Sistecrédito {attempt.TransactionId}",
+                $"Crédito aprobado por Sistecrédito ({attempt.Amount:N0}, {attempt.DocumentType} {attempt.MaskedDocument}) no usado en la venta (el cliente "
+                + "paga con otro medio). Reverse el pago en el portal de Sistecrédito.",
+                AuthorizedBy: authorizedBy, Severity: AuditSeverity.Warning),
+            cancellationToken);
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Después de completar la venta: los cobros que seguían PENDIENTES (el cliente podría aprobarlos segundos después) se consultan una
+    /// última vez (⚙️ máximo 5 s en total) y se cancelan en la caja; si ya estaban aprobados, quedan "Requiere revisión" para reversarlos.
+    /// La revisión automática sigue mirando los cancelados 24 h por si el cliente aprueba después.
+    /// </summary>
+    public async Task SettleAfterSaleAsync(Guid saleId, CancellationToken cancellationToken = default)
+    {
+        var pending = (await store.ListForSaleAsync(saleId, cancellationToken))
+            .Where(a => a.Status == SistecreditoAttemptStatus.Pending && a.TransactionId is not null && a.CompletedSaleId is null)
+            .ToList();
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        var enabled = await connections.EnabledAsync(cancellationToken);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(options.UseRecheckTimeoutSeconds, 1, 5)));
+        foreach (var attempt in pending)
+        {
+            if (enabled.IsSuccess && !budget.IsCancellationRequested)
+            {
+                try
+                {
+                    var transaction = await gateway.GetTransactionAsync(
+                        enabled.Value.Connection with { Environment = attempt.Environment }, attempt.TransactionId!, budget.Token);
+                    attempt.Apply(transaction.Status, transaction.RedirectUrl, transaction.Installments, transaction.Description, clock.UtcNow);
+                }
+                catch (SistecreditoGatewayException)
+                {
+                    // Sin respuesta: se cancela igual y la revisión automática vigila si el cliente aprueba.
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Se acabó el tiempo: los demás se cancelan sin consultar.
+                }
+            }
+
+            if (attempt.Status == SistecreditoAttemptStatus.Approved)
+            {
+                attempt.RequireReview("Aprobado después de completar la venta con otro medio de pago: reverse el pago en el portal de Sistecrédito.", clock.UtcNow);
+                await SistecreditoAudit.ReviewRequiredAsync(audit, attempt, CancellationToken.None);
+            }
+            else
+            {
+                attempt.CancelLocally("La venta se completó con otro medio de pago.", clock.UtcNow);
+            }
+        }
+
+        await transactions.SaveAsync(cancellationToken: CancellationToken.None);
     }
 
     public async Task<IReadOnlyList<SistecreditoPendingUse>> ListApprovedUnusedAsync(Guid saleId, CancellationToken cancellationToken = default) =>
@@ -948,8 +1142,16 @@ public sealed class SistecreditoReconciler(
 
             attempt.Checked(now); // turno rotativo: el próximo en consultarse es el que lleva más tiempo sin mirar
 
-            // Cada cobro en su propia transacción corta; si otro proceso lo cambió, se recarga y se mira en la próxima vuelta.
-            if ((await transactions.SaveAsync(cancellationToken: cancellationToken)).IsFailure || attempt.Status == before)
+            // Cada cobro en su propia transacción corta. Si no se pudo guardar (otro proceso lo cambió o una restricción), lo pendiente ya se
+            // descartó y se recargó: se anota el fallo con espera creciente para que no ocupe siempre el primer turno.
+            if ((await transactions.SaveAsync(cancellationToken: cancellationToken)).IsFailure)
+            {
+                attempt.CheckFailed(now);
+                await transactions.SaveAsync(cancellationToken: cancellationToken);
+                continue;
+            }
+
+            if (attempt.Status == before)
             {
                 continue;
             }

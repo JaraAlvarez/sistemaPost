@@ -1,3 +1,4 @@
+using System.Globalization;
 using Pos.Modules.Cash.Domain;
 
 namespace Pos.Modules.Cash.UnitTests;
@@ -18,6 +19,7 @@ public class SistecreditoAttemptTests
     [Fact]
     public void Validaciones_documento_enmascarado_y_factura_unica()
     {
+        using var culture = new CultureScope("es-CO"); // los valores del mensaje se escriben con la cultura de Colombia
         var attempt = Pending(Guid.NewGuid());
         attempt.DocumentType.ShouldBe("CC");
         attempt.DocumentNumber.ShouldBe("1020304050");
@@ -100,6 +102,7 @@ public class SistecreditoAttemptTests
     [Fact]
     public void Con_centavos_el_mensaje_dice_cuanto_cobrar_con_Sistecredito_y_cuanto_con_otro_medio()
     {
+        using var culture = new CultureScope("es-CO");
         // Revisión B5: la caja proponía lo que falta con centavos y Sistecrédito solo cobra pesos enteros.
         var error = SistecreditoAttempt.Create(Guid.NewGuid(), Company, Guid.NewGuid(), null, 9_050.50m, "CC", "123456", SistecreditoEnvironment.Staging, Now).Error;
         error.Code.ShouldBe(SistecreditoErrors.InvalidAmount.Code);
@@ -218,5 +221,70 @@ public class SistecreditoAttemptTests
         var method = PaymentMethod.Create(Guid.NewGuid(), Company, PaymentMethod.SistecreditoCode, "Sistecrédito", PaymentMethodKind.Sistecredito, "ZZZ", false, 90, true).Value;
         method.RequiresReference.ShouldBeTrue();
         method.AffectsCashDrawer.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Una_respuesta_Approved_vieja_no_revive_un_cobro_que_Sistecredito_dejo_de_aprobar()
+    {
+        // Revisión TP5.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.Apply("Cancelled", null, null, null, Now.AddMinutes(1)); // reversado en Sistecrédito
+        attempt.IsUsable.ShouldBeFalse();
+
+        attempt.Apply("Approved", null, null, null, Now.AddMinutes(2)).ShouldBeFalse(); // respuesta vieja que llega tarde
+        attempt.ProviderStatus.ShouldBe("Cancelled");
+        attempt.IsUsable.ShouldBeFalse();
+        attempt.Use(sale, 80_000m, Now).Error.ShouldBe(SistecreditoErrors.NoLongerApproved);
+    }
+
+    [Fact]
+    public void No_usar_este_credito_lo_deja_en_revision_y_ya_no_se_usa()
+    {
+        // Revisión TP2.
+        var sale = Guid.NewGuid();
+        var attempt = Pending(sale);
+        attempt.Release(sale, Guid.NewGuid(), Now).Error.ShouldBe(SistecreditoErrors.NotApproved); // pendiente: no aplica
+        attempt.Apply("Approved", null, null, null, Now);
+        attempt.Release(Guid.NewGuid(), Guid.NewGuid(), Now).Error.ShouldBe(SistecreditoErrors.OtherSale);
+
+        attempt.Release(sale, Guid.NewGuid(), Now.AddMinutes(1)).IsSuccess.ShouldBeTrue();
+        attempt.Status.ShouldBe(SistecreditoAttemptStatus.ReviewRequired);
+        attempt.Message.ShouldBe(SistecreditoAttempt.ReleasedMessage);
+        attempt.IsUsable.ShouldBeFalse();
+        attempt.Use(sale, 80_000m, Now).IsFailure.ShouldBeTrue();
+        attempt.Resolve("Reversado en el portal de Sistecrédito", Guid.NewGuid(), Now.AddHours(1)).IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Un_cobro_que_no_se_pudo_guardar_espera_cada_vez_mas_y_vuelve_a_cero_al_consultarse_bien()
+    {
+        // Revisión TP4.
+        var attempt = Pending(Guid.NewGuid());
+        attempt.CheckFailed(Now);
+        attempt.CheckFailures.ShouldBe(1);
+        attempt.NextCheckAt.ShouldBe(Now.AddMinutes(2));
+        attempt.CheckFailed(Now);
+        attempt.NextCheckAt.ShouldBe(Now.AddMinutes(4));
+        for (var i = 0; i < 10; i++)
+        {
+            attempt.CheckFailed(Now);
+        }
+
+        attempt.NextCheckAt.ShouldBe(Now.AddMinutes(60));
+        attempt.Checked(Now);
+        attempt.CheckFailures.ShouldBe(0);
+        attempt.NextCheckAt.ShouldBeNull();
+    }
+
+    /// <summary>Fija la cultura mientras dura la prueba (los mensajes formatean valores con la cultura actual).</summary>
+    private sealed class CultureScope : IDisposable
+    {
+        private readonly CultureInfo _culture = CultureInfo.CurrentCulture;
+
+        public CultureScope(string name) => CultureInfo.CurrentCulture = new CultureInfo(name);
+
+        public void Dispose() => CultureInfo.CurrentCulture = _culture;
     }
 }
