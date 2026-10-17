@@ -786,8 +786,32 @@ end;
 // R5: en una caja adicional la carpeta de datos (configuración, descargas y estado del actualizador, que corre como SYSTEM) queda solo para
 // SYSTEM y Administradores, como el migrador la deja en el equipo principal (RestrictDataRootAsync). La ventana BusinessPost.exe (usuario
 // normal) solo necesita LEER updater.json (dirección y huella del equipo principal). El actualizador vuelve a aplicarlo al arrancar.
+// Ronda 3 (3): antes de pasar la propiedad a los Administradores (después ya no se distinguiría), se borran los archivos de control que no
+// son de SYSTEM ni de los Administradores: los pudo dejar un usuario normal mientras la carpeta no tenía la ACL.
+procedure PurgeUntrustedControlFiles(const Data: String);
+var
+  Files: String;
+  Code: Integer;
+begin
+  Files := PsText(Data + '\updates\update-in-progress.json') + ', ' + PsText(Data + '\updates\manifest-sequence.json') + ', ' +
+    PsText(Data + '\updates\failed-version.json') + ', ' + PsText(Data + '\updates\install-now.request') + ', ' +
+    PsText(Data + '\updates\terminals-install-now.request') + ', ' + PsText(Data + '\config\server.json') + ', ' +
+    PsText(Data + '\config\desktop.json');
+  try
+    ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -Command "$ErrorActionPreference = ''SilentlyContinue''; foreach ($f in @(' + Files + ')) { ' +
+      'if (Test-Path -LiteralPath $f) { $o = (Get-Acl -LiteralPath $f).GetOwner([System.Security.Principal.SecurityIdentifier]).Value; ' +
+      'if (($o -ne ''S-1-5-18'') -and ($o -ne ''S-1-5-32-544'')) { Remove-Item -LiteralPath $f -Force; ' +
+      'Write-Output (''Se borró (no era de SYSTEM ni de los Administradores): '' + $f) } } }"',
+      '', SW_HIDE, ewWaitUntilTerminated, Code, nil);
+  except
+    Log('No se pudieron revisar los dueños de los archivos de control: ' + GetExceptionMessage);
+  end;
+end;
+
 procedure RestrictTerminalDataRoot(const Data: String);
 begin
+  PurgeUntrustedControlFiles(Data);
   // ALTA 1: primero la propiedad a los Administradores y sin permisos propios en cada archivo (un usuario dueño podría volver a darse
   // permisos); después, sin herencia y solo SYSTEM y Administradores.
   IcaclsOptional('"' + Data + '" /setowner *S-1-5-32-544 /T /C /Q');

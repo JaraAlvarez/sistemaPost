@@ -682,7 +682,7 @@ public sealed class UpdaterSecurityTests : IDisposable
             WindowHour = (TimeZoneInfo.ConvertTime(reloj.GetUtcNow(), TimeZoneInfo.Local).Hour + 3) % 24,
         };
         using var worker = new UpdateWorker(settings, host, new LicenseKeyRing([_key.PublicKey]), reloj, NullLogger<UpdateWorker>.Instance,
-            new Servidor(UpdateSigning.Serialize(UpdateSigning.Sign(Manifest(), _key)), Package) { InstallNow = true })
+            new Servidor(UpdateSigning.Serialize(UpdateSigning.Sign(Manifest(), _key)), Package) { InstallNowAt = reloj.GetUtcNow().AddMinutes(-5) })
         {
             Uptime = () => TimeSpan.FromHours(5),
         };
@@ -797,6 +797,129 @@ public sealed class UpdaterSecurityTests : IDisposable
         File.Exists(JournalFile).ShouldBeTrue();
     }
 
+    // ───────────────────────────── Ronda 3 ─────────────────────────────
+
+    [Fact]
+    public async Task R3_una_excepcion_del_sistema_despues_de_detener_vuelve_atras_y_arranca_los_servicios()
+    {
+        var host = new Equipo("1.3.0") { MigrateThrows = true };
+        var orchestrator = new UpdateOrchestrator(host, UpdaterMode.Server, _dataRoot, TimeProvider.System);
+
+        (await orchestrator.ApplyAsync(Manifest(), "paquete.zip", force: true, Ct)).ShouldBe(UpdateResult.RolledBack);
+
+        host.Steps.ShouldContain("restore 1.3.0 backup-1.3.0.posbak");
+        host.Steps[^2].ShouldBe("start");
+        host.CurrentVersion.ShouldBe("1.3.0");
+        orchestrator.ReadJournal().ShouldBeNull();
+        UpdateFiles.ReadHistory(_dataRoot)[^2].Detail.ShouldContain("Acceso denegado al migrador");
+    }
+
+    [Fact]
+    public async Task R3_si_una_falla_deja_el_registro_a_medias_se_deshace_en_el_momento()
+    {
+        // StopServices lanza IOException (no la falla esperada): ApplyAsync sale con el registro en "BackedUp".
+        var host = new Equipo("1.3.0") { StopThrowsIo = true };
+        using var worker = new UpdateWorker(Settings(UpdaterMode.Server), host, new LicenseKeyRing([_key.PublicKey]), TimeProvider.System,
+            NullLogger<UpdateWorker>.Instance, new Servidor(UpdateSigning.Serialize(UpdateSigning.Sign(Manifest(), _key)), Package));
+        Directory.CreateDirectory(UpdateFiles.Directory(_dataRoot));
+        await File.WriteAllTextAsync(Path.Combine(UpdateFiles.Directory(_dataRoot), UpdateFiles.InstallNowRequest), string.Empty, Ct);
+
+        await worker.TickAsync(Ct);
+
+        File.Exists(JournalFile).ShouldBeFalse("Se deshizo en el mismo ciclo, sin esperar al próximo arranque.");
+        host.Steps[^2..].ShouldBe(["start", "health"]);
+    }
+
+    [Fact]
+    public async Task R3_la_caja_reconoce_que_acaba_de_encender_aunque_el_contador_no_vuelva_a_cero()
+    {
+        // Inicio rápido de Windows: el sistema y el servicio "llevan" días encendidos, pero el reloj saltó horas entre dos ciclos.
+        var reloj = new RelojFijo(new DateTimeOffset(2026, 10, 17, 7, 0, 0, TimeSpan.Zero));
+        using var worker = new UpdateWorker(Settings(UpdaterMode.Terminal), new Equipo("1.3.0"), new LicenseKeyRing([]), reloj,
+            NullLogger<UpdateWorker>.Instance)
+        {
+            Uptime = () => TimeSpan.FromDays(3),
+            ProcessStartedAt = reloj.GetUtcNow().AddDays(-3),
+        };
+
+        worker.JustStarted(reloj.GetUtcNow()).ShouldBeFalse();
+        await worker.TickAsync(Ct);
+        reloj.Avanzar(TimeSpan.FromHours(11)); // apagado (hibernado) toda la noche
+        await worker.TickAsync(Ct);
+        worker.JustStarted(reloj.GetUtcNow()).ShouldBeTrue();
+        reloj.Avanzar(TimeSpan.FromMinutes(20));
+        worker.JustStarted(reloj.GetUtcNow()).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task R3_instalar_ahora_del_principal_vale_30_minutos_y_mientras_tanto_se_consulta_cada_15()
+    {
+        var reloj = new RelojFijo(new DateTimeOffset(2026, 10, 17, 15, 0, 0, TimeSpan.Zero));
+        var settings = Settings(UpdaterMode.Terminal) with
+        {
+            ServerUrl = "https://principal.test:5443/",
+            WindowHour = (TimeZoneInfo.ConvertTime(reloj.GetUtcNow(), TimeZoneInfo.Local).Hour + 3) % 24,
+        };
+        var viejo = new Equipo("1.3.0");
+        using (var tarde = new UpdateWorker(settings, viejo, new LicenseKeyRing([_key.PublicKey]), reloj, NullLogger<UpdateWorker>.Instance,
+                   new Servidor(UpdateSigning.Serialize(UpdateSigning.Sign(Manifest(), _key)), Package) { InstallNowAt = reloj.GetUtcNow().AddHours(-2) })
+               {
+                   Uptime = () => TimeSpan.FromHours(5),
+                   ProcessStartedAt = reloj.GetUtcNow().AddHours(-5),
+               })
+        {
+            await tarde.TickAsync(Ct);
+            viejo.Steps.ShouldNotContain("activate 1.4.0", "El pedido es de hace 2 horas y la caja no acaba de encender: no se detiene en plena venta.");
+            (tarde.NextCheck - reloj.GetUtcNow()).ShouldBeLessThanOrEqualTo(UpdateWorker.InstallNowPolling);
+        }
+    }
+
+    [Fact]
+    public async Task R3_la_caja_informa_su_version_al_pedir_el_manifiesto()
+    {
+        var servidor = new Servidor(UpdateSigning.Serialize(UpdateSigning.Sign(Manifest("1.3.0"), _key)), Package);
+        var settings = Settings(UpdaterMode.Terminal) with { ServerUrl = "https://principal.test:5443/" };
+        using var worker = new UpdateWorker(settings, new Equipo("1.3.0"), new LicenseKeyRing([_key.PublicKey]), TimeProvider.System,
+            NullLogger<UpdateWorker>.Instance, servidor);
+
+        await worker.CheckAsync(Ct);
+
+        servidor.LastHeaders[UpdateWorker.TerminalVersionHeader].ShouldBe("1.3.0");
+        servidor.LastHeaders[UpdateWorker.TerminalHostHeader].ShouldBe(Environment.MachineName);
+    }
+
+    [Fact]
+    public async Task R3_instalar_ahora_ignora_la_version_que_volvio_atras()
+    {
+        Directory.CreateDirectory(UpdateFiles.Directory(_dataRoot));
+        await File.WriteAllTextAsync(Path.Combine(UpdateFiles.Directory(_dataRoot), UpdateFiles.FailedVersion), """{ "version": "1.4.0" }""", Ct);
+        using (var sinPedido = Worker(Manifest()))
+        {
+            await sinPedido.CheckAsync(Ct);
+            sinPedido.ReadyManifest.ShouldBeNull();
+        }
+
+        await File.WriteAllTextAsync(Path.Combine(UpdateFiles.Directory(_dataRoot), UpdateFiles.InstallNowRequest), string.Empty, Ct);
+        using var conPedido = Worker(Manifest(sequence: 101));
+        await conPedido.CheckAsync(Ct);
+        conPedido.ReadyManifest.ShouldNotBeNull("El propietario pidió instalar ahora: se intenta otra vez.");
+    }
+
+    [Fact]
+    public async Task R3_el_estado_publica_requiere_soporte_mientras_exista_ese_registro()
+    {
+        await JournalAsync("""{ "from": "1.3.0", "to": "1.4.0", "step": "Migrated", "backup": "pre.posbak", "at": "2026-10-17T07:00:00Z", "attempts": 3, "needsSupport": true }""");
+        using var worker = new UpdateWorker(Settings(UpdaterMode.Server), new Equipo("1.3.0"), new LicenseKeyRing([]), TimeProvider.System,
+            NullLogger<UpdateWorker>.Instance);
+
+        worker.Publish();
+        UpdateFiles.ReadState(_dataRoot)!.NeedsSupport.ShouldBeTrue();
+
+        File.Delete(JournalFile);
+        worker.Publish();
+        UpdateFiles.ReadState(_dataRoot)!.NeedsSupport.ShouldBeFalse();
+    }
+
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private WindowsUpdateHost Real(string install) =>
         new(Settings(UpdaterMode.Server) with { InstallRoot = install }, NullLogger<WindowsUpdateHost>.Instance);
@@ -819,7 +942,10 @@ public sealed class UpdaterSecurityTests : IDisposable
     private sealed class Servidor(string? manifest, byte[] package) : HttpMessageHandler
     {
         /// <summary>El equipo principal propaga "instalar ahora" (cabecera del manifiesto).</summary>
-        public bool InstallNow { get; init; }
+        public DateTimeOffset? InstallNowAt { get; init; }
+
+        /// <summary>Cabeceras que mandó la caja en el último pedido del manifiesto.</summary>
+        public Dictionary<string, string> LastHeaders { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -832,9 +958,14 @@ public sealed class UpdaterSecurityTests : IDisposable
                 }
 
                 var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(manifest, Encoding.UTF8, "application/json") };
-                if (InstallNow)
+                foreach (var header in request.Headers)
                 {
-                    response.Headers.Add(UpdateWorker.TerminalInstallNowHeader, "1");
+                    LastHeaders[header.Key] = string.Join(",", header.Value);
+                }
+
+                if (InstallNowAt is not null)
+                {
+                    response.Headers.Add(UpdateWorker.TerminalInstallNowHeader, InstallNowAt.Value.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
                 }
 
                 return Task.FromResult(response);
@@ -859,6 +990,12 @@ public sealed class UpdaterSecurityTests : IDisposable
         public List<string> Steps { get; } = [];
 
         public bool StopFails { get; init; }
+
+        /// <summary>Falla inesperada al detener (no InvalidOperationException): sale de ApplyAsync con el registro a medias.</summary>
+        public bool StopThrowsIo { get; set; }
+
+        /// <summary>La migración lanza una excepción del sistema (no devuelve false).</summary>
+        public bool MigrateThrows { get; init; }
 
         public Action? OnMigrate { get; set; }
 
@@ -888,7 +1025,7 @@ public sealed class UpdaterSecurityTests : IDisposable
         {
             Steps.Add($"migrate {v}");
             OnMigrate?.Invoke();
-            return Task.FromResult(true);
+            return MigrateThrows ? Task.FromException<bool>(new System.ComponentModel.Win32Exception(5, "Acceso denegado al migrador.")) : Task.FromResult(true);
         }
 
         public Task<bool> RestoreAsync(string v, string backupPath, CancellationToken cancellationToken)
@@ -900,6 +1037,12 @@ public sealed class UpdaterSecurityTests : IDisposable
         public Task StopServicesAsync(CancellationToken cancellationToken)
         {
             Steps.Add("stop");
+            if (StopThrowsIo)
+            {
+                StopThrowsIo = false;
+                return Task.FromException(new IOException("El administrador de servicios no respondió."));
+            }
+
             return StopFails ? Task.FromException(new InvalidOperationException("El servicio BusinessPost-Server no llegó a Stopped.")) : Task.CompletedTask;
         }
 

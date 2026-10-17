@@ -9,6 +9,7 @@ using Pos.Updates.Contracts;
 //        Genera la clave de firma de actualizaciones. Guárdela FUERA del VPS (como la de licencias). Imprime kid y x para update-keys.json.
 //   Pos.Release sign --package BusinessPost-1.4.0.zip --version 1.4.0 --key clave.pem --out stable.json
 //                    [--channel stable] [--package-url BusinessPost-1.4.0.zip] [--min-terminal 1.4.0] [--notes "Novedades…"] [--product BusinessPost]
+//                    (sin --min-terminal no hay versión mínima de las cajas: no se avisa de cajas desactualizadas)
 //                    [--expires-days 90] [--sequence N]
 //        Firma el manifiesto de una versión (huella SHA-256 y tamaño del paquete). Lleva caducidad (por defecto 90 días: hay que volver a
 //        firmar antes de que venza) y número de secuencia creciente (por defecto la hora Unix de la firma): el actualizador rechaza un
@@ -84,7 +85,7 @@ try
             var sha = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream));
             var manifest = new UpdateManifest(
                 options.GetValueOrDefault("product", "BusinessPost"), channel, version, options.GetValueOrDefault("package-url", Path.GetFileName(package)),
-                sha, stream.Length, options.GetValueOrDefault("min-terminal", version), now, options.GetValueOrDefault("notes", string.Empty),
+                sha, stream.Length, options.GetValueOrDefault("min-terminal", string.Empty), now, options.GetValueOrDefault("notes", string.Empty),
                 now.AddDays(days), sequence);
             var signed = UpdateSigning.Sign(manifest, key);
             await File.WriteAllTextAsync(Required("out"), UpdateSigning.Serialize(signed));

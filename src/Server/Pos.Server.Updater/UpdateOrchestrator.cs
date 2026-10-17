@@ -174,6 +174,20 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
             return UpdateResult.FailedNoChanges;
         }
 
+        try
+        {
+            return await AfterStopAsync(from, to, backup, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Ronda 3 (M1): cualquier falla después de detener (Win32Exception, IOException al activar o al escribir el registro) va por la
+            // vuelta atrás y los servicios se arrancan.
+            return await EmergencyRollbackAsync(from, to, backup, ex, cancellationToken);
+        }
+    }
+
+    private async Task<UpdateResult> AfterStopAsync(string from, string to, string backup, CancellationToken cancellationToken)
+    {
         Journal(new UpdateJournal(from, to, UpdateStep.Stopped, backup, time.GetUtcNow()));
         if (!await host.MigrateAsync(to, cancellationToken))
         {
@@ -190,6 +204,65 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
 
         Journal(new UpdateJournal(from, to, UpdateStep.Migrated, backup, time.GetUtcNow()));
         return await SwitchAsync(from, to, backup, cancellationToken);
+    }
+
+    /// <summary>
+    /// Vuelta atrás de emergencia (falla inesperada después de detener): versión anterior, BD del backup previo (una vez) y servicios
+    /// arrancados pase lo que pase. Si algo de esto también falla, queda el registro para deshacerlo al próximo arranque (RecoverAsync).
+    /// </summary>
+    private async Task<UpdateResult> EmergencyRollbackAsync(string from, string to, string? backup, Exception error, CancellationToken cancellationToken)
+    {
+        var restored = backup is null;
+        var backToPrevious = false;
+        try
+        {
+            try
+            {
+                await host.StopServicesAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Se intenta volver igual.
+            }
+
+            try
+            {
+                host.Activate(from);
+                backToPrevious = true;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Queda para RecoverAsync.
+            }
+
+            if (backup is not null && mode == UpdaterMode.Server)
+            {
+                try
+                {
+                    restored = await RestoreOnceAsync(ReadJournal() ?? new UpdateJournal(from, to, UpdateStep.Stopped, backup, time.GetUtcNow()), cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    restored = false;
+                }
+            }
+        }
+        finally
+        {
+            await host.StartServicesAsync(cancellationToken);
+        }
+
+        var healthy = backToPrevious && await host.IsHealthyAsync(cancellationToken);
+        Record(UpdateOutcomes.Failed, from, to, $"Falló la actualización a {to} después de detener los servicios ({error.Message}).");
+        if (restored && healthy)
+        {
+            Record(UpdateOutcomes.RolledBack, from, to, $"Se volvió a la versión {from}{(backup is null ? string.Empty : " y a la base de datos del backup previo")}.");
+            ClearJournal();
+            return UpdateResult.RolledBack;
+        }
+
+        Record(UpdateOutcomes.RolledBack, from, to, $"No se pudo volver del todo a la versión {from}: se reintenta al próximo arranque o llame a soporte.");
+        return UpdateResult.RollbackFailed;
     }
 
     /// <summary>
@@ -229,7 +302,7 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
             {
                 await host.StopServicesAsync(cancellationToken);
             }
-            catch (InvalidOperationException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Si no se detienen, igual se intenta volver: el cambio de versión no toca archivos en uso.
             }
@@ -241,7 +314,7 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
                 {
                     host.Activate(journal.From);
                 }
-                catch (InvalidOperationException)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     activated = false;
                 }
@@ -353,6 +426,24 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
 
     private async Task<UpdateResult> SwitchAsync(string from, string to, string? backup, CancellationToken cancellationToken)
     {
+        if (mode != UpdaterMode.Terminal)
+        {
+            return await SwitchCoreAsync(from, to, backup, cancellationToken);
+        }
+
+        // En la caja SwitchAsync es lo primero después de preparar: también aquí, cualquier falla después de detener vuelve atrás.
+        try
+        {
+            return await SwitchCoreAsync(from, to, backup, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return await EmergencyRollbackAsync(from, to, backup, ex, cancellationToken);
+        }
+    }
+
+    private async Task<UpdateResult> SwitchCoreAsync(string from, string to, string? backup, CancellationToken cancellationToken)
+    {
         if (mode == UpdaterMode.Terminal)
         {
             if (!await TryStopAsync(from, to, cancellationToken))
@@ -370,9 +461,9 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
             Journal(new UpdateJournal(from, to, UpdateStep.Activated, backup, time.GetUtcNow()));
             await host.StartServicesAsync(cancellationToken);
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // M1: no se pudo activar la versión nueva: vuelta atrás igual que si no hubiera arrancado sana.
+            // M1: no se pudo activar la versión nueva (o escribir el registro): vuelta atrás igual que si no hubiera arrancado sana.
             activatedNew = false;
         }
 
@@ -393,7 +484,7 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
             {
                 await host.StopServicesAsync(cancellationToken);
             }
-            catch (InvalidOperationException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // Se intenta volver igual.
             }
@@ -402,7 +493,7 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
             {
                 host.Activate(from);
             }
-            catch (InvalidOperationException)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 backToPrevious = false;
             }
@@ -429,8 +520,7 @@ public sealed class UpdateOrchestrator(IUpdateHost host, UpdaterMode mode, strin
     private void Journal(UpdateJournal journal)
     {
         Directory.CreateDirectory(UpdateFiles.Directory(dataRoot));
-        File.WriteAllText(JournalPath + ".tmp", JsonSerializer.Serialize(journal, Json));
-        File.Move(JournalPath + ".tmp", JournalPath, overwrite: true);
+        DurableFile.WriteAllText(JournalPath, JsonSerializer.Serialize(journal, Json));
     }
 
     private void ClearJournal() => TryDelete(JournalPath);

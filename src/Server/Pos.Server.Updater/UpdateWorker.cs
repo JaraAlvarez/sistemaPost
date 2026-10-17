@@ -145,7 +145,9 @@ public sealed partial class UpdateWorker(
     private DateTimeOffset _nextCheck = DateTimeOffset.MinValue;
     private DateTimeOffset _retryAt = DateTimeOffset.MinValue;
     private int _failures;
-    private bool _serverAsksInstallNow;
+    private DateTimeOffset? _serverInstallNowAt;
+    private DateTimeOffset? _lastTickAt;
+    private DateTimeOffset? _resumedAt;
     private (UpdateManifest Manifest, string Package, SignedUpdateManifest Signed)? _ready;
     private string? _lastError;
 
@@ -163,6 +165,38 @@ public sealed partial class UpdateWorker(
     /// <summary>Tiempo desde que se encendió el equipo (ALTA 4, la caja instala al arrancar).</summary>
     public Func<TimeSpan> Uptime { get; init; } = () => TimeSpan.FromMilliseconds(Environment.TickCount64);
 
+    /// <summary>Cuándo arrancó este proceso (el servicio arranca al encender; con el inicio rápido de Windows, no siempre).</summary>
+    public DateTimeOffset ProcessStartedAt { get; init; } = new(System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(), TimeSpan.Zero);
+
+    /// <summary>"Instalar ahora" del equipo principal: la caja lo atiende en los 30 minutos siguientes al pedido (o al encender).</summary>
+    public static readonly TimeSpan InstallNowWindow = TimeSpan.FromMinutes(30);
+
+    /// <summary>Con un pedido "instalar ahora" vigente, la caja consulta cada 15 minutos.</summary>
+    public static readonly TimeSpan InstallNowPolling = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Ronda 3 (5): ¿la caja acaba de encender? Con el inicio rápido de Windows (apagado híbrido) ni el contador de arranque
+    /// (<see cref="Environment.TickCount64"/>) ni el proceso del servicio vuelven a cero: el sistema hiberna y al encender sigue donde
+    /// estaba. Por eso se combinan tres señales, la más reciente gana: el arranque del sistema, el arranque de este proceso y un salto del
+    /// reloj entre dos ciclos (el ciclo corre cada minuto; si pasaron más de 10 minutos, el equipo estuvo apagado, hibernado o suspendido).
+    /// Hay que probarlo en una caja real con el inicio rápido activado (docs/guia-instalacion.md).
+    /// </summary>
+    internal bool JustStarted(DateTimeOffset now)
+    {
+        var since = new[] { now - Uptime(), ProcessStartedAt, _resumedAt ?? DateTimeOffset.MinValue }.Where(s => s <= now).DefaultIfEmpty(DateTimeOffset.MinValue).Max();
+        return now - since < BootWindow;
+    }
+
+    private void NoteTick(DateTimeOffset now)
+    {
+        if (_lastTickAt is { } last && now - last > TimeSpan.FromMinutes(10))
+        {
+            _resumedAt = now;
+        }
+
+        _lastTickAt = now;
+    }
+
     private UpdateOrchestrator Orchestrator() => new(host, settings.Mode, settings.DataRoot, time, IsTrustedFile);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -179,6 +213,7 @@ public sealed partial class UpdateWorker(
                 // M2: un error al CONSULTAR (red, servidor) no alarga la espera de las instalaciones.
                 _lastError = ex.Message;
                 LogFailed(logger, ex);
+                await RecoverIfPendingAsync(stoppingToken);
             }
 
             Publish();
@@ -215,6 +250,39 @@ public sealed partial class UpdateWorker(
         }
     }
 
+    /// <summary>Ronda 3 (1): si una falla dejó un registro de actualización a medias, se deshace en el momento (no al próximo arranque).</summary>
+    private async Task RecoverIfPendingAsync(CancellationToken cancellationToken)
+    {
+        if (SecurityProblem is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            var orchestrator = Orchestrator();
+            if (orchestrator.ReadJournal() is { NeedsSupport: false })
+            {
+                LogRecovered(logger, await orchestrator.RecoverAsync(cancellationToken) ?? UpdateResult.RolledBack);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogFailed(logger, ex);
+        }
+    }
+
+    /// <summary>¿Pidió el propietario "instalar ahora"? En la caja, el pedido del equipo principal vale 30 minutos (o al encender).</summary>
+    private bool InstallNowRequested(DateTimeOffset now)
+    {
+        if (File.Exists(Path.Combine(UpdateFiles.Directory(settings.DataRoot), UpdateFiles.InstallNowRequest)))
+        {
+            return true;
+        }
+
+        return _serverInstallNowAt is { } at && (now - at <= InstallNowWindow || JustStarted(now));
+    }
+
     internal async Task TickAsync(CancellationToken cancellationToken)
     {
         if (SecurityProblem is { } problem)
@@ -224,6 +292,7 @@ public sealed partial class UpdateWorker(
         }
 
         var now = time.GetUtcNow();
+        NoteTick(now);
         if (now >= _nextCheck)
         {
             _nextCheck = now.AddHours(settings.CheckIntervalHours);
@@ -236,12 +305,12 @@ public sealed partial class UpdateWorker(
         }
 
         var request = Path.Combine(UpdateFiles.Directory(settings.DataRoot), UpdateFiles.InstallNowRequest);
-        var forced = File.Exists(request) || _serverAsksInstallNow;
+        var forced = InstallNowRequested(now);
         var inWindow = TimeZoneInfo.ConvertTime(now, TimeZoneInfo.Local).Hour == settings.WindowHour;
 
         // También en la caja: el agente no se detiene en plena venta; se espera la madrugada, el arranque del equipo (antes de vender) o
         // "instalar ahora". M2: "instalar ahora" se atiende aunque haya una espera por un fallo anterior.
-        var atBoot = settings.Mode == UpdaterMode.Terminal && Uptime() < BootWindow;
+        var atBoot = settings.Mode == UpdaterMode.Terminal && JustStarted(now);
         if (!forced && (!(inWindow || atBoot) || now < _retryAt))
         {
             return;
@@ -252,7 +321,7 @@ public sealed partial class UpdateWorker(
             File.Delete(request);
         }
 
-        _serverAsksInstallNow = false;
+        _serverInstallNowAt = null;
 
         // U2: justo antes de instalar se vuelven a revisar la firma del manifiesto y la huella del paquete (pudo cambiar en el disco).
         if (UpdateSigning.Verify(ready.Signed, trustedKeys, settings.Product, out var again) != ManifestStatus.Valid
@@ -272,10 +341,11 @@ public sealed partial class UpdateWorker(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // M2: la espera creciente es para los fallos de INSTALACIÓN.
+            // M2: la espera creciente es para los fallos de INSTALACIÓN. Ronda 3 (1): si quedó un registro a medias, se deshace ya.
             _lastError = ex.Message;
             Backoff();
             LogFailed(logger, ex);
+            await RecoverIfPendingAsync(cancellationToken);
             return;
         }
 
@@ -329,7 +399,15 @@ public sealed partial class UpdateWorker(
             return;
         }
 
-        using var response = await _http.GetAsync(manifestUrl, cancellationToken);
+        using var manifestRequest = new HttpRequestMessage(HttpMethod.Get, manifestUrl);
+        if (settings.Mode == UpdaterMode.Terminal)
+        {
+            // Ronda 3 (4): la caja informa al equipo principal la versión real que tiene instalada (aviso de cajas desactualizadas).
+            manifestRequest.Headers.Add(TerminalVersionHeader, host.CurrentVersion);
+            manifestRequest.Headers.Add(TerminalHostHeader, Environment.MachineName);
+        }
+
+        using var response = await _http.SendAsync(manifestRequest, cancellationToken);
         if (settings.Mode == UpdaterMode.Terminal && response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             // B3: el equipo principal todavía no tiene manifiesto (instalación sin versión firmada): no hay nada que instalar, no es un error.
@@ -339,8 +417,21 @@ public sealed partial class UpdateWorker(
         }
 
         response.EnsureSuccessStatusCode();
-        _serverAsksInstallNow = settings.Mode == UpdaterMode.Terminal
-            && response.Headers.TryGetValues(TerminalInstallNowHeader, out var values) && values.Contains("1");
+        // Ronda 3 (6): la cabecera trae la hora del pedido; mientras esté vigente (24 h en el equipo principal) se consulta cada 15 minutos.
+        _serverInstallNowAt = settings.Mode == UpdaterMode.Terminal
+            && response.Headers.TryGetValues(TerminalInstallNowHeader, out var values)
+            && DateTimeOffset.TryParse(values.FirstOrDefault(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var requestedAt)
+                ? requestedAt
+                : null;
+        if (_serverInstallNowAt is not null)
+        {
+            var poll = time.GetUtcNow() + InstallNowPolling;
+            if (poll < _nextCheck)
+            {
+                _nextCheck = poll;
+            }
+        }
+
         var signed = await response.Content.ReadFromJsonAsync<SignedUpdateManifest>(Json, cancellationToken);
         var status = UpdateSigning.Verify(signed, trustedKeys, settings.Product, out var manifest);
         if (status == ManifestStatus.Valid && manifest is not null && settings.Mode == UpdaterMode.Server && manifest.Channel != settings.Channel)
@@ -375,7 +466,7 @@ public sealed partial class UpdateWorker(
         _failures = 0;
         if (!SemanticVersion.TryParse(manifest.Version, out var available)
             || available <= current
-            || string.Equals(manifest.Version, FailedVersion(), StringComparison.Ordinal))
+            || (!InstallNowRequested(time.GetUtcNow()) && string.Equals(manifest.Version, FailedVersion(), StringComparison.Ordinal)))
         {
             _lastError = null;
             _ready = null;
@@ -411,8 +502,14 @@ public sealed partial class UpdateWorker(
         _lastError = null;
     }
 
-    /// <summary>Cabecera con la que el equipo principal propaga "instalar ahora" a sus cajas (UpdatesEndpoints del servidor).</summary>
+    /// <summary>Cabecera con la que el equipo principal propaga "instalar ahora" a sus cajas, con la hora del pedido (UpdatesEndpoints).</summary>
     public const string TerminalInstallNowHeader = "X-Pos-Install-Now";
+
+    /// <summary>Versión instalada en la caja, en cada consulta del manifiesto (el equipo principal la guarda en org.devices).</summary>
+    public const string TerminalVersionHeader = "X-Pos-Terminal-Version";
+
+    /// <summary>Nombre del equipo de la caja (con él el equipo principal encuentra su registro en org.devices).</summary>
+    public const string TerminalHostHeader = "X-Pos-Terminal-Host";
 
     /// <summary>
     /// R5 (TOCTOU): la descarga va a un archivo NUEVO (se borra el que hubiera y se crea con <see cref="FileMode.CreateNew"/>, en exclusiva)
@@ -506,9 +603,7 @@ public sealed partial class UpdateWorker(
     private void WriteControl(string name, object content)
     {
         Directory.CreateDirectory(UpdateFiles.Directory(settings.DataRoot));
-        var path = ControlFile(name);
-        File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(content));
-        File.Move(path + ".tmp", path, overwrite: true);
+        DurableFile.WriteAllText(ControlFile(name), JsonSerializer.Serialize(content));
     }
 
     /// <summary>M4: última secuencia aceptada, por canal (la caja usa el canal del manifiesto que le sirve el equipo principal).</summary>
@@ -573,7 +668,9 @@ public sealed partial class UpdateWorker(
         return string.Equals(hash, manifest.PackageSha256, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void Publish()
+    internal DateTimeOffset NextCheck => _nextCheck;
+
+    internal void Publish()
     {
         try
         {
@@ -581,7 +678,8 @@ public sealed partial class UpdateWorker(
             var window = new DateTimeOffset(today.Date.AddHours(settings.WindowHour), today.Offset);
             UpdateFiles.WriteState(settings.DataRoot, new UpdaterState(
                 host.CurrentVersion, _ready?.Manifest.Version, _ready?.Manifest.Notes, _ready is not null, time.GetUtcNow(), _lastError,
-                _ready is null ? null : window < today ? window.AddDays(1) : window));
+                _ready is null ? null : window < today ? window.AddDays(1) : window,
+                NeedsSupport: Orchestrator().ReadJournal()?.NeedsSupport == true));
         }
         catch (IOException ex)
         {

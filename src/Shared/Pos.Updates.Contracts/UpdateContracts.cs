@@ -319,7 +319,8 @@ public sealed record UpdaterState(
     [property: JsonPropertyName("ready")] bool Ready,
     [property: JsonPropertyName("lastCheckAt")] DateTimeOffset? LastCheckAt,
     [property: JsonPropertyName("lastError")] string? LastError,
-    [property: JsonPropertyName("nextWindow")] DateTimeOffset? NextWindow);
+    [property: JsonPropertyName("nextWindow")] DateTimeOffset? NextWindow,
+    [property: JsonPropertyName("needsSupport")] bool NeedsSupport = false);
 
 /// <summary>Archivos compartidos entre el actualizador y el servidor bajo <c>{DataRoot}\updates</c>.</summary>
 public static class UpdateFiles

@@ -145,12 +145,16 @@ public static class UpdaterSecurity
         var candidates = new List<string>
         {
             Path.Combine(updates, "update-in-progress.json"), Path.Combine(updates, "manifest-sequence.json"), Path.Combine(updates, "failed-version.json"),
+            // Ronda 3 (3): también los pedidos "instalar ahora" (un usuario no puede forzar la instalación).
+            Path.Combine(updates, "install-now.request"), Path.Combine(updates, "terminals-install-now.request"),
         };
         var updaterJson = Path.Combine(dataRoot, "config", "updater.json");
         if (File.Exists(updaterJson) && IsOwnedByTrusted(updaterJson) && File.ReadAllText(updaterJson).Contains("\"Terminal\"", StringComparison.OrdinalIgnoreCase))
         {
             // En la caja adicional server.json no lo escribe nadie de confianza (es del equipo principal): si apareció, lo dejó otro.
             candidates.Add(Path.Combine(dataRoot, "config", "server.json"));
+            // desktop.json decide a qué dirección abre la ventana: solo si lo dejó alguien de confianza.
+            candidates.Add(Path.Combine(dataRoot, "config", "desktop.json"));
         }
 
         foreach (var file in candidates.Where(File.Exists))

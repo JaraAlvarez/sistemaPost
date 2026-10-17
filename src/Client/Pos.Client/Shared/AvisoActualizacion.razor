@@ -28,6 +28,15 @@
     }
 }
 
+@* Ronda 3 (7): una actualización automática quedó a medias y no se pudo deshacer sola. *@
+@if (_status.ValueKind == JsonValueKind.Object && _status.Bool("needsSupport"))
+{
+    <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2 aviso-actualizacion">
+        <b>Una actualización automática quedó a medias y requiere soporte.</b> BusinessPost sigue con la versión anterior y no instalará otra
+        hasta resolverlo: vuelva a ejecutar el instalador de la versión actual o llame a soporte.
+    </MudAlert>
+}
+
 @* ALTA 4: cajas emparejadas con una versión anterior a la mínima que exige la versión instalada en este equipo. *@
 @if (CajasDesactualizadas is { Count: > 0 } cajas)
 {

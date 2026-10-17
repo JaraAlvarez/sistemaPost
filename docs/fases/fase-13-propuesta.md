@@ -263,3 +263,22 @@ La guía `docs/guia-instalacion.md` tiene la lista de pasos.
   - Un registro dañado se avisa y se archiva.
   - El instalador deja el manifiesto y el paquete de su versión para las cajas (solo si la instalación terminó bien), y una caja sin
     manifiesto en el equipo principal no muestra un error permanente.
+
+**Tercera ronda.**
+- **Fallas después de detener:** cualquier falla que no sea una cancelación (excepciones del sistema al migrar o activar, errores al
+  escribir el registro) va por la vuelta atrás y los servicios arrancan siempre. Si igual quedó un registro a medias, el actualizador lo
+  deshace en el mismo ciclo, sin esperar al próximo arranque.
+- **Escrituras de control:** el registro en curso, `current.json` y los archivos de control se escriben a un temporal, se fuerzan al
+  disco (`Flush(true)`) y se renombran.
+- **Archivos de control en la caja:** el instalador y el actualizador borran los que no son de SYSTEM ni de los Administradores antes de
+  pasar la propiedad. Son: registro en curso, secuencias, versión fallida, pedidos "instalar ahora", `server.json` y `desktop.json`.
+- **Versión de las cajas:** cada caja informa su versión al pedir el manifiesto (`X-Pos-Terminal-Version` y `X-Pos-Terminal-Host`). El
+  equipo principal la guarda normalizada a tres partes en `org.devices.app_version`. `--min-terminal` ya no toma por defecto la propia
+  versión.
+- **Encendido de la caja:** se combinan el arranque del sistema, el arranque del servicio y un salto del reloj entre ciclos (inicio
+  rápido de Windows). Hay que probarlo en una caja real.
+- **"Instalar ahora" en la caja:** solo se atiende en los 30 minutos siguientes al pedido o al encender. La cabecera lleva la hora del
+  pedido y, mientras está vigente, la caja consulta cada 15 minutos. Además, "instalar ahora" vuelve a intentar una versión que había
+  vuelto atrás.
+- **Estado del actualizador:** el campo `needsSupport` se publica mientras exista un registro que requiere soporte, y el backoffice lo
+  muestra.

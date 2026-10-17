@@ -42,13 +42,36 @@ public sealed record UpdateStatusDto(
     bool InstallRequested,
     IReadOnlyList<UpdateHistoryEntry> History,
     string? MinimumTerminalVersion = null,
-    IReadOnlyList<string>? OutdatedTerminals = null);
+    IReadOnlyList<string>? OutdatedTerminals = null,
+    bool NeedsSupport = false);
 
 /// <summary>ALTA 4: manifiesto de la versión instalada y las cajas que tienen una versión anterior a la mínima que exige.</summary>
 internal static class TerminalVersions
 {
-    /// <summary>Cabecera con la que el endpoint del manifiesto de las cajas propaga "instalar ahora".</summary>
+    /// <summary>Cabecera con la que el endpoint del manifiesto de las cajas propaga "instalar ahora" (con la hora del pedido, ISO 8601).</summary>
     public const string InstallNowHeader = "X-Pos-Install-Now";
+
+    /// <summary>Versión instalada que informa la caja al pedir el manifiesto, y el nombre de su equipo.</summary>
+    public const string TerminalVersionHeader = "X-Pos-Terminal-Version";
+
+    public const string TerminalHostHeader = "X-Pos-Terminal-Host";
+
+    /// <summary>Versión de la caja normalizada a <c>MAYOR.MENOR.PARCHE</c> (sin preliminar ni metadatos); <c>null</c> si no es válida.</summary>
+    public static string? Normalize(string? version) =>
+        SemanticVersion.TryParse(version, out var parsed) ? $"{parsed.Major}.{parsed.Minor}.{parsed.Patch}" : null;
+
+    /// <summary>Hora del pedido "instalar ahora" para las cajas, si sigue vigente (24 h).</summary>
+    public static DateTimeOffset? InstallNowRequestedAt(string dataRoot, DateTimeOffset now)
+    {
+        var path = Path.Combine(UpdateFiles.Directory(dataRoot), UpdateFiles.TerminalsInstallNow);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var at = new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero);
+        return now - at < InstallNowLifetime ? at : null;
+    }
 
     /// <summary>Cuánto dura el pedido "instalar ahora" para las cajas (las que estaban apagadas lo reciben al encender).</summary>
     public static readonly TimeSpan InstallNowLifetime = TimeSpan.FromHours(24);
@@ -84,11 +107,7 @@ internal static class TerminalVersions
             .Order(StringComparer.Ordinal)];
     }
 
-    public static bool InstallNowRequested(string dataRoot, DateTimeOffset now)
-    {
-        var path = Path.Combine(UpdateFiles.Directory(dataRoot), UpdateFiles.TerminalsInstallNow);
-        return File.Exists(path) && now - File.GetLastWriteTimeUtc(path) < InstallNowLifetime;
-    }
+    public static bool InstallNowRequested(string dataRoot, DateTimeOffset now) => InstallNowRequestedAt(dataRoot, now) is not null;
 }
 
 internal static class UpdatesEndpoints
@@ -116,7 +135,7 @@ internal static class UpdatesEndpoints
                 return Results.Ok(new UpdateStatusDto(
                     ProductInfo.Version, state?.AvailableVersion, state?.AvailableNotes, state?.Ready ?? false, state?.NextWindow, state?.LastCheckAt,
                     state?.LastError, File.Exists(Path.Combine(UpdateFiles.Directory(paths.DataRoot), UpdateFiles.InstallNowRequest)),
-                    [.. history.OrderByDescending(h => h.At).Take(30)], minimum, outdated));
+                    [.. history.OrderByDescending(h => h.At).Take(30)], minimum, outdated, state?.NeedsSupport ?? false));
             })
             .RequirePermission(UpdatePermissions.View)
             .WithSummary("Versión instalada, actualización descargada, próxima ventana e historial (lo publica el actualizador)");
@@ -145,17 +164,29 @@ internal static class UpdatesEndpoints
             .WithSummary("Instala ahora la actualización descargada (el servidor se reinicia; úselo sin cajas vendiendo)");
 
         // Las cajas se actualizan desde el servidor de la tienda (D13-09): software firmado y público, sin datos del negocio.
-        group.MapGet("/manifest", (ProductPaths paths, HttpContext http, Pos.SharedKernel.Time.IClock clock) =>
+        group.MapGet("/manifest", async (ProductPaths paths, HttpContext http, Pos.SharedKernel.Time.IClock clock, PosDbContext context, CancellationToken ct) =>
             {
+                // Ronda 3 (4): la caja informa su versión real; se guarda en su registro de org.devices (por el nombre del equipo) para el
+                // aviso de cajas desactualizadas. Es informativo: un nombre ajeno solo cambiaría ese aviso.
+                if (TerminalVersions.Normalize(http.Request.Headers[TerminalVersions.TerminalVersionHeader]) is { } version
+                    && http.Request.Headers[TerminalVersions.TerminalHostHeader].ToString() is { Length: > 0 and <= 100 } hostname)
+                {
+                    await context.Database.GetDbConnection().ExecuteAsync(new CommandDefinition(
+                        "UPDATE org.devices SET app_version = @version, last_seen_at = now() " +
+                        "WHERE kind = 'TERMINAL' AND status = 'ACTIVE' AND lower(hostname) = lower(@hostname)",
+                        new { version, hostname }, cancellationToken: ct));
+                }
+
                 var path = Path.Combine(UpdateFiles.Directory(paths.DataRoot), UpdateFiles.InstalledManifest);
                 if (!File.Exists(path))
                 {
                     return Results.NotFound();
                 }
 
-                if (TerminalVersions.InstallNowRequested(paths.DataRoot, clock.UtcNow))
+                if (TerminalVersions.InstallNowRequestedAt(paths.DataRoot, clock.UtcNow) is { } requestedAt)
                 {
-                    http.Response.Headers[TerminalVersions.InstallNowHeader] = "1";
+                    // Ronda 3 (6): con la hora del pedido (la caja lo atiende 30 minutos, o al encender).
+                    http.Response.Headers[TerminalVersions.InstallNowHeader] = requestedAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
                 }
 
                 return Results.File(path, "application/json");

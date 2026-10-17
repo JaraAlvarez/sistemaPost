@@ -422,8 +422,7 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
 
     private void WriteCurrentFile(string version)
     {
-        File.WriteAllText(CurrentFile + ".tmp", JsonSerializer.Serialize(new { version }));
-        File.Move(CurrentFile + ".tmp", CurrentFile, overwrite: true);
+        DurableFile.WriteAllText(CurrentFile, JsonSerializer.Serialize(new { version }));
     }
 
     private static void Junction(string link, string target)
