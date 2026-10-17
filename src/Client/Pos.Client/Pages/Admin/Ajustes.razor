@@ -83,7 +83,7 @@
                     </MudSimpleTable>
                 }
             }
-            <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad que entra" Min="0" />
+            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_cantidad" Label="Cantidad que entra" Min="0" />
             <MudTextField T="string" @bind-Value="_notas" Label="Motivo (de 5 a 300 caracteres)" Immediate="true" Lines="2" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _rapido = false)">Cancelar</MudButton>

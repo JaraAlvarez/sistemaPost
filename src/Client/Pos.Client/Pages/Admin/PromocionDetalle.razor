@@ -96,22 +96,22 @@
             @switch (_type)
             {
                 case "MultiBuy":
-                    <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_buy" Label="Lleve (unidades)" Min="2" Max="100" /></MudItem>
-                    <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_pay" Label="Pague (unidades)" Min="0" /></MudItem>
+                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_buy" Label="Lleve (unidades)" Min="2" Max="100" /></MudItem>
+                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_pay" Label="Pague (unidades)" Min="0" /></MudItem>
                     break;
                 case "SpecialPrice":
-                    <MudItem xs="12" sm="6"><MudNumericField T="decimal" @bind-Value="_price" Label="Precio especial por unidad (IVA incluido)" Min="0" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio especial por unidad (IVA incluido)" Min="0" /></MudItem>
                     break;
                 case "PercentOff":
-                    <MudItem xs="12" sm="6"><MudNumericField T="decimal" @bind-Value="_percent" Label="Porcentaje de descuento" Min="0" Max="100" Adornment="Adornment.End" AdornmentText="%" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_percent" Label="Porcentaje de descuento" Min="0" Max="100" Adornment="Adornment.End" AdornmentText="%" /></MudItem>
                     break;
                 case "QuantityPrice":
-                    <MudItem xs="6" sm="3"><MudNumericField T="decimal" @bind-Value="_minQty" Label="Desde (cantidad)" Min="0" /></MudItem>
-                    <MudItem xs="6" sm="3"><MudNumericField T="decimal" @bind-Value="_price" Label="Precio por unidad (IVA incluido)" Min="0" /></MudItem>
+                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_minQty" Label="Desde (cantidad)" Min="0" /></MudItem>
+                    <MudItem xs="6" sm="3"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio por unidad (IVA incluido)" Min="0" /></MudItem>
                     break;
                 case "Combo":
                     <MudItem xs="12" sm="6">
-                        <MudNumericField T="decimal" @bind-Value="_price" Label="Precio del combo (IVA incluido)" Min="0" />
+                        <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio del combo (IVA incluido)" Min="0" />
                         <MudText Typo="Typo.caption">El combo lleva dos o más productos distintos; la cantidad de cada uno se indica en la lista.</MudText>
                     </MudItem>
                     break;
@@ -135,7 +135,7 @@
                             <td style="width: 130px">
                                 @if (_type == "Combo")
                                 {
-                                    <MudNumericField T="decimal" @bind-Value="item.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" />
+                                    <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="item.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" />
                                 }
                             </td>
                             <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Quitar" OnClick="@(() => _itemsForm.Remove(item))" /></td>
@@ -158,7 +158,7 @@
                 <MudSelect T="Guid?" @bind-Value="_categorySel" Label="Categoría (incluye sus subcategorías)">
                     @foreach (var category in _categories)
                     {
-                        <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                        <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@Categorias.Nombre(_categories, category)</MudSelectItem>
                     }
                 </MudSelect>
                 <MudButton Size="Size.Small" OnClick="AgregarCategoria">Agregar</MudButton>
@@ -211,7 +211,7 @@
             </MudItem>
             <MudItem xs="12" sm="6"><MudTimePicker @bind-Time="_horaDesde" Label="Desde la hora (opcional)" /></MudItem>
             <MudItem xs="12" sm="6"><MudTimePicker @bind-Time="_horaHasta" Label="Hasta la hora (opcional)" /></MudItem>
-            <MudItem xs="12" sm="6"><MudNumericField T="int?" @bind-Value="_maxApp" Label="Máximo de aplicaciones por venta (opcional)" Min="1" /></MudItem>
+            <MudItem xs="12" sm="6"><MudNumericField Culture="@Format.Colombia" T="int?" @bind-Value="_maxApp" Label="Máximo de aplicaciones por venta (opcional)" Min="1" /></MudItem>
             <MudItem xs="12" sm="6"><MudTextField @bind-Value="_ticket" Label="Texto en el tiquete (opcional, 40 caracteres)" MaxLength="40" Immediate="true" /></MudItem>
         </MudGrid>
         if (_branchIds.Count > 0)
@@ -280,7 +280,7 @@
                 {
                     <tr>
                         <td>@line.Label</td>
-                        <td style="width: 140px"><MudNumericField T="decimal" @bind-Value="line.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" /></td>
+                        <td style="width: 140px"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="line.Quantity" Label="Cantidad" Min="0" Margin="Margin.Dense" /></td>
                         <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Quitar" OnClick="@(() => _lineas.Remove(line))" /></td>
                     </tr>
                 }
@@ -613,7 +613,7 @@
     {
         if (_categorySel is { } id && _itemsForm.All(i => i.CategoryId != id))
         {
-            _itemsForm.Add(new ItemForm { CategoryId = id, Kind = "Categoría", Label = _categories.First(c => c.GetProperty("id").GetGuid() == id).Str("path"), Quantity = 1m });
+            _itemsForm.Add(new ItemForm { CategoryId = id, Kind = "Categoría", Label = Categorias.Nombre(_categories, id), Quantity = 1m });
         }
     }
 

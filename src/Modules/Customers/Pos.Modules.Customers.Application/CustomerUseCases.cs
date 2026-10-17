@@ -241,7 +241,7 @@ internal sealed class CompleteCustomerHandler(IPartyRegistry parties, ICustomerS
 /// <summary>Cliente creado desde la administración con todos sus datos.</summary>
 public sealed record CreateCustomerCommand(PartyRegistration Party, bool AlwaysRequestsInvoice, IReadOnlyList<ConsentRequest>? Consents) : ICommand<CustomerDto>, IAllowedWhenRestricted;
 
-internal sealed class CreateCustomerHandler(IPartyRegistry parties, CustomerService service) : ICommandHandler<CreateCustomerCommand, CustomerDto>
+internal sealed class CreateCustomerHandler(IPartyRegistry parties, CustomerService service, ICustomerStore store) : ICommandHandler<CreateCustomerCommand, CustomerDto>
 {
     public async Task<Result<CustomerDto>> Handle(CreateCustomerCommand request, CancellationToken cancellationToken)
     {
@@ -264,7 +264,15 @@ internal sealed class CreateCustomerHandler(IPartyRegistry parties, CustomerServ
 
         customer.Value.SetAlwaysRequestsInvoice(request.AlwaysRequestsInvoice);
         var consents = await service.RecordConsentsAsync(customer.Value, request.Consents ?? [], cancellationToken);
-        return consents.IsSuccess ? await service.DtoAsync(customer.Value, cancellationToken) : consents.Error;
+        if (consents.IsFailure)
+        {
+            return consents.Error;
+        }
+
+        // El tercero se acaba de registrar en esta misma transacción (aún no está guardado): se usa el perfil que devolvió el registro,
+        // no una consulta (antes respondía CUSTOMERS.NOT_FOUND al crear desde la administración).
+        var groups = await store.GetGroupsAsync(cancellationToken);
+        return customer.Value.ToDto(registered.Value.Party, groups.FirstOrDefault(g => g.Id == customer.Value.GroupId));
     }
 }
 

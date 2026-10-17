@@ -44,6 +44,32 @@ public class CustomersApiTests
         return await PostAsync<PromotionDto>(shop.Owner, $"/api/v1/promotions/{promotion.Id}/activate");
     }
 
+    /// <summary>
+    /// Fase 17-C: crear desde la administración (POST /customers) respondía CUSTOMERS.NOT_FOUND porque buscaba el tercero recién registrado
+    /// antes de guardarlo. La respuesta trae nombres y apellidos por separado para corregirlos sin volver a escribirlos.
+    /// </summary>
+    [Fact]
+    public async Task Crear_cliente_desde_la_administracion_devuelve_sus_nombres()
+    {
+        await using var factory = new CashServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+
+        var created = await PostAsync<CustomerDto>(shop.Owner, "/api/v1/customers", new
+        {
+            party = new
+            {
+                personType = "NATURAL", identificationType = "CC", identificationNumber = "1098765432", firstNames = "Carlos Andrés", lastNames = "Pérez Prueba",
+                phone = "3109876543",
+            },
+            alwaysRequestsInvoice = false,
+        }, HttpStatusCode.Created);
+
+        created.DisplayName.ShouldBe("Carlos Andrés Pérez Prueba");
+        (created.FirstNames, created.LastNames, created.LegalName).ShouldBe(("Carlos Andrés", "Pérez Prueba", null));
+        var read = await GetAsync<CustomerDto>(shop.Owner, $"/api/v1/customers/{created.PartyId}");
+        (read.FirstNames, read.LastNames).ShouldBe(("Carlos Andrés", "Pérez Prueba"));
+    }
+
     [Fact]
     public async Task Cliente_identificado_con_lista_de_empleados_promocion_factura_cambio_e_historial()
     {

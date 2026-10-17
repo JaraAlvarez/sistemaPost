@@ -69,7 +69,7 @@
                         <MudStack Row="true" AlignItems="AlignItems.Center">
                             <MudTextField T="string" @bind-Value="_buscar" Label="Producto: nombre, SKU o código (Enter busca)" Immediate="true" OnKeyDown="BuscarTeclaAsync"
                                           Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
-                            <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Style="max-width: 140px" />
+                            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Style="max-width: 140px" />
                         </MudStack>
                         @if (_resultados.Count > 0)
                         {
@@ -141,7 +141,7 @@
                             <td class="num">
                                 @if (_recibiendo)
                                 {
-                                    <MudNumericField T="decimal" Value="@_recibido.GetValueOrDefault(productId)" ValueChanged="@((decimal v) => _recibido[productId] = v)"
+                                    <MudNumericField Culture="@Format.Colombia" T="decimal" Value="@_recibido.GetValueOrDefault(productId)" ValueChanged="@((decimal v) => _recibido[productId] = v)"
                                                      Min="0" Max="@line.Dec("quantitySent")" Style="max-width: 140px; margin-left: auto" />
                                 }
                                 else

@@ -70,10 +70,10 @@
                         <MudStack Row="true" AlignItems="AlignItems.Center">
                             <MudTextField T="string" @bind-Value="_buscar" Label="Producto: nombre, SKU o código (Enter busca)" Immediate="true" OnKeyDown="BuscarTeclaAsync"
                                           Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
-                            <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Style="max-width: 130px" />
+                            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_cantidad" Label="Cantidad" Style="max-width: 130px" />
                             @if (EsSaldoInicial)
                             {
-                                <MudNumericField T="decimal?" @bind-Value="_costo" Label="Costo unitario" Min="0" Style="max-width: 150px" />
+                                <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_costo" Label="Costo unitario" Min="0" Style="max-width: 150px" />
                             }
                         </MudStack>
                     </MudItem>

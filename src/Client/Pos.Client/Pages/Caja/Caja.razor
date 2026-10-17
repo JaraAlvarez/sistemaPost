@@ -485,7 +485,7 @@ else
             <div class="panel" style="width:min(440px, 96vw)" role="dialog" aria-modal="true" aria-labelledby="t-cantidad">
                 <h2 id="t-cantidad">Cambiar cantidad</h2>
                 <MudText Typo="Typo.body2" Class="mb-2">@LineaSeleccionada?.Name</MudText>
-                <MudNumericField T="decimal" @bind-Value="_quantity" Min="0.001m" AutoFocus="true" Label="Nueva cantidad" Variant="Variant.Outlined" Class="cobro-valor"
+                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_quantity" Min="0.001m" AutoFocus="true" Label="Nueva cantidad" Variant="Variant.Outlined" Class="cobro-valor"
                                  Immediate="true" OnKeyDown="CantidadTeclaAsync" HideSpinButtons="true" />
                 <div class="acciones">
                     <MudButton OnClick="CerrarPanel">Cancelar</MudButton>
@@ -514,7 +514,7 @@ else
                     <MudToggleItem Value="true">Porcentaje (%)</MudToggleItem>
                     <MudToggleItem Value="false">Valor en pesos ($)</MudToggleItem>
                 </MudToggleGroup>
-                <MudNumericField T="decimal" @bind-Value="_descuentoValor" Min="0" Max="@(_descuentoPorcentaje ? 100m : decimal.MaxValue)" AutoFocus="true" Variant="Variant.Outlined" Class="cobro-valor"
+                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_descuentoValor" Min="0" Max="@(_descuentoPorcentaje ? 100m : decimal.MaxValue)" AutoFocus="true" Variant="Variant.Outlined" Class="cobro-valor"
                                  Label="@(_descuentoPorcentaje ? "Porcentaje" : "Valor")" HideSpinButtons="true" Immediate="true"
                                  Adornment="Adornment.End" AdornmentText="@(_descuentoPorcentaje ? "%" : "$")" />
                 <MudTextField @bind-Value="_descuentoMotivo" Label="Motivo (obligatorio)" Variant="Variant.Outlined" Immediate="true" Class="mt-2" />

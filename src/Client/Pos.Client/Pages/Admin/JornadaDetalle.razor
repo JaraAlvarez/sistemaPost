@@ -38,7 +38,7 @@
                             @foreach (var method in _medios.Where(m => !m.AffectsCashDrawer))
                             {
                                 <MudItem xs="6" sm="4">
-                                    <MudNumericField T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0"
+                                    <MudNumericField Culture="@Format.Colombia" T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0"
                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
                                 </MudItem>
                             }

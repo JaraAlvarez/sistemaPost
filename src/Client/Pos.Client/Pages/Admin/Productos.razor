@@ -51,7 +51,7 @@
         <div class="panel" role="dialog" aria-modal="true">
             <h2>Precio de @_precioDe.Str("name")</h2>
             <MudText Typo="Typo.body2">Precio actual: @Format.Money(_precioDe.Dec("price")). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
-            <MudNumericField T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
             <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _precioDe = default)">Cancelar</MudButton>

@@ -65,7 +65,7 @@
                                 <MudSelect T="Guid?" @bind-Value="_categoria" Label="Categoría">
                                     @foreach (var category in _categorias)
                                     {
-                                        <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                                        <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@Categorias.Nombre(_categorias, category)</MudSelectItem>
                                     }
                                 </MudSelect>
                                 <MudButton Size="Size.Small" OnClick="AgregarCategoria">Agregar</MudButton>
@@ -125,7 +125,7 @@
                 {
                     <MudTextField @ref="_escaner" T="string" @bind-Value="_codigo" Label="Código de barras o SKU (cantidad*código; Enter registra)" Variant="Variant.Outlined"
                                   Immediate="true" OnKeyDown="EscanerTeclaAsync" AutoFocus="true" Style="min-width: 280px; flex: 1 1 360px" />
-                    <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Variant="Variant.Outlined" Style="max-width: 140px" />
+                    <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_cantidad" Label="Cantidad" Min="0" Variant="Variant.Outlined" Style="max-width: 140px" />
                     <MudTextField T="string" @bind-Value="_ubicacion" Label="Ubicación (opcional)" Variant="Variant.Outlined" Immediate="true" Style="max-width: 200px" />
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="RegistrarAsync">Registrar</MudButton>
                 }
@@ -322,7 +322,7 @@
             return;
         }
 
-        _alcanceCategorias[id] = _categorias.FirstOrDefault(c => c.Prop("id").TryGetGuid(out var categoryId) && categoryId == id).Str("path");
+        _alcanceCategorias[id] = Categorias.Nombre(_categorias, id);
         _categoria = null;
     }
 

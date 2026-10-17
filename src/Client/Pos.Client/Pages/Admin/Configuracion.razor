@@ -271,7 +271,7 @@
             }
             <MudTextField @bind-Value="_pNombre" Label="Nombre" Immediate="true" />
             <MudTextField @bind-Value="_pDian" Label="Código DIAN del medio de pago (opcional)" Immediate="true" />
-            <MudNumericField T="int" @bind-Value="_pOrden" Label="Orden en la caja" Min="0" />
+            <MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_pOrden" Label="Orden en la caja" Min="0" />
             <MudCheckBox T="bool" @bind-Value="_pReferencia" Label="Pide referencia (aprobación del datáfono, número de transferencia)" />
             @if (_medioId is not null)
             {

@@ -52,7 +52,7 @@
                             <MudSelect T="Guid?" @bind-Value="_category" Label="Categoría" ReadOnly="@(!PuedeEditar)">
                                 @foreach (var category in _categories)
                                 {
-                                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@Categorias.Nombre(_categories, category)</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
@@ -85,7 +85,7 @@
                             <MudTextField @bind-Value="_plu" Label="PLU de báscula (opcional)" Immediate="true" ReadOnly="@(!PuedeEditar)" HelperText="Hasta 6 dígitos" />
                         </MudItem>
                         <MudItem xs="6" sm="4">
-                            <MudNumericField T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
+                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>
                         <MudItem xs="6" sm="4">
                             <MudSelect T="string" @bind-Value="_netUnit" Label="Unidad del contenido" Clearable="true" ReadOnly="@(!PuedeEditar)">
@@ -119,7 +119,7 @@
                                 <MudTextField @bind-Value="_barcode" Label="Código de barras" Immediate="true" HelperText="Vacío = se genera uno interno" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudNumericField T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
+                                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
                             </MudItem>
                         }
                     </MudGrid>
@@ -214,7 +214,7 @@
                                 </MudSelect>
                                 @if (ImpuestoNuevoEsFijo)
                                 {
-                                    <MudNumericField T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
+                                    <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
                                 }
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _nuevoImpuesto is null)" OnClick="AgregarImpuestoAsync">Agregar</MudButton>
                             </MudStack>
@@ -287,7 +287,7 @@
         <div class="panel" role="dialog" aria-modal="true" aria-labelledby="titulo-precio">
             <h2 id="titulo-precio">Precio de @_producto.Str("name")</h2>
             <MudText Typo="Typo.body2">Precio actual: @Format.Money(PrecioVigente). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
-            <MudNumericField T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
             <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _cambiandoPrecio = false)">Cancelar</MudButton>

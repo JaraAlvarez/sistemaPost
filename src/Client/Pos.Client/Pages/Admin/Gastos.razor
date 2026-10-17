@@ -111,8 +111,8 @@
             </MudSelect>
             <MudTextField @bind-Value="_descripcion" Label="Descripción" Immediate="true" />
             <MudStack Row="true">
-                <MudNumericField T="decimal" @bind-Value="_valor" Label="Valor total pagado" Min="0" />
-                <MudNumericField T="decimal" @bind-Value="_iva" Label="IVA incluido (si aplica)" Min="0" />
+                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_valor" Label="Valor total pagado" Min="0" />
+                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_iva" Label="IVA incluido (si aplica)" Min="0" />
             </MudStack>
             <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
                 @foreach (var method in _methods)
@@ -180,7 +180,7 @@
                     }
                 </MudSelect>
             }
-            <MudNumericField T="int" @bind-Value="_categoriaOrden" Label="Orden" Min="0" />
+            <MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_categoriaOrden" Label="Orden" Min="0" />
             @if (_categoriaId is not null)
             {
                 <MudCheckBox T="bool" @bind-Value="_categoriaActiva" Label="Activa" />
