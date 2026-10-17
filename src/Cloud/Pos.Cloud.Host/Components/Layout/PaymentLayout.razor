@@ -1,0 +1,12 @@
+@inherits LayoutComponentBase
+
+@* Páginas públicas de pago (/pagar, Fase 12-C): renderizadas en el servidor, sin sesión del portal, sin MudBlazor ni scripts.
+   Claro/oscuro según el sistema (mismas variables que las pantallas de acceso). *@
+<div class="auth pay">
+    <main class="auth-main">
+        <div class="auth-card">
+            <BrandLogo Size="36" Subtitle="Pago en línea" />
+            @Body
+        </div>
+    </main>
+</div>

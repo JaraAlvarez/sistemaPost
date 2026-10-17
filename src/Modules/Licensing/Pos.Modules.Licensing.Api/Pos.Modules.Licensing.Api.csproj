@@ -12,4 +12,9 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Fase 12-C: código QR (SVG) del enlace de pago de la mensualidad. Misma versión que la nube (gestión central de paquetes). -->
+    <PackageReference Include="QRCoder" />
+  </ItemGroup>
 </Project>

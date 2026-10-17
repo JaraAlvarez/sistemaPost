@@ -513,3 +513,66 @@ Notas:
 - Un usuario deshabilitado o bloqueado en el portal no entra aunque Google lo autentique. Para quitar el acceso de alguien,
   deshabilítelo en el portal (no basta con quitarle la cuenta de Google si conoce su contraseña).
 - Rotar el secreto: cree uno nuevo en la consola, cámbielo en `.env`, `docker compose up -d app` y borre el anterior.
+
+## 20. Pago en línea (Wompi, ADR-0063)
+
+El cliente paga su mensualidad desde un enlace (`/pagar/<código>`, también desde el aviso de vencimiento del POS y "Mi suscripción"),
+Wompi confirma con un evento firmado y la suscripción se renueva sola. **Sin las cuatro llaves el pago en línea queda apagado**: el
+portal muestra "Pago en línea no configurado" y todo funciona como antes (renovación manual). Las llaves **nunca** van al repositorio,
+a la BD ni a un chat.
+
+1. **Cuenta de comercio** — ábrala usted en `registro.wompi.co` con su RUT y la cuenta Bancolombia o Nequi donde recibirá el dinero
+   (yo no creo cuentas ni ingreso a servicios externos). Confirme allí las tarifas vigentes.
+2. **Precios** — en el portal, *Pagos en línea → Precios*, cargue el valor (pesos, IVA incluido) de cada edición y periodicidad. La
+   tabla nace vacía; sin precio, el enlace dice "Precio no configurado: comuníquese con BusinessPost".
+3. **Variables** en `/opt/pos/deploy/cloud/.env` (permisos 600). Solo marcadores aquí; copie los valores del panel de Wompi
+   (*Desarrolladores → Llaves*; las cuatro del MISMO ambiente):
+
+   ```bash
+   WOMPI_ENVIRONMENT=Sandbox            # o Production
+   WOMPI_PUBLIC_KEY=<llave pública>
+   WOMPI_PRIVATE_KEY=<llave privada>
+   WOMPI_INTEGRITY_SECRET=<secreto de integridad>
+   WOMPI_EVENTS_SECRET=<secreto de eventos>
+   PAYMENTS_PUBLIC_BASE_URL=            # vacío = la dirección de cada petición
+   ```
+   El compose las pasa como `Payments__Wompi__Environment`, `Payments__Wompi__PublicKey`, `Payments__Wompi__PrivateKey`,
+   `Payments__Wompi__IntegritySecret`, `Payments__Wompi__EventsSecret` y `Payments__PublicBaseUrl`. Aplique con
+   `docker compose up -d app` (con los mismos `-f` del §18). Otros ajustes ⚙️ (opcionales): `Payments__LinkDaysBeforeExpiry` (15),
+   `Payments__ReconcileMinutes` (15), `Payments__PendingExpiryHours` (24) y `Cloud__Security__PaymentEventsPermitsPerMinute` (120).
+   La dirección de la API se deduce del ambiente: sandbox `https://sandbox.wompi.co/v1`, producción `https://production.wompi.co/v1`;
+   el checkout es `https://checkout.wompi.co/p/`.
+4. **URL de eventos** — en el panel de Wompi (*Desarrolladores → Seguimiento de transacciones / URL de eventos*) registre, para el
+   ambiente que use: `https://businesspost.tutiendanueva.com/v1/payments/wompi/events` (bajo una ruta, §18:
+   `https://tutiendanueva.com/businesspost/v1/payments/wompi/events`). La nube verifica la firma de cada evento con el secreto de
+   eventos, responde 401 a las firmas inválidas (quedan en *Auditoría* como `PAYMENT_EVENT_REJECTED`) y confirma cada transacción
+   consultándola con la llave privada antes de renovar. Si un evento se pierde, la conciliación (cada 15 min) lo recupera; en
+   *Pagos* también está "Consultar ahora".
+5. **Prueba en el sandbox** — con llaves de prueba (`WOMPI_ENVIRONMENT=Sandbox`): abra la empresa en el portal → pestaña
+   *Pagos en línea* → "Mostrar enlace de pago y QR" → abra el enlace → elija los meses → *Pagar* → en Wompi use las tarjetas y el
+   Nequi de prueba de su documentación (aprobado, rechazado, pendiente). Verifique la suscripción renovada, el pago en *Pagos* y el
+   aviso que desaparece del POS tras "Ya pagué, verificar". El portal muestra un aviso mientras el ambiente sea sandbox.
+6. **Producción** — cambie las cuatro llaves por las de producción y `WOMPI_ENVIRONMENT=Production`, registre la URL de eventos
+   del ambiente de producción y haga un pago real pequeño.
+
+**Desarrollo local** (su PC): las llaves de prueba van en *user-secrets* del host (nunca en `appsettings` ni en el repositorio):
+
+```bash
+cd src/Cloud/Pos.Cloud.Host
+dotnet user-secrets set "Payments:Wompi:Environment" "Sandbox"
+dotnet user-secrets set "Payments:Wompi:PublicKey" "<llave pública de prueba>"
+dotnet user-secrets set "Payments:Wompi:PrivateKey" "<llave privada de prueba>"
+dotnet user-secrets set "Payments:Wompi:IntegritySecret" "<secreto de integridad de prueba>"
+dotnet user-secrets set "Payments:Wompi:EventsSecret" "<secreto de eventos de prueba>"
+dotnet user-secrets list   # para revisar; "dotnet user-secrets clear" las borra
+```
+Wompi no puede enviar eventos a `localhost`: en local, use "Consultar ahora" en *Pagos* (o espere la conciliación) para aplicar el
+pago, o exponga temporalmente el puerto con un túnel y registre esa URL de eventos en el sandbox.
+
+Notas:
+
+- **Suspendidas o canceladas** no pagan en línea; un pago aprobado de una suscripción que usted suspendió después queda
+  **"Requiere revisión"** (alerta en el tablero) y no la reactiva. Igual si el valor pagado no coincide con la orden.
+- **Devoluciones** se hacen en el panel de Wompi; en el portal, "Marcar revisado" con la nota de lo que hizo.
+- **Rotar llaves:** genere nuevas en Wompi, cámbielas en `.env`, `docker compose up -d app`. Rotar el secreto de eventos invalida
+  los eventos en tránsito firmados con el anterior (la conciliación los recupera).

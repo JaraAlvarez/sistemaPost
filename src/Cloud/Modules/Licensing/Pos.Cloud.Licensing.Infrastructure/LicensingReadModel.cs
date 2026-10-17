@@ -156,7 +156,7 @@ internal sealed class LicensingReadModel(CloudDbContext context) : ILicensingRea
             installed.GetValueOrDefault(o.Id)))];
     }
 
-    private static SubscriptionSummaryDto Summary(Subscription s, DateTimeOffset now) => new(
+    internal static SubscriptionSummaryDto Summary(Subscription s, DateTimeOffset now) => new(
         s.Id, s.Edition.ToCode(), Code(s.BillingPeriod), s.Status.ToCode(), s.StatusAt(now).ToCode(), s.TrialEndsAt, s.CurrentPeriodStart, s.CurrentPeriodEnd,
         s.ValidUntil, s.GraceDays, s.GraceUntil, s.SuspendedReason);
 

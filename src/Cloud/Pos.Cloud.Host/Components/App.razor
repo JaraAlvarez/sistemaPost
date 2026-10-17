@@ -13,6 +13,7 @@
     <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
     <link href="@Assets["app.css"]" rel="stylesheet" />
+    <link href="@Assets["acceso.css"]" rel="stylesheet" />
     <HeadOutlet @rendermode="PageRenderMode" />
 </head>
 
@@ -28,7 +29,10 @@
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
 
-    /// <summary>Las páginas de acceso (/cuenta) son formularios renderizados en el servidor (escriben la cookie); el resto es interactivo.</summary>
+    /// <summary>
+    /// Las páginas de acceso (/cuenta) y las públicas de pago (/pagar) son formularios renderizados en el servidor (sin circuito ni
+    /// sesión del portal); el resto es interactivo.
+    /// </summary>
     private IComponentRenderMode? PageRenderMode =>
-        HttpContext.Request.Path.StartsWithSegments("/cuenta") ? null : InteractiveServer;
+        HttpContext.Request.Path.StartsWithSegments("/cuenta") || HttpContext.Request.Path.StartsWithSegments("/pagar") ? null : InteractiveServer;
 }

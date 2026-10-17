@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Cliente HTTP de Wompi (IHttpClientFactory, Fase 12-C). -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Pos.Cloud.Database.Tests" />
     <InternalsVisibleTo Include="Pos.Cloud.IntegrationTests" />
   </ItemGroup>

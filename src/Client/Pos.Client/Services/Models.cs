@@ -7,7 +7,8 @@ namespace Pos.Client.Services;
 
 public sealed record Notice(string Code, string Severity, string Text);
 
-public sealed record LicenseSummary(string State, int? DaysLeft, IReadOnlyList<Notice> Notices);
+// PaymentUrl (Fase 12-C): enlace para pagar la mensualidad en línea; solo llega a quien puede ver la licencia.
+public sealed record LicenseSummary(string State, int? DaysLeft, IReadOnlyList<Notice> Notices, string? PaymentUrl = null);
 
 public sealed record MeInfo(
     Guid UserId,

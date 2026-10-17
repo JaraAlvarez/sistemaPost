@@ -9,12 +9,8 @@
 
 <PageTitle>Ingresar · BusinessPost</PageTitle>
 
-<h1 class="auth-title">Ingresar al portal</h1>
-<p class="auth-lead">
-    @(Google.Value.IsConfigured
-        ? "Use la cuenta de Google autorizada para su usuario o, si lo prefiere, su correo y contraseña."
-        : "Escriba el correo y la contraseña de su usuario del portal.")
-</p>
+<h1 class="auth-title">Iniciar sesión</h1>
+<p class="auth-lead">Ingrese a su cuenta para continuar</p>
 
 @if (_error is not null)
 {
@@ -25,8 +21,22 @@ else if (Notice is { } notice)
     <AuthAlert Warning="@(Expired is not null)">@notice</AuthAlert>
 }
 
+<EditForm Model="Input" method="post" OnValidSubmit="LoginAsync" FormName="login" class="auth-form">
+    <div class="auth-field">
+        <label for="email">Correo electrónico</label>
+        <InputText id="email" type="email" @bind-Value="Input.Email" autocomplete="username" required="required" placeholder="usted@ejemplo.com" />
+    </div>
+    <div class="auth-field">
+        <label for="password">Contraseña</label>
+        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password" required="required" placeholder="Ingrese su contraseña" />
+    </div>
+    <button type="submit" class="auth-button auth-button-primary">Iniciar sesión</button>
+</EditForm>
+<p class="auth-hint">Si activó el doble factor, después se pide el código de su aplicación autenticadora.</p>
+
 @if (Google.Value.IsConfigured)
 {
+    <div class="auth-divider" role="separator">o</div>
     @* Formulario aparte (POST con token antifalsificación) hacia el desafío de Google: /cuenta/google → Google → /signin-google. *@
     <form method="post" action="@PortalLinks.Local(PortalGoogle.ChallengePath)" class="account-google">
         <AntiforgeryToken />
@@ -43,21 +53,7 @@ else if (Notice is { } notice)
             <span>Continuar con Google</span>
         </button>
     </form>
-    <div class="auth-divider" role="separator">o con su correo y contraseña</div>
 }
-
-<EditForm Model="Input" method="post" OnValidSubmit="LoginAsync" FormName="login" class="auth-form">
-    <div class="auth-field">
-        <label for="email">Correo electrónico</label>
-        <InputText id="email" type="email" @bind-Value="Input.Email" autocomplete="username" required="required" />
-    </div>
-    <div class="auth-field">
-        <label for="password">Contraseña</label>
-        <InputText id="password" type="password" @bind-Value="Input.Password" autocomplete="current-password" required="required" />
-    </div>
-    <button type="submit" class="auth-button @(Google.Value.IsConfigured ? "auth-button-secondary" : "auth-button-primary")">@(Google.Value.IsConfigured ? "Ingresar con contraseña" : "Ingresar")</button>
-</EditForm>
-<p class="auth-hint">Si activó el doble factor, después de la contraseña se pide el código de su aplicación autenticadora.</p>
 
 @code {
     [CascadingParameter]

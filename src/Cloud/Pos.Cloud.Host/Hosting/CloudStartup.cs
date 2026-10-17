@@ -125,6 +125,57 @@ internal sealed partial class SubscriptionStatusRefresher(
     private static partial void LogFailed(ILogger logger, Exception exception);
 }
 
+/// <summary>
+/// Conciliación del pago en línea (D12C-10): cada ⚙️ <c>Payments:ReconcileMinutes</c> (15) consulta en la pasarela las órdenes
+/// PENDIENTES (PSE y efectivo pueden tardar horas), aplica el mismo proceso del evento y vence las de más de ⚙️ 24 h. Si un
+/// evento de Wompi se pierde, el pago igual se aplica. Cada orden va en su propia transacción. Sin llaves de Wompi, no hace nada.
+/// </summary>
+internal sealed partial class PaymentReconciliationService(
+    IServiceScopeFactory scopes, DatabaseReadiness readiness, PaymentsOptions options, ILogger<PaymentReconciliationService> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(Math.Max(1, options.ReconcileMinutes)));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            if (!readiness.IsReady || !options.Wompi.IsConfigured)
+            {
+                continue;
+            }
+
+            try
+            {
+                IReadOnlyList<Guid> pending;
+                await using (var scope = scopes.CreateAsyncScope())
+                {
+                    var listed = await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send(new ListPendingPaymentOrdersQuery(), stoppingToken);
+                    pending = listed.IsSuccess ? listed.Value : [];
+                }
+
+                foreach (var orderId in pending)
+                {
+                    await using var scope = scopes.CreateAsyncScope();
+                    var result = await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send(new ReconcilePaymentOrderCommand(orderId), stoppingToken);
+                    if (result.IsFailure)
+                    {
+                        LogOrderFailed(logger, orderId, result.Error.Code);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LogFailed(logger, ex);
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No se pudo conciliar la orden de pago {OrderId}: {Code}")]
+    private static partial void LogOrderFailed(ILogger logger, Guid orderId, string code);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Falló la conciliación de los pagos en línea")]
+    private static partial void LogFailed(ILogger logger, Exception exception);
+}
+
 /// <summary><c>/health</c> (proceso + BD + firma), <c>/health/live</c> (solo el proceso) y <c>/health/ready</c>.</summary>
 internal static class CloudHealth
 {

@@ -637,3 +637,9 @@ html[data-tema="oscuro"] .etiqueta.promo { color: #86EFAC; }
 .avisos-detalle-boton { border: 0; background: transparent; color: var(--mud-palette-primary); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .avisos-detalle { margin: -6px 0 12px; padding: 8px 12px 8px 32px; font-size: .88rem; border-radius: var(--bp-radio-m); background: var(--mud-palette-background-gray); }
 .avisos-detalle li + li { margin-top: 4px; }
+.avisos-pagar { white-space: nowrap; }
+
+/* Pago en línea de la mensualidad (Pages/Admin/Licencia.razor, Fase 12-C): texto y botones a la izquierda, QR a la derecha. */
+.pago-mensualidad { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; border-color: rgba(var(--mud-palette-primary-rgb), .45) !important; }
+.pago-mensualidad-texto { flex: 1 1 320px; min-width: 0; }
+.pago-mensualidad-qr { flex: none; padding: 8px; background: #FFFFFF; border-radius: var(--bp-radio-l); border: 1px solid var(--mud-palette-lines-default); }

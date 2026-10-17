@@ -137,7 +137,9 @@ public class CloudArchitectureTests
 
         // La API del POS es anónima por diseño (la autentican la clave o el token) y siempre con límite de peticiones.
         var pos = endpoints.Where(e => e.RoutePattern.RawText?.StartsWith("/v1", StringComparison.Ordinal) == true).ToList();
-        pos.Count.ShouldBe(5); // activación, check-in, liberación, claves públicas y lotes de sincronización (Fase 16)
+        // Activación, check-in, liberación, claves públicas, lotes de sincronización (Fase 16) y pago en línea (Fase 12-C: eventos
+        // firmados de Wompi, resumen del enlace de pago y creación de la orden).
+        pos.Count.ShouldBe(8);
         pos.ShouldAllBe(e => e.Metadata.GetMetadata<Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute>() != null);
     }
 }

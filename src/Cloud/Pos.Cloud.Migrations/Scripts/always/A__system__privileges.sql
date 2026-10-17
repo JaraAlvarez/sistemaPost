@@ -20,6 +20,11 @@ GRANT SELECT ON system.schema_migrations, system.cloud_node TO pos_app;
 -- Historial de suscripciones y check-ins: solo agregar y leer (además tienen disparadores).
 REVOKE UPDATE, DELETE, TRUNCATE ON licensing.subscription_events, licensing.checkins FROM pos_app;
 
+-- Pago en línea (Fase 12-C): el historial de precios y los eventos de la pasarela solo se agregan y se leen (además tienen
+-- disparadores); el consecutivo de las referencias BP-<año>-<n> se toma con nextval.
+REVOKE UPDATE, DELETE, TRUNCATE ON licensing.prices, licensing.payment_events FROM pos_app;
+GRANT USAGE ON SEQUENCE licensing.payment_order_number_seq TO pos_app;
+
 -- Auditoría: solo agregar y leer.
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;
 GRANT EXECUTE ON FUNCTION audit.ensure_partitions(integer) TO pos_app;

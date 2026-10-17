@@ -24,6 +24,13 @@
                     <MudNavLink Href="instalaciones" Icon="@Icons.Material.Outlined.Computer">Instalaciones y equipos</MudNavLink>
                 }
 
+                @if (user.HasPortalPermission(CloudPermissions.PaymentView))
+                {
+                    <span class="bp-nav-section">Pagos en línea</span>
+                    <MudNavLink Href="pagos" Icon="@Icons.Material.Outlined.Payments">Pagos</MudNavLink>
+                    <MudNavLink Href="precios" Icon="@Icons.Material.Outlined.Sell">Precios</MudNavLink>
+                }
+
                 @if (stores)
                 {
                     <span class="bp-nav-section">Operación</span>
@@ -48,6 +55,10 @@
                 }
 
                 <span class="bp-nav-section">Personal</span>
+                @if (user.HasPortalPermission(CloudPermissions.SubscriptionSelfView))
+                {
+                    <MudNavLink Href="mi-suscripcion" Icon="@Icons.Material.Outlined.EventAvailable">Mi suscripción</MudNavLink>
+                }
                 <MudNavLink Href="mi-cuenta" Icon="@Icons.Material.Outlined.AccountCircle">Mi cuenta</MudNavLink>
             </MudNavMenu>
         </div>

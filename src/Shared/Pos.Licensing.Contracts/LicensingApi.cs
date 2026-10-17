@@ -101,7 +101,11 @@ public sealed record CheckinAuditSeal(Guid NodeId, long SealNo, string SealCode,
 /// <summary>Liberación del equipo desde el propio POS (p. ej. antes de cambiar de computador).</summary>
 public sealed record DeactivationRequest(string Token, string Fingerprint, string? Reason = null);
 
-/// <summary>Token emitido y un resumen legible (el POS confía solo en lo firmado dentro del token).</summary>
+/// <summary>
+/// Token emitido y un resumen legible (el POS confía solo en lo firmado dentro del token). <c>PaymentUrl</c> (Fase 12-C): enlace de pago
+/// en línea de la suscripción cuando está por vencer, en gracia o restringida, y la nube tiene el pago en línea configurado; nulo si no.
+/// No va firmado: es solo un enlace que el POS muestra.
+/// </summary>
 public sealed record LicenseTokenResponse(
     string Token,
     string Kid,
@@ -109,7 +113,8 @@ public sealed record LicenseTokenResponse(
     DateTimeOffset ValidUntil,
     int GraceDays,
     DateTimeOffset RefreshAfter,
-    IReadOnlyList<LicenseMessage> Messages);
+    IReadOnlyList<LicenseMessage> Messages,
+    string? PaymentUrl = null);
 
 /// <summary>Clave pública publicada, con la forma de un JWK OKP (RFC 8037).</summary>
 /// <param name="Kid">Identificador de la clave.</param>

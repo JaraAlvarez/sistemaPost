@@ -1,28 +1,37 @@
 @inherits LayoutComponentBase
 
-@* Pantallas de acceso (/cuenta): formularios renderizados en el servidor, sin MudBlazor ni scripts. Claro/oscuro según el sistema. *@
-<div class="auth">
-    <aside class="auth-hero" aria-label="BusinessPost">
-        <BrandLogo Size="40" Subtitle="Portal de la nube" />
-        <div>
-            <p class="auth-hero-title">Licencias, tiendas y soporte en un solo lugar.</p>
-            <p class="auth-hero-lead">El portal de BusinessPost para administrar clientes, suscripciones e instalaciones del punto de venta.</p>
-            <ul class="auth-hero-list">
-                <li>@Check Suscripciones y vencimientos al día, con alertas.</li>
-                <li>@Check Instalaciones y equipos de cada sucursal.</li>
-                <li>@Check Auditoría encadenada de todo lo que se hace.</li>
-            </ul>
-        </div>
-        <p class="auth-hero-foot">Acceso solo para personal autorizado. Toda la actividad queda registrada.</p>
-    </aside>
-    <main class="auth-main">
-        <div class="auth-card">
-            <BrandLogo Size="36" Subtitle="Portal de la nube" />
-            @Body
-        </div>
-    </main>
-</div>
+@* Pantallas de acceso (/cuenta): formularios renderizados en el servidor, sin MudBlazor ni scripts. Mismo diseño que el ingreso de
+   tutiendanueva.com (marco con degradado, onda y tarjeta clara); estilos en wwwroot/acceso.css. *@
+<div class="auth acceso">
+    <div class="acceso-marco">
+        <svg class="acceso-onda" viewBox="0 0 1040 560" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+            <defs>
+                <linearGradient id="accesoOnda" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#2524c8" />
+                    <stop offset="35%" stop-color="#4b2fd1" />
+                    <stop offset="60%" stop-color="#8b6ff0" />
+                    <stop offset="82%" stop-color="#edf3fb" />
+                    <stop offset="100%" stop-color="#f8faff" />
+                </linearGradient>
+            </defs>
+            <path d="M0,420 C260,520 780,520 1040,420 L1040,560 L0,560 Z" fill="url(#accesoOnda)" />
+        </svg>
 
-@code {
-    private static readonly RenderFragment Check = @<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="rgba(94,234,212,.18)" /><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#5EEAD4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" /></svg>;
-}
+        <aside class="acceso-marca" aria-label="BusinessPost">
+            <BrandLogo Size="36" Subtitle="Portal de la nube" />
+            <h2 class="acceso-titular">Tus tiendas, tus licencias,<br />en un solo lugar.</h2>
+            <p class="acceso-lema">Clientes, suscripciones, pagos e instalaciones del punto de venta desde un solo panel.</p>
+        </aside>
+
+        <main class="acceso-lado">
+            <div class="auth-card">
+                <div class="acceso-avatar">
+                    <span class="acceso-avatar-circulo"><BrandLogo Size="40" Wordmark="false" /></span>
+                    <span class="acceso-avatar-texto">BusinessPost</span>
+                </div>
+                @Body
+                <p class="acceso-pie">Acceso solo para personal autorizado. Toda la actividad queda registrada.</p>
+            </div>
+        </main>
+    </div>
+</div>

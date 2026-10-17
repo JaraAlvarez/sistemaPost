@@ -7,7 +7,8 @@ namespace Pos.Modules.Licensing.Application;
 /// Lo guardado en <c>licensing.license_state</c> (D12B-01). Los indicadores los informa el servidor de licencias (revocada, requiere
 /// reactivación) o el propio POS (equipo liberado); el estado NO se guarda: lo calcula <see cref="LicenseEvaluator"/>.
 /// <c>ClockOffsetSeconds</c> = hora confiable del último check-in menos el reloj local de ese momento (D12B-07);
-/// <c>MaxObservedUtc</c> = mayor hora (confiable) vista por este equipo; <c>DemoStartedAt</c> = creación de la instalación.
+/// <c>MaxObservedUtc</c> = mayor hora (confiable) vista por este equipo; <c>DemoStartedAt</c> = creación de la instalación;
+/// <c>PaymentUrl</c> = enlace de pago en línea que envió la nube en la última respuesta (Fase 12-C; no cuenta para el estado).
 /// </summary>
 public sealed record LicenseRecord(
     Guid NodeId,
@@ -21,7 +22,8 @@ public sealed record LicenseRecord(
     bool Deactivated,
     long ClockOffsetSeconds,
     DateTimeOffset MaxObservedUtc,
-    DateTimeOffset DemoStartedAt);
+    DateTimeOffset DemoStartedAt,
+    string? PaymentUrl = null);
 
 /// <summary>
 /// Resultado de evaluar la licencia en un instante. <c>EffectiveNow</c> = reloj local corregido con la hora confiable del último

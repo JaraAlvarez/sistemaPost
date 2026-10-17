@@ -54,4 +54,7 @@ internal sealed class CloudSecurityOptions
 
     /// <summary>Intentos de acceso por minuto y por IP (formularios y /admin/auth).</summary>
     public int LoginPermitsPerMinute { get; set; } = 10;
+
+    /// <summary>Eventos por minuto y por IP al webhook de la pasarela de pagos (/v1/payments/wompi/events).</summary>
+    public int PaymentEventsPermitsPerMinute { get; set; } = 120;
 }

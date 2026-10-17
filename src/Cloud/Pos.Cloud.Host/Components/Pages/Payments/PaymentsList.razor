@@ -1,0 +1,83 @@
+@page "/pagos"
+@attribute [Authorize(Policy = CloudPermissions.PaymentView)]
+@inherits PortalPageBase
+
+<PageTitle>Pagos · BusinessPost</PageTitle>
+<PageHeader Title="Pagos en línea" Crumb="Pagos" Section="Pagos en línea"
+            Description="Pagos en línea de los clientes y su estado. Los pagos pendientes se revisan solos cada 15 minutos.">
+    <Actions>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" Disabled="Busy" OnClick="LoadAsync">Actualizar</MudButton>
+    </Actions>
+</PageHeader>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
+}
+
+@if (_settings is { Configured: false })
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+        Pago en línea no configurado: el servidor no tiene las llaves de Wompi. Las renovaciones se registran a mano como siempre.
+    </MudAlert>
+}
+else if (_settings is { Environment: "Sandbox" })
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4" Variant="Variant.Outlined">Wompi en ambiente de PRUEBAS (sandbox): los pagos no son reales.</MudAlert>
+}
+
+<MudPaper Elevation="0" Class="bp-card">
+    <div class="bp-toolbar">
+        <MudSelect T="string" @bind-Value="_status" Label="Estado" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Style="min-width: 200px">
+            @foreach (var (value, label) in Statuses)
+            {
+                <MudSelectItem T="string" Value="@value">@label</MudSelectItem>
+            }
+        </MudSelect>
+        <MudDatePicker Label="Desde" @bind-Date="_from" DateFormat="yyyy-MM-dd" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Clearable="true" />
+        <MudDatePicker Label="Hasta" @bind-Date="_to" DateFormat="yyyy-MM-dd" Variant="Variant.Outlined" Margin="Margin.Dense" Class="bp-filter" Clearable="true" />
+        <MudTextField T="string" @bind-Value="_search" Label="Empresa, NIT, referencia o transacción" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Style="min-width: 260px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="LoadAsync">Filtrar</MudButton>
+    </div>
+    @if (_rows is null)
+    {
+        <TableSkeleton />
+    }
+    else
+    {
+        <PaymentOrderTable Rows="_rows" EmptyTitle="No hay pagos con esos filtros." />
+    }
+</MudPaper>
+
+@code {
+    private static readonly (string Code, string Name)[] Statuses =
+    [
+        ("REVIEW_REQUIRED", "Requiere revisión"), ("PENDING", "Pendiente"), ("APPROVED", "Aprobado"), ("DECLINED", "Rechazado"),
+        ("VOIDED", "Anulado"), ("ERROR", "Error"), ("EXPIRED", "Vencido"),
+    ];
+
+    private PaymentSettingsDto? _settings;
+    private IReadOnlyList<PaymentOrderRowDto>? _rows;
+    private string? _status;
+    private DateTime? _from;
+    private DateTime? _to;
+    private string? _search;
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    private string? InitialStatus { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = InitialStatus;
+        _settings = await LoadAsync(new GetPaymentSettingsQuery());
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var colombia = Pos.SharedKernel.Time.BusinessTimeZones.Colombia;
+        DateTimeOffset? Start(DateTime? day) => day is { } d ? new DateTimeOffset(d.Date, colombia.GetUtcOffset(d.Date)) : null;
+        _rows = await LoadAsync(new ListPaymentOrdersQuery(new PaymentOrderFilter(_status, Start(_from), Start(_to?.AddDays(1)), _search))) ?? [];
+    }
+}

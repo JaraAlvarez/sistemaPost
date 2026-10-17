@@ -27,6 +27,15 @@ else
 {
     var alerts = _data.Expired.Count + _data.Suspended.Count + _data.InGrace.Count + _data.WithoutCheckin.Count;
 
+    @if (_payments is { ReviewRequired: > 0 })
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-5" Variant="Variant.Outlined">
+            <strong>Pagos en línea que requieren revisión: @_payments.ReviewRequired.</strong>
+            Se aprobaron pero no renovaron solos (valor distinto o suscripción suspendida o cancelada).
+            <MudLink Href="pagos?estado=REVIEW_REQUIRED">Revisar pagos</MudLink>
+        </MudAlert>
+    }
+
     @if (alerts > 0)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-5" Variant="Variant.Outlined">
@@ -66,6 +75,14 @@ else
             <StatCard Title="Sin check-in reciente" Value="@_data.WithoutCheckin.Count" Icon="@Icons.Material.Outlined.CloudOff"
                       Color="@(_data.WithoutCheckin.Count > 0 ? Color.Warning : Color.Default)" Hint="@($"Más de {_data.NoCheckinDays} días sin reportar")" />
         </MudItem>
+        @if (_payments is not null)
+        {
+            <MudItem xs="12" sm="6" lg="3">
+                <StatCard Title="Pagos por revisar" Value="@_payments.ReviewRequired" Icon="@Icons.Material.Outlined.Payments"
+                          Color="@(_payments.ReviewRequired > 0 ? Color.Error : Color.Default)" Href="pagos?estado=REVIEW_REQUIRED"
+                          Hint="@(_payments.Configured ? $"{_payments.Pending} pagos en línea pendientes" : "Pago en línea no configurado")" />
+            </MudItem>
+        }
     </MudGrid>
 
     <MudGrid Spacing="3" Class="mt-2">
@@ -142,6 +159,7 @@ else
     private static readonly string[] Statuses = ["ACTIVE", "TRIAL", "PAST_DUE", "SUSPENDED", "EXPIRED", "CANCELLED"];
 
     private DashboardDto? _data;
+    private PaymentAlertsDto? _payments;
     private DateTimeOffset? _lastCheckin;
     private bool _loading;
 
@@ -153,6 +171,8 @@ else
         try
         {
             _data = await LoadAsync(new GetDashboardQuery());
+            var payments = await Operations.SendAsync(new GetPaymentAlertsQuery());
+            _payments = payments.IsSuccess ? payments.Value : null;
 
             // Último check-in de cualquier sucursal: solo informativo (si el rol no ve las instalaciones, queda "Sin datos").
             var installations = await Operations.SendAsync(new ListInstallationsQuery(null, null));

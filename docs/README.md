@@ -35,7 +35,7 @@
 | 11-B · Facturación electrónica (Factus) | [propuesta](fases/fase-11b-propuesta.md) · [informe](fases/fase-11b-informe.md) · [guía Factus](guia-factus.md) | Implementada (apagada) — pendiente de la prueba en el sandbox de Factus |
 | 12-A · Servidor y portal web de licencias | [propuesta](fases/fase-12a-propuesta.md) · [informe](fases/fase-12a-informe.md) · [despliegue](despliegue-nube.md) | Implementada — pendiente de validación |
 | 12-B · Licencia dentro del POS | [propuesta](fases/fase-12b-propuesta.md) · [informe](fases/fase-12b-informe.md) | Implementada — pendiente de tu validación |
-| 12-C · Pago en línea de las suscripciones (Wompi) | [propuesta](fases/fase-12c-propuesta.md) | Aprobada — en construcción |
+| 12-C · Pago en línea de las suscripciones (Wompi) | [propuesta](fases/fase-12c-propuesta.md) · [informe](fases/fase-12c-informe.md) | Implementada (apagada hasta configurar Wompi) — pendiente de tu prueba en el sandbox |
 | 13 · Instalador y actualizaciones | [propuesta](fases/fase-13-propuesta.md) · [informe](fases/fase-13-informe.md) · [guía de instalación](guia-instalacion.md) | Implementada — pendiente de tu validación (compilar el instalador) |
 | 14 · Endurecimiento y pruebas | [propuesta](fases/fase-14-propuesta.md) · [informe](fases/fase-14-informe.md) · [seguridad](seguridad-revision.md) | Herramientas implementadas — corridas largas pendientes (tú) |
 | 15 · Interfaz: caja y backoffice | [propuesta](fases/fase-15-propuesta.md) · [informe](fases/fase-15-informe.md) | Implementada — pendiente de tu validación |

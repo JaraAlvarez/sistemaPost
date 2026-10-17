@@ -1,0 +1,145 @@
+@page "/precios"
+@attribute [Authorize(Policy = CloudPermissions.PaymentView)]
+@inherits PortalPageBase
+@inject IDialogService Dialogs
+
+<PageTitle>Precios · BusinessPost</PageTitle>
+<PageHeader Title="Precios del pago en línea" Crumb="Precios" Section="Pagos en línea">
+    Cuánto paga el cliente por cada plan, en pesos con IVA incluido. Un precio nuevo rige desde la fecha que elija; los pagos ya
+    iniciados conservan el valor anterior. Mientras un plan no tenga precio, el cliente no puede pagarlo en línea.
+</PageHeader>
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
+}
+
+@if (_prices is { PaymentsConfigured: false })
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+        Pago en línea no configurado: faltan las llaves de Wompi en el servidor. Puede cargar los precios desde ya.
+    </MudAlert>
+}
+
+<MudPaper Elevation="0" Class="bp-card">
+    <div class="pa-4 pb-0"><MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.Sell" Size="Size.Small" aria-hidden="true" />Precios vigentes</MudText></div>
+    @if (_prices is null)
+    {
+        <TableSkeleton Rows="4" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th scope="col">Edición</th><th scope="col">Periodicidad</th><th scope="col" class="num">Valor (IVA incluido)</th><th scope="col">Vigente desde</th></tr></thead>
+                <tbody>
+                    @foreach (var (edition, period) in Combinations)
+                    {
+                        var current = _prices.Current.FirstOrDefault(p => p.Edition == edition && p.BillingPeriod == period);
+                        <tr>
+                            <td>@EditionName(edition)</td>
+                            <td>@PeriodName(period)</td>
+                            <td class="num">@(current is null ? "Precio no configurado" : PaymentText.Money(current.AmountCop))</td>
+                            <td>@(current is null ? "—" : Date(current.ValidFrom))</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
+
+<AuthorizeView Policy="@CloudPermissions.PriceManage">
+    <MudPaper Elevation="0" Class="bp-card pa-5 bp-section">
+        <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.EditNote" Size="Size.Small" aria-hidden="true" />Fijar un precio</MudText>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="string" @bind-Value="_edition" Label="Edición">
+                    <MudSelectItem T="string" Value="@("SINGLE")">Caja Única</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("MULTI")">Multicaja</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="string" @bind-Value="_period" Label="Periodicidad">
+                    <MudSelectItem T="string" Value="@("MONTHLY")">Mensual</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("ANNUAL")">Anual</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudNumericField T="decimal?" @bind-Value="_amount" Label="Valor en pesos (IVA incluido)" Min="1" Max="100000000" Format="N0" Culture="@Co" HideSpinButtons="true" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudDatePicker Label="Vigente desde (vacío = ya)" @bind-Date="_validFrom" DateFormat="yyyy-MM-dd" Clearable="true" />
+            </MudItem>
+        </MudGrid>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" Disabled="Busy" OnClick="SaveAsync">Guardar precio</MudButton>
+    </MudPaper>
+</AuthorizeView>
+
+<MudPaper Elevation="0" Class="bp-card bp-section">
+    <div class="pa-4 pb-0"><MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.History" Size="Size.Small" aria-hidden="true" />Historial</MudText></div>
+    @if (_prices is { History.Count: 0 })
+    {
+        <EmptyState Title="Aún no hay precios." Hint="La tabla nace vacía: BusinessPost no inventa precios." Icon="@Icons.Material.Outlined.Sell" />
+    }
+    else if (_prices is not null)
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead><tr><th scope="col">Vigente desde</th><th scope="col">Edición</th><th scope="col">Periodicidad</th><th scope="col" class="num">Valor</th><th scope="col">Registrado</th><th scope="col">Por</th></tr></thead>
+                <tbody>
+                    @foreach (var p in _prices.History)
+                    {
+                        <tr>
+                            <td>@Date(p.ValidFrom)</td>
+                            <td>@EditionName(p.Edition)</td>
+                            <td>@PeriodName(p.BillingPeriod)</td>
+                            <td class="num">@PaymentText.Money(p.AmountCop)</td>
+                            <td>@Date(p.CreatedAt)</td>
+                            <td>@p.CreatedByName</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
+
+@code {
+    private static readonly System.Globalization.CultureInfo Co = System.Globalization.CultureInfo.GetCultureInfo("es-CO");
+    private static readonly (string Edition, string Period)[] Combinations = [("SINGLE", "MONTHLY"), ("SINGLE", "ANNUAL"), ("MULTI", "MONTHLY"), ("MULTI", "ANNUAL")];
+
+    private PricesDto? _prices;
+    private string _edition = "SINGLE";
+    private string _period = "MONTHLY";
+    private decimal? _amount;
+    private DateTime? _validFrom;
+
+    public static string PeriodName(string? period) => period == "ANNUAL" ? "Anual" : "Mensual";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _prices = await LoadAsync(new ListPricesQuery());
+
+    private async Task SaveAsync()
+    {
+        if (_amount is not { } amount)
+        {
+            Snackbar.Add("Escriba el valor en pesos.", Severity.Warning);
+            return;
+        }
+
+        DateTimeOffset? from = _validFrom is { } day
+            ? new DateTimeOffset(day.Date, Pos.SharedKernel.Time.BusinessTimeZones.Colombia.GetUtcOffset(day.Date))
+            : null;
+        var confirmed = await Dialogs.ConfirmAsync(
+            "Fijar precio", $"¿Fijar {EditionName(_edition)} {PeriodName(_period).ToLowerInvariant()} en {PaymentText.Money(amount)} (IVA incluido)?", "Guardar precio", Color.Warning,
+            detail: from is null ? "Rige desde ya para las órdenes nuevas." : $"Rige desde el {Day(from)} para las órdenes nuevas.");
+        if (confirmed && (await RunAsync(new SetPriceCommand(_edition, _period, amount, from), "Precio guardado.")).IsSuccess)
+        {
+            _amount = null;
+            _validFrom = null;
+            await LoadAsync();
+        }
+    }
+}

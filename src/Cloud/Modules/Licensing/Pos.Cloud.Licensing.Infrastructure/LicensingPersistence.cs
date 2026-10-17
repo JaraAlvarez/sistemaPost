@@ -10,7 +10,7 @@ namespace Pos.Cloud.Licensing.Infrastructure;
 
 internal sealed class LicensingModelContributor : ICloudModelContributor
 {
-    private static readonly ValueConverter<LicenseEdition, string> EditionConverter = new(
+    internal static readonly ValueConverter<LicenseEdition, string> EditionConverter = new(
         v => v == LicenseEdition.SingleTerminal ? "SINGLE" : "MULTI",
         v => v == "SINGLE" ? LicenseEdition.SingleTerminal : LicenseEdition.MultiTerminal);
 
@@ -162,6 +162,9 @@ internal sealed class LicensingConstraintErrors : IConstraintErrorProvider
         ["ux_activations__installation_active"] = LicenseApiErrors.InstallationActiveOnOtherDevice,
         ["ux_activations__device_active"] = LicenseApiErrors.InstallationActiveOnOtherDevice,
         ["ux_installations__installation_id"] = Error.Conflict("LICENSING.INSTALLATION_DUPLICATED", "La instalación ya está registrada; reintente la activación."),
+        ["ux_payment_links__subscription_active"] = Error.Conflict("PAYMENTS.LINK_CONCURRENT", "El enlace de pago cambió al mismo tiempo; intente de nuevo."),
+        ["ux_payment_orders__renewal_event"] = Error.Conflict("PAYMENTS.ALREADY_APPLIED", "El pago ya renovó la suscripción."),
+        ["ux_subscription_events__online_payment"] = Error.Conflict("PAYMENTS.ALREADY_APPLIED", "El pago ya renovó la suscripción."),
     };
 }
 

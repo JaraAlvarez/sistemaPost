@@ -10,6 +10,8 @@ using Pos.Infrastructure;
 using Pos.Modules.Licensing.Application;
 using Pos.Modules.Licensing.Contracts;
 using Pos.Modules.Licensing.Infrastructure;
+using Pos.SharedKernel.Results;
+using QRCoder;
 
 namespace Pos.Modules.Licensing.Api;
 
@@ -37,6 +39,22 @@ public sealed class LicensingModule : IModule
             .RequirePermission(LicensePermissions.View)
             .WithSummary("Estado de la licencia de este equipo, días restantes, avisos y última verificación");
 
+        // Fase 12-C: el QR solo dibuja el enlace GUARDADO (el que envió la nube); nunca una dirección que llegue en la petición.
+        group.MapGet("/payment-qr", async (IDispatcher d, CancellationToken ct) =>
+            {
+                var result = await d.Send(new GetLicenseStatusQuery(), ct);
+                if (result.IsFailure)
+                {
+                    return result.ToHttpResult();
+                }
+
+                return result.Value.PaymentUrl is { } url
+                    ? TypedResults.Text(LicensePaymentQr.Svg(url), "image/svg+xml; charset=utf-8")
+                    : Result.Failure(LicenseErrors.NoPaymentLink).ToHttpResult();
+            })
+            .RequirePermission(LicensePermissions.View)
+            .WithSummary("Código QR (SVG) del enlace para pagar la mensualidad en línea, para pagar desde el celular");
+
         group.MapGet("/checkins", async (int? limit, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new ListLicenseCheckinsQuery(limit ?? 50), ct)).ToHttpResult())
             .RequirePermission(LicensePermissions.View)
@@ -61,3 +79,14 @@ public sealed class LicensingModule : IModule
 public sealed record ActivateLicenseRequest(string LicenseKey);
 
 public sealed record DeactivateLicenseRequest(string? Reason);
+
+/// <summary>Código QR del enlace de pago como imagen SVG (la interfaz lo muestra como imagen <c>data:</c>; la CSP lo permite).</summary>
+internal static class LicensePaymentQr
+{
+    public static string Svg(string url)
+    {
+        using var generator = new QRCodeGenerator();
+        using var data = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.M);
+        return new SvgQRCode(data).GetGraphic(6);
+    }
+}

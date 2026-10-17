@@ -17,6 +17,30 @@
                 <span> Quedan @daysLeft día(s).</span>
             }
         </MudAlert>
+        @if (status.PaymentUrl is { } paymentUrl)
+        {
+            @* Fase 12-C: pago en línea de la mensualidad. El enlace lo envía el servidor de licencias; al aprobarse el pago la nube renueva
+               la suscripción y la próxima verificación trae la nueva fecha. *@
+            <MudPaper Outlined="true" Class="pa-4 mb-4 pago-mensualidad">
+                <div class="pago-mensualidad-texto">
+                    <MudText Typo="Typo.h6">Pagar mensualidad</MudText>
+                    <MudText Class="mt-1">Pague en línea con Nequi, PSE, tarjeta o Bancolombia. Al aprobarse el pago, la licencia se renueva sola.</MudText>
+                    <MudText Typo="Typo.caption" Class="mt-1 d-block">Para pagar desde el celular, escanee el código QR con la cámara.</MudText>
+                    <div class="mt-3 d-flex flex-wrap gap-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@paymentUrl" Target="_blank" Rel="noopener noreferrer"
+                                   StartIcon="@Icons.Material.Outlined.Payments">Pagar mensualidad</MudButton>
+                        @if (Session.Has("licensing.license.check"))
+                        {
+                            <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="YaPagueAsync">Ya pagué, verificar</MudButton>
+                        }
+                    </div>
+                </div>
+                @if (_qr is not null)
+                {
+                    <img class="pago-mensualidad-qr" src="@_qr" alt="Código QR para pagar la mensualidad desde el celular" width="180" height="180" />
+                }
+            </MudPaper>
+        }
         <MudGrid>
             <MudItem xs="12" md="6">
                 <MudSimpleTable Dense="true">
@@ -51,12 +75,64 @@
 @code {
     private LicenseStatusDto? _status;
     private bool _loading = true, _busy;
-    private string? _error, _key;
+    private string? _error, _key, _qr, _qrUrl;
 
     protected override async Task OnInitializedAsync()
     {
         await Ejecutar(() => Api.GetAsync<LicenseStatusDto>("api/v1/license"), null);
         _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // El QR lo dibuja el servidor de la tienda con el enlace guardado; se vuelve a pedir solo si el enlace cambió.
+        var url = _status?.PaymentUrl;
+        if (url == _qrUrl)
+        {
+            return;
+        }
+
+        _qrUrl = url;
+        _qr = null;
+        if (url is not null)
+        {
+            try
+            {
+                var (_, type, content) = await Api.DownloadAsync("api/v1/license/payment-qr");
+                _qr = $"data:{type};base64,{Convert.ToBase64String(content)}";
+            }
+            catch (Exception ex) when (ex is ApiException or HttpRequestException)
+            {
+                // Sin QR la tarjeta sigue sirviendo: el botón abre el mismo enlace.
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    // "Ya pagué": verifica ya con el servidor de licencias. Si el pago se aplicó, la nube ya no envía el enlace y la fecha cambia.
+    private async Task YaPagueAsync()
+    {
+        if (!await Ejecutar(() => Api.PostAsync<LicenseStatusDto>("api/v1/license/check"), null, actualizarSesion: true) || _status is not { } status)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(status.LastCheckinError))
+        {
+            if (status.PaymentUrl is null)
+            {
+                Snackbar.Add("Pago recibido: la licencia está al día.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Todavía no se ve el pago. Con PSE o Bancolombia puede tardar unos minutos: intente de nuevo más tarde.", Severity.Info);
+            }
+        }
+        else
+        {
+            Snackbar.Add("No se pudo verificar con el servidor de licencias. Revise la conexión a Internet e intente de nuevo.", Severity.Warning);
+        }
     }
 
     private static string Estado(string state) => EnumText.Normalize(state) switch
@@ -76,21 +152,28 @@
 
     private Task LiberarAsync() => Ejecutar(() => Api.PostAsync<LicenseStatusDto>("api/v1/license/deactivate", new { reason = "Liberado desde la administración" }), "Equipo liberado.");
 
-    private async Task Ejecutar(Func<Task<LicenseStatusDto>> action, string? message)
+    private async Task<bool> Ejecutar(Func<Task<LicenseStatusDto>> action, string? message, bool actualizarSesion = false)
     {
         _busy = true;
+        var ok = false;
         try
         {
             _status = await action();
             if (message is not null)
             {
                 Snackbar.Add(message, Severity.Success);
+            }
+
+            if (message is not null || actualizarSesion)
+            {
                 Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
             }
+
+            ok = true;
         }
         catch (ApiException ex)
         {
-            if (message is null)
+            if (message is null && !actualizarSesion)
             {
                 _error = ex.Texto;
             }
@@ -101,5 +184,6 @@
         }
 
         _busy = false;
+        return ok;
     }
 }

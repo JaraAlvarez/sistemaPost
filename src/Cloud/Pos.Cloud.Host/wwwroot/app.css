@@ -344,3 +344,23 @@ a.bp-stat:hover { border-color: var(--mud-palette-primary); box-shadow: var(--bp
 
 /* Diálogo de confirmación. */
 .bp-confirm-icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; background: color-mix(in srgb, currentColor 14%, transparent); }
+
+/* =================================================================================================== Páginas públicas de pago */
+/* /pagar/<código> y /pagar/resultado (Fase 12-C): mismas variables que las pantallas de acceso, en una sola columna. */
+@media (min-width: 960px) {
+    .auth.pay { grid-template-columns: minmax(0, 1fr); }
+    .auth.pay .auth-card > .bp-brand { display: flex; }
+}
+.pay .auth-card { max-width: 480px; }
+.pay-summary { display: grid; grid-template-columns: auto 1fr; gap: var(--bp-e2) var(--bp-e4); margin: 0 0 var(--bp-e6); font-size: .9375rem; }
+.pay-summary dt { color: var(--auth-texto-2); }
+.pay-summary dd { margin: 0; font-weight: 600; }
+.pay-options { border: 0; margin: 0 0 var(--bp-e4); padding: 0; display: grid; gap: var(--bp-e2); }
+.pay-options legend { font-size: .875rem; font-weight: 600; margin: 0 0 var(--bp-e2); }
+.pay-option {
+    display: flex; align-items: center; gap: var(--bp-e3); min-height: 44px; padding: 8px 12px; border: 1px solid var(--auth-campo-borde);
+    border-radius: var(--bp-radio-m); cursor: pointer;
+}
+.pay-option:has(input:checked) { border-color: var(--auth-primario); box-shadow: 0 0 0 2px color-mix(in srgb, var(--auth-primario) 30%, transparent); }
+.pay-option input { accent-color: var(--auth-primario); width: 18px; height: 18px; }
+.pay-status { font-size: 1.125rem; font-weight: 700; margin: 0 0 var(--bp-e2); }

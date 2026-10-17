@@ -47,19 +47,32 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next)
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; " +
         "connect-src 'self' wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 
-    public Task InvokeAsync(HttpContext context)
+    /// <summary>
+    /// Páginas públicas de pago (/pagar): el formulario "Pagar" redirige al checkout alojado por la pasarela, así que
+    /// <c>form-action</c> admite además ese origen (solo en estas páginas).
+    /// </summary>
+    public static string PaymentPagesPolicy(string? checkoutOrigin) =>
+        checkoutOrigin is { Length: > 0 }
+            ? ContentSecurityPolicy.Replace("form-action 'self'", $"form-action 'self' {checkoutOrigin}", StringComparison.Ordinal)
+            : ContentSecurityPolicy;
+
+    public Task InvokeAsync(HttpContext context, Pos.Cloud.Licensing.Application.PaymentsOptions payments)
     {
         context.Response.OnStarting(() =>
         {
             var headers = context.Response.Headers;
-            headers.ContentSecurityPolicy = ContentSecurityPolicy;
+            headers.ContentSecurityPolicy = context.Request.Path.StartsWithSegments("/pagar")
+                ? PaymentPagesPolicy(Uri.TryCreate(payments.Wompi.CheckoutUrl, UriKind.Absolute, out var checkout) && checkout.Scheme == Uri.UriSchemeHttps
+                    ? checkout.GetLeftPart(UriPartial.Authority)
+                    : null)
+                : ContentSecurityPolicy;
             headers.XContentTypeOptions = "nosniff";
             headers.XFrameOptions = "DENY";
             headers["Referrer-Policy"] = "no-referrer";
             headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()";
             headers["Cross-Origin-Opener-Policy"] = "same-origin";
             if (context.Request.Path.StartsWithSegments("/v1") || context.Request.Path.StartsWithSegments("/admin")
-                || context.Request.Path.StartsWithSegments("/cuenta"))
+                || context.Request.Path.StartsWithSegments("/cuenta") || context.Request.Path.StartsWithSegments("/pagar"))
             {
                 headers.CacheControl = "no-store";
             }

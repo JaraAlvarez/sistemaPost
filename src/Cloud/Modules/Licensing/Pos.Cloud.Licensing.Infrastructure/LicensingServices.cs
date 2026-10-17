@@ -134,9 +134,20 @@ internal sealed class LicenseThrottle(LicensingOptions options, IClock clock) : 
 
 public static class LicensingInfrastructureRegistration
 {
-    public static void Register(IServiceCollection services, Func<IServiceProvider, LicensingOptions> options)
+    public static void Register(IServiceCollection services, Func<IServiceProvider, LicensingOptions> options, Func<IServiceProvider, PaymentsOptions>? payments = null)
     {
         services.AddSingleton(options);
+        services.AddSingleton(payments ?? (_ => new PaymentsOptions()));
+
+        // Pago en línea (Fase 12-C): Wompi detrás de IPaymentGateway; apagado mientras falten sus llaves.
+        services.AddSingleton<ICloudModelContributor, PaymentsModelContributor>();
+        services.AddScoped<IPaymentStore, PaymentStore>();
+        services.AddScoped<IPaymentReadModel, PaymentReadModel>();
+        services.AddScoped<PaymentLinks>();
+        services.AddScoped<PaymentApplier>();
+        services.AddScoped<PaymentReconciler>();
+        services.AddHttpClient<WompiGateway>(client => client.Timeout = TimeSpan.FromSeconds(10));
+        services.AddTransient<IPaymentGateway>(sp => sp.GetRequiredService<WompiGateway>());
         services.AddRequestHandlersFrom(typeof(ILicensingStore).Assembly);
         services.AddSingleton<ICloudModelContributor, LicensingModelContributor>();
         services.AddSingleton<IConstraintErrorProvider, LicensingConstraintErrors>();

@@ -83,6 +83,7 @@ internal static class CloudHostSetup
         builder.Services.AddCloudHealthChecks();
         builder.Services.AddHostedService<CloudStartup>();
         builder.Services.AddHostedService<SubscriptionStatusRefresher>();
+        builder.Services.AddHostedService<PaymentReconciliationService>();
 
         builder.Services.Configure<ForwardedHeadersOptions>(options =>
         {
@@ -130,6 +131,8 @@ internal static class CloudHostSetup
                 PerIp(context, "pos", c => c.PosApiPermitsPerMinute));
             options.AddPolicy(PortalIdentityModule.LoginRateLimit, context =>
                 PerIp(context, "login", c => c.LoginPermitsPerMinute));
+            options.AddPolicy(LicensingModule.PaymentEventsRateLimit, context =>
+                PerIp(context, "payment-events", c => c.PaymentEventsPermitsPerMinute));
         });
 
     private static RateLimitPartition<string> PerIp(HttpContext context, string name, Func<CloudSecurityOptions, int> permits)
