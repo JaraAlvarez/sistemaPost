@@ -136,8 +136,14 @@ public class FactusConexionTests
 
         (await VerifyAsync(shop.Owner)).Ok.ShouldBeTrue();
         await RawAsync(shop.Owner, HttpMethod.Post, "/api/v1/billing/settings/verify").ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFY_TOO_SOON");
+
+        // El freno es por juego de llaves (PA6): las mismas candidatas esperan; OTRAS candidatas no.
+        (await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/verify-candidate", Credentials(FactusFakeServer.DefaultPassword)))
+            .Ok.ShouldBeTrue();
         await RawAsync(shop.Owner, HttpMethod.Post, "/api/v1/billing/settings/verify-candidate", Credentials(FactusFakeServer.DefaultPassword))
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFY_TOO_SOON");
+        (await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/verify-candidate", Credentials(WrongPassword)))
+            .Ok.ShouldBeFalse();
     }
 
     [Fact]

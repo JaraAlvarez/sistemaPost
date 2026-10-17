@@ -61,10 +61,15 @@ public sealed class FactusFiscalProviderTests : IAsyncDisposable
         _server.Requests.ShouldAllBe(r => r.PathAndQuery == "oauth/token");
         _server.Documents.ShouldBeEmpty();
 
-        // Volver a probar con las mismas credenciales reutiliza el token vigente: no reinicia el del trabajador de la cola (PA9).
-        var tokens = _server.Requests.Count;
+        // PB2b: "Volver a probar" valida la clave DE VERDAD (token nuevo cada vez) en un espacio aparte: el token de la cola no se toca.
+        (await Provider.SubmitInvoiceAsync(Connection(), Invoice(), Ct)).Outcome.ShouldBe(FiscalOutcome.Accepted);
+        int Tokens() => _server.Requests.Count(r => r.PathAndQuery == "oauth/token");
+        var before = Tokens();
         (await Provider.VerifyAsync(Connection(), Ct)).Ok.ShouldBeTrue();
-        _server.Requests.Count.ShouldBe(tokens);
+        (await Provider.VerifyAsync(Connection(), Ct)).Ok.ShouldBeTrue();
+        Tokens().ShouldBe(before + 2);
+        (await Provider.SubmitInvoiceAsync(Connection(), Invoice("venta-2"), Ct)).Outcome.ShouldBe(FiscalOutcome.Accepted);
+        Tokens().ShouldBe(before + 2);
 
         var bad = await Provider.VerifyAsync(Connection(password: "otra-clave", environment: FiscalEnvironment.Production), Ct);
         bad.Ok.ShouldBeFalse();

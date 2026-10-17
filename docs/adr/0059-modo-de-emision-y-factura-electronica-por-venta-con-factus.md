@@ -45,6 +45,9 @@
 
 - **Estado:** Propuesto — pendiente de aprobación del usuario. No se fusiona a `main` sin esa aprobación.
 - **Cambia:** el punto 3 de la decisión. **Detalle:** [pantallas-faltantes-propuesta.md §2](../fases/pantallas-faltantes-propuesta.md).
+- **Mientras tanto (ronda 3, PB2):** el código mantiene `NONE` por defecto (`BillingOptions.DefaultProvider`); aprobar esta adenda es
+  cambiar esa sola línea a `FactusFiscalProvider.ProviderName`. La pantalla ya funciona habilitando `FACTUS` en `server.json`, y todas las
+  salvaguardas de abajo ya están activas con cualquier valor.
 
 ### Contexto
 Encender Factus exigía editar `server.json` (`Pos:Billing:Provider = FACTUS`) en el servidor de cada tienda. La pantalla nueva
@@ -61,8 +64,14 @@ Encender Factus exigía editar `server.json` (`Pos:Billing:Provider = FACTUS`) e
      el adaptador era `NONE`) y el tablero avisa hasta que se reconecte.
    - Los documentos electrónicos emitidos **antes de la primera verificación correcta** no se envían solos: la administración elige
      **Enviar ahora** o **No enviar** (estado `NOT_SENT`, sin reintentos), con permiso `billing.settings.manage` y auditoría.
-3. Un fallo transitorio de la verificación no quita una verificación correcta; como máximo una verificación cada 10 s; "Cambiar llaves"
-   prueba las nuevas antes de guardarlas y no apaga la facturación si pasan.
+3. Un fallo transitorio de la verificación no quita una verificación correcta; como máximo una verificación cada 10 s por juego de llaves;
+   "Volver a probar" valida la clave de verdad en un espacio de token aparte del de la cola; "Cambiar llaves" prueba las nuevas antes de
+   guardarlas y no apaga la facturación si pasan. Las llamadas a Factus van fuera de la transacción de BD.
+4. **Ambiente por documento (PB1):** cada documento electrónico guarda el ambiente con que se emitió; la cola solo envía los del ambiente
+   vigente. Verificar en otro ambiente o con otras llaves mueve el corte del atraso a ese momento. Lo de otro ambiente queda retenido y
+   visible, solo con "No enviar".
+5. "Enviar ahora" emite con la fecha del día del envío (Factus no recibe fecha de emisión). Con la licencia restringida se permiten
+   "Enviar ahora", "Verificar" y "Reintentar" (obligación ante la DIAN); "No enviar" y "Cambiar llaves", no.
 
 ### Consecuencias
 - ✅ La tienda conecta Factus sin tocar archivos; las instalaciones actuales en OFF no cambian.

@@ -175,7 +175,7 @@
                                 <tr>
                                     <th>Fecha</th><th class="num">Ventas</th><th class="num">Anuladas</th><th class="num">Valor vendido</th><th class="num">Comprobante interno</th>
                                     <th class="num">Aceptadas</th><th class="num">Valor aceptado</th><th class="num">Pendientes</th><th class="num">Contingencia</th>
-                                    <th class="num">Rechazadas</th><th class="num">Con error</th><th class="num">Canceladas</th><th class="num">Notas crédito</th><th class="num">Sin documento</th>
+                                    <th class="num">Rechazadas</th><th class="num">Con error</th><th class="num">Canceladas</th><th class="num">No enviadas</th><th class="num">Notas crédito</th><th class="num">Sin documento</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -194,6 +194,7 @@
                                         <td class="num">@day.Rejected.ToString("0")</td>
                                         <td class="num">@day.Error.ToString("0")</td>
                                         <td class="num">@day.Cancelled.ToString("0")</td>
+                                        <td class="num">@day.NotSent.ToString("0")</td>
                                         <td class="num">@day.CreditNotes.ToString("0")</td>
                                         <td class="num">@day.SalesWithoutDocument.ToString("0")</td>
                                     </tr>

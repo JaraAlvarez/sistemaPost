@@ -4,6 +4,7 @@
 @using Pos.Modules.Billing.Contracts
 @inject ApiClient Api
 @inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
 <MudPaper Outlined="true" Class="pa-4">
     <div class="d-flex flex-wrap align-center gap-2">
@@ -27,12 +28,21 @@
 
     @if (_settings is { } settings)
     {
-        @if (!EsFactus(settings))
+        @if (EnumText.Same(settings.ActiveAdapter, "FAKE"))
         {
-            <MudAlert Severity="@(EnumText.Same(settings.ActiveAdapter, "FAKE") ? Severity.Info : Severity.Warning)" Class="mt-3" Dense="true">
-                @(EnumText.Same(settings.ActiveAdapter, "FAKE")
-                    ? "Este servidor usa el proveedor SIMULADO (desarrollo): la conexión se prueba contra el simulado, no contra Factus."
-                    : "Esta instalación tiene la facturación electrónica deshabilitada (Pos:Billing:Provider = NONE). Pida a soporte que la habilite.")
+            <MudAlert Severity="Severity.Info" Class="mt-3" Dense="true">
+                Este servidor usa el proveedor SIMULADO (desarrollo): la conexión se prueba contra el simulado, no contra Factus.
+            </MudAlert>
+        }
+        else if (!EsFactus(settings))
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-3">
+                <b>El adaptador de Factus no está habilitado en este servidor.</b> Por ahora se habilita por instalación (la activación por defecto
+                está pendiente de aprobación). En el servidor de la tienda abra <code>{DataRoot}\config\server.json</code> y agregue dentro de la
+                sección <code>"Pos"</code>:
+                <pre class="mt-1 mb-1">"Billing": { "Provider": "FACTUS" }</pre>
+                Reinicie el servicio de BusinessPost y vuelva a esta pantalla para conectar. Mientras tanto la facturación electrónica sigue apagada y
+                no se envía nada.
             </MudAlert>
         }
 
@@ -47,7 +57,9 @@
                 @if (settings.LastVerifiedAt is not null)
                 {
                     <small class="d-block">
-                        Última prueba: @Format.Date(settings.LastVerifiedAt) · @(settings.LastVerificationOk == true ? "correcta" : settings.LastVerificationMessage)
+                        @(settings.LastVerificationOk == true
+                            ? $"Clave validada: {Format.Date(settings.LastVerifiedAt)}"
+                            : $"Última prueba: {Format.Date(settings.LastVerifiedAt)} · {settings.LastVerificationMessage}")
                     </small>
                 }
                 @if (settings.LastSyncAt is not null)
@@ -83,18 +95,6 @@
                         <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="CancelarEdicion">Cancelar</MudButton>
                     </div>
                 </MudPaper>
-            }
-            @if (settings.HeldDocuments > 0)
-            {
-                <MudAlert Severity="Severity.Warning" Class="mt-3">
-                    <b>@settings.HeldDocuments documento(s) pendiente(s) de antes de conectar.</b> Son facturas o notas que quedaron en cola cuando
-                    no había proveedor conectado. No se envían solas: decida si se envían ahora a la DIAN (con su fecha original) o si se marcan como
-                    no enviadas (quedan con el comprobante interno y la decisión queda en la auditoría). Consúltelo con su contador.
-                    <div class="d-flex flex-wrap gap-2 mt-2">
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="EnviarAtrasoAsync">Enviar ahora</MudButton>
-                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="NoEnviarAtrasoAsync">No enviar</MudButton>
-                    </div>
-                </MudAlert>
             }
             <div class="d-flex flex-wrap align-center gap-2 mt-3">
                 <MudSelect T="string" @bind-Value="_modo" Label="Modo de emisión" Style="max-width: 360px;">
@@ -192,6 +192,35 @@
                     <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="CancelarEdicion">Cancelar</MudButton>
                 }
             </div>
+        }
+
+        @if (settings.HeldDocuments > 0)
+        {
+            var antes = settings.HeldDocuments - settings.HeldOtherEnvironment;
+            <MudAlert Severity="Severity.Warning" Class="mt-3">
+                <b>@settings.HeldDocuments documento(s) electrónico(s) retenido(s).</b>
+                @if (antes > 0)
+                {
+                    <span> @antes de antes de conectar (@Ambiente(settings.Environment)): quedaron en cola cuando no había proveedor conectado o con otras llaves.</span>
+                }
+                @if (settings.HeldOtherEnvironment > 0)
+                {
+                    <span> @settings.HeldOtherEnvironment de OTRO ambiente: nunca se envían en este; solo se pueden marcar como no enviados.</span>
+                }
+                <small class="d-block mt-1">
+                    No se envían solos. <b>Enviar ahora</b>: Factus no recibe la fecha de la venta, así que se emitirán <b>con la fecha de hoy</b>. La
+                    DIAN fija un plazo para transmitir (consúltelo con su contador): fuera de él o con datos viejos pueden ser rechazados.
+                    <b>No enviar</b> es IRREVERSIBLE: quedan como NO ENVIADOS, con el comprobante interno, y la decisión queda en la auditoría.
+                </small>
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    @if (antes > 0 && Conectado(settings))
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => EnviarAtrasoAsync(antes))">Enviar ahora</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                               OnClick="@(() => NoEnviarAtrasoAsync(settings.HeldDocuments))">No enviar</MudButton>
+                </div>
+            </MudAlert>
         }
     }
 </MudPaper>
@@ -394,8 +423,19 @@
         _busy = false;
     }
 
-    private async Task EnviarAtrasoAsync()
+    /// <summary>"Enviar ahora" pide confirmar con el número de documentos (PB5).</summary>
+    private async Task EnviarAtrasoAsync(int cantidad)
     {
+        var ok = await Dialogs.ConfirmarAsync(
+            "Enviar ahora a la DIAN",
+            $"Se enviarán {cantidad} documento(s) de antes de conectar, con la FECHA DE HOY (Factus no recibe la fecha de la venta). Pueden ser "
+            + "rechazados si ya pasó el plazo de la DIAN. ¿Enviar?",
+            $"Enviar {cantidad}", false);
+        if (!ok)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
@@ -412,8 +452,27 @@
         _busy = false;
     }
 
-    private async Task NoEnviarAtrasoAsync()
+    /// <summary>"No enviar" es irreversible: pide confirmar DOS veces, con el número de documentos (PB5).</summary>
+    private async Task NoEnviarAtrasoAsync(int cantidad)
     {
+        var first = await Dialogs.ConfirmarAsync(
+            "No enviar",
+            $"{cantidad} documento(s) quedarán como NO ENVIADOS y nunca se enviarán a la DIAN. Esto NO se puede deshacer.",
+            "Continuar", true);
+        if (!first)
+        {
+            return;
+        }
+
+        var second = await Dialogs.ConfirmarAsync(
+            "Confirmar: no enviar",
+            $"¿Seguro? Confirme que NO se enviarán estos {cantidad} documento(s). La decisión queda en la auditoría con su usuario.",
+            $"Sí, no enviar {cantidad}", true);
+        if (!second)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {

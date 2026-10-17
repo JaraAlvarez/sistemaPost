@@ -177,6 +177,11 @@ public sealed class BillingProviderSettings : ICompanyOwned
 
     public bool BacklogReleased { get; private set; }
 
+    /// <summary>Ambiente y llaves con que se fijó el corte: verificar en otro ambiente o con otras llaves lo mueve a ese momento (PB1).</summary>
+    public FiscalEnvironment? BacklogEnvironment { get; private set; }
+
+    public DateTimeOffset? BacklogCredentialsAt { get; private set; }
+
     /// <summary>La migración V2026.10.060 la apagó por estar encendida sin verificación: el tablero lo avisa hasta que se conecte.</summary>
     public DateTimeOffset? AutoDisabledAt { get; private set; }
 
@@ -261,9 +266,13 @@ public sealed class BillingProviderSettings : ICompanyOwned
         LastVerifiedAt = now;
         LastVerificationOk = ok;
         LastVerificationMessage = message is { Length: > 500 } ? message[..500] : message;
-        if (ok)
+        if (ok && (BacklogCutoff is null || BacklogEnvironment != Environment || BacklogCredentialsAt != CredentialsUpdatedAt))
         {
-            BacklogCutoff ??= now;
+            // Primera verificación correcta, o con otro ambiente u otras llaves: lo emitido antes espera la decisión de la administración.
+            BacklogCutoff = now;
+            BacklogReleased = false;
+            BacklogEnvironment = Environment;
+            BacklogCredentialsAt = CredentialsUpdatedAt;
         }
 
         return true;

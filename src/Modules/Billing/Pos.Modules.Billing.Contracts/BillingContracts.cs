@@ -145,7 +145,8 @@ public sealed record BillingSettingsDto(
     bool? LastVerificationOk = null,
     string? LastVerificationMessage = null,
     int HeldDocuments = 0,
-    DateTimeOffset? AutoDisabledAt = null);
+    DateTimeOffset? AutoDisabledAt = null,
+    int HeldOtherEnvironment = 0);
 
 /// <summary>
 /// Resultado de "Verificar conexión" con el proveedor. <c>Transient</c>: el fallo fue de red o del proveedor (no de las credenciales); no
@@ -189,7 +190,8 @@ public sealed record FiscalReconciliationDayDto(
     int Cancelled,
     int CreditNotes,
     int SalesWithoutDocument,
-    decimal AcceptedTotal);
+    decimal AcceptedTotal,
+    int NotSent = 0);
 
 public sealed record FiscalRangeAlertDto(Guid RangeId, string Prefix, string DocumentType, decimal UsagePercent, DateOnly? ValidTo, string Message);
 

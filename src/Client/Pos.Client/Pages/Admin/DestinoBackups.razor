@@ -187,6 +187,11 @@
                             usuario de Windows. Dé permiso de escritura a esa cuenta en la carpeta compartida. En un NAS o equipo <b>sin dominio</b> esa
                             cuenta no existe y la copia puede fallar: en ese caso use un disco externo o pida a soporte configurar el acceso.
                         </MudAlert>
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                            <b>Seguridad:</b> los backups van cifrados, pero quien tenga acceso a esa carpeta puede borrarlos. Use un equipo de la red de
+                            la tienda (IP privada 10.x, 172.16–31.x o 192.168.x; no se aceptan direcciones de Internet ni este mismo equipo), dé permiso
+                            solo a la cuenta del equipo servidor y no la comparta con «Todos».
+                        </MudAlert>
                     }
                 </MudPaper>
             }

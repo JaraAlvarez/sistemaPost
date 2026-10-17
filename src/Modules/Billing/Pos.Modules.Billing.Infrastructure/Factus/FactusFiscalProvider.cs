@@ -114,9 +114,9 @@ public sealed partial class FactusFiscalProvider(IFactusApiFactory apis, FactusC
     }
 
     /// <summary>
-    /// "Verificar conexión": usa el token en memoria de estas credenciales si sigue vigente o pide uno (POST <c>oauth/token</c>, lo mismo que
-    /// hace el cliente antes de cada envío). No emite documentos ni consume el paquete. Distingue credenciales rechazadas (o del otro
-    /// ambiente) de la falta de conexión (transitoria: no quita una verificación correcta).
+    /// "Verificar conexión": pide un token NUEVO con usuario y clave (POST <c>oauth/token</c>) en un espacio de token aparte del de la cola
+    /// (no reinicia el del trabajador). No emite documentos ni consume el paquete. Distingue credenciales rechazadas (o del otro ambiente)
+    /// de la falta de conexión (transitoria: no quita una verificación correcta).
     /// </summary>
     public async Task<FiscalConnectionCheck> VerifyAsync(FiscalConnection connection, CancellationToken cancellationToken)
     {
@@ -124,7 +124,7 @@ public sealed partial class FactusFiscalProvider(IFactusApiFactory apis, FactusC
         var environment = connection.Environment == FiscalEnvironment.Production ? "producción" : "pruebas (sandbox)";
         try
         {
-            var session = await Api(connection).CheckSessionAsync(cancellationToken);
+            var session = await Api(connection).ValidateCredentialsAsync(cancellationToken);
             return session.Status switch
             {
                 FactusQueryStatus.Found => new FiscalConnectionCheck(true, $"Factus aceptó las credenciales en {environment}."),

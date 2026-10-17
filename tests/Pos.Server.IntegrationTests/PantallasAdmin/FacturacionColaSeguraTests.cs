@@ -1,5 +1,6 @@
 using System.Net;
 using Pos.Modules.Billing.Contracts;
+using Pos.Modules.Sales.Contracts;
 using Pos.Server.IntegrationTests.Phase11B;
 using Pos.Server.IntegrationTests.Phase7;
 using static Pos.Server.IntegrationTests.Phase11B.ElectronicBilling;
@@ -26,6 +27,102 @@ public class FacturacionColaSeguraTests
     {
         await CredentialsAsync(shop.Owner);
         await shop.Catalog.ExecuteAsync("UPDATE billing.provider_settings SET mode = 'EVERY_SALE'");
+    }
+
+    /// <summary>Caja Única con la configuración por defecto (sin <c>Pos:Billing:Provider</c>).</summary>
+    private sealed class DefaultFactory : PosServerFactory
+    {
+        protected override string Edition => "SINGLE";
+    }
+
+    [Fact]
+    public async Task Por_defecto_el_adaptador_es_NONE_y_no_se_puede_encender()
+    {
+        await using var factory = new DefaultFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        (await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings")).ActiveAdapter.ShouldBe("NONE");
+        await CredentialsAsync(shop.Owner);
+        var check = await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/verify");
+        check.Ok.ShouldBeFalse();
+        check.Message.ShouldContain("Pos:Billing:Provider");
+        await RawAsync(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "EVERY_SALE", environment = "SANDBOX" })
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFICATION_REQUIRED");
+    }
+
+    [Fact]
+    public async Task Los_documentos_de_otro_ambiente_nunca_salen_y_se_pueden_marcar_no_enviados()
+    {
+        await using var factory = new ElectronicBillingServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        await shop.OpenSessionAsync();
+        await EnableAsync(shop);
+
+        // SANDBOX sin Internet: la venta queda en contingencia.
+        factory.Fiscal.Offline = true;
+        var sandbox = await SellAsync(shop);
+        (await ProcessAsync(shop)).StoppedBecause.ShouldBe("CONTINGENCY");
+        (await ForSourceAsync(shop, sandbox.Sale.Id)).Status.ShouldBe("CONTINGENCY");
+        factory.Fiscal.Offline = false;
+
+        // Desconectar → PRODUCCIÓN (verificar y encender): lo de SANDBOX no sale, ni con "Enviar ahora".
+        await ModeAsync(shop.Owner, "OFF");
+        await SendAsync<BillingSettingsDto>(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "OFF", environment = "PRODUCTION" });
+        (await VerifyAsync(shop.Owner)).Ok.ShouldBeTrue();
+        await SendAsync<BillingSettingsDto>(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "EVERY_SALE", environment = "PRODUCTION" });
+        var held = await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings");
+        (held.HeldDocuments, held.HeldOtherEnvironment).ShouldBe((1, 1));
+        (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/send")).ShouldBe(0);
+        var submissions = factory.Fiscal.Submissions.Count;
+        await DueNowAsync(shop);
+        await ProcessAsync(shop);
+        factory.Fiscal.Submissions.Count.ShouldBe(submissions);
+        (await ForSourceAsync(shop, sandbox.Sale.Id)).Status.ShouldBe("CONTINGENCY");
+
+        // Una venta nueva en PRODUCCIÓN sí sale, con su ambiente.
+        var production = await SellAsync(shop);
+        await DueNowAsync(shop);
+        (await ProcessAsync(shop)).Accepted.ShouldBe(1);
+        factory.Fiscal.LastConnection!.Environment.ShouldBe(Pos.Modules.Billing.Domain.FiscalEnvironment.Production);
+        (await shop.Catalog.ScalarAsync<string>($"SELECT environment FROM billing.fiscal_documents WHERE source_id = '{production.Sale.Id}'")).ShouldBe("PRODUCTION");
+
+        // El de SANDBOX se marca no enviado; la conciliación lo muestra.
+        (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/discard")).ShouldBe(1);
+        (await ForSourceAsync(shop, sandbox.Sale.Id)).Status.ShouldBe("NOT_SENT");
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        (await GetAsync<List<FiscalReconciliationDayDto>>(shop.Owner, $"/api/v1/billing/reconciliation?from={today:yyyy-MM-dd}&to={today:yyyy-MM-dd}"))
+            .Sum(d => d.NotSent).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task La_nota_credito_de_una_factura_no_enviada_queda_no_enviada_con_alerta()
+    {
+        await using var factory = new ElectronicBillingServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        await shop.OpenSessionAsync();
+        await LegacyOnAsync(shop);
+        var sale = await SellAsync(shop);
+
+        // La factura quedó reclamada por un envío que nunca terminó (SUBMITTING): también cuenta en el atraso (PB7).
+        await shop.Catalog.ExecuteAsync($"UPDATE billing.fiscal_documents SET status = 'SUBMITTING' WHERE source_id = '{sale.Sale.Id}'");
+        (await VerifyAsync(shop.Owner)).Ok.ShouldBeTrue();
+        await ModeAsync(shop.Owner, "EVERY_SALE");
+        foreach (var range in await PostAsync<List<FiscalRangeDto>>(shop.Owner, "/api/v1/billing/ranges/sync"))
+        {
+            await AssignAsync(shop, range.Id, shop.Catalog.Setup.BranchId);
+        }
+
+        (await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings")).HeldDocuments.ShouldBe(1);
+
+        // Anular la venta emite nota crédito (la factura estaba "en envío"); luego "No enviar" deja la factura NO ENVIADA.
+        await shop.AuthorizedAsync<SaleReceiptDto>(HttpMethod.Post, $"/api/v1/sales/{sale.Sale.Id}/void", new { reason = "Cliente desistió" });
+        (await PostAsync<int>(shop.Owner, "/api/v1/billing/backlog/discard")).ShouldBe(1);
+
+        // La nota no se aplaza para siempre: queda NO ENVIADA, con alerta en la auditoría, y nada sale al proveedor.
+        await DueNowAsync(shop);
+        await ProcessAsync(shop);
+        (await ForSourceAsync(shop, sale.Sale.Id, "SALE_VOID")).Status.ShouldBe("NOT_SENT");
+        factory.Fiscal.CreditNotes.ShouldBeEmpty();
+        (await CountAsync(shop, "SELECT count(*) FROM audit.audit_log WHERE action = 'FISCAL_DOCUMENT_NOT_SENT'")).ShouldBe(1);
     }
 
     [Fact]

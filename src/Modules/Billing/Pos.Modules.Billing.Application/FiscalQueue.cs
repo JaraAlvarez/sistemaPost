@@ -11,7 +11,10 @@ using Pos.SharedKernel.Time;
 namespace Pos.Modules.Billing.Application;
 
 /// <summary>Conexión de la cola: ambiente y credenciales, y el corte del atraso retenido (nulo si no hay).</summary>
-public sealed record FiscalQueueConnection(FiscalConnection Connection, DateTimeOffset? HeldBefore);
+public sealed record FiscalQueueConnection(FiscalConnection Connection, DateTimeOffset? HeldBefore)
+{
+    public FiscalEnvironment Environment => Connection.Environment;
+}
 
 /// <summary>Conexión con el proveedor: ambiente y credenciales descifradas (solo en memoria, solo para la llamada).</summary>
 public sealed class FiscalConnectionFactory(IBillingSettingsStore store, IFiscalCredentialProtector protector, IInstallationContext installation)
@@ -50,12 +53,13 @@ public sealed class FiscalConnectionFactory(IBillingSettingsStore store, IFiscal
 /// </summary>
 public sealed class FiscalVerifyThrottle(TimeSpan interval, TimeProvider time)
 {
-    private readonly Dictionary<Guid, DateTimeOffset> _last = [];
+    private readonly Dictionary<(Guid Company, string Key), DateTimeOffset> _last = [];
     private readonly Lock _gate = new();
 
     public TimeSpan Interval => interval;
 
-    public bool TryEnter(Guid companyId)
+    /// <summary>¿Puede verificar ya? <c>key</c>: qué se verifica (las llaves guardadas o la huella de unas candidatas; otras llaves no esperan).</summary>
+    public bool TryEnter(Guid companyId, string key)
     {
         if (interval <= TimeSpan.Zero)
         {
@@ -65,12 +69,12 @@ public sealed class FiscalVerifyThrottle(TimeSpan interval, TimeProvider time)
         var now = time.GetUtcNow();
         lock (_gate)
         {
-            if (_last.TryGetValue(companyId, out var last) && now - last < interval)
+            if (_last.TryGetValue((companyId, key), out var last) && now - last < interval)
             {
                 return false;
             }
 
-            _last[companyId] = now;
+            _last[(companyId, key)] = now;
             return true;
         }
     }
@@ -134,7 +138,20 @@ public sealed class FiscalDocumentProcessor(
         var draft = await BuildAsync(document, range, cancellationToken);
         if (draft.IsFailure)
         {
-            if (draft.Error.Code == FiscalDraftBuilder.RelatedNotAccepted.Code)
+            if (draft.Error.Code == FiscalDraftBuilder.RelatedNotAccepted.Code
+                && document.RelatedDocumentId is { } relatedId
+                && await documents.GetAsync(relatedId, cancellationToken) is { Status: FiscalStatus.NotSent or FiscalStatus.Cancelled } related)
+            {
+                // PB6: la factura (o documento soporte) que corrige no se envió nunca: la nota no aplica y no se aplaza para siempre.
+                document.DiscardBacklog(
+                    $"No aplica: el documento que corrige ({related.SourceNumber}) quedó {related.Status.Db()}.", now, null, ids.NewId);
+                await audit.WriteAsync(
+                    new AuditEntry("billing", "FISCAL_DOCUMENT_NOT_SENT", nameof(FiscalDocument), document.Id, document.AuditLabel,
+                        $"{document.DocumentType.Db()} {document.SourceNumber} no se envía: el documento que corrige quedó {related.Status.Db()}.",
+                        Severity: AuditSeverity.Warning),
+                    cancellationToken);
+            }
+            else if (draft.Error.Code == FiscalDraftBuilder.RelatedNotAccepted.Code)
             {
                 document.Defer("WAITING_INVOICE", draft.Error.Message, now, now + TimeSpan.FromMinutes(1), ids.NewId);
             }

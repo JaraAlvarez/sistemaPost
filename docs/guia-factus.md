@@ -53,12 +53,16 @@ Factus activa la cuenta en ~1–3 días hábiles con:
 - Guárdalas en un lugar seguro (gestor de contraseñas). BusinessPost las guarda **cifradas** en el servidor de la tienda y **nunca las
   vuelve a mostrar**.
 
-## 4. Factus ya viene habilitado
+## 4. Habilitar el adaptador de Factus (una vez por servidor)
 
-Con la rama `pantallas-admin` (adenda A del ADR-0059, **pendiente de aprobación**) Factus es el adaptador por defecto: **no hay que
-editar `server.json`**. Lo que enciende o apaga la
-facturación electrónica es el modo de la empresa (por defecto **Apagada**), que se cambia desde la pantalla. Solo si una instalación NO
-debe facturar electrónicamente, soporte pone `"Pos": { "Billing": { "Provider": "NONE" } }` en `{DataRoot}\config\server.json`.
+Mientras no se apruebe la adenda A del ADR-0059, el adaptador por defecto sigue siendo `NONE` y la tarjeta **Factus** lo explica. En el
+**servidor de la tienda**:
+
+1. Abre `{DataRoot}\config\server.json` y agrega dentro de la sección `"Pos"`: `"Billing": { "Provider": "FACTUS" }`.
+2. Reinicia el servicio del servidor de BusinessPost.
+3. En **Administración → Facturación → Configuración** la tarjeta Factus deja de mostrar el aviso y permite **Conectar**.
+
+Habilitar el adaptador no enciende nada: la facturación sigue **Apagada** hasta conectar y verificar desde la pantalla.
 
 ## 5. Conectar Factus (credenciales y ambiente SANDBOX)
 
@@ -66,16 +70,24 @@ En **Administración → Facturación → Configuración**, tarjeta **Factus** (
 administrador):
 
 1. Escribe usuario, contraseña, Client ID y Client secret; elige el ambiente **Pruebas (sandbox)** y el modo con que quieres arrancar.
-2. Pulsa **Conectar**. BusinessPost guarda las llaves cifradas con la facturación **apagada**, prueba la conexión pidiendo un token a
-   Factus (no emite nada ni consume el paquete) y, **solo si Factus las acepta**, trae los rangos de numeración y enciende el modo elegido.
+2. Pulsa **Conectar**. BusinessPost guarda las llaves cifradas con la facturación **apagada**, valida usuario y clave pidiendo un token
+   nuevo a Factus (no emite nada ni consume el paquete) y, **solo si Factus las acepta**, trae los rangos de numeración y enciende el modo.
    Si Factus las rechaza (o son del otro ambiente) o no hay Internet, la facturación sigue apagada y la pantalla dice qué revisar.
-3. Conectado verás el ambiente, el modo, tu usuario enmascarado (p. ej. `ti***@correo.co`) y la última prueba, con **Volver a probar**,
-   **Cambiar llaves** (repite el flujo: mientras tanto la facturación queda apagada) y **Desconectar** (apaga; las llaves quedan guardadas).
+3. Conectado verás el ambiente, el modo, tu usuario enmascarado (p. ej. `ti***@correo.co`) y **Clave validada: fecha y hora**, con
+   **Volver a probar** (valida la clave de verdad, máximo una vez cada 10 s), **Cambiar llaves** y **Desconectar** (apaga; las llaves
+   quedan guardadas).
 4. Las llaves nunca se vuelven a mostrar. Si restauras la base de datos en otro equipo, vuelve a escribirlas (el cifrado es del equipo).
 5. **Cambiar llaves** prueba las nuevas con Factus antes de guardarlas: si Factus las acepta se guardan y la facturación sigue igual; si
    no, no cambia nada. Una caída de Internet al "Volver a probar" no desconecta nada.
-6. Si había facturas pendientes de antes de conectar (por ejemplo de una instalación anterior), no se envían solas: la tarjeta muestra
-   cuántas y deja elegir **Enviar ahora** o **No enviar**. Consúltelo con su contador.
+6. **Documentos retenidos.** Lo que quedó en cola antes de la primera conexión verificada, o antes de cambiar de llaves o de ambiente, no
+   se envía solo. La tarjeta muestra cuántos y deja elegir:
+   - **Enviar ahora** (pide confirmar con el número de documentos): Factus **no recibe la fecha de emisión**, así que se emiten **con la
+     fecha de hoy**, no con la de la venta. La DIAN fija un plazo para transmitir: fuera de él, o con datos viejos, pueden ser rechazados.
+     Consúltalo con tu contador antes.
+   - **No enviar** (pide confirmar dos veces): quedan **NO ENVIADOS** para siempre, con el comprobante interno. Es **irreversible** y queda
+     en la auditoría. Una nota crédito de una factura no enviada también queda no enviada (con alerta).
+   - Los documentos emitidos en **otro ambiente** (p. ej. pruebas, al pasar a producción) **nunca** se envían en el nuevo: solo se pueden
+     marcar como no enviados.
 7. Para pasar de pruebas a producción: **Desconectar**, ambiente **Producción**, llaves de producción y **Conectar**.
 
 ## 6. Sincronizar y asignar los rangos

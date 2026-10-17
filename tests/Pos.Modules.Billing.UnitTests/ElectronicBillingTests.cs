@@ -411,13 +411,46 @@ public class NumberingAndSettingsTests
         settings.RecordVerification(Now.AddMinutes(3), ok: false, "Rechazadas").ShouldBeTrue();
         settings.CanSend.ShouldBeFalse();
 
-        // Otra verificación correcta no mueve el corte; liberar el atraso lo quita de la retención; apagar detiene todo.
+        // Otra verificación correcta (mismo ambiente y llaves) no mueve el corte; liberar el atraso lo quita de la retención; apagar detiene todo.
         settings.RecordVerification(Now.AddMinutes(4), ok: true, "ok");
         settings.BacklogCutoff.ShouldBe(Now.AddMinutes(1));
         settings.ReleaseBacklog();
         (settings.BacklogReleased, settings.HeldBefore).ShouldBe((true, (DateTimeOffset?)null));
         settings.Configure(BillingMode.Off, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
         settings.CanSend.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Verificar_en_otro_ambiente_o_con_otras_llaves_mueve_el_corte_del_atraso()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1], Now, "ti***@correo.co");
+        settings.RecordVerification(Now, ok: true, "ok");
+        settings.ReleaseBacklog();
+        (settings.BacklogCutoff, settings.BacklogEnvironment, settings.HeldBefore).ShouldBe(((DateTimeOffset?)Now, (FiscalEnvironment?)FiscalEnvironment.Sandbox, (DateTimeOffset?)null));
+
+        // Otro ambiente: el corte pasa a ese momento y vuelve a retener.
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Production, "FACTUS").IsSuccess.ShouldBeTrue();
+        settings.RecordVerification(Now.AddHours(1), ok: true, "ok");
+        (settings.BacklogCutoff, settings.BacklogEnvironment, settings.BacklogReleased).ShouldBe(((DateTimeOffset?)Now.AddHours(1), (FiscalEnvironment?)FiscalEnvironment.Production, false));
+
+        // Otras llaves (cambio verificado): también.
+        settings.ReplaceVerifiedCredentials([7], Now.AddHours(2), "ot***@correo.co", "ok");
+        settings.BacklogCutoff.ShouldBe(Now.AddHours(2));
+
+        // El documento electrónico guarda su ambiente; el interno no.
+        FiscalDocument.Issue(
+                Guid.NewGuid(), Company,
+                new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-1", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                    "222222222222", null, 1m, 0m, 1m),
+                electronic: true, Now, null, Guid.NewGuid, FiscalEnvironment.Production)
+            .Environment.ShouldBe(FiscalEnvironment.Production);
+        FiscalDocument.Issue(
+                Guid.NewGuid(), Company,
+                new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-2", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                    "222222222222", null, 1m, 0m, 1m),
+                electronic: false, Now, null, Guid.NewGuid, FiscalEnvironment.Production)
+            .Environment.ShouldBeNull();
     }
 
     [Fact]

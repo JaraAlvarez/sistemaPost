@@ -3,8 +3,6 @@
        auditoría con sellado, outbox/inbox, numeración interna y configuración jerárquica. -->
   <PropertyGroup>
     <RootNamespace>Pos.Infrastructure</RootNamespace>
-    <!-- LibraryImport (código generado) para leer el número de serie del volumen de los destinos de backup (BackupFolderProbe). -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

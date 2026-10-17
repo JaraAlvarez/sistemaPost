@@ -225,6 +225,9 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
 
     public DateTimeOffset? NextAttemptAt { get; private set; }
 
+    /// <summary>Ambiente del proveedor con que se emitió (PB1). La cola solo envía los del ambiente vigente.</summary>
+    public FiscalEnvironment? Environment { get; private set; }
+
     public Guid? RelatedDocumentId { get; private set; }
 
     public DateOnly BusinessDate { get; private set; }
@@ -266,7 +269,9 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
         _ => FiscalDocumentType.CreditNote,
     };
 
-    public static FiscalDocument Issue(Guid id, Guid companyId, FiscalIssue issue, bool electronic, DateTimeOffset now, Guid? userId, Func<Guid> newId)
+    /// <summary>Emite el documento. El electrónico lleva el ambiente del proveedor con que se emite y numera (PB1); el interno no.</summary>
+    public static FiscalDocument Issue(
+        Guid id, Guid companyId, FiscalIssue issue, bool electronic, DateTimeOffset now, Guid? userId, Func<Guid> newId, FiscalEnvironment? environment = null)
     {
         ArgumentNullException.ThrowIfNull(issue);
         ArgumentNullException.ThrowIfNull(newId);
@@ -296,6 +301,7 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
             Total = issue.Total,
             IssuedAt = now,
             NextAttemptAt = electronic ? now : null,
+            Environment = electronic ? environment ?? FiscalEnvironment.Sandbox : null,
         };
         document._events.Add(FiscalDocumentEvent.Create(newId(), "ISSUED", electronic ? "Pendiente de envío al proveedor." : "Comprobante interno.", null, now, userId));
         return document;
@@ -432,10 +438,10 @@ public sealed class FiscalDocument : AggregateRoot<Guid>, ICompanyOwned, IHasAud
     /// "No enviar" (PA1): un documento del atraso de antes de conectar el proveedor (pendiente, con error o en contingencia) queda NOT_SENT
     /// y la cola no lo vuelve a tomar. Devuelve <c>false</c> si no estaba en esos estados.
     /// </summary>
-    public bool DiscardBacklog(string reason, DateTimeOffset now, Guid userId, Func<Guid> newId)
+    public bool DiscardBacklog(string reason, DateTimeOffset now, Guid? userId, Func<Guid> newId)
     {
         ArgumentNullException.ThrowIfNull(newId);
-        if (!IsElectronic || Status is not (FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency))
+        if (!IsElectronic || Status is not (FiscalStatus.Pending or FiscalStatus.Error or FiscalStatus.Contingency or FiscalStatus.Submitting))
         {
             return false;
         }

@@ -149,22 +149,53 @@ public sealed class BackupFolderProbeTests : IDisposable
     [InlineData(@"\\LOCALHOST\c$\backups")]
     [InlineData(@"\\127.0.0.1\backups")]
     [InlineData(@"\\127.10.0.5\backups")]
+    [InlineData(@"\\0.0.0.0\backups")]
     [InlineData(@"\\[::1]\backups")]
     [InlineData(@"\\0--1.ipv6-literal.net\backups")]
     public async Task La_red_no_acepta_este_mismo_equipo(string path)
     {
-        BackupFolderProbe.OwnMachineHost(path).ShouldNotBeNull();
+        BackupFolderProbe.NetworkHostProblem(BackupFolderProbe.HostOf(path), NoDns).ShouldNotBeNull().ShouldContain("es este mismo equipo");
         (await Network(path)).Message.ShouldContain("es este mismo equipo");
     }
 
     [Fact]
-    public async Task La_red_no_acepta_el_nombre_de_este_equipo_y_si_otro_equipo_que_no_responde()
+    public async Task La_red_no_acepta_el_nombre_ni_las_IP_de_este_equipo()
     {
         var machine = Environment.MachineName;
         (await Network($@"\\{machine}\backups")).Message.ShouldContain("es este mismo equipo");
         (await Network($@"\\{machine.ToLowerInvariant()}.midominio.local\backups")).Ok.ShouldBeFalse();
-        BackupFolderProbe.OwnMachineHost(@"\\NAS-TIENDA\backups").ShouldBeNull();
+        var own = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address)
+            .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a));
+        if (own is not null)
+        {
+            BackupFolderProbe.NetworkHostProblem(own.ToString(), NoDns).ShouldNotBeNull().ShouldContain("es este mismo equipo");
+        }
+
         BackupFolderProbe.IsUnc(@"\\NAS\backups").ShouldBeTrue();
         BackupFolderProbe.IsUnc(@"E:\backups").ShouldBeFalse();
     }
+
+    [Theory]
+    [InlineData("8.8.8.8", false)]
+    [InlineData("200.1.2.3", false)]
+    [InlineData("172.32.0.1", false)]
+    [InlineData("10.0.0.20", true)]
+    [InlineData("172.16.5.9", true)]
+    [InlineData("192.168.1.50", true)]
+    [InlineData("fd12:3456::1", true)]
+    public void Solo_equipos_con_IP_privada(string host, bool allowed) =>
+        (BackupFolderProbe.NetworkHostProblem(host, NoDns) is null).ShouldBe(allowed);
+
+    [Fact]
+    public void Un_nombre_debe_resolver_solo_a_IP_privadas()
+    {
+        BackupFolderProbe.NetworkHostProblem("NAS-TIENDA", _ => [System.Net.IPAddress.Parse("192.168.1.20")]).ShouldBeNull();
+        BackupFolderProbe.NetworkHostProblem("nas.ejemplo.com", _ => [System.Net.IPAddress.Parse("192.168.1.20"), System.Net.IPAddress.Parse("34.1.2.3")])
+            .ShouldNotBeNull().ShouldContain("no es un equipo de la red local");
+        BackupFolderProbe.NetworkHostProblem("trampa", _ => [System.Net.IPAddress.Loopback]).ShouldNotBeNull().ShouldContain("es este mismo equipo");
+        BackupFolderProbe.NetworkHostProblem("no-existe", _ => throw new System.Net.Sockets.SocketException()).ShouldNotBeNull().ShouldContain("No se encuentra");
+    }
+
+    private static IReadOnlyList<System.Net.IPAddress> NoDns(string host) => throw new InvalidOperationException($"No debía resolver {host}");
 }

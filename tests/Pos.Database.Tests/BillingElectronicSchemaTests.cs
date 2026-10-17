@@ -168,6 +168,11 @@ public class BillingElectronicSchemaTests(PostgresFixture postgres)
             .ConstraintName.ShouldBe("ck_provider_settings__backlog");
         await harness.Database.ExecuteAsync("UPDATE billing.provider_settings SET backlog_cutoff = now(), backlog_released = true", app);
 
+        // Ambiente del documento (PB1): SANDBOX o PRODUCTION.
+        await harness.Database.ExecuteAsync(Document(extra: ", environment", extraValues: ", 'PRODUCTION'"), app);
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(Document(extra: ", environment", extraValues: ", 'TEST'"), app)))
+            .ConstraintName.ShouldBe("ck_fiscal_documents__environment");
+
         // NOT_SENT: solo documentos electrónicos.
         await harness.Database.ExecuteAsync(Document(status: "NOT_SENT"), app);
         (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(

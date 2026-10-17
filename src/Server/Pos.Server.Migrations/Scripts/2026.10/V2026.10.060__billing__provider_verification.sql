@@ -7,6 +7,10 @@
 --     el ambiente VIGENTES. Encender exige una verificación correcta y la cola SOLO envía con modo <> OFF y verificación correcta.
 --   · backlog_cutoff / backlog_released: la primera verificación correcta fija el corte; los documentos electrónicos emitidos ANTES no se
 --     envían solos hasta que la administración elija "Enviar ahora" (released) o "No enviar" (estado NOT_SENT, que no se reintenta).
+--   · backlog_environment / backlog_credentials_at: ambiente y llaves con que se fijó el corte; verificar en otro ambiente o con otras
+--     llaves mueve el corte a ese momento (ronda 3, PB1).
+--   · fiscal_documents.environment: ambiente con que se emitió y numeró cada documento electrónico (PB1). La cola solo envía los del
+--     ambiente vigente; los de otro ambiente quedan retenidos y visibles ("No enviar"). Los existentes toman el ambiente vigente de su empresa.
 --   · auto_disabled_at: la facturación que estaba encendida SIN verificación (instalaciones con llaves y modo <> OFF de cuando el adaptador
 --     era NONE) se APAGA aquí; el tablero avisa "La facturación electrónica quedó apagada" hasta que se conecte de nuevo.
 -- =====================================================================================================
@@ -19,6 +23,9 @@ ALTER TABLE billing.provider_settings
     ADD COLUMN backlog_cutoff             timestamptz,
     ADD COLUMN backlog_released           boolean        NOT NULL DEFAULT false,
     ADD COLUMN auto_disabled_at           timestamptz,
+    ADD COLUMN backlog_environment        varchar(12),
+    ADD COLUMN backlog_credentials_at     timestamptz,
+    ADD CONSTRAINT ck_provider_settings__backlog_environment CHECK (backlog_environment IS NULL OR backlog_environment IN ('SANDBOX', 'PRODUCTION')),
     ADD CONSTRAINT ck_provider_settings__verification CHECK ((last_verified_at IS NULL) = (last_verification_ok IS NULL)),
     -- El atraso solo se libera después de una verificación correcta.
     ADD CONSTRAINT ck_provider_settings__backlog CHECK (NOT backlog_released OR backlog_cutoff IS NOT NULL);
@@ -34,7 +41,18 @@ UPDATE billing.provider_settings
 SET mode = 'OFF', auto_disabled_at = now(), updated_at = now()
 WHERE mode <> 'OFF';
 
--- Estado NOT_SENT: atraso de antes de conectar que la administración decidió no enviar.
+-- Ambiente de cada documento electrónico (PB1).
+ALTER TABLE billing.fiscal_documents
+    ADD COLUMN environment varchar(12),
+    ADD CONSTRAINT ck_fiscal_documents__environment CHECK (environment IS NULL OR environment IN ('SANDBOX', 'PRODUCTION'));
+
+COMMENT ON COLUMN billing.fiscal_documents.environment IS 'Ambiente del proveedor con que se emitió y numeró el documento electrónico; la cola solo envía los del ambiente vigente.';
+
+UPDATE billing.fiscal_documents f
+SET environment = COALESCE((SELECT ps.environment FROM billing.provider_settings ps WHERE ps.company_id = f.company_id), 'SANDBOX')
+WHERE f.document_type <> 'INTERNAL_RECEIPT';
+
+-- Estado NOT_SENT: atraso de antes de conectar (o de otro ambiente) que la administración decidió no enviar.
 ALTER TABLE billing.fiscal_documents DROP CONSTRAINT ck_fiscal_documents__status;
 ALTER TABLE billing.fiscal_documents
     ADD CONSTRAINT ck_fiscal_documents__status CHECK (status IN (

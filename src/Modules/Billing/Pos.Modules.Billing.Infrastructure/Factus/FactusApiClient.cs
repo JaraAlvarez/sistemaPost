@@ -44,13 +44,13 @@ internal sealed partial class FactusApiClient(
             : FactusQueryResult<FactusSession>.Found(new FactusSession(lease.ExpiresAt), 200);
     }
 
-    public async Task<FactusQueryResult<FactusSession>> CheckSessionAsync(CancellationToken cancellationToken)
+    public async Task<FactusQueryResult<FactusSession>> ValidateCredentialsAsync(CancellationToken cancellationToken)
     {
         var options = await optionsProvider.GetAsync(cancellationToken);
         if (options is null)
             return FactusQueryResult<FactusSession>.From(NotConfigured());
 
-        var lease = await tokens.GetAsync(options, forcePasswordGrant: false, cancellationToken);
+        var lease = await tokens.GetAsync(options, forcePasswordGrant: true, cancellationToken, FactusTokenManager.VerificationSlot);
         return lease.Failure is { } failure
             ? FactusQueryResult<FactusSession>.From(failure)
             : FactusQueryResult<FactusSession>.Found(new FactusSession(lease.ExpiresAt), 200);

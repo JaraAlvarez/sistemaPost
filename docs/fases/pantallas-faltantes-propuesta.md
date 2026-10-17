@@ -43,7 +43,9 @@ Un disco externo desconectado después no es error: la copia queda pendiente com
 **Cómo funcionaba:** el adaptador lo fijaba `Pos:Billing:Provider` en `server.json` (`NONE` por defecto); modo, ambiente y credenciales
 (cifradas con DPAPI, nunca se devuelven) ya se guardaban por API; encender exigía credenciales pero no que funcionaran.
 
-**Decisión — Propuesta, pendiente de aprobación del usuario (adenda del ADR-0059):** el adaptador por defecto pasa a ser **FACTUS**. Lo
+**Decisión — Propuesta, pendiente de aprobación del usuario (adenda A del ADR-0059):** el adaptador por defecto pasaría a ser **FACTUS**.
+**Ronda 3 (PB2): mientras no se apruebe, el código mantiene `NONE` por defecto** (`BillingOptions.DefaultProvider`, una sola línea para
+cambiarlo) y la tarjeta Factus explica cómo habilitarlo en `server.json`. Lo
 que apaga la facturación electrónica es el modo `OFF` (por defecto, en la BD). `NONE` sigue para prohibirla en una instalación y `FAKE`
 para desarrollo. Como ahora el adaptador real está siempre presente, la cola tiene salvaguardas (PA1):
 
@@ -73,6 +75,24 @@ para desarrollo. Como ahora el adaptador real está siempre presente, la cola ti
 ambiente, modo, usuario enmascarado y última prueba, con **Volver a probar**, **Cambiar llaves** (prueba antes de guardar; con las casillas
 vacías no hace nada) y **Desconectar** (modo `OFF`; las llaves quedan). Para cambiar de ambiente: Desconectar y Conectar. Ningún comando
 nuevo queda permitido con la licencia restringida (R10 sin cambios).
+
+### Ronda 3
+
+| Punto | Qué se hizo |
+|---|---|
+| PB1 | `fiscal_documents.environment`: ambiente con que se emitió cada documento electrónico (las notas heredan el de su factura). La cola solo envía los del ambiente vigente; verificar en otro ambiente o con otras llaves mueve el corte del atraso (`backlog_environment`, `backlog_credentials_at`). Lo de otro ambiente queda retenido, visible y solo con "No enviar" |
+| PB2b | "Volver a probar" valida la clave con un token nuevo (password grant) en un espacio de token aparte del de la cola; la tarjeta muestra "Clave validada: fecha y hora" |
+| PB3 | Factus no recibe fecha de emisión (`FactusRequests` no la tiene; supuesto S10 de la guía): "Enviar ahora" emite con la fecha de hoy; la pantalla y la guía lo dicen, con el aviso del plazo DIAN y de posibles rechazos |
+| PB4 | Columna "No enviadas" (`NotSent`) en la conciliación |
+| PB5 | "Enviar ahora" confirma con el número de documentos; "No enviar" confirma dos veces y advierte que es irreversible |
+| PB6 | Una nota crédito o de ajuste cuyo documento quedó NOT_SENT o cancelado queda NOT_SENT ("no aplica") con alerta `FISCAL_DOCUMENT_NOT_SENT`; las notas nuevas sobre una factura NOT_SENT son internas |
+| PB7 | El atraso cuenta y descarta también lo reclamado (SUBMITTING); lo retenido no infla "pendientes vencidos" |
+| PB8 | Verificar, probar candidatas y cambiar llaves son `ISelfTransactedCommand`: Factus se llama fuera de la transacción y se guarda en transacciones cortas, solo si las llaves y el ambiente no cambiaron mientras tanto |
+| PB9 | Una comprobación de carpeta a la vez por destino: si una sigue colgada se espera esa misma (no se abren hilos nuevos); el probe recibe un token que vence a los 10 s |
+| PB10/PB11 | El volumen se identifica con `GetFinalPathNameByHandle` (GUID del volumen) por `[DllImport]`, sin código inseguro; si no se puede identificar, se rechaza con mensaje claro |
+| PA3/PA4/PA8 | Red: solo IP privadas (RFC 1918, IPv6 ULA) o nombres que resuelvan solo a ellas; se rechazan 0.0.0.0, loopback, las IP de todas las interfaces de este equipo, su nombre y su FQDN; aviso de seguridad en la pantalla. Ruta real (junctions, puntos de montaje, subst) comparada con la LOCAL; sin `EnumerateFiles` |
+| PA6 | El freno de 10 s es por juego de llaves: otras llaves candidatas no esperan |
+| R10 | Con licencia RESTRINGIDA: `ReleaseFiscalBacklogCommand`, `VerifyBillingConnectionCommand` y `RetryFiscalDocumentCommand` permitidos; `DiscardFiscalBacklogCommand` y `RotateProviderCredentialsCommand`, no |
 
 ## 3. Pruebas
 
