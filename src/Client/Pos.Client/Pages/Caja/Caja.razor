@@ -109,10 +109,31 @@ else
         @* ------------------------------------------------------------------------------------------------ Escáner y líneas *@
         <section class="caja-izquierda" aria-label="Venta en curso">
             <div class="caja-escaner">
-                <MudTextField @ref="_scanner" T="string" @bind-Value="_scan" Placeholder="Escanee o escriba el código de barras, PLU o SKU"
-                              Variant="Variant.Outlined" Immediate="true" OnKeyDown="EscanerTeclaAsync" Disabled="@(_session is null || _busy)" AutoFocus="true" id="escaner"
-                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.QrCodeScanner" AdornmentAriaLabel="Escáner"
-                              aria-label="Código del producto. Cantidad por código: 3*código" autocomplete="off" spellcheck="false" FullWidth="true" />
+                <div class="escaner-campo">
+                    <MudTextField @ref="_scanner" T="string" Value="_scan" ValueChanged="EscanerCambioAsync" Placeholder="Escanee el código o escriba el nombre del producto"
+                                  Variant="Variant.Outlined" Immediate="true" OnKeyDown="EscanerTeclaAsync" Disabled="@(_session is null || _busy)" AutoFocus="true" id="escaner"
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.QrCodeScanner" AdornmentAriaLabel="Escáner"
+                                  aria-label="Código o nombre del producto. Cantidad: 3*código o 3*nombre" autocomplete="off" spellcheck="false" FullWidth="true" />
+                    @if (_sugerencias.Count > 0)
+                    {
+                        @* Lista bajo el escáner mientras se escribe un nombre: ↑ ↓ eligen, Enter agrega, Esc cierra. *@
+                        <div class="sugerencias" role="listbox" aria-label="Productos que coinciden">
+                            @for (var i = 0; i < _sugerencias.Count; i++)
+                            {
+                                var product = _sugerencias[i];
+                                var index = i;
+                                <button type="button" role="option" aria-selected="@(index == _sugerida)" class="@(index == _sugerida ? "activa" : null)"
+                                        @onmousedown:preventDefault="true" @onclick="@(() => AgregarSugerenciaAsync(product))">
+                                    <span><b>@product.Str("name")</b><small>@product.Str("sku") @(product.Str("primaryBarcode") is { Length: > 0 } barcode ? $"· {barcode}" : null)</small></span>
+                                    @if (product.Str("price").Length > 0)
+                                    {
+                                        <span class="precio">@Format.Money(product.Dec("price"))</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Search" OnClick="AbrirBuscar" Disabled="@(_session is null)">
                     Buscar&nbsp;<kbd>F2</kbd>
                 </MudButton>
@@ -293,7 +314,7 @@ else
         <div class="panel-fondo">
             <div class="panel" role="dialog" aria-modal="true" aria-labelledby="t-abrir">
                 <h2 id="t-abrir">Abrir jornada</h2>
-                <MudText Typo="Typo.body2" Class="mb-3">Cuente el efectivo inicial del cajón (la base) y escriba cuántos billetes y monedas hay de cada valor.</MudText>
+                <MudText Typo="Typo.body2" Class="mb-3">Cuente el efectivo inicial del cajón (la base) y escriba cuánto dinero hay de cada valor (por ejemplo, 50.000 en monedas de $ 200). Deje vacío lo que no tenga.</MudText>
                 <Conteo Denominaciones="_cashDenominations" Cantidades="_opening" OnChanged="@(() => StateHasChanged())" />
                 <div class="conteo-total"><span>Base del cajón</span><span class="cifra">@Format.Money(Total(_opening))</span></div>
                 <div class="acciones">

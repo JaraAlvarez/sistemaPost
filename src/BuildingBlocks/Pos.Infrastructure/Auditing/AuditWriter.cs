@@ -26,7 +26,8 @@ internal sealed class AuditWriter(PosDbContext context, IClock clock, IIdGenerat
             EntityType = entry.EntityType,
             EntityId = entry.EntityId,
             EntityLabel = entry.EntityLabel,
-            Summary = entry.Summary,
+            // La columna admite 500 caracteres: el detalle completo va en NewValues.
+            Summary = entry.Summary is { Length: > 500 } summary ? summary[..499] + "…" : entry.Summary,
             OldValues = ToDocument(entry.OldValues),
             NewValues = ToDocument(entry.NewValues),
             AuthorizedBy = entry.AuthorizedBy,

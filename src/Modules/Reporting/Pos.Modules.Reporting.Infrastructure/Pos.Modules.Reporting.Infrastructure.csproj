@@ -11,5 +11,6 @@
 
   <ItemGroup>
     <PackageReference Include="PDFsharp-MigraDoc" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 </Project>

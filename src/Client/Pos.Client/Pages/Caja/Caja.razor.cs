@@ -63,6 +63,11 @@ public sealed partial class Caja
     private string? _closingNote;
     private CashReport? _zReport;
     private string? _search;
+
+    /// <summary>Productos que coinciden con el nombre escrito en el escáner (lista bajo el campo) y el elegido con las flechas.</summary>
+    private List<JsonElement> _sugerencias = [];
+    private int _sugerida = -1;
+    private CancellationTokenSource? _sugerirCts;
     private List<JsonElement> _found = [];
     private bool _buscando;
     private decimal _quantity = 1;
@@ -244,8 +249,102 @@ public sealed partial class Caja
 
     // ------------------------------------------------------------------------------------------ Venta
 
+    /// <summary>Separa "3*arroz" en cantidad (3) y texto (arroz).</summary>
+    private static (decimal? Quantity, string Text) Separar(string? value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        var star = text.IndexOf('*', StringComparison.Ordinal);
+        return star > 0 && decimal.TryParse(text[..star].Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var q)
+            ? (q, text[(star + 1)..].Trim())
+            : (null, text);
+    }
+
+    /// <summary>
+    /// Al escribir un nombre (con letras, 2 o más caracteres) se muestra la lista de productos bajo el escáner. Un código de barras o PLU
+    /// (solo números) no busca nada: el lector sigue igual de rápido.
+    /// </summary>
+    private async Task EscanerCambioAsync(string? value)
+    {
+        _scan = value;
+        _sugerirCts?.Cancel();
+        var (_, text) = Separar(value);
+        if (text.Length < 2 || !text.Any(char.IsLetter))
+        {
+            CerrarSugerencias();
+            return;
+        }
+
+        var cts = _sugerirCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            var encontrados = await BuscarProductosAsync(text);
+            if (!cts.IsCancellationRequested)
+            {
+                _sugerencias = encontrados;
+                _sugerida = encontrados.Count > 0 ? 0 : -1;
+                StateHasChanged();
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Se siguió escribiendo: cuenta la búsqueda más reciente.
+        }
+    }
+
+    private void CerrarSugerencias()
+    {
+        _sugerirCts?.Cancel();
+        _sugerencias = [];
+        _sugerida = -1;
+    }
+
+    private async Task<List<JsonElement>> BuscarProductosAsync(string text)
+    {
+        try
+        {
+            var page = await Api.GetAsync<JsonElement>($"api/v1/catalog/products?search={Uri.EscapeDataString(text)}&status=ACTIVE&pageSize=8");
+            var items = page.ValueKind == JsonValueKind.Array ? page : page.TryGetProperty("items", out var list) ? list : default;
+            return items.ValueKind == JsonValueKind.Array ? [.. items.EnumerateArray()] : [];
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            _offline = true;
+        }
+
+        return [];
+    }
+
+    private async Task AgregarSugerenciaAsync(JsonElement product)
+    {
+        var (quantity, _) = Separar(_scan);
+        _scan = string.Empty;
+        CerrarSugerencias();
+        await AgregarAsync(new { productId = product.GetProperty("id").GetGuid(), quantity });
+    }
+
     private async Task EscanerTeclaAsync(KeyboardEventArgs e)
     {
+        if (_sugerencias.Count > 0)
+        {
+            switch (e.Key)
+            {
+                case "ArrowUp" or "ArrowDown":
+                    _sugerida = Math.Clamp(_sugerida + (e.Key == "ArrowUp" ? -1 : 1), 0, _sugerencias.Count - 1);
+                    return;
+                case "Escape":
+                    CerrarSugerencias();
+                    return;
+                case "Enter" when _sugerida >= 0:
+                    await AgregarSugerenciaAsync(_sugerencias[_sugerida]);
+                    return;
+            }
+        }
+
         if (e.Key is "ArrowUp" or "ArrowDown")
         {
             await MoverSeleccionAsync(e.Key == "ArrowUp" ? -1 : 1);
@@ -257,16 +356,32 @@ public sealed partial class Caja
             return;
         }
 
-        var text = _scan.Trim();
-        _scan = string.Empty;
-        decimal? quantity = null;
-        var star = text.IndexOf('*', StringComparison.Ordinal);
-        if (star > 0 && decimal.TryParse(text[..star].Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var q))
+        var (quantity, text) = Separar(_scan);
+
+        // Enter con letras antes de que aparezca la lista: SKU exacto o un solo producto se agrega; si hay varios, se muestra la lista.
+        if (text.Any(char.IsLetter))
         {
-            quantity = q;
-            text = text[(star + 1)..];
+            _sugerirCts?.Cancel();
+            var encontrados = await BuscarProductosAsync(text);
+            var exacto = encontrados.FirstOrDefault(p => string.Equals(p.Str("sku"), text, StringComparison.OrdinalIgnoreCase));
+            if (exacto.ValueKind == JsonValueKind.Object || encontrados.Count == 1)
+            {
+                await AgregarSugerenciaAsync(exacto.ValueKind == JsonValueKind.Object ? exacto : encontrados[0]);
+                return;
+            }
+
+            _sugerencias = encontrados;
+            _sugerida = encontrados.Count > 0 ? 0 : -1;
+            if (encontrados.Count == 0)
+            {
+                Snackbar.Add($"No encontramos productos con \"{text}\".", Severity.Warning);
+            }
+
+            return;
         }
 
+        _scan = string.Empty;
+        CerrarSugerencias();
         await AgregarAsync(new { code = text, quantity });
     }
 
@@ -294,6 +409,7 @@ public sealed partial class Caja
     {
         _found = [];
         _search = null;
+        CerrarSugerencias();
         _panel = Panel.Buscar;
     }
 

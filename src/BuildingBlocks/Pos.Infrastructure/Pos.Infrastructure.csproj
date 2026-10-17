@@ -19,6 +19,7 @@
     <PackageReference Include="Dapper" />
     <PackageReference Include="MiniExcel" />
     <PackageReference Include="PDFsharp-MigraDoc" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="EFCore.NamingConventions" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="NSec.Cryptography" />

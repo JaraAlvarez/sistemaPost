@@ -396,6 +396,16 @@ html[data-tema="oscuro"] .caja-aviso.info { background: #1E1B4B; color: #E0E7FF;
 .caja-escaner .mud-input-outlined-border { border-width: 2px !important; border-radius: var(--bp-radio-l) !important; }
 .caja-escaner .mud-input:focus-within .mud-input-outlined-border { border-color: var(--mud-palette-primary) !important; box-shadow: 0 0 0 4px rgba(var(--mud-palette-primary-rgb), .18); }
 .caja-escaner .mud-button-root { min-height: var(--bp-tactil-caja); min-width: 120px; }
+/* Lista de productos bajo el escáner mientras se escribe un nombre (↑ ↓ Enter, Esc cierra). */
+.escaner-campo { position: relative; flex: 1; min-width: 0; }
+.sugerencias { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; display: grid; gap: 2px; padding: 6px;
+    max-height: 60vh; overflow-y: auto; background: var(--mud-palette-surface); border: 1px solid var(--mud-palette-lines-default);
+    border-radius: var(--bp-radio-l); box-shadow: 0 12px 32px rgba(0, 0, 0, .18); }
+.sugerencias button { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 10px 12px;
+    border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sugerencias button small { display: block; color: var(--mud-palette-text-secondary); font-size: 12px; }
+.sugerencias button .precio { font-weight: 700; white-space: nowrap; }
+.sugerencias button:hover, .sugerencias button.activa { background: rgba(var(--mud-palette-primary-rgb), .10); }
 .caja-lineas { flex: 1; min-height: 0; overflow-y: auto; margin: 0 16px 12px; background: var(--mud-palette-surface); border: 1px solid var(--mud-palette-lines-default); border-radius: var(--bp-radio-l); }
 .caja table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 17px; }
 .caja thead th {

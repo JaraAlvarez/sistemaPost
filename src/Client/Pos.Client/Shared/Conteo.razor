@@ -1,11 +1,14 @@
-@* Conteo de efectivo por denominación (apertura y cierre de la jornada): cantidad de billetes y monedas de cada valor. *@
+@* Conteo de efectivo por denominación (apertura y cierre de la jornada): se escribe el MONTO de cada valor (p. ej. 50.000 en monedas de
+   200) y aquí se calcula la cantidad de billetes o monedas, que es lo que recibe la API. *@
 <MudGrid Spacing="2">
     @foreach (var denomination in Denominaciones)
     {
         <MudItem xs="6" sm="4">
-            <MudNumericField T="int" Value="@Cantidades.GetValueOrDefault(denomination.Id)" ValueChanged="@(v => Cambiar(denomination.Id, v))"
-                             Label="@($"{(string.Equals(denomination.Kind, "COIN", StringComparison.OrdinalIgnoreCase) ? "Moneda" : "Billete")} {Format.Money(denomination.Value)}")" Min="0" Variant="Variant.Outlined"
-                             Margin="Margin.Dense" Immediate="true" HelperText="@Subtotal(denomination)" />
+            <MudTextField T="string" Value="@Texto(denomination.Id)" ValueChanged="@(v => Cambiar(denomination, v))"
+                          Label="@($"En {(string.Equals(denomination.Kind, "COIN", StringComparison.OrdinalIgnoreCase) ? "monedas" : "billetes")} de {Format.Money(denomination.Value)}")"
+                          Placeholder="0" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" InputMode="InputMode.numeric" autocomplete="off"
+                          Adornment="Adornment.Start" AdornmentText="$"
+                          Error="@(Invalido(denomination) is not null)" ErrorText="@Invalido(denomination)" HelperText="@Detalle(denomination)" />
         </MudItem>
     }
 </MudGrid>
@@ -14,18 +17,64 @@
     [Parameter, EditorRequired]
     public IReadOnlyList<Denomination> Denominaciones { get; set; } = [];
 
+    /// <summary>Cantidad de billetes o monedas por denominación (lo que se envía a la API).</summary>
     [Parameter, EditorRequired]
     public Dictionary<Guid, int> Cantidades { get; set; } = [];
 
     [Parameter]
     public EventCallback OnChanged { get; set; }
 
-    private string? Subtotal(Denomination denomination) =>
-        Cantidades.GetValueOrDefault(denomination.Id) is > 0 and var cantidad ? $"= {Format.Money(denomination.Value * cantidad)}" : null;
+    /// <summary>Lo que el cajero escribió en cada campo (se conserva aunque aún no sea válido).</summary>
+    private readonly Dictionary<Guid, string> _textos = [];
 
-    private async Task Cambiar(Guid id, int value)
+    protected override void OnParametersSet()
     {
-        Cantidades[id] = value;
+        // Si quien usa el componente reinicia el conteo (cantidades vacías), se limpian también los montos escritos.
+        foreach (var denomination in Denominaciones)
+        {
+            var cantidad = Cantidades.GetValueOrDefault(denomination.Id);
+            if (_textos.TryGetValue(denomination.Id, out var texto) && Monto(texto) is { } monto && monto != cantidad * denomination.Value && Invalido(denomination) is null)
+            {
+                _textos[denomination.Id] = cantidad > 0 ? (cantidad * denomination.Value).ToString("#,##0", Format.Colombia) : "";
+            }
+        }
+    }
+
+    private string Texto(Guid id) => _textos.GetValueOrDefault(id) ?? "";
+
+    /// <summary>Monto escrito: admite "50.000", "50000" o "$ 50.000"; vacío = 0; <c>null</c> si no es un número entero.</summary>
+    private static decimal? Monto(string? texto)
+    {
+        var limpio = new string((texto ?? "").Where(c => c is not ('.' or ',' or '$' or ' ')).ToArray());
+        return limpio.Length == 0 ? 0m
+            : limpio.All(char.IsDigit) && decimal.TryParse(limpio, System.Globalization.NumberStyles.None, Format.Colombia, out var valor) ? valor
+            : null;
+    }
+
+    private string? Invalido(Denomination denomination) =>
+        Monto(Texto(denomination.Id)) switch
+        {
+            null => "Escriba solo números.",
+            { } monto when monto % denomination.Value != 0 => $"Debe ser múltiplo de {Format.Money(denomination.Value)}.",
+            _ => null,
+        };
+
+    private string? Detalle(Denomination denomination)
+    {
+        var cantidad = Cantidades.GetValueOrDefault(denomination.Id);
+        if (cantidad <= 0)
+        {
+            return null;
+        }
+
+        var coin = string.Equals(denomination.Kind, "COIN", StringComparison.OrdinalIgnoreCase);
+        return $"= {cantidad.ToString("#,##0", Format.Colombia)} {(coin ? cantidad == 1 ? "moneda" : "monedas" : cantidad == 1 ? "billete" : "billetes")}";
+    }
+
+    private async Task Cambiar(Denomination denomination, string? texto)
+    {
+        _textos[denomination.Id] = texto ?? "";
+        Cantidades[denomination.Id] = Invalido(denomination) is null && Monto(texto) is { } monto ? (int)(monto / denomination.Value) : 0;
         await OnChanged.InvokeAsync();
     }
 }
