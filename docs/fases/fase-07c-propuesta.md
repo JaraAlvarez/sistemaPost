@@ -114,3 +114,24 @@ El primer driver será **Toledo 8217** (lo emulan muchas marcas) + **CAS**; los 
 
 **Pruebas:** `Pos.Terminal.Agent.Tests` 107/107 correctas (incluye tramas válidas, inestables, cero, negativas, sobrepeso, basura,
 tramas cortadas, tiempo de espera y endpoints); `Pos.SharedKernel.UnitTests` 103/103. Agente compila en Release sin advertencias.
+
+## Decisión del propietario (2026-10-17): sin botón "Pesar"
+
+La lectura de la báscula es **automática** según el producto, no por un botón:
+
+1. En el producto se marca **"Se vende por báscula"** (ya existe el campo). Ese es el único dato que decide si un producto depende de
+   la báscula.
+2. En la caja el cajero **escanea o escribe el código** (por ejemplo, el de papa) y da **Enter**: si el producto es de báscula y la caja
+   tiene báscula configurada, BusinessPost **lee el peso en ese momento** y agrega la línea con ese peso
+   (0,700 kg × $3.000/kg = $2.100).
+3. Casos:
+   - **Peso inestable** (el producto se está moviendo): la línea espera hasta ~3 s ⚙️ mostrando "Esperando peso estable…" y se agrega
+     sola al estabilizarse.
+   - **Báscula en cero o vacía**: aviso "Ponga el producto en la báscula" y espera hasta ~5 s ⚙️; si no llega peso, no agrega nada.
+   - **Sobrepeso, peso negativo o báscula desconectada**: aviso claro; en desconexión se puede **digitar el peso** (con permiso
+     ⚙️, queda marcado en la línea como "peso digitado").
+   - **Etiqueta de báscula** (EAN-13 prefijo 20–28): como hoy, el peso viene en la etiqueta y no se lee la báscula.
+4. La tara se configura por producto (bolsa/bandeja) y se descuenta sola; la tara manual queda como tecla opcional.
+5. La línea guarda si el peso fue **leído de la báscula**, **de la etiqueta** o **digitado** (auditoría y reportes).
+
+Esto reemplaza en §4 el botón "Pesar" y el "agregar automáticamente al estabilizar" opcional.
