@@ -100,6 +100,40 @@ public class UserManagementTests
     }
 
     [Fact]
+    public async Task Cambiar_la_contrasena_o_el_PIN_con_exito_reinicia_los_intentos_fallidos()
+    {
+        await using var factory = new PosServerFactory();
+        var scenario = await SecurityScenario.CreateAsync(factory);
+        await scenario.CreateUserAsync("distraida", "CASHIER", posCode: "400", pin: "5937");
+        var client = await scenario.LocalClientAsync("distraida");
+        const string FailedCount = "SELECT failed_login_count::int FROM identity.users WHERE username = 'distraida'";
+
+        for (var i = 0; i < 4; i++)
+        {
+            await client.PostAsJsonAsync("/api/v1/auth/change-password", new { currentPassword = "Clave-Incorrecta-1", newPassword = "Otra-Clave-Nueva-2026" }, Json, Ct)
+                .ShouldFailWithAsync(HttpStatusCode.BadRequest, "IDENTITY.CURRENT_PASSWORD_INVALID");
+        }
+
+        (await Phase2.OrganizationApiTests.ScalarAsync<int>(factory, FailedCount)).ShouldBe(4);
+        (await client.PostAsJsonAsync("/api/v1/auth/change-password",
+            new { currentPassword = SecurityScenario.ChangedPassword, newPassword = "Otra-Clave-Nueva-2026" }, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await Phase2.OrganizationApiTests.ScalarAsync<int>(factory, FailedCount)).ShouldBe(0);
+
+        for (var i = 0; i < 2; i++)
+        {
+            await client.PostAsJsonAsync("/api/v1/auth/change-pin", new { currentPin = "0000", newPin = "6048" }, Json, Ct)
+                .ShouldFailWithAsync(HttpStatusCode.BadRequest, "IDENTITY.CURRENT_PIN_INVALID");
+        }
+
+        (await client.PostAsJsonAsync("/api/v1/auth/change-pin", new { currentPin = "5937", newPin = "6048" }, Json, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await Phase2.OrganizationApiTests.ScalarAsync<int>(factory, FailedCount)).ShouldBe(0);
+
+        // Sin el reinicio, este tercer fallo bloquearía el PIN (máximo 3).
+        await client.PostAsJsonAsync("/api/v1/auth/change-pin", new { currentPin = "0000", newPin = "7152" }, Json, Ct)
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "IDENTITY.CURRENT_PIN_INVALID");
+    }
+
+    [Fact]
     public async Task Fallar_el_PIN_actual_al_cambiarlo_bloquea_el_PIN()
     {
         await using var factory = new PosServerFactory();

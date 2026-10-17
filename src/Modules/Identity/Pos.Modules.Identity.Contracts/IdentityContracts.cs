@@ -130,10 +130,10 @@ public sealed record MeDto(
     BusinessFeaturesDto? Business = null);
 
 /// <summary>
-/// Código de caja y PIN del usuario de la sesión, con lo que exige la empresa: <c>PinLength</c> (security.pin_length) y
-/// <c>PasswordMinLength</c> (security.password_min_length).
+/// Código de caja y PIN del usuario de la sesión, con lo que exige la empresa: <c>PinLength</c> (security.pin_length),
+/// <c>PasswordMinLength</c> (security.password_min_length) y <c>PasswordHistory</c> (security.password_history: últimas que no se repiten).
 /// </summary>
-public sealed record CredentialStatusDto(string? PosCode, bool HasPin, int PinLength, int PasswordMinLength);
+public sealed record CredentialStatusDto(string? PosCode, bool HasPin, int PinLength, int PasswordMinLength, int PasswordHistory);
 
 public sealed record LoginResultDto(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeDto User);
 

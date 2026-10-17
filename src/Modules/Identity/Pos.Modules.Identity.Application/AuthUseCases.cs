@@ -394,6 +394,7 @@ internal sealed class ChangePasswordHandler(ICurrentUser current, AuthServices a
         }
 
         // Las demás sesiones del usuario se cierran: la contraseña anterior podría estar comprometida.
+        user.ResetFailedAttempts();
         await sessions.RevokeAllForUserAsync(user.Id, user.Id, "PASSWORD_CHANGED", current.SessionId, cancellationToken);
         await auth.AuditAsync(user, "PASSWORD_CHANGED", $"{user.DisplayName} cambió su contraseña.", AuditSeverity.Info, cancellationToken);
         return AuthOutcome.Ok(AuthDone.Instance);
@@ -440,6 +441,7 @@ internal sealed class ChangePinHandler(ICurrentUser current, AuthServices auth, 
             return changed.Error;
         }
 
+        user.ResetFailedAttempts();
         await sessions.RevokeTerminalSessionsForUserAsync(user.Id, user.Id, "PIN_CHANGED", current.SessionId, cancellationToken);
         var summary = firstTime
             ? $"{user.DisplayName} definió su código de caja ({posCode.Value}) y su PIN."
@@ -466,7 +468,8 @@ internal sealed class GetMyCredentialsHandler(ICurrentUser current, IIdentitySto
         var context = new SettingContext(user.CompanyId);
         var pinLength = await settings.GetAsync(SecuritySettings.PinLength, context, cancellationToken);
         var passwordMinLength = await settings.GetAsync(SecuritySettings.PasswordMinLength, context, cancellationToken);
-        return new CredentialStatusDto(user.PosCode, user.PinHash is not null, pinLength, passwordMinLength);
+        var passwordHistory = await settings.GetAsync(SecuritySettings.PasswordHistory, context, cancellationToken);
+        return new CredentialStatusDto(user.PosCode, user.PinHash is not null, pinLength, passwordMinLength, passwordHistory);
     }
 }
 
