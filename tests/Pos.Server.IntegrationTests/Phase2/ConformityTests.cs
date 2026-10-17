@@ -79,7 +79,9 @@ public class ConformityTests(PosServerFactory factory) : IClassFixture<PosServer
                 or "inventory_adjustment_lines" or "inventory_count_lines" or "inventory_count_entries" or "stock_transfer_lines"
                 or "party_contacts" or "purchase_order_lines" or "purchase_lines" or "purchase_line_taxes" or "purchase_withholdings" or "payable_entries"
                 or "payable_payment_allocations" or "supplier_return_lines" or "cash_counts" or "cash_count_lines" or "cash_session_totals" or "promotion_items" or "promotion_branches"
-                or "sale_lines" or "sale_line_taxes" or "sale_payments" or "sale_discounts" or "customer_return_lines" or "fiscal_document_events" or "customer_consents"))
+                or "sale_lines" or "sale_line_taxes" or "sale_payments" or "sale_discounts" or "customer_return_lines" or "fiscal_document_events" or "customer_consents"
+                // Estado de la báscula y lecturas firmadas: se identifican por la caja (org.terminals), que sí tiene empresa.
+                or "scale_interlocks" or "scale_readings"))
             .Where(e => !typeof(ICompanyOwned).IsAssignableFrom(e.ClrType))
             .Select(e => e.ClrType.FullName)
             .ToList();

@@ -138,12 +138,13 @@ internal sealed class GetCurrentSaleHandler(ISalesStore store, TerminalResolver 
 /// de la etiqueta; si no, <c>Quantity</c> (1 por defecto). Valida que se pueda vender (RN-SAL-02), las existencias (RN-SAL-17)
 /// y los lotes vencidos (RN-SAL-18: <c>AuthorizeExpired</c> solo llega desde el endpoint que exige esa autorización).
 /// </summary>
-/// <para>Fase 7-C: <c>WeightKg</c> es el peso leído de la báscula de la caja (<c>WeightSource</c> SCALE, se descuenta la tara del
-/// producto) o digitado porque la báscula no respondía (MANUAL: solo por la ruta que exige <c>sales.weight.manual</c>, queda auditado).
-/// La cantidad se calcula en la unidad del producto (kg, g, libra de 500 g o libra).</para>
+/// <para>Fase 7-C: con <c>WeightKg</c> el origen es obligatorio (nunca se supone la báscula): SCALE = leído de la báscula de la caja,
+/// con la lectura FIRMADA por el agente en <c>Scale</c> (D3: el peso, la tara y el retorno a cero salen de ahí); MANUAL = digitado porque la báscula no respondía (solo
+/// por la ruta que exige <c>sales.weight.manual</c> o supervisor, queda auditado). La cantidad se calcula en la unidad del producto
+/// (kg, g, libra de 500 g o libra).</para>
 public sealed record AddLineCommand(
     Guid SaleId, string? Code, Guid? ProductId, Guid? PackagingId, decimal? Quantity, bool AuthorizeExpired = false, decimal? WeightKg = null,
-    string? WeightSource = null, bool AuthorizeManualWeight = false) : ICommand<SaleDto>, IRestrictedSalesWindow;
+    string? WeightSource = null, bool AuthorizeManualWeight = false, ScaleReadingInfo? Scale = null) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class AddLineHandler(
     SaleEditor editor,
@@ -153,8 +154,12 @@ internal sealed class AddLineHandler(
     IAuthorizationScope authorization,
     IActorContext actor,
     IAuditWriter audit,
-    IIdGenerator ids) : ICommandHandler<AddLineCommand, SaleDto>
+    IIdGenerator ids,
+    IClock clock,
+    ScaleReadingVerifier readings,
+    ISalesStore store) : ICommandHandler<AddLineCommand, SaleDto>
 {
+
     public async Task<Result<SaleDto>> Handle(AddLineCommand request, CancellationToken cancellationToken)
     {
         var loaded = await editor.LoadAsync(request.SaleId, cancellationToken);
@@ -181,9 +186,35 @@ internal sealed class AddLineHandler(
         var quantity = scale ? item.Quantity : request.Quantity ?? 1m;
         var source = item.Source;
         var manualWeight = false;
+        decimal? scaleGross = null;
+        DateTimeOffset? weighedAt = null;
+        VerifiedScaleReading? verified = null;
+        ScaleInterlock? interlock = null;
         if (request.WeightKg is { } weightKg)
         {
-            var weighed = WeighedQuantity(item, weightKg, request.WeightSource, request.AuthorizeManualWeight, scale);
+            // D3: el peso de la báscula solo vale firmado por el agente de ESTA caja, sin repetir y respetando el retorno a cero (D1).
+            if (IsScale(request.WeightSource))
+            {
+                var checkedReading = await readings.VerifyAsync(request.Scale, scope.PosTerminalId, cancellationToken);
+                if (checkedReading.IsFailure)
+                {
+                    return checkedReading.Error;
+                }
+
+                verified = checkedReading.Value;
+                interlock = await store.GetScaleInterlockAsync(scope.PosTerminalId, cancellationToken);
+                var skew = await settings.GetAsync(
+                    SalesSettings.ScaleReadingMaxSkewSeconds, new SettingContext(sale.CompanyId, sale.BranchId, scope.PosTerminalId), cancellationToken);
+                var state = interlock ?? ScaleInterlock.Start(scope.PosTerminalId, sale.CompanyId, clock.UtcNow);
+                state.AdoptKey(verified.KeyId);
+                var blocked = state.Check(verified.Reading, clock.UtcNow, TimeSpan.FromSeconds(skew));
+                if (blocked.IsFailure)
+                {
+                    return blocked.Error;
+                }
+            }
+
+            var weighed = WeighedQuantity(item, weightKg, request.WeightSource, request.AuthorizeManualWeight, scale, verified?.Reading);
             if (weighed.IsFailure)
             {
                 return weighed.Error;
@@ -191,13 +222,18 @@ internal sealed class AddLineHandler(
 
             (quantity, source) = weighed.Value;
             manualWeight = source == "MANUAL_WEIGHT";
+            if (source == "SCALE_LIVE")
+            {
+                (scaleGross, weighedAt) = (verified!.Reading.GrossKg, clock.UtcNow);
+            }
         }
+
         Guid? expiredBy = request.AuthorizeExpired ? authorization.Current?.AuthorizedBy ?? actor.ActorId : null;
         var input = new SaleLineInput(
             item.ProductId, item.Sku, item.Name, request.Code?.Trim(), source, item.BaseUnitCode, item.PackagingId, item.PackagingName, item.Factor, quantity,
             item.UnitPrice ?? 0m, item.PriceIncludesTax, item.CategoryId, item.BrandId, item.IsStockable, item.AllowsDecimalQuantity, item.AllowsOpenPrice,
             [.. item.Taxes.Select(t => new PricingTax(t.TaxId, t.Code, t.Kind, t.Rate, t.FixedAmount))], expiredBy, item.PriceListId,
-            item.UnitPrice is null ? PriceSources.Open : item.PriceSource);
+            item.UnitPrice is null ? PriceSources.Open : item.PriceSource, scaleGross, weighedAt);
         var merge = await settings.GetAsync(SalesSettings.MergeSameProduct, new SettingContext(sale.CompanyId, sale.BranchId, scope.PosTerminalId), cancellationToken);
         var line = sale.AddLine(input, merge, ids.NewId);
         if (line.IsFailure)
@@ -209,6 +245,27 @@ internal sealed class AddLineHandler(
         if (available.IsFailure)
         {
             return available.Error;
+        }
+
+        if (verified is not null && source == "SCALE_LIVE")
+        {
+            // Retorno a cero en el servidor (por caja: recargar la pantalla no lo borra) y la lectura firmada queda guardada (auditoría y nonce).
+            var now = clock.UtcNow;
+            if (interlock is null)
+            {
+                interlock = ScaleInterlock.Start(scope.PosTerminalId, sale.CompanyId, now);
+                store.Add(interlock);
+            }
+
+            interlock.Accept(verified.Reading, verified.KeyId, sale.Id, line.Value.Id, now);
+            if (interlock.PurgeDue(now))
+            {
+                // BB10: las lecturas firmadas se guardan 90 días (auditoría); la limpieza va con la pesada, una vez al día por caja.
+                await store.PurgeScaleReadingsAsync(scope.PosTerminalId, now.AddDays(-90), cancellationToken);
+            }
+
+            store.Add(ScaleReadingRecord.Of(
+                verified.Reading, request.Scale!.Payload, request.Scale.Signature, verified.KeyId, sale.CompanyId, sale.Id, line.Value.Id, now));
         }
 
         if (expiredBy is not null)
@@ -237,15 +294,29 @@ internal sealed class AddLineHandler(
         return sale.ToDto(item.UnitPrice is null ? [$"{item.Name}: fije el precio (precio abierto) antes de cobrar."] : null);
     }
 
+    private static bool IsScale(string? weightSource) => string.Equals(weightSource, WeightSources.Scale, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
-    /// Cantidad de una línea pesada en la caja: peso de la báscula menos la tara del producto (o el peso digitado), convertido a la unidad
-    /// del producto. Solo productos por peso, sin presentación y sin etiqueta de báscula (la etiqueta ya trae su peso).
+    /// Cantidad de una línea pesada en la caja, convertida a la unidad del producto. Solo productos por peso, sin presentación y sin
+    /// etiqueta de báscula (la etiqueta ya trae su peso).
+    /// <para>Con SCALE, <paramref name="reading"/> es la lectura ya verificada (firma de la caja): el peso, la tara y la estabilidad salen
+    /// de ella y <paramref name="weightKg"/> debe coincidir con su neto.</para>
+    /// <para>Fórmula de la tara (una sola regla, Fase 7-C): el agente entrega <c>WeightKg = bruto − tara manual</c>. La tara del producto
+    /// (bolsa o bandeja del catálogo) se descuenta aquí UNA vez y solo si no hubo otra tara: <c>neto = WeightKg − taraProducto</c> cuando
+    /// la tara manual es 0 y la báscula no envió un peso neto; si el cajero tomó la tara manual (Ins) o la báscula ya taró, esa tara
+    /// reemplaza a la del producto (<c>neto = WeightKg</c>). El peso digitado (MANUAL) es el peso neto del producto: no descuenta tara.</para>
     /// </summary>
     internal static Result<(decimal Quantity, string Source)> WeighedQuantity(
-        CatalogSaleItem item, decimal weightKg, string? weightSource, bool manualAuthorized, bool scaleLabel)
+        CatalogSaleItem item, decimal weightKg, string? weightSource, bool manualAuthorized, bool scaleLabel, ScaleReadingPayload? reading = null)
     {
+        if (string.IsNullOrWhiteSpace(weightSource))
+        {
+            return Error.Validation(
+                "SALES.WEIGHT_SOURCE_REQUIRED", "Indique de dónde salió el peso: SCALE (báscula de la caja) o MANUAL (digitado, con permiso).");
+        }
+
         var manual = string.Equals(weightSource, WeightSources.Manual, StringComparison.OrdinalIgnoreCase);
-        if (!manual && !string.Equals(weightSource ?? WeightSources.Scale, WeightSources.Scale, StringComparison.OrdinalIgnoreCase))
+        if (!manual && !string.Equals(weightSource, WeightSources.Scale, StringComparison.OrdinalIgnoreCase))
         {
             return Error.Validation("SALES.INVALID_WEIGHT_SOURCE", "El origen del peso es SCALE (báscula) o MANUAL (digitado).");
         }
@@ -260,12 +331,33 @@ internal sealed class AddLineHandler(
             return Error.BusinessRule("SALES.NOT_WEIGHABLE", $"{item.Name} no se vende por peso: regístrelo sin peso.");
         }
 
-        var net = decimal.Round(manual ? weightKg : weightKg - (item.TareGrams / 1000m), 3, MidpointRounding.AwayFromZero);
+        var productTare = 0m;
+        if (!manual)
+        {
+            if (reading is null)
+            {
+                return SalesErrors.ScaleReadingRequired;
+            }
+
+            if (!reading.Stable || reading.Status != "OK")
+            {
+                return Error.BusinessRule("SALES.SCALE_WEIGHT_UNSTABLE", "El peso de la báscula no estaba quieto: espere a que se estabilice y vuelva a registrar.");
+            }
+
+            if (reading.TareKg < 0m || Math.Abs(reading.GrossKg - reading.TareKg - reading.NetKg) > 0.001m || Math.Abs(reading.NetKg - weightKg) > 0.0005m)
+            {
+                return Error.Validation("SALES.INVALID_SCALE_READING", "La lectura de la báscula no cuadra con el peso enviado: vuelva a registrar el producto.");
+            }
+
+            productTare = reading.TareKg == 0m && !reading.ScaleNet ? item.TareGrams / 1000m : 0m;
+        }
+
+        var net = decimal.Round(weightKg - productTare, 3, MidpointRounding.AwayFromZero);
         if (weightKg <= 0m || net <= 0m)
         {
             return Error.BusinessRule(
                 "SALES.WEIGHT_TOO_LOW",
-                item.TareGrams > 0 && !manual
+                productTare > 0m
                     ? $"El peso ({weightKg:0.000} kg) no supera la tara de {item.Name} ({item.TareGrams} g): ponga el producto en la báscula."
                     : "El peso debe ser mayor que cero: ponga el producto en la báscula.");
         }
@@ -318,7 +410,7 @@ internal sealed class ChangeQuantityHandler(SaleEditor editor, StockGuard stock)
 /// <summary>Elimina una línea: queda VOIDED con quién y cuándo (RN-SAL-06).</summary>
 public sealed record VoidLineCommand(Guid SaleId, Guid LineId) : ICommand<SaleDto>, IAllowedWhenRestricted;
 
-internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IClock clock, IAuditWriter audit, IAuthorizationScope authorization)
+internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IClock clock, IAuditWriter audit, IAuthorizationScope authorization, ISalesStore store)
     : ICommandHandler<VoidLineCommand, SaleDto>
 {
     public async Task<Result<SaleDto>> Handle(VoidLineCommand request, CancellationToken cancellationToken)
@@ -338,6 +430,13 @@ internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IC
 
         // Fase 10 (§5.1): la línea eliminada también queda en la bitácora, con quién autorizó si fue un supervisor.
         var line = sale.Lines.First(l => l.Id == request.LineId);
+
+        // BN1: eliminar la línea de la última pesada (para volver a pesar) libera el retorno a cero de la báscula de la caja.
+        if (line.Source == "SCALE_LIVE" && await store.GetScaleInterlockAsync(sale.PosTerminalId, cancellationToken) is { } interlock)
+        {
+            interlock.Release(line.Id, clock.UtcNow);
+        }
+
         await audit.WriteAsync(
             new AuditEntry("sales", "SALE_LINE_VOIDED", nameof(Sale), sale.Id, sale.AuditLabel,
                 $"Línea eliminada: {line.Quantity:0.####} × {line.Name} ({line.Gross:N2}).", AuthorizedBy: authorization.Current?.AuthorizedBy),

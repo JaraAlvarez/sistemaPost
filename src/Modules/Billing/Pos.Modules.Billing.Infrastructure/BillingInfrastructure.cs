@@ -36,6 +36,7 @@ internal sealed class BillingModelContributor : IModelContributor
             b.Property(x => x.Source).HasUpperSnakeConversion();
             b.Property(x => x.DocumentType).HasUpperSnakeConversion();
             b.Property(x => x.Status).HasUpperSnakeConversion();
+            b.Property(x => x.Environment).HasConversion(new UpperSnakeEnumConverter<FiscalEnvironment>());
             b.Property(x => x.BuyerFiscal).HasColumnType("jsonb").HasConversion(new BuyerFiscalConverter());
             b.Ignore(x => x.IsElectronic);
             b.Ignore(x => x.IsOpen);
@@ -59,6 +60,7 @@ internal sealed class BillingModelContributor : IModelContributor
             b.Property(x => x.Id).ValueGeneratedNever();
             b.Property(x => x.DocumentType).HasUpperSnakeConversion();
             b.Ignore(x => x.UsagePercent);
+            b.Property(x => x.Environment).HasUpperSnakeConversion();
             b.Ignore(x => x.Remaining);
             b.HasControlColumns();
             b.HasXminConcurrency();
@@ -69,9 +71,15 @@ internal sealed class BillingModelContributor : IModelContributor
             b.ToTable("provider_settings", "billing");
             b.HasKey(x => x.CompanyId);
             b.Property(x => x.CompanyId).ValueGeneratedNever();
-            b.Property(x => x.Environment).HasUpperSnakeConversion();
+            b.Property(x => x.Environment).HasConversion(new UpperSnakeEnumConverter<FiscalEnvironment>());
             b.Property(x => x.Mode).HasUpperSnakeConversion();
+            b.Property(x => x.BacklogEnvironment).HasConversion(new UpperSnakeEnumConverter<FiscalEnvironment>());
             b.Ignore(x => x.HasCredentials);
+            b.Ignore(x => x.IsVerified);
+            b.Ignore(x => x.CanSend);
+            b.Ignore(x => x.RangesStale);
+            b.Property(x => x.RangesEnvironment).HasConversion(new UpperSnakeEnumConverter<FiscalEnvironment>());
+            b.Ignore(x => x.HeldBefore);
             b.HasControlColumns();
             b.HasXminConcurrency();
         });
@@ -138,13 +146,36 @@ internal sealed class FiscalDocumentStore(PosDbContext context) : IFiscalDocumen
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Guid>> ListDueAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken) =>
+    // Retenidos: pendientes, con error, en contingencia o reclamados (PB7: un reclamo colgado también se puede descartar).
+    private static readonly FiscalStatus[] Held = [FiscalStatus.Pending, FiscalStatus.Error, FiscalStatus.Contingency, FiscalStatus.Submitting];
+
+    public async Task<IReadOnlyList<Guid>> ListDueAsync(
+        DateTimeOffset now, int limit, DateTimeOffset? heldBefore, FiscalEnvironment environment, CancellationToken cancellationToken) =>
         await context.Set<FiscalDocument>().AsNoTracking()
             .Where(d => Queued.Contains(d.Status) && d.NextAttemptAt != null && d.NextAttemptAt <= now)
+            .Where(d => d.Environment == environment)
+            .Where(d => heldBefore == null || d.IssuedAt >= heldBefore)
             .OrderBy(d => d.IssuedAt).ThenBy(d => d.Id)
             .Select(d => d.Id)
             .Take(limit)
             .ToListAsync(cancellationToken);
+
+    public async Task<FiscalHeldCount> CountHeldAsync(DateTimeOffset? heldBefore, FiscalEnvironment environment, CancellationToken cancellationToken)
+    {
+        var held = HeldQuery(heldBefore, environment);
+        var other = await held.CountAsync(d => d.Environment != environment, cancellationToken);
+        var before = await held.CountAsync(d => d.Environment == environment, cancellationToken);
+        var review = await held.CountAsync(d => d.Attempts > 0 || d.Status == FiscalStatus.Submitting, cancellationToken);
+        return new FiscalHeldCount(before, other, review);
+    }
+
+    public async Task<IReadOnlyList<FiscalDocument>> ListHeldAsync(DateTimeOffset? heldBefore, FiscalEnvironment environment, CancellationToken cancellationToken) =>
+        await HeldQuery(heldBefore, environment).Include(d => d.Events).OrderBy(d => d.IssuedAt).ToListAsync(cancellationToken);
+
+    private IQueryable<FiscalDocument> HeldQuery(DateTimeOffset? heldBefore, FiscalEnvironment environment) =>
+        context.Set<FiscalDocument>()
+            .Where(d => Held.Contains(d.Status) && d.DocumentType != FiscalDocumentType.InternalReceipt)
+            .Where(d => d.Environment != environment || (heldBefore != null && d.IssuedAt < heldBefore));
 }
 
 internal sealed class FiscalRangeStore(PosDbContext context) : IFiscalRangeStore
@@ -489,6 +520,7 @@ internal sealed class FiscalReadModel(PosDbContext context) : IFiscalReadModel
                        count(*) FILTER (WHERE f.source = 'SALE' AND f.status = 'REJECTED') AS rejected,
                        count(*) FILTER (WHERE f.source = 'SALE' AND f.status = 'ERROR') AS error,
                        count(*) FILTER (WHERE f.source = 'SALE' AND f.status = 'CANCELLED') AS cancelled,
+                       count(*) FILTER (WHERE f.status = 'NOT_SENT') AS not_sent,
                        count(*) FILTER (WHERE f.document_type = 'CREDIT_NOTE') AS credit_notes,
                        COALESCE(sum(f.total) FILTER (WHERE f.source = 'SALE' AND f.status = 'ACCEPTED'), 0) AS accepted_total
                 FROM billing.fiscal_documents f
@@ -499,7 +531,8 @@ internal sealed class FiscalReadModel(PosDbContext context) : IFiscalReadModel
                    COALESCE(s.total, 0) AS SalesTotal, COALESCE(f.internal, 0)::int AS InternalReceipts, COALESCE(f.accepted, 0)::int AS Accepted,
                    COALESCE(f.pending, 0)::int AS Pending, COALESCE(f.contingency, 0)::int AS Contingency, COALESCE(f.rejected, 0)::int AS Rejected,
                    COALESCE(f.error, 0)::int AS Error, COALESCE(f.cancelled, 0)::int AS Cancelled, COALESCE(f.credit_notes, 0)::int AS CreditNotes,
-                   COALESCE(s.without_document, 0)::int AS SalesWithoutDocument, COALESCE(f.accepted_total, 0) AS AcceptedTotal
+                   COALESCE(s.without_document, 0)::int AS SalesWithoutDocument, COALESCE(f.accepted_total, 0) AS AcceptedTotal,
+                   COALESCE(f.not_sent, 0)::int AS NotSent
             FROM days d
             LEFT JOIN s ON s.business_date = d.business_date
             LEFT JOIN f ON f.business_date = d.business_date
@@ -508,30 +541,38 @@ internal sealed class FiscalReadModel(PosDbContext context) : IFiscalReadModel
             new { branch = branchId, from = BillingDb.Text(from), to = BillingDb.Text(to) }, transaction, cancellationToken: cancellationToken));
         return [.. rows.Select(r => new FiscalReconciliationDayDto(
             r.BusinessDate, r.SalesCompleted, r.SalesVoided, r.SalesTotal, r.InternalReceipts, r.Accepted, r.Pending, r.Contingency, r.Rejected,
-            r.Error, r.Cancelled, r.CreditNotes, r.SalesWithoutDocument, r.AcceptedTotal))];
+            r.Error, r.Cancelled, r.CreditNotes, r.SalesWithoutDocument, r.AcceptedTotal, r.NotSent))];
     }
 
-    public async Task<FiscalAttention> AttentionAsync(Guid companyId, DateTimeOffset overdueBefore, CancellationToken cancellationToken)
+    public async Task<FiscalAttention> AttentionAsync(
+        Guid companyId, DateTimeOffset overdueBefore, DateTimeOffset? heldBefore, FiscalEnvironment? environment, CancellationToken cancellationToken)
     {
         var (connection, transaction) = await BillingDb.OpenAsync(context, cancellationToken);
         var row = await connection.QuerySingleAsync<AttentionRow>(new CommandDefinition(
             """
-            SELECT count(*) FILTER (WHERE d.status IN ('PENDING', 'ERROR', 'CONTINGENCY', 'SUBMITTING') AND d.issued_at < @before)::int AS PendingOverdue,
+            WITH d AS (
+                SELECT d.*, (d.status IN ('PENDING', 'ERROR', 'CONTINGENCY', 'SUBMITTING')
+                             AND (@env::text IS NULL OR d.environment = @env::text)
+                             AND (@held::timestamptz IS NULL OR d.issued_at >= @held::timestamptz)) AS open_in_queue
+                FROM billing.fiscal_documents d
+                WHERE d.company_id = @company
+                  AND d.status IN ('PENDING', 'ERROR', 'CONTINGENCY', 'SUBMITTING', 'REJECTED')
+            )
+            SELECT count(*) FILTER (WHERE d.open_in_queue AND d.issued_at < @before)::int AS PendingOverdue,
                    count(*) FILTER (WHERE d.status = 'REJECTED')::int AS Rejected,
-                   count(*) FILTER (WHERE d.status = 'PENDING' AND d.numbering_range_id IS NULL AND EXISTS (
+                   count(*) FILTER (WHERE d.status = 'PENDING' AND d.open_in_queue AND d.numbering_range_id IS NULL AND EXISTS (
                        SELECT 1 FROM billing.fiscal_document_events e WHERE e.fiscal_document_id = d.id AND e.event_type = 'NO_RANGE'))::int AS WithoutRange,
-                   min(d.issued_at) FILTER (WHERE d.status IN ('PENDING', 'ERROR', 'CONTINGENCY', 'SUBMITTING')) AS OldestPendingAt
-            FROM billing.fiscal_documents d
-            WHERE d.company_id = @company
-              AND d.status IN ('PENDING', 'ERROR', 'CONTINGENCY', 'SUBMITTING', 'REJECTED')
+                   min(d.issued_at) FILTER (WHERE d.open_in_queue) AS OldestPendingAt
+            FROM d
             """,
-            new { company = companyId, before = overdueBefore.UtcDateTime }, transaction, cancellationToken: cancellationToken));
+            new { company = companyId, before = overdueBefore.UtcDateTime, held = heldBefore?.UtcDateTime, env = environment?.Db() },
+            transaction, cancellationToken: cancellationToken));
         return new FiscalAttention(row.PendingOverdue, row.Rejected, row.WithoutRange, row.OldestPendingAt is { } oldest ? BillingDb.Utc(oldest) : null);
     }
 
     private sealed record ReconciliationRow(
         DateOnly BusinessDate, int SalesCompleted, int SalesVoided, decimal SalesTotal, int InternalReceipts, int Accepted, int Pending, int Contingency,
-        int Rejected, int Error, int Cancelled, int CreditNotes, int SalesWithoutDocument, decimal AcceptedTotal);
+        int Rejected, int Error, int Cancelled, int CreditNotes, int SalesWithoutDocument, decimal AcceptedTotal, int NotSent);
 
     private sealed record AttentionRow(int PendingOverdue, int Rejected, int WithoutRange, DateTime? OldestPendingAt);
 }
@@ -584,8 +625,15 @@ internal sealed class FiscalDocumentPendingHandler(FiscalQueueSignal signal) : I
 /// <summary>Configuración <c>Pos:Billing</c>.</summary>
 public sealed class BillingOptions
 {
-    /// <summary>Adaptador: NONE (por defecto: facturación electrónica apagada), FAKE (solo fuera de producción) o FACTUS (Factus API v2).</summary>
-    public string Provider { get; set; } = "NONE";
+    /// <summary>
+    /// Adaptador por defecto. PB2: sigue siendo NONE hasta que el usuario apruebe la adenda A del ADR-0059; al aprobarla, el cambio es esta
+    /// sola línea: <c>DefaultProvider = FactusFiscalProvider.ProviderName</c>. Mientras tanto se habilita por instalación con
+    /// <c>"Pos": { "Billing": { "Provider": "FACTUS" } }</c> en server.json. Las salvaguardas de la cola (PA1) valen con cualquier valor.
+    /// </summary>
+    public const string DefaultProvider = "NONE";
+
+    /// <summary>Adaptador: NONE (por defecto hasta aprobar la adenda A), FAKE (solo fuera de producción) o FACTUS (Factus API v2).</summary>
+    public string Provider { get; set; } = DefaultProvider;
 
     /// <summary>Si el proceso en segundo plano envía la cola (las pruebas lo apagan para dirigirla a mano).</summary>
     public bool Worker { get; set; } = true;
@@ -616,7 +664,7 @@ public sealed partial class FiscalQueueRunner(IServiceScopeFactory scopes, Fisca
 
         try
         {
-            FiscalConnection? connection;
+            FiscalQueueConnection? queue;
             int rate;
             await using (var scope = scopes.CreateAsyncScope())
             {
@@ -626,12 +674,13 @@ public sealed partial class FiscalQueueRunner(IServiceScopeFactory scopes, Fisca
                     return new FiscalQueueRun(0, 0, 0, "SETUP_REQUIRED");
                 }
 
-                connection = await scope.ServiceProvider.GetRequiredService<FiscalConnectionFactory>().GetAsync(cancellationToken);
+                // PA1: solo con el modo encendido y la conexión verificada; el atraso de antes de conectar queda retenido.
+                queue = await scope.ServiceProvider.GetRequiredService<FiscalConnectionFactory>().GetForSendingAsync(cancellationToken);
                 rate = await scope.ServiceProvider.GetRequiredService<ISettingsReader>()
                     .GetAsync(BillingSettings.RatePerMinute, new SettingContext(companyId), cancellationToken);
             }
 
-            if (connection is null)
+            if (queue is not { Connection: var connection, HeldBefore: var heldBefore })
             {
                 return new FiscalQueueRun(0, 0, 0, "NOT_CONFIGURED");
             }
@@ -644,7 +693,9 @@ public sealed partial class FiscalQueueRunner(IServiceScopeFactory scopes, Fisca
                 await using (var scope = scopes.CreateAsyncScope())
                 {
                     due = await scope.ServiceProvider.GetRequiredService<IFiscalDocumentStore>()
-                        .ListDueAsync(scope.ServiceProvider.GetRequiredService<IClock>().UtcNow, Math.Min(Batch, maxDocuments - processed), cancellationToken);
+                        .ListDueAsync(
+                            scope.ServiceProvider.GetRequiredService<IClock>().UtcNow, Math.Min(Batch, maxDocuments - processed), heldBefore, connection.Environment,
+                            cancellationToken);
                 }
 
                 var fresh = due.Where(seen.Add).ToList();
@@ -742,8 +793,9 @@ internal sealed partial class FiscalQueueWorker(
         await using var scope = scopes.CreateAsyncScope();
         if (installation.CompanyId is not { } companyId
             || await scope.ServiceProvider.GetRequiredService<IBillingSettingsStore>().GetAsync(companyId, cancellationToken) is not
-                { Mode: not BillingMode.Off, HasCredentials: true } configured
-            || (configured.LastSyncAt is { } last && time.GetUtcNow() - last < TimeSpan.FromHours(Math.Max(1, options.RangeSyncHours))))
+                { Mode: not BillingMode.Off, IsVerified: true } configured
+            // N2: con rangos de otro ambiente (o sin rangos) se sincroniza ya; si no, cada ⚙️ 24 h.
+            || (!configured.RangesStale && configured.LastSyncAt is { } last && time.GetUtcNow() - last < TimeSpan.FromHours(Math.Max(1, options.RangeSyncHours))))
         {
             return;
         }
@@ -778,15 +830,19 @@ public static class BillingInfrastructureRegistration
         services.AddSingleton<IFiscalDataWaiter, FiscalDataWaiter>();
         services.AddScoped<IOutboxMessageHandler, FiscalDocumentPendingHandler>();
         services.AddSingleton<FiscalQueueSignal>();
+        services.AddSingleton(sp => new FiscalVerifyThrottle(
+            TimeSpan.FromSeconds(int.TryParse(sp.GetRequiredService<IConfiguration>()["Pos:Billing:VerifyMinSeconds"], out var seconds) ? Math.Clamp(seconds, 0, 300) : 10),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.AddSingleton(sp => new FiscalRateLimiter(sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.AddSingleton<FiscalQueueRunner>();
         services.AddScoped<FiscalConnectionFactory>();
         services.AddScoped<FiscalDocumentProcessor>();
         services.AddScoped<FiscalRangeService>();
 
-        // Adaptador del proveedor: el nulo por defecto (fase apagada); Factus con Provider = FACTUS. El simulado por configuración solo
-        // existe en compilación Debug (R1: el entorno lo cambia cualquier administrador de Windows); las pruebas de integración lo
-        // inyectan reemplazando IFiscalProvider, que funciona también en Release.
+        // Adaptador del proveedor: el nulo por defecto (BillingOptions.DefaultProvider, PB2); Factus con Provider = FACTUS. El simulado
+        // por configuración solo existe en compilación Debug y fuera de producción (R1: el entorno lo cambia cualquier administrador de
+        // Windows); las pruebas de integración lo inyectan reemplazando IFiscalProvider, que funciona también en Release. Con cualquiera,
+        // la cola solo envía con el modo encendido y la conexión verificada.
         services.AddSingleton<NullFiscalProvider>();
         services.AddSingleton<FakeFiscalProvider>();
         services.AddFactusApi();
@@ -810,7 +866,8 @@ public static class BillingInfrastructureRegistration
         var section = configuration.GetSection("Pos:Billing:Factus");
         return new FactusConnectionOptions
         {
-            BaseUrl = !environment.IsProduction() && Uri.TryCreate(section["BaseUrl"], UriKind.Absolute, out var url) ? url : null,
+            // Una URL propia permitiría apuntar a un "Factus" falso que acepta todo: solo en Debug fuera de producción (R1).
+            BaseUrl = FakeProviderCompiledIn && !environment.IsProduction() && Uri.TryCreate(section["BaseUrl"], UriKind.Absolute, out var url) ? url : null,
             RequestTimeout = TimeSpan.FromSeconds(int.TryParse(section["TimeoutSeconds"], out var seconds) ? Math.Clamp(seconds, 1, 300) : 60),
         };
     }
@@ -820,7 +877,7 @@ public static class BillingInfrastructureRegistration
         var section = configuration.GetSection("Pos:Billing");
         return new BillingOptions
         {
-            Provider = section["Provider"] is { Length: > 0 } provider ? provider.Trim().ToUpperInvariant() : "NONE",
+            Provider = section["Provider"] is { Length: > 0 } provider ? provider.Trim().ToUpperInvariant() : BillingOptions.DefaultProvider,
             Worker = !bool.TryParse(section["Worker"], out var worker) || worker,
             QueueIntervalSeconds = int.TryParse(section["QueueIntervalSeconds"], out var interval) ? interval : 5,
             RangeSyncHours = int.TryParse(section["RangeSyncHours"], out var hours) ? hours : 24,

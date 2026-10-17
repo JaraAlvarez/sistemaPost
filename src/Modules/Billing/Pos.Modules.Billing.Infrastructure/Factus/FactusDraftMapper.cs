@@ -56,7 +56,7 @@ public static class FactusDraftMapper
         ArgumentNullException.ThrowIfNull(draft);
         var items = Items(draft.Lines, supportDocument: false);
         var total = EstimatedTotal(items);
-        var payments = Payments(draft.Payments, draft.Header.IssueDate, total);
+        var payments = Payments(draft.Payments, draft.Header.EffectiveIssueDate, total);
         return new FactusBillRequest
         {
             ReferenceCode = draft.Header.ReferenceCode,
@@ -90,7 +90,7 @@ public static class FactusDraftMapper
             BillNumber = draft.Invoice.FiscalNumber,
             NumberingRangeId = RangeId(draft.Header.Numbering),
             Observation = Observation(draft.Reason, $"Corrige la factura {draft.Invoice.FiscalNumber}", draft.Header.SourceNumber),
-            PaymentDetails = Balance(Payments(draft.Payments, draft.Header.IssueDate, total), total),
+            PaymentDetails = Balance(Payments(draft.Payments, draft.Header.EffectiveIssueDate, total), total),
             Establishment = Establishment(draft.Header.Establishment),
             Items = items,
         };
@@ -102,7 +102,7 @@ public static class FactusDraftMapper
         ArgumentNullException.ThrowIfNull(draft);
         var items = Items(draft.Lines, supportDocument: true);
         var total = EstimatedTotal(items);
-        var payments = Payments(draft.Payments, draft.Header.IssueDate, total);
+        var payments = Payments(draft.Payments, draft.Header.EffectiveIssueDate, total);
         return new FactusSupportDocumentRequest
         {
             ReferenceCode = draft.Header.ReferenceCode,
@@ -122,7 +122,7 @@ public static class FactusDraftMapper
         ArgumentNullException.ThrowIfNull(draft);
         var items = Items(draft.Lines, supportDocument: true);
         var total = EstimatedTotal(items);
-        var payments = Payments(draft.Payments, draft.Header.IssueDate, total);
+        var payments = Payments(draft.Payments, draft.Header.EffectiveIssueDate, total);
         return new FactusAdjustmentNoteRequest
         {
             ReferenceCode = draft.Header.ReferenceCode,

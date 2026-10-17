@@ -170,6 +170,9 @@ internal sealed class OrganizationStore(PosDbContext context) : IOrganizationSto
     public Task<TerminalScale?> GetTerminalScaleAsync(Guid posTerminalId, CancellationToken cancellationToken) =>
         context.Set<TerminalScale>().SingleOrDefaultAsync(s => s.PosTerminalId == posTerminalId, cancellationToken);
 
+    public async Task<IReadOnlyList<TerminalScale>> ListTerminalScalesAsync(CancellationToken cancellationToken) =>
+        await context.Set<TerminalScale>().AsNoTracking().ToListAsync(cancellationToken);
+
     public Task<TerminalDevice?> GetTerminalDeviceAsync(Guid posTerminalId, string kind, CancellationToken cancellationToken) =>
         context.Set<TerminalDevice>().SingleOrDefaultAsync(d => d.PosTerminalId == posTerminalId && d.Kind == kind, cancellationToken);
 

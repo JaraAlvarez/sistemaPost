@@ -93,10 +93,22 @@ public class FiscalTicketTests
         (copy.FiscalNumber, copy.TicketText.Contains("COPIA", StringComparison.Ordinal)).ShouldBe(((string?)null, true));
 
         // Vuelve Internet: el documento sale y la reimpresión trae número, CUFE y QR.
+        // El trabajador de la cola corre en paralelo: una pasada suya puede estar en curso (la nuestra responde BUSY) o haber dejado el
+        // documento en contingencia con espera justo antes de volver Internet. Se espera el estado de forma determinista: vencer la espera y
+        // enviar hasta que quede aceptado (con tope), en vez de suponer que una sola pasada basta.
         factory.Fiscal.Offline = false;
-        await DueNowAsync(shop);
-        await ProcessAsync(shop);
         var document = await ForSourceAsync(shop, receipt.Sale.Id);
+        for (var i = 0; i < 50 && document.Status != "ACCEPTED"; i++)
+        {
+            await DueNowAsync(shop);
+            await ProcessAsync(shop);
+            document = await ForSourceAsync(shop, receipt.Sale.Id);
+            if (document.Status != "ACCEPTED")
+            {
+                await Task.Delay(100, Ct);
+            }
+        }
+
         document.Status.ShouldBe("ACCEPTED");
         var reprinted = await PostAsync<SaleReceiptDto>(shop.Cashier, $"/api/v1/sales/{receipt.Sale.Id}/reprint");
         (reprinted.DocumentStatus, reprinted.FiscalNumber, reprinted.Cufe).ShouldBe(("ACCEPTED", document.FiscalNumber, document.Cufe));

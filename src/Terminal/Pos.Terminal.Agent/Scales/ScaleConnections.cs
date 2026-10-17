@@ -140,9 +140,15 @@ public static class ScaleProtocolReader
 
         connection.DiscardInput();
         var skipFirst = false;
+        char? sync = null;
         if (target.Mode == ScaleReadMode.Request && target.RequestBytes.Length > 0)
         {
             connection.Write(target.RequestBytes);
+        }
+        else if (driver.FrameStart is { } start)
+        {
+            // Continuo con inicio de trama conocido (Toledo: STX): se sincroniza con él y se descartan las tramas cortadas.
+            sync = start;
         }
         else
         {
@@ -153,6 +159,7 @@ public static class ScaleProtocolReader
         var chunk = new byte[256];
         var clock = Stopwatch.StartNew();
         var garbage = 0;
+        var received = 0;
         while (true)
         {
             var remaining = target.TimeoutMs - (int)clock.ElapsedMilliseconds;
@@ -167,6 +174,7 @@ public static class ScaleProtocolReader
                 continue;
             }
 
+            received += read;
             frames.Append(chunk.AsSpan(0, read));
             while (frames.TryTakeFrame(out var frame))
             {
@@ -176,7 +184,22 @@ public static class ScaleProtocolReader
                     continue;
                 }
 
-                if (driver.Parse(frame, target.ImpliedDecimals) is { } reading)
+                var candidate = frame;
+                if (sync is { } start)
+                {
+                    var at = FrameStartIndex(frame, start);
+                    if (at < 0)
+                    {
+                        // Trama cortada (llegó sin su inicio): se espera la siguiente completa. Si nunca llega una con STX (velocidad o
+                        // paridad equivocadas), al vencer el tiempo cuenta como "respondió, pero no en el formato".
+                        garbage++;
+                        continue;
+                    }
+
+                    candidate = frame[at..];
+                }
+
+                if (driver.Parse(candidate, target.ImpliedDecimals) is { } reading)
                 {
                     return reading;
                 }
@@ -185,8 +208,23 @@ public static class ScaleProtocolReader
             }
         }
 
-        throw new TimeoutException(garbage > 0
+        // Llegaron bytes (aunque sin ninguna trama completa, como pasa con la velocidad o la paridad equivocadas): la báscula responde.
+        throw new TimeoutException(garbage > 0 || received > 0
             ? $"La báscula respondió, pero no en el formato {driver.Name}: revise el protocolo, la velocidad y la paridad."
             : $"La báscula no respondió en {target.TimeoutMs} ms: revise el cable, el puerto ({target.Port}) y que esté encendida.");
+    }
+
+    /// <summary>Última posición del inicio de trama (sin el bit de paridad: con 7E1 leído como 8 bits STX puede llegar como 0x82).</summary>
+    private static int FrameStartIndex(string frame, char start)
+    {
+        for (var i = frame.Length - 1; i >= 0; i--)
+        {
+            if ((frame[i] & 0x7F) == start)
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 }

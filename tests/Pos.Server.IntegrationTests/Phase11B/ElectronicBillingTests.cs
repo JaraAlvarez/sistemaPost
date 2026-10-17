@@ -176,7 +176,9 @@ public class ElectronicBillingTests
         factory.Fiscal.DistinctDocuments.ShouldBe(2);
         (await DocumentsAsync(shop, "?status=ACCEPTED")).Count.ShouldBe(2);
 
-        // Pendientes antiguos: alerta si pasan de ⚙️ 24 h.
+        // Pendientes antiguos: alerta si pasan de ⚙️ 24 h. La conexión se verificó hace días (si no, lo de antes sería atraso retenido, que
+        // tiene su propio aviso y no cuenta como pendiente vencido).
+        await shop.Catalog.ExecuteAsync("UPDATE billing.provider_settings SET backlog_cutoff = now() - interval '3 days'");
         await shop.Catalog.ExecuteAsync("UPDATE billing.fiscal_documents SET status = 'PENDING', fiscal_number = NULL, cufe = NULL, validated_at = NULL, issued_at = now() - interval '25 hours' WHERE source_id = '" + first.Sale.Id + "'");
         var alerts = await GetAsync<FiscalAlertsDto>(shop.Owner, "/api/v1/billing/alerts");
         (alerts.PendingOverdue, alerts.Mode).ShouldBe((1, "EVERY_SALE"));

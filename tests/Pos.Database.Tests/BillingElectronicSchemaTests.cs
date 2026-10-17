@@ -25,12 +25,12 @@ public class BillingElectronicSchemaTests(PostgresFixture postgres)
     }
 
     private static string Range(string providerId, string? branch = null, string? terminal = null, string type = "INVOICE_ELECTRONIC", bool active = true,
-        long from = 1, long to = 100, long current = 0) =>
+        long from = 1, long to = 100, long current = 0, string environment = "SANDBOX") =>
         $"""
         INSERT INTO billing.fiscal_numbering_ranges (id, company_id, provider, provider_range_id, document_type, prefix, range_from, range_to, current_number,
-            is_active, branch_id, pos_terminal_id, synced_at, created_at, created_by)
+            is_active, branch_id, pos_terminal_id, synced_at, created_at, created_by, environment)
         VALUES (gen_random_uuid(), '{Company}', 'FACTUS', '{providerId}', '{type}', 'SETP', {from}, {to}, {current}, {(active ? "true" : "false")},
-            {(branch is null ? "NULL" : $"'{branch}'")}, {(terminal is null ? "NULL" : $"'{terminal}'")}, now(), now(), '{User}')
+            {(branch is null ? "NULL" : $"'{branch}'")}, {(terminal is null ? "NULL" : $"'{terminal}'")}, now(), now(), '{User}', '{environment}')
         """;
 
     [Fact]
@@ -111,6 +111,13 @@ public class BillingElectronicSchemaTests(PostgresFixture postgres)
         (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(Range("R1"), app)))
             .ConstraintName.ShouldBe("ux_fiscal_numbering_ranges__provider_range");
 
+        // N2: cada ambiente tiene sus rangos y su asignación (el mismo id del proveedor y el mismo lugar en pruebas y en producción).
+        await harness.Database.ExecuteAsync(Range("R1", Branch, environment: "PRODUCTION"), app);
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(Range("R8", Branch, environment: "PRODUCTION"), app)))
+            .ConstraintName.ShouldBe("ux_fiscal_numbering_ranges__assignment");
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(Range("R9", environment: "TEST"), app)))
+            .ConstraintName.ShouldBe("ck_fiscal_numbering_ranges__environment");
+
         (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync("DELETE FROM billing.fiscal_numbering_ranges", app)))
             .SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
     }
@@ -140,6 +147,44 @@ public class BillingElectronicSchemaTests(PostgresFixture postgres)
             .ConstraintName.ShouldBe("pk_provider_settings");
         (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync("DELETE FROM billing.provider_settings", app)))
             .SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
+    }
+
+    [Fact]
+    public async Task La_verificacion_de_la_conexion_guarda_fecha_y_resultado_juntos_V060()
+    {
+        await using var harness = await InfrastructureHarness.CreateAsync(postgres);
+        var app = harness.Database.AppConnectionString;
+        await harness.Database.ExecuteAsync(
+            $"""
+            INSERT INTO billing.provider_settings (company_id, provider, environment, mode, credentials, credentials_updated_at, credential_hint, created_at, created_by)
+            VALUES ('{Company}', 'FACTUS', 'SANDBOX', 'OFF', '\x0102'::bytea, now(), 'ti***@correo.co', now(), '{User}')
+            """, app);
+
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                "UPDATE billing.provider_settings SET last_verified_at = now()", app)))
+            .ConstraintName.ShouldBe("ck_provider_settings__verification");
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                "UPDATE billing.provider_settings SET last_verification_ok = true", app)))
+            .ConstraintName.ShouldBe("ck_provider_settings__verification");
+        await harness.Database.ExecuteAsync(
+            "UPDATE billing.provider_settings SET last_verified_at = now(), last_verification_ok = true, last_verification_message = 'ok'", app);
+
+        // El atraso solo se libera con un corte (primera verificación correcta).
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                "UPDATE billing.provider_settings SET backlog_released = true", app)))
+            .ConstraintName.ShouldBe("ck_provider_settings__backlog");
+        await harness.Database.ExecuteAsync("UPDATE billing.provider_settings SET backlog_cutoff = now(), backlog_released = true", app);
+
+        // Ambiente del documento (PB1): SANDBOX o PRODUCTION.
+        await harness.Database.ExecuteAsync(Document(extra: ", environment", extraValues: ", 'PRODUCTION'"), app);
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(Document(extra: ", environment", extraValues: ", 'TEST'"), app)))
+            .ConstraintName.ShouldBe("ck_fiscal_documents__environment");
+
+        // NOT_SENT: solo documentos electrónicos.
+        await harness.Database.ExecuteAsync(Document(status: "NOT_SENT"), app);
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                Document(type: "INTERNAL_RECEIPT", status: "NOT_SENT", reference: null), app)))
+            .ConstraintName.ShouldBeOneOf("ck_fiscal_documents__not_sent", "ck_fiscal_documents__internal");
     }
 
     [Fact]

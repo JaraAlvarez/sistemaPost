@@ -1,4 +1,5 @@
 @page "/admin"
+@using Pos.Modules.Billing.Contracts
 @using Pos.Modules.Reporting.Contracts
 @inject ApiClient Api
 @inject SessionState Session
@@ -17,6 +18,16 @@
         }
     </Acciones>
     <ChildContent>
+        @if (_fiscal?.ConnectionNotice is { Length: > 0 } aviso)
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-4">
+                @aviso
+                @if (Session.Has("billing.settings.manage"))
+                {
+                    <MudButton Size="Size.Small" Class="ml-2" Href="/admin/facturacion">Ir a Facturación</MudButton>
+                }
+            </MudAlert>
+        }
         @if (_data is { } data)
         {
             var today = data.Today;
@@ -171,6 +182,8 @@
     private sealed record Alerta(int Cantidad, string Texto, string Href, string Icono, string Tono);
 
     private DashboardDto? _data;
+    private FiscalAlertsDto? _fiscal;
+    private List<Pos.Modules.Organization.Contracts.ScaleKeyChangeDto> _basculas = [];
     private bool _loading = true;
     private bool _puedeVer;
     private string? _error;
@@ -192,6 +205,9 @@
             }
 
             Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
+            // Aviso de la facturación electrónica apagada al actualizar (PA1): quien puede ver la facturación lo ve aunque no vea las ventas.
+            _fiscal = await AlertasFiscalesAsync();
+            await CargarBasculasAsync();
             _error = null;
         }
         catch (ApiException ex)
@@ -204,6 +220,42 @@
         }
 
         _loading = false;
+    }
+
+    private async Task<FiscalAlertsDto?> AlertasFiscalesAsync()
+    {
+        if (!Session.Has("billing.document.view"))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Api.GetAsync<FiscalAlertsDto>("api/v1/billing/alerts");
+        }
+        catch (ApiException)
+        {
+            return null; // el aviso es secundario: no tumba el tablero
+        }
+    }
+
+    /// <summary>BK7: las alertas de báscula van aparte: si fallan, el Tablero se muestra igual (sin ellas).</summary>
+    private async Task CargarBasculasAsync()
+    {
+        _basculas = [];
+        if (!Session.Has("organization.terminal.manage"))
+        {
+            return;
+        }
+
+        try
+        {
+            _basculas = await Api.GetAsync<List<Pos.Modules.Organization.Contracts.ScaleKeyChangeDto>>("api/v1/organization/terminals/scale-key-changes");
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException or System.Text.Json.JsonException)
+        {
+            // Sin las alertas de báscula: el resto del Tablero sigue.
+        }
     }
 
     private string Saludo()
@@ -251,6 +303,16 @@
         if (backups > 0 && Session.Has("backup.backup.view"))
         {
             yield return new(backups, "alerta(s) de backups", "/admin/backups", Icons.Material.Outlined.Backup, "error");
+        }
+
+        // BB2: vincular o cambiar la clave de la báscula de una caja cambia quién puede firmar los pesos: se muestra aquí 7 días.
+        foreach (var bascula in _basculas)
+        {
+            yield return bascula is { Linked: true, ChangedAt: { } cambio }
+                ? new(1, $"La clave de la báscula de la caja {bascula.TerminalCode} cambió ({cambio.ToLocalTime():dd/MM HH:mm}): revise la auditoría si no fue usted.",
+                    "/admin/auditoria", Icons.Material.Outlined.Scale, "advertencia")
+                : new(1, $"La báscula de la caja {bascula.TerminalCode} no está vinculada: en esa caja, F1 → Vincular báscula (con un supervisor).",
+                    "/admin/cajas", Icons.Material.Outlined.Scale, "advertencia");
         }
 
         var solicitudes = data.DataRequestsDueSoon;

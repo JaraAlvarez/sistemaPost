@@ -323,6 +323,13 @@ public class NumberingAndSettingsTests
         FiscalNumberingRange.Select(all, Branch, null, FiscalDocumentType.SupportDocument, Today).ShouldBeNull();
         FiscalNumberingRange.Select(all, Guid.NewGuid(), null, FiscalDocumentType.InvoiceElectronic, Today).ShouldBeNull();
         FiscalNumberingRange.Select(null!, Branch, null, FiscalDocumentType.InvoiceElectronic, Today).ShouldBeNull();
+
+        // N2: un rango de pruebas nunca numera producción, y uno de producción solo se elige en producción.
+        FiscalNumberingRange.Select(all, Branch, Terminal, FiscalDocumentType.InvoiceElectronic, Today, FiscalEnvironment.Production).ShouldBeNull();
+        var production = FiscalNumberingRange.Create(Guid.NewGuid(), Company, "FACTUS", Data("R3"), Now, FiscalEnvironment.Production);
+        production.Assign(Branch, Terminal);
+        FiscalNumberingRange.Select([.. all, production], Branch, Terminal, FiscalDocumentType.InvoiceElectronic, Today, FiscalEnvironment.Production)
+            .ShouldBe(production);
     }
 
     [Fact]
@@ -339,6 +346,8 @@ public class NumberingAndSettingsTests
 
         settings.SetCredentials([1, 2, 3], Now);
         (settings.HasCredentials, settings.CredentialsUpdatedAt).ShouldBe((true, (DateTimeOffset?)Now));
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Sandbox, "FAKE").IsSuccess.ShouldBeTrue();
+        settings.RecordVerification(Now, ok: true, "Conexión correcta.");
         settings.Configure(BillingMode.EverySale, FiscalEnvironment.Sandbox, "FAKE").IsSuccess.ShouldBeTrue();
         (settings.Mode, settings.Provider).ShouldBe((BillingMode.EverySale, "FAKE"));
         Should.Throw<ArgumentException>(() => settings.Configure(BillingMode.Off, FiscalEnvironment.Sandbox, " "));
@@ -351,6 +360,167 @@ public class NumberingAndSettingsTests
         settings.RecordSync(Now, null);
         settings.LastSyncError.ShouldBeNull();
     }
+
+    [Fact]
+    public void Encender_exige_verificar_y_las_llaves_nuevas_o_el_cambio_de_ambiente_apagan_o_borran_la_verificacion()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1, 2, 3], Now, BillingProviderSettings.MaskUsername("tienda@correo.co"));
+        (settings.CredentialHint, settings.IsVerified, settings.Mode).ShouldBe(("ti***@correo.co", false, BillingMode.Off));
+
+        // Guardado desactivado: sin verificación no se enciende; una verificación fallida tampoco sirve.
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").Error.ShouldBe(BillingErrors.VerificationRequired);
+        settings.RecordVerification(Now, ok: false, "Factus rechazó las credenciales.");
+        (settings.LastVerifiedAt, settings.LastVerificationOk, settings.IsVerified).ShouldBe(((DateTimeOffset?)Now, (bool?)false, false));
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").Error.ShouldBe(BillingErrors.VerificationRequired);
+
+        // Verificó: enciende; pasar de ON_REQUEST a EVERY_SALE en el mismo ambiente no pide verificar otra vez.
+        settings.RecordVerification(Now, ok: true, new string('m', 600));
+        settings.LastVerificationMessage!.Length.ShouldBe(500);
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        // Cambiar de ambiente encendida exige verificar en el nuevo; apagar y cambiar el ambiente borra la verificación.
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Production, "FACTUS").Error.ShouldBe(BillingErrors.VerificationRequired);
+        settings.Mode.ShouldBe(BillingMode.EverySale);
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Production, "FACTUS").IsSuccess.ShouldBeTrue();
+        (settings.LastVerifiedAt, settings.LastVerificationOk).ShouldBe(((DateTimeOffset?)null, (bool?)null));
+        settings.RecordVerification(Now, ok: true, "ok");
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Production, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        // Llaves nuevas: se apaga y se borra la verificación ("guardar desactivado").
+        settings.SetCredentials([4, 5, 6], Now, "ot***@correo.co");
+        (settings.Mode, settings.IsVerified, settings.LastVerifiedAt, settings.CredentialHint).ShouldBe((BillingMode.Off, false, (DateTimeOffset?)null, "ot***@correo.co"));
+        settings.SetCredentials(null, Now, "x");
+        settings.CredentialHint.ShouldBeNull();
+    }
+
+    [Fact]
+    public void La_cola_solo_envia_encendida_y_verificada_y_una_falla_transitoria_no_quita_la_verificacion()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1, 2, 3], Now, "ti***@correo.co");
+        (settings.CanSend, settings.HeldBefore, settings.BacklogCutoff).ShouldBe((false, (DateTimeOffset?)null, (DateTimeOffset?)null));
+
+        // Falla transitoria sin verificación previa: queda como fallida (no hay nada que conservar).
+        settings.RecordVerification(Now, ok: false, "Sin red", transient: true).ShouldBeTrue();
+        settings.LastVerificationOk.ShouldBe(false);
+
+        // Primera verificación correcta: fija el corte del atraso; verificada pero apagada no envía.
+        settings.RecordVerification(Now.AddMinutes(1), ok: true, "ok").ShouldBeTrue();
+        (settings.BacklogCutoff, settings.HeldBefore, settings.CanSend).ShouldBe(((DateTimeOffset?)Now.AddMinutes(1), (DateTimeOffset?)Now.AddMinutes(1), false));
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        // N2: sin rangos sincronizados del ambiente vigente no se envía.
+        (settings.RangesStale, settings.CanSend).ShouldBe((true, false));
+        settings.RecordSync(Now, "Factus caído", FiscalEnvironment.Sandbox);
+        settings.CanSend.ShouldBeFalse();
+        settings.RecordSync(Now, null, FiscalEnvironment.Sandbox);
+        settings.CanSend.ShouldBeTrue();
+
+        // Sin red después de verificar: se conserva la verificación (PA9); un rechazo de credenciales sí la quita y detiene la cola.
+        settings.RecordVerification(Now.AddMinutes(2), ok: false, "Sin red", transient: true).ShouldBeFalse();
+        (settings.LastVerificationOk, settings.LastVerifiedAt, settings.CanSend).ShouldBe(((bool?)true, (DateTimeOffset?)Now.AddMinutes(1), true));
+        settings.RecordVerification(Now.AddMinutes(3), ok: false, "Rechazadas").ShouldBeTrue();
+        settings.CanSend.ShouldBeFalse();
+
+        // Otra verificación correcta (mismo ambiente y llaves) no mueve el corte; liberar el atraso lo quita de la retención; apagar detiene todo.
+        settings.RecordVerification(Now.AddMinutes(4), ok: true, "ok");
+        settings.BacklogCutoff.ShouldBe(Now.AddMinutes(1));
+        settings.ReleaseBacklog();
+        (settings.BacklogReleased, settings.HeldBefore).ShouldBe((true, (DateTimeOffset?)null));
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+        settings.CanSend.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Verificar_en_otro_ambiente_mueve_el_corte_del_atraso_y_rotar_llaves_no()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1], Now, "ti***@correo.co");
+        settings.RecordVerification(Now, ok: true, "ok");
+        settings.ReleaseBacklog();
+        (settings.BacklogCutoff, settings.BacklogEnvironment, settings.HeldBefore).ShouldBe(((DateTimeOffset?)Now, (FiscalEnvironment?)FiscalEnvironment.Sandbox, (DateTimeOffset?)null));
+
+        // Otro ambiente: el corte pasa a ese momento y vuelve a retener.
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Production, "FACTUS").IsSuccess.ShouldBeTrue();
+        settings.RecordVerification(Now.AddHours(1), ok: true, "ok");
+        (settings.BacklogCutoff, settings.BacklogEnvironment, settings.BacklogReleased).ShouldBe(((DateTimeOffset?)Now.AddHours(1), (FiscalEnvironment?)FiscalEnvironment.Production, false));
+
+        // N1: rotar llaves en el MISMO ambiente no mueve el corte; los rangos del ambiente anterior ya no sirven.
+        settings.ReplaceVerifiedCredentials([7], Now.AddHours(2), "ot***@correo.co", "ok");
+        settings.BacklogCutoff.ShouldBe(Now.AddHours(1));
+        settings.RangesStale.ShouldBeTrue();
+
+        // El documento electrónico guarda su ambiente; el interno no.
+        FiscalDocument.Issue(
+                Guid.NewGuid(), Company,
+                new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-1", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                    "222222222222", null, 1m, 0m, 1m),
+                electronic: true, Now, null, Guid.NewGuid, FiscalEnvironment.Production)
+            .Environment.ShouldBe(FiscalEnvironment.Production);
+        FiscalDocument.Issue(
+                Guid.NewGuid(), Company,
+                new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-2", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                    "222222222222", null, 1m, 0m, 1m),
+                electronic: false, Now, null, Guid.NewGuid, FiscalEnvironment.Production)
+            .Environment.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Cambiar_llaves_verificadas_conserva_el_modo_y_el_atraso_se_marca_no_enviado()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1], Now, "ti***@correo.co");
+        settings.RecordVerification(Now, ok: true, "ok");
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        settings.ReplaceVerifiedCredentials([9, 9], Now.AddHours(1), "ot***@correo.co", "Factus aceptó");
+        (settings.Mode, settings.CredentialHint, settings.CredentialsUpdatedAt, settings.IsVerified, settings.LastVerificationMessage)
+            .ShouldBe((BillingMode.OnRequest, "ot***@correo.co", (DateTimeOffset?)Now.AddHours(1), true, "Factus aceptó"));
+        Should.Throw<DomainException>(() => settings.ReplaceVerifiedCredentials([], Now, null, null));
+
+        var user = Guid.NewGuid();
+        var pending = FiscalDocument.Issue(
+            Guid.NewGuid(), Company,
+            new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-000001", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                "222222222222", null, 10_000m, 1_900m, 11_900m),
+            electronic: true, Now, user, Guid.NewGuid);
+        pending.DiscardBacklog("No enviar", Now, user, Guid.NewGuid).ShouldBeTrue();
+        (pending.Status, pending.NextAttemptAt).ShouldBe((FiscalStatus.NotSent, (DateTimeOffset?)null));
+        pending.Events[^1].EventType.ShouldBe("NOT_SENT");
+        pending.DiscardBacklog("otra vez", Now, user, Guid.NewGuid).ShouldBeFalse();
+        pending.Retry(Now, user, Guid.NewGuid).Error.ShouldBe(BillingErrors.NotRetryable);
+
+        // N1: lo reclamado (o ya intentado) queda en revisión: "No enviar" no lo toca; una nota que no aplica sí se marca (PB6).
+        var claimed = FiscalDocument.Issue(
+            Guid.NewGuid(), Company,
+            new FiscalIssue(FiscalSource.Sale, Guid.NewGuid(), "C1-000002", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                "222222222222", null, 10_000m, 1_900m, 11_900m),
+            electronic: true, Now, user, Guid.NewGuid);
+        claimed.Claim(Now, TimeSpan.FromMinutes(5)).IsSuccess.ShouldBeTrue();
+        claimed.InReview.ShouldBeTrue();
+        claimed.DiscardBacklog("No enviar", Now, user, Guid.NewGuid).ShouldBeFalse();
+        claimed.MarkNotApplicable("No aplica", Now, Guid.NewGuid);
+        claimed.Status.ShouldBe(FiscalStatus.NotSent);
+
+        // PB6: una nota detenida (p. ej. sin rango demasiado tiempo) queda con error y sin próximo intento, y se puede reintentar a mano.
+        var note = FiscalDocument.Issue(
+            Guid.NewGuid(), Company,
+            new FiscalIssue(FiscalSource.SaleVoid, Guid.NewGuid(), "C1-000003", Guid.NewGuid(), null, new DateOnly(2026, 9, 30), "Consumidor final", "CC",
+                "222222222222", null, 10_000m, 1_900m, 11_900m),
+            electronic: true, Now, user, Guid.NewGuid);
+        note.Stall("NO_RANGE_LIMIT", "Sin rango", Now, Guid.NewGuid);
+        (note.Status, note.NextAttemptAt).ShouldBe((FiscalStatus.Error, (DateTimeOffset?)null));
+        note.Retry(Now, user, Guid.NewGuid).IsSuccess.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("tienda@correo.co", "ti***@correo.co")]
+    [InlineData("  ab@x.co ", "a***@x.co")]
+    [InlineData("usuario", "us***")]
+    [InlineData("@dominio.co", "***@dominio.co")]
+    public void El_usuario_se_enmascara(string username, string expected) => BillingProviderSettings.MaskUsername(username).ShouldBe(expected);
 
     [Theory]
     [InlineData(BillingMode.Off, false, false)]

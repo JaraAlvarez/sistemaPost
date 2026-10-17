@@ -1,0 +1,572 @@
+@* Pantallas faltantes §2 (docs/fases/pantallas-faltantes-propuesta.md): conectar Factus desde la interfaz, con el mismo flujo de
+   SistecreditoTarjeta.razor: guardar desactivado → verificar contra Factus → activar solo si verificó. Las credenciales se guardan cifradas
+   en el servidor y nunca vuelven completas: solo el usuario enmascarado. El servidor también exige la verificación para encender. *@
+@using Pos.Modules.Billing.Contracts
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+<MudPaper Outlined="true" Class="pa-4">
+    <div class="d-flex flex-wrap align-center gap-2">
+        <MudIcon Icon="@Icons.Material.Outlined.ReceiptLong" />
+        <MudText Typo="Typo.h6">Factus · facturación electrónica</MudText>
+        @if (_settings is { } s)
+        {
+            <span class="etiqueta @(Conectado(s) ? "promo" : "neutra")">@(Conectado(s) ? "Conectado" : "Desconectado")</span>
+            <span class="etiqueta neutra">@Ambiente(s.Environment)</span>
+        }
+    </div>
+    <MudText Typo="Typo.body2" Class="mt-1">
+        Con Factus cada venta (o solo las que piden factura) se envía a la DIAN como factura electrónica. Si no hay Internet la venta no se
+        detiene: el documento queda en cola y se envía al volver la conexión.
+    </MudText>
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-2" Dense="true">@_error</MudAlert>
+    }
+
+    @if (_settings is { } settings)
+    {
+        @if (EnumText.Same(settings.ActiveAdapter, "FAKE"))
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-3" Dense="true">
+                Este servidor usa el proveedor SIMULADO (desarrollo): la conexión se prueba contra el simulado, no contra Factus.
+            </MudAlert>
+        }
+        else if (!EsFactus(settings))
+        {
+            <MudAlert Severity="Severity.Warning" Class="mt-3">
+                <b>El adaptador de Factus no está habilitado en este servidor.</b> Por ahora se habilita por instalación (la activación por defecto
+                está pendiente de aprobación). En el servidor de la tienda abra <code>{DataRoot}\config\server.json</code> y agregue dentro de la
+                sección <code>"Pos"</code>:
+                <pre class="mt-1 mb-1">"Billing": { "Provider": "FACTUS" }</pre>
+                Reinicie el servicio de BusinessPost y vuelva a esta pantalla para conectar. Mientras tanto la facturación electrónica sigue apagada y
+                no se envía nada.
+            </MudAlert>
+        }
+
+        @if (Conectado(settings) && !_editando)
+        {
+            <MudAlert Severity="@(settings.LastVerificationOk == false ? Severity.Warning : Severity.Success)" Class="mt-3" Icon="@Icons.Material.Outlined.CheckCircle">
+                <b>Conectado</b> · @Ambiente(settings.Environment) · @NombreModo(settings.Mode)
+                @if (settings.CredentialHint is { Length: > 0 } hint)
+                {
+                    <span> · usuario @hint</span>
+                }
+                @if (settings.LastVerifiedAt is not null)
+                {
+                    <small class="d-block">
+                        @(settings.LastVerificationOk == true
+                            ? $"Clave validada: {Format.Date(settings.LastVerifiedAt)}"
+                            : $"Última prueba: {Format.Date(settings.LastVerifiedAt)} · {settings.LastVerificationMessage}")
+                    </small>
+                }
+                @if (settings.LastSyncAt is not null)
+                {
+                    <small class="d-block">Rangos sincronizados: @Format.Date(settings.LastSyncAt)@(settings.LastSyncError is { Length: > 0 } e ? " · " + e : "")</small>
+                }
+            </MudAlert>
+            @if (settings.RangesSyncRequired)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
+                    Faltan los rangos de numeración de @Ambiente(settings.Environment).ToLowerInvariant(): hasta sincronizarlos no se envía nada (nunca se
+                    usan los de otro ambiente).
+                    <MudButton Size="Size.Small" Class="ml-2" Disabled="_busy" OnClick="SincronizarRangosAsync">Sincronizar rangos</MudButton>
+                </MudAlert>
+            }
+            <div class="d-flex flex-wrap align-center gap-2 mt-3">
+                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="ProbarAsync" StartIcon="@Icons.Material.Outlined.WifiTethering">Volver a probar</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => _cambiando = !_cambiando)" StartIcon="@Icons.Material.Outlined.Key">Cambiar llaves</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DesconectarAsync">Desconectar</MudButton>
+            </div>
+            @if (_cambiando)
+            {
+                <MudPaper Outlined="true" Class="pa-3 mt-3">
+                    <MudText Typo="Typo.subtitle2">Cambiar llaves (@Ambiente(settings.Environment))</MudText>
+                    <MudText Typo="Typo.body2">
+                        Primero probamos las llaves nuevas con Factus SIN guardarlas. Solo si Factus las acepta se guardan y la facturación sigue
+                        como está; si fallan no se cambia nada. Para pasar a otro ambiente use <b>Desconectar</b> y vuelva a conectar.
+                    </MudText>
+                    <MudGrid Class="mt-1">
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="_usuario" Label="Usuario nuevo (correo de Factus)" Immediate="true" autocomplete="off" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="_clave" Label="Contraseña" InputType="InputType.Password" Immediate="true" autocomplete="new-password" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="_clientId" Label="Client ID" InputType="InputType.Password" Immediate="true" autocomplete="off" /></MudItem>
+                        <MudItem xs="12" md="6"><MudTextField @bind-Value="_clientSecret" Label="Client secret" InputType="InputType.Password" Immediate="true" autocomplete="off" /></MudItem>
+                    </MudGrid>
+                    @if (LlavesIncompletas)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block mt-1">Escriba los cuatro datos (usuario, contraseña, Client ID y Client secret).</MudText>
+                    }
+                    <div class="d-flex flex-wrap gap-2 mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || LlavesIncompletas)" OnClick="CambiarLlavesAsync">Probar y cambiar</MudButton>
+                        <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="CancelarEdicion">Cancelar</MudButton>
+                    </div>
+                </MudPaper>
+            }
+            <div class="d-flex flex-wrap align-center gap-2 mt-3">
+                <MudSelect T="string" @bind-Value="_modo" Label="Modo de emisión" Style="max-width: 360px;">
+                    <MudSelectItem T="string" Value="@("ON_REQUEST")">Solo cuando el cliente pide factura</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("EVERY_SALE")">Factura electrónica en cada venta</MudSelectItem>
+                </MudSelect>
+                @if (!EnumText.Same(settings.Mode, _modo))
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || (_modo == "EVERY_SALE" && !_confirmado))" OnClick="CambiarModoAsync">Cambiar modo</MudButton>
+                }
+            </div>
+            @if (_modo == "EVERY_SALE" && !EnumText.Same(settings.Mode, "EVERY_SALE"))
+            {
+                @AvisoCadaVenta
+                <MudCheckBox T="bool" @bind-Value="_confirmado" Color="Color.Warning" Label="Tengo la cotización de Factus por volumen y el visto bueno de mi contador" />
+            }
+        }
+        else
+        {
+            @if (settings.AutoDisabledAt is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
+                    La facturación electrónica quedó apagada al actualizar (@Format.Date(settings.AutoDisabledAt)) porque estaba encendida sin una conexión
+                    verificada con Factus. Conéctela de nuevo aquí.
+                </MudAlert>
+            }
+            @if (settings.LastVerifiedAt is not null && settings.LastVerificationOk == false)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
+                    @settings.LastVerificationMessage <small>(@Format.Date(settings.LastVerifiedAt))</small>
+                </MudAlert>
+            }
+
+            <MudText Typo="Typo.subtitle2" Class="mt-3">Conecte su cuenta de Factus</MudText>
+            <MudText Typo="Typo.body2">
+                Escriba los cuatro datos que le entregó Factus y pulse <b>Conectar</b>: guardamos las llaves cifradas con la facturación apagada,
+                probamos la conexión con Factus y, solo si funciona, traemos los rangos de numeración y encendemos la facturación.
+            </MudText>
+            <MudGrid Class="mt-1">
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_usuario" Label="Usuario (correo de Factus)" Immediate="true" autocomplete="off"
+                                  HelperText="@(settings.HasCredentials ? $"Guardado: {settings.CredentialHint}. Déjelo vacío para conservar las llaves." : null)" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_clave" Label="Contraseña" InputType="InputType.Password" Immediate="true" autocomplete="new-password" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_clientId" Label="Client ID" InputType="InputType.Password" Immediate="true" autocomplete="off" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_clientSecret" Label="Client secret" InputType="InputType.Password" Immediate="true" autocomplete="off" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="string" @bind-Value="_ambiente" Label="Ambiente">
+                        <MudSelectItem T="string" Value="@("SANDBOX")">Pruebas (sandbox)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("PRODUCTION")">Producción (documentos reales ante la DIAN)</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="string" @bind-Value="_modo" Label="Modo de emisión al conectar">
+                        <MudSelectItem T="string" Value="@("ON_REQUEST")">Solo cuando el cliente pide factura (transición)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("EVERY_SALE")">Factura electrónica en cada venta</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+            @if (_modo == "EVERY_SALE")
+            {
+                @AvisoCadaVenta
+                <MudCheckBox T="bool" @bind-Value="_confirmado" Color="Color.Warning" Label="Tengo la cotización de Factus por volumen y el visto bueno de mi contador" />
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Info" Class="mt-3" Dense="true">
+                    Solo para la transición: las ventas sin factura siguen con comprobante interno, que NO cumple la obligación del POS electrónico.
+                    Confírmelo con su contador.
+                </MudAlert>
+            }
+            @if (_ambiente == "PRODUCTION")
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">En producción cada documento es real ante la DIAN y consume su paquete de Factus.</MudAlert>
+            }
+            @if (LlavesIncompletas)
+            {
+                <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block mt-1">Escriba los cuatro datos (usuario, contraseña, Client ID y Client secret).</MudText>
+            }
+            <MudText Typo="Typo.caption" Class="d-block mt-1">
+                Pruebas y producción tienen credenciales distintas. Se guardan cifradas en el servidor de la tienda, nunca se vuelven a mostrar ni
+                quedan en la auditoría.
+            </MudText>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !PuedeConectar(settings))" OnClick="ConectarAsync"
+                           StartIcon="@Icons.Material.Outlined.Link">@(_busy ? "Conectando…" : "Conectar")</MudButton>
+                @if (_editando)
+                {
+                    <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="CancelarEdicion">Cancelar</MudButton>
+                }
+            </div>
+        }
+
+        @if (settings.HeldDocuments > 0)
+        {
+            var antes = settings.HeldDocuments - settings.HeldOtherEnvironment;
+            <MudAlert Severity="Severity.Warning" Class="mt-3">
+                <b>@settings.HeldDocuments documento(s) electrónico(s) retenido(s).</b>
+                @if (antes > 0)
+                {
+                    <span> @antes de antes de conectar (@Ambiente(settings.Environment)): quedaron en cola cuando no había proveedor conectado o con otras llaves.</span>
+                }
+                @if (settings.HeldOtherEnvironment > 0)
+                {
+                    <span> @settings.HeldOtherEnvironment de OTRO ambiente: nunca se envían en este; solo se pueden marcar como no enviados.</span>
+                }
+                @if (settings.HeldInReview > 0)
+                {
+                    <small class="d-block mt-1">
+                        <b>@settings.HeldInReview en revisión:</b> ya se intentaron enviar (o el envío quedó a medias) y pudieron llegar a Factus. Consulte
+                        su estado en el panel de Factus; «No enviar» no los toca.
+                    </small>
+                }
+                <small class="d-block mt-1">
+                    No se envían solos. <b>Enviar ahora</b>: Factus no recibe la fecha de la venta, así que se emitirán <b>con la fecha de hoy</b>. La
+                    DIAN fija un plazo para transmitir (consúltelo con su contador): fuera de él o con datos viejos pueden ser rechazados.
+                    <b>No enviar</b> es IRREVERSIBLE: quedan como NO ENVIADOS, con el comprobante interno, y la decisión queda en la auditoría.
+                </small>
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    @if (antes > 0 && Conectado(settings))
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => EnviarAtrasoAsync(antes))">Enviar ahora</MudButton>
+                    }
+                    @if (settings.HeldDocuments - settings.HeldInReview > 0)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                                   OnClick="@(() => NoEnviarAtrasoAsync(settings.HeldDocuments - settings.HeldInReview))">No enviar</MudButton>
+                    }
+                </div>
+            </MudAlert>
+        }
+    }
+</MudPaper>
+
+@code {
+    private BillingSettingsDto? _settings;
+    private string? _usuario, _clave, _clientId, _clientSecret, _error;
+    private string _ambiente = "SANDBOX", _modo = "ON_REQUEST";
+    private bool _busy, _editando, _confirmado, _cambiando;
+
+    /// <summary>Al conectar, desconectar o sincronizar cambian el modo y los rangos: la página recarga rangos y alertas.</summary>
+    [Parameter]
+    public EventCallback Cambio { get; set; }
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        try
+        {
+            Aplicar(await Api.GetAsync<BillingSettingsDto>("api/v1/billing/settings"));
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Sin conexión con el servidor de la tienda.";
+        }
+    }
+
+    private void Aplicar(BillingSettingsDto settings)
+    {
+        _settings = settings;
+        _ambiente = EnumText.Same(settings.Environment, "PRODUCTION") ? "PRODUCTION" : "SANDBOX";
+        _modo = EnumText.Same(settings.Mode, "EVERY_SALE") ? "EVERY_SALE" : "ON_REQUEST";
+        _confirmado = EnumText.Same(settings.Mode, "EVERY_SALE");
+    }
+
+    private static bool Conectado(BillingSettingsDto settings) => settings.HasCredentials && !EnumText.Same(settings.Mode, "OFF");
+
+    private static bool EsFactus(BillingSettingsDto settings) => EnumText.Same(settings.ActiveAdapter, "FACTUS");
+
+    private int LlavesEscritas => new[] { _usuario, _clave, _clientId, _clientSecret }.Count(v => !string.IsNullOrWhiteSpace(v));
+
+    private bool LlavesIncompletas => LlavesEscritas is > 0 and < 4;
+
+    /// <summary>Primera vez: los cuatro datos. Con llaves guardadas basta con cambiar el ambiente o el modo. EVERY_SALE pide la confirmación.</summary>
+    private bool PuedeConectar(BillingSettingsDto settings) =>
+        !EnumText.Same(settings.ActiveAdapter, "NONE") && (LlavesEscritas == 4 || (LlavesEscritas == 0 && settings.HasCredentials))
+        && (_modo != "EVERY_SALE" || _confirmado);
+
+    private void CancelarEdicion()
+    {
+        _editando = false;
+        _cambiando = false;
+        _usuario = _clave = _clientId = _clientSecret = null;
+        if (_settings is { } settings)
+        {
+            Aplicar(settings);
+        }
+    }
+
+    /// <summary>
+    /// "Conectar": (1) guarda las llaves si se escribieron (el servidor apaga la facturación al recibirlas); (2) guarda el ambiente con el
+    /// modo OFF; (3) verifica contra Factus; (4) solo si verificó, sincroniza los rangos y enciende el modo elegido.
+    /// </summary>
+    private async Task ConectarAsync()
+    {
+        _busy = true;
+        var modo = _modo;
+        var ambiente = _ambiente;
+        try
+        {
+            if (LlavesEscritas == 4)
+            {
+                Aplicar(await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings/credentials", new
+                {
+                    username = _usuario!.Trim(), password = _clave, clientId = _clientId!.Trim(), clientSecret = _clientSecret!.Trim(),
+                }));
+                _usuario = _clave = _clientId = _clientSecret = null;
+            }
+
+            await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings", new { mode = "OFF", environment = ambiente });
+
+            var result = await Api.PostAsync<FiscalConnectionVerificationDto>("api/v1/billing/settings/verify");
+            if (result.Ok)
+            {
+                var rangos = await SincronizarAsync();
+                Aplicar(await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings", new { mode = modo, environment = ambiente }));
+                _editando = false;
+                Snackbar.Add(
+                    $"¡Conectado con Factus en {Ambiente(ambiente).ToLowerInvariant()}! {NombreModo(modo)}."
+                    + (rangos is { } n ? $" {n} rango(s) de numeración traídos: asígnelos a cada sucursal en la pestaña Rangos." : string.Empty),
+                    Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"No se pudo conectar: {result.Message}", Severity.Warning);
+            }
+
+            await Cambio.InvokeAsync();
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+            await CargarAsync();
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    /// <summary>Trae los rangos de numeración (resolución, prefijo, desde/hasta, vigencia). Si falla no impide conectar: se reintenta luego.</summary>
+    private async Task<int?> SincronizarAsync()
+    {
+        try
+        {
+            return (await Api.PostAsync<IReadOnlyList<FiscalRangeDto>>("api/v1/billing/ranges/sync")).Count;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add($"Conectado, pero no se pudieron traer los rangos: {ex.Texto}. Use «Sincronizar desde Factus» en la pestaña Rangos.", Severity.Warning);
+            return null;
+        }
+    }
+
+    private async Task SincronizarRangosAsync()
+    {
+        _busy = true;
+        if (await SincronizarAsync() is { } n)
+        {
+            Snackbar.Add($"{n} rango(s) sincronizado(s): asígnelos a cada sucursal en la pestaña Rangos.", Severity.Success);
+        }
+
+        await Cambio.InvokeAsync();
+        await CargarAsync();
+        _busy = false;
+    }
+
+    private async Task ProbarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.PostAsync<FiscalConnectionVerificationDto>("api/v1/billing/settings/verify");
+            Snackbar.Add(result.Ok ? "La conexión con Factus funciona." : result.Message, result.Ok ? Severity.Success : Severity.Warning);
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    /// <summary>
+    /// "Cambiar llaves" (PA6): el servidor prueba las llaves nuevas sin guardarlas y solo si Factus las acepta las guarda, sin apagar la
+    /// facturación. Con las casillas vacías no hace nada.
+    /// </summary>
+    private async Task CambiarLlavesAsync()
+    {
+        if (LlavesEscritas == 0)
+        {
+            Snackbar.Add("Escriba las llaves nuevas: no se cambió nada.", Severity.Info);
+            return;
+        }
+
+        if (LlavesIncompletas)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await Api.PostAsync<FiscalConnectionVerificationDto>("api/v1/billing/settings/credentials/rotate", new
+            {
+                username = _usuario!.Trim(), password = _clave, clientId = _clientId!.Trim(), clientSecret = _clientSecret!.Trim(),
+            });
+            if (result.Ok)
+            {
+                CancelarEdicion();
+                Snackbar.Add("Llaves cambiadas: Factus las aceptó y la facturación sigue igual.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"No se cambiaron las llaves: {result.Message}", Severity.Warning);
+            }
+
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    /// <summary>"Enviar ahora" pide confirmar con el número de documentos (PB5).</summary>
+    private async Task EnviarAtrasoAsync(int cantidad)
+    {
+        var ok = await Dialogs.ConfirmarAsync(
+            "Enviar ahora a la DIAN",
+            $"Se enviarán {cantidad} documento(s) de antes de conectar, con la FECHA DE HOY (Factus no recibe la fecha de la venta). Pueden ser "
+            + "rechazados si ya pasó el plazo de la DIAN. ¿Enviar?",
+            $"Enviar {cantidad}", false);
+        if (!ok)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var count = await Api.PostAsync<int>("api/v1/billing/backlog/send");
+            Snackbar.Add($"{count} documento(s) de antes de conectar quedaron en la cola de envío.", Severity.Success);
+            await Cambio.InvokeAsync();
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    /// <summary>"No enviar" es irreversible: pide confirmar DOS veces, con el número de documentos (PB5).</summary>
+    private async Task NoEnviarAtrasoAsync(int cantidad)
+    {
+        var first = await Dialogs.ConfirmarAsync(
+            "No enviar",
+            $"{cantidad} documento(s) quedarán como NO ENVIADOS y nunca se enviarán a la DIAN. Esto NO se puede deshacer.",
+            "Continuar", true);
+        if (!first)
+        {
+            return;
+        }
+
+        var second = await Dialogs.ConfirmarAsync(
+            "Confirmar: no enviar",
+            $"¿Seguro? Confirme que NO se enviarán estos {cantidad} documento(s). La decisión queda en la auditoría con su usuario.",
+            $"Sí, no enviar {cantidad}", true);
+        if (!second)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var count = await Api.PostAsync<int>("api/v1/billing/backlog/discard");
+            Snackbar.Add($"{count} documento(s) de antes de conectar quedaron como NO ENVIADOS.", Severity.Info);
+            await Cambio.InvokeAsync();
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task CambiarModoAsync()
+    {
+        _busy = true;
+        try
+        {
+            Aplicar(await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings", new { mode = _modo, environment = _settings!.Environment }));
+            Snackbar.Add($"Modo de emisión: {NombreModo(_settings!.Mode)}.", Severity.Success);
+            await Cambio.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task DesconectarAsync()
+    {
+        _busy = true;
+        try
+        {
+            Aplicar(await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings", new { mode = "OFF", environment = _settings!.Environment }));
+            Snackbar.Add("Factus desconectado: las ventas vuelven al comprobante interno. Las llaves quedan guardadas cifradas.", Severity.Info);
+            await Cambio.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private static RenderFragment AvisoCadaVenta =>
+        @<MudAlert Severity="Severity.Warning" Class="mt-3">
+            <b>Factura en cada venta:</b> se emite una factura electrónica por CADA venta (una tienda con 2.000 ventas diarias emite unas 60.000 al
+            mes) y Factus cobra por paquete de documentos. Antes de activarlo pida a Factus la <b>cotización por volumen</b> y obtenga el
+            <b>visto bueno de su contador</b> (modo, impuestos y contingencia).
+        </MudAlert>;
+
+    private static string Ambiente(string environment) => EnumText.Same(environment, "PRODUCTION") ? "Producción" : "Pruebas (sandbox)";
+
+    private static string NombreModo(string mode) => EnumText.Normalize(mode) switch
+    {
+        "EVERY_SALE" => "Factura en cada venta",
+        "ON_REQUEST" => "Factura solo si el cliente la pide",
+        _ => "Apagada",
+    };
+}

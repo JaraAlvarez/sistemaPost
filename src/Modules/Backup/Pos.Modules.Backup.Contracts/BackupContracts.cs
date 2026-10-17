@@ -97,6 +97,18 @@ public sealed record RecoveryCodeDto(int Version, string Code, string Instructio
 
 public sealed record BackupVerificationDto(Guid RunId, bool Valid, int DumpEntries, string? Error);
 
+/// <summary>
+/// Resultado de comprobar una carpeta de destino ANTES de guardarla: la prueba la hace el servidor con la cuenta del servicio (la misma
+/// que copia los backups). <c>FreeBytes</c> y <c>VolumeLabel</c> solo para unidades con letra.
+/// </summary>
+public sealed record BackupFolderCheckDto(bool Ok, string Message, string? FullPath, string? VolumeLabel, long? FreeBytes);
+
+/// <summary>
+/// Resumen para la pantalla de destinos: si los backups están configurados en este equipo, la carpeta LOCAL fija (donde se crea cada
+/// backup antes de copiarlo a los demás destinos), el último backup y el último correcto.
+/// </summary>
+public sealed record BackupOverviewDto(bool IsConfigured, string LocalDirectory, BackupRunDto? LastRun, BackupRunDto? LastSuccessful);
+
 /// <summary>Alertas de backups (D11-10) para el tablero y el perfil del usuario.</summary>
 public sealed record BackupAlertsDto(
     DateTimeOffset? LastVerifiedBackupAt,
