@@ -36,6 +36,20 @@ public sealed class AgentOptions
     /// <summary>Tiempo máximo de un trabajo de impresión completo.</summary>
     public TimeSpan JobTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>Archivo donde el agente guarda la báscula de la caja (por defecto <c>C:\ProgramData\{Producto}\agent\scale.json</c>).</summary>
+    public string? ScaleConfigFile { get; set; }
+
+    /// <summary>
+    /// Permite la báscula simulada (<c>SIMULATED</c>) y <c>POST /scale/simulator</c> fuera del entorno de desarrollo (pruebas). Nunca
+    /// en una caja real: el cajero podría vender un peso inventado.
+    /// </summary>
+    public bool EnableScaleSimulator { get; set; }
+
+    public string ResolveScaleConfigFile() =>
+        string.IsNullOrWhiteSpace(ScaleConfigFile)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), AgentInfo.ProductName, "agent", "scale.json")
+            : Path.GetFullPath(ScaleConfigFile, AppContext.BaseDirectory);
+
     public string ResolveFileOutputDirectory() =>
         string.IsNullOrWhiteSpace(FileOutputDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), AgentInfo.ProductName, "agent", "output")

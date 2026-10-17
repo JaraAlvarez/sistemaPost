@@ -57,6 +57,7 @@ public sealed class CashInitializer(ICashStore store, IIdGenerator ids) : ICompa
             ("DAVIPLATA", "Daviplata", PaymentMethodKind.Wallet, "47", true),
             ("BONO", "Bono", PaymentMethodKind.Voucher, "71", true),
             (PaymentMethod.ExchangeCreditCode, "Crédito por cambio", PaymentMethodKind.ExchangeCredit, "ZZZ", false),
+            (PaymentMethod.SistecreditoCode, "Sistecrédito", PaymentMethodKind.Sistecredito, "ZZZ", true),
         ];
         var order = 0;
         foreach (var (code, name, kind, dian, reference) in seeds)
@@ -64,7 +65,15 @@ public sealed class CashInitializer(ICashStore store, IIdGenerator ids) : ICompa
             order += 10;
             if (!existing.Contains(code))
             {
-                store.Add(PaymentMethod.Create(ids.NewId(), companyId, code, name, kind, dian, reference, order, isSystem: true).Value);
+                var method = PaymentMethod.Create(ids.NewId(), companyId, code, name, kind, dian, reference, order, isSystem: true).Value;
+
+                // Sistecrédito (Fase 7-B) nace inactivo: se activa al configurar las llaves de la tienda.
+                if (kind == PaymentMethodKind.Sistecredito)
+                {
+                    method.Update(name, dian, reference, order, isActive: false);
+                }
+
+                store.Add(method);
             }
         }
 
@@ -139,6 +148,11 @@ internal sealed class CreatePaymentMethodHandler(IInstallationContext installati
         if (request.Kind == PaymentMethodKind.ExchangeCredit)
         {
             return Task.FromResult<Result<PaymentMethodDto>>(CashErrors.ExchangeCreditReserved);
+        }
+
+        if (request.Kind == PaymentMethodKind.Sistecredito)
+        {
+            return Task.FromResult<Result<PaymentMethodDto>>(CashErrors.SistecreditoReserved);
         }
 
         if (request.Kind is PaymentMethodKind.CustomerCredit or PaymentMethodKind.LoyaltyPoints)

@@ -90,6 +90,12 @@ Movimiento de caja: +50.000 en efectivo (lo que efectivamente queda en el cajón
 
 **Caso inválido:** Transferencia $120.000 para una venta de $100.000 → rechazado (`SALES.NON_CASH_OVERPAYMENT`): un medio sin cambio no puede exceder el saldo.
 
+**Sistecrédito (Fase 7-B, [ADR-0064](adr/0064-sistecredito-en-la-caja.md)):** medio del sistema `SISTECREDITO` (no da cambio, no entra
+al cajón). La caja genera el cobro en Sistecrédito (`POST /api/v1/cash/sistecredito/payments`, requiere internet), muestra el QR del
+enlace de pago y consulta el estado cada 3 s (`POST …/payments/{id}/check`). La venta solo se completa con un cobro **APROBADO** de esa
+venta y por ese mismo valor, que no se haya usado; la referencia del pago es el id de la transacción. Admite pago mixto. Un aprobado
+sin venta queda "Requiere revisión" (revisión automática cada 60 s) para la administración. En el cierre es un medio aparte.
+
 ### Operaciones del POS (API)
 
 | Operación | Endpoint (propuesto) | Permiso |

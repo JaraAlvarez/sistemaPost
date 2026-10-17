@@ -205,7 +205,8 @@ public sealed class CatalogImportService(
                     sku ?? existing?.Sku ?? "PENDIENTE", row.Name ?? existing!.Name, row.ShortName ?? existing?.ShortName, row.Description ?? existing?.Description,
                     Guid.Empty, null, unit.Code, unit.Dimension, saleMode.Value, productType.Value, scale,
                     existing?.AllowsDecimalQuantity ?? false, existing?.AllowsOpenPrice ?? false, existing?.TracksLots ?? false,
-                    existing?.TracksExpiry ?? false, plu, netContent, row.NetContentUnit?.ToUpperInvariant() ?? existing?.NetContentUnit);
+                    existing?.TracksExpiry ?? false, plu, netContent, row.NetContentUnit?.ToUpperInvariant() ?? existing?.NetContentUnit,
+                    existing?.TareGrams ?? 0);
                 var check = Product.Create(Guid.Empty, companyId, data);
                 if (check.IsFailure)
                 {
@@ -257,7 +258,7 @@ public sealed class CatalogImportService(
                 ParseType(row.Type, existing, errors)!.Value, row.Scale is null ? existing?.IsSoldByScale ?? false : ParseBool(row.Scale),
                 existing?.AllowsDecimalQuantity ?? false, existing?.AllowsOpenPrice ?? false, existing?.TracksLots ?? false, existing?.TracksExpiry ?? false,
                 row.Plu ?? existing?.PluCode, row.NetContent is null ? existing?.NetContent : DecimalParsing.TryParse(row.NetContent, out var content) ? content : null,
-                row.NetContentUnit?.ToUpperInvariant() ?? existing?.NetContentUnit);
+                row.NetContentUnit?.ToUpperInvariant() ?? existing?.NetContentUnit, existing?.TareGrams ?? 0);
 
             Product product;
             if (existing is null)

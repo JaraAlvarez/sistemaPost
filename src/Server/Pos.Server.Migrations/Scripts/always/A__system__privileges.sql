@@ -41,6 +41,9 @@ REVOKE UPDATE, DELETE, TRUNCATE ON purchasing.payable_entries FROM pos_app;
 -- Movimientos de caja: cada peso trazable (D6-01).
 REVOKE UPDATE, DELETE, TRUNCATE ON cash.cash_movements FROM pos_app;
 
+-- Sistecrédito (Fase 7-B, D7B-05): los cobros y la configuración nunca se borran (cada intento queda como prueba).
+REVOKE DELETE, TRUNCATE ON cash.sistecredito_attempts, cash.sistecredito_settings FROM pos_app;
+
 -- Eventos de los documentos fiscales: solo agregar y leer (D7-12).
 REVOKE UPDATE, DELETE, TRUNCATE ON billing.fiscal_document_events FROM pos_app;
 -- Facturación electrónica (Fase 11-B): los documentos, los rangos y la configuración del proveedor nunca se borran.

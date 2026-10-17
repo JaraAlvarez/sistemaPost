@@ -267,9 +267,12 @@ public sealed class SaleLine : Entity<Guid>
     }
 
     /// <summary>Se suma a esta línea (mismo producto, presentación y precio de lista, sin cambios manuales ni peso).</summary>
+    /// <summary>Línea con un peso propio (etiqueta, báscula de la caja o digitado): cada pesada queda en su línea, nunca se suman.</summary>
+    public static bool IsWeighed(string? source) => source is "SCALE_WEIGHT" or "SCALE_PRICE" or "SCALE_LIVE" or "MANUAL_WEIGHT";
+
     internal bool CanMerge(SaleLineInput input) =>
         IsActive && !PriceOverridden && ProductId == input.ProductId && PackagingId == input.PackagingId && UnitPrice == input.UnitPrice
-        && Source is not ("SCALE_WEIGHT" or "SCALE_PRICE") && input.Source is not ("SCALE_WEIGHT" or "SCALE_PRICE")
+        && !IsWeighed(Source) && !IsWeighed(input.Source)
         && (ExpiredAuthorizedBy is null) == (input.ExpiredAuthorizedBy is null);
 
     internal void SetQuantity(decimal quantity)

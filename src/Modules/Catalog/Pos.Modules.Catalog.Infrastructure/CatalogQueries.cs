@@ -99,7 +99,7 @@ internal sealed class CatalogQueries(PosDbContext context) : ICatalogQueries
         return new ProductDetailDto(
             p.Id, p.Sku, p.Name, p.ShortName, p.Description, p.CategoryId, p.BrandId, p.BaseUnitCode, p.SaleMode.Db(), p.ProductType.Db(),
             p.IsSoldByScale, p.AllowsDecimalQuantity, p.AllowsOpenPrice, p.TracksLots, p.TracksExpiry, p.PluCode, p.NetContent, p.NetContentUnit,
-            p.Status.Db(), packagings, barcodes, taxes, prices);
+            p.Status.Db(), packagings, barcodes, taxes, prices, p.TareGrams);
     }
 
     public async Task<(Guid ProductId, Guid? PackagingId)?> FindByBarcodeAsync(string normalizedCode, CancellationToken cancellationToken)

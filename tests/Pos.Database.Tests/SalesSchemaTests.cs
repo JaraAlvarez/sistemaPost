@@ -294,4 +294,32 @@ public class SalesSchemaTests(PostgresFixture postgres)
         (await Violation(Printer(TerminalC01))).ShouldBe("ux_terminal_devices__kind");
         (await Violation(Printer(Guid.CreateVersion7().ToString()))).ShouldBe("fk_terminal_devices__terminal");
     }
+
+    [Fact]
+    public async Task Cada_caja_tiene_una_sola_bascula_con_configuracion_valida()
+    {
+        await using var harness = await InfrastructureHarness.CreateAsync(postgres);
+        var app = harness.Database.AppConnectionString;
+        string Scale(string terminal, string driver = "TOLEDO_8217", string port = "'COM3'", string enabled = "true", string baud = "NULL",
+            string parity = "NULL", int stable = 3) =>
+            $"""
+            INSERT INTO org.terminal_scales (id, company_id, pos_terminal_id, enabled, driver, port, baud_rate, parity, stable_wait_seconds,
+                created_at, created_by)
+            VALUES (gen_random_uuid(), '{Company}', '{terminal}', {enabled}, '{driver}', {port}, {baud}, {parity}, {stable}, now(), '{User}')
+            """;
+        async Task<string?> Violation(string sql) =>
+            (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(sql, app))).ConstraintName;
+
+        (await Violation(Scale(TerminalC01, "MARCA"))).ShouldBe("ck_terminal_scales__driver");
+        (await Violation(Scale(TerminalC01, port: "NULL"))).ShouldBe("ck_terminal_scales__port");
+        (await Violation(Scale(TerminalC01, port: "'LPT1'"))).ShouldBe("ck_terminal_scales__port");
+        (await Violation(Scale(TerminalC01, baud: "1234"))).ShouldBe("ck_terminal_scales__serial");
+        (await Violation(Scale(TerminalC01, parity: "'MARK'"))).ShouldBe("ck_terminal_scales__serial");
+        (await Violation(Scale(TerminalC01, stable: 0))).ShouldBe("ck_terminal_scales__waits");
+
+        await harness.Database.ExecuteAsync(Scale(TerminalC01, baud: "9600", parity: "'EVEN'"), app);
+        await harness.Database.ExecuteAsync(Scale(TerminalC02, "SIMULATED", "NULL"), app);
+        (await Violation(Scale(TerminalC01, "CAS"))).ShouldBe("ux_terminal_scales__terminal");
+        (await Violation(Scale(Guid.CreateVersion7().ToString()))).ShouldBe("fk_terminal_scales__terminal");
+    }
 }

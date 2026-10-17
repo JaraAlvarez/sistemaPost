@@ -20,6 +20,10 @@ public interface IOrganizationStore
 
     Task<TerminalDevice?> GetTerminalDeviceAsync(Guid posTerminalId, string kind, CancellationToken cancellationToken);
 
+    void Add(TerminalScale scale);
+
+    Task<TerminalScale?> GetTerminalScaleAsync(Guid posTerminalId, CancellationToken cancellationToken);
+
     Task<Company?> GetCompanyAsync(Guid companyId, CancellationToken cancellationToken);
 
     Task<bool> CompanyExistsAsync(string identificationType, string identificationNumber, CancellationToken cancellationToken);

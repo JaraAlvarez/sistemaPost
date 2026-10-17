@@ -159,6 +159,10 @@
                 <NoRecordsContent><EstadoVacio Mensaje="No hay medios de pago." /></NoRecordsContent>
                 <PagerContent><Paginador /></PagerContent>
             </MudTable>
+            @if (PuedeMedios)
+            {
+                <SistecreditoTarjeta Cambio="CargarMediosAsync" />
+            }
         </MudTabPanel>
         @if (Session.Has("settings.setting.view"))
         {
@@ -828,6 +832,7 @@
         "WALLET" => "Billetera digital",
         "VOUCHER" => "Bono",
         "OTHER" => "Otro",
+        "SISTECREDITO" => "Sistecrédito (cuotas)",
         _ => kind,
     };
 

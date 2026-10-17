@@ -421,6 +421,13 @@ public static class FactusDraftMapper
     public static ItemShape Shape(FiscalLine line, decimal gross)
     {
         ArgumentNullException.ThrowIfNull(line);
+
+        // Libra colombiana de 500 g (Fase 7-C): no tiene código UN/ECE propio; se factura en kilos (1,400 lb = 0,7 kg al doble del precio).
+        if (string.Equals(line.UnitCode, "LB500", StringComparison.OrdinalIgnoreCase))
+        {
+            line = line with { UnitCode = "KG", Quantity = line.Quantity * 0.5m, UnitPrice = line.UnitPrice * 2m };
+        }
+
         var unit = Units.TryGetValue(line.UnitCode ?? string.Empty, out var known) ? known : new UnitInfo("94", null, 1);
         var quantity = line.Quantity;
         if (quantity > 0m)

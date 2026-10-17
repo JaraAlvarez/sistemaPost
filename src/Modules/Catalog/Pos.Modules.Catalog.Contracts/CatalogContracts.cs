@@ -160,7 +160,8 @@ public sealed record ProductDetailDto(
     IReadOnlyList<PackagingDto> Packagings,
     IReadOnlyList<BarcodeDto> Barcodes,
     IReadOnlyList<ProductTaxDto> Taxes,
-    IReadOnlyList<PriceDto> Prices);
+    IReadOnlyList<PriceDto> Prices,
+    int TareGrams = 0);
 
 public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 
@@ -188,7 +189,9 @@ public sealed record ScanResultDto(
     bool PriceIncludesTax,
     IReadOnlyList<TaxLineDto> Taxes,
     bool IsSellable,
-    IReadOnlyList<string> NotSellableReasons);
+    IReadOnlyList<string> NotSellableReasons,
+    bool IsSoldByScale = false,
+    int TareGrams = 0);
 
 public sealed record ImportRowDto(int RowNumber, string Action, string Key, IReadOnlyList<string> Errors, IReadOnlyList<string> Warnings);
 
@@ -236,7 +239,9 @@ public sealed record CatalogSaleItem(
     IReadOnlyList<string> NotSellableReasons,
     Guid? PriceListId = null,
     string PriceSource = "DEFAULT",
-    bool AllowsPromotions = true);
+    bool AllowsPromotions = true,
+    bool IsSoldByScale = false,
+    int TareGrams = 0);
 
 /// <summary>El catálogo visto por la caja y por las promociones.</summary>
 public interface ICatalogSaleItems

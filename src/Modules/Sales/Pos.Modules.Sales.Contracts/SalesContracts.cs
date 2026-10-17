@@ -15,6 +15,7 @@ public static class SalesPermissions
     public const string SaleCancel = "sales.sale.cancel";
     public const string SaleVoid = "sales.sale.void";
     public const string ExpiredSell = "sales.expired.sell";
+    public const string ManualWeight = "sales.weight.manual";
     public const string ExchangeCreate = "sales.exchange.create";
     public const string WarrantyRefund = "sales.refund.warranty";
     public const string SaleReprint = "sales.sale.reprint";
@@ -29,6 +30,7 @@ public static class SalesPermissions
         new(SaleCancel, "Cancelar una venta en curso o suspendida (admite autorización de supervisor)", isSensitive: true),
         new(SaleVoid, "Anular una venta completada con su jornada abierta (admite autorización de supervisor)", isSensitive: true),
         new(ExpiredSell, "Vender un producto con existencias de un lote vencido (admite autorización de supervisor)", isSensitive: true),
+        new(ManualWeight, "Digitar el peso de un producto de báscula cuando la báscula no responde (admite autorización de supervisor)", isSensitive: true),
         new(ExchangeCreate, "Recibir un cambio de mercancía (admite autorización de supervisor)", isSensitive: true),
         new(WarrantyRefund, "Reintegrar dinero por garantía (excepción legal, solo el propietario)", isSensitive: true),
         new(SaleReprint, "Reimprimir el tiquete de una venta (marcado COPIA)", isSensitive: false),
@@ -67,7 +69,28 @@ public sealed record SaleLineDto(
     decimal ReturnedQuantity,
     IReadOnlyList<SaleLineTaxDto> Taxes,
     Guid? PriceListId = null,
-    string PriceSource = "DEFAULT");
+    string PriceSource = "DEFAULT",
+    string? WeightSource = null);
+
+/// <summary>
+/// De dónde salió el peso de una línea (Fase 7-C): SCALE (báscula conectada a la caja), LABEL (etiqueta de la báscula etiquetadora) o
+/// MANUAL (digitado porque la báscula no respondía). Nulo en las líneas que no son de peso.
+/// </summary>
+public static class WeightSources
+{
+    public const string Scale = "SCALE";
+    public const string Label = "LABEL";
+    public const string Manual = "MANUAL";
+
+    /// <summary>Origen del peso según el origen de la línea (<c>sale_lines.source</c>).</summary>
+    public static string? FromLineSource(string? source) => source switch
+    {
+        "SCALE_LIVE" => Scale,
+        "SCALE_WEIGHT" or "SCALE_PRICE" => Label,
+        "MANUAL_WEIGHT" => Manual,
+        _ => null,
+    };
+}
 
 public sealed record SalePaymentDto(
     Guid Id, Guid PaymentMethodId, string MethodCode, string MethodKind, decimal Tendered, decimal Applied, decimal Change, string? Reference, string? CardFranchise,

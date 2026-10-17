@@ -29,6 +29,8 @@ public sealed class AgentFactory : WebApplicationFactory<Program>
         {
             ["Agent:FileOutputDirectory"] = OutputDirectory,
             ["Agent:AllowedOrigins:0"] = UiOrigin,
+            ["Agent:ScaleConfigFile"] = Path.Combine(Root, "scale.json"),
+            ["Agent:EnableScaleSimulator"] = "true",
         };
         foreach (var (key, value) in settings ?? new Dictionary<string, string?>())
         {
@@ -43,6 +45,8 @@ public sealed class AgentFactory : WebApplicationFactory<Program>
     public string Root { get; }
 
     public string OutputDirectory { get; }
+
+    public string ScaleConfigFile => Path.Combine(Root, "scale.json");
 
     public static string TempDirectory() => Path.Combine(Path.GetTempPath(), "pos-agent-tests", Guid.CreateVersion7().ToString("N"));
 

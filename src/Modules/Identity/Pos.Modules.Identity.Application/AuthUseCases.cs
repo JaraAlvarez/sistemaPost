@@ -7,6 +7,7 @@ using Pos.Application.Abstractions.Security;
 using Pos.Application.Abstractions.Settings;
 using Pos.Modules.Audit.Contracts;
 using Pos.Modules.Backup.Contracts;
+using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
 using Pos.Modules.Licensing.Contracts;
@@ -50,7 +51,8 @@ public sealed class AuthServices(
     IClock clock,
     IIntegrityStatus integrity,
     IBackupStatus backups,
-    ILicenseStatus license)
+    ILicenseStatus license,
+    ISistecreditoPayments sistecredito)
 {
     /// <summary>Hash válido de una contraseña que no existe: iguala el tiempo de respuesta cuando el usuario no existe.</summary>
     private static string? _dummyHash;
@@ -174,6 +176,10 @@ public sealed class AuthServices(
         var openIncidents = effective.Contains(AuditPermissions.LogVerify) ? await integrity.OpenIncidentsAsync(cancellationToken) : 0;
         // Alertas de backups (D11-10) para quien puede verlos.
         var backupAlerts = effective.Contains(BackupPermissions.View) ? (await backups.GetAlertsAsync(cancellationToken)).Count : 0;
+        // Cobros de Sistecrédito aprobados sin venta (Fase 7-B, D7B-05) para quien administra los medios de pago.
+        var sistecreditoReviews = !terminal && effective.Contains(CashPermissions.PaymentMethodManage)
+            ? await sistecredito.CountPendingReviewsAsync(cancellationToken)
+            : 0;
         // Estado de la licencia para todos (Fase 12-B): la barra muestra "demostración", "vence en N días"… El enlace de pago en línea
         // (Fase 12-C) solo para quien puede ver la licencia: la caja no muestra pagos.
         var summary = license.Summary;
@@ -183,7 +189,7 @@ public sealed class AuthServices(
         }
 
         return new MeDto(user.Id, user.Username, user.DisplayName, sessionId, terminal ? "TERMINAL" : "BACKOFFICE", branchId, posTerminalId,
-            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts, summary);
+            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts, summary, sistecreditoReviews);
     }
 
     /// <summary>Ingreso fallido (Fase 10, §5.1): queda en la bitácora además de <c>identity.login_attempts</c>.</summary>

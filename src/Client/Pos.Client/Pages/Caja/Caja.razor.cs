@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using MudBlazor;
 using Pos.Client.Services;
+using Pos.SharedKernel.Text;
+using SistecreditoPaymentDto = Pos.Modules.Cash.Contracts.SistecreditoPaymentDto;
 
 namespace Pos.Client.Pages.Caja;
 
@@ -28,6 +30,12 @@ public sealed partial class Caja
         CancelarVenta,
         Ayuda,
         Consulta,
+
+        /// <summary>Leyendo la báscula para un producto "Se vende por báscula" (Fase 7-C).</summary>
+        Pesando,
+
+        /// <summary>La báscula no responde: el cajero digita el peso (con permiso o supervisor).</summary>
+        PesoDigitado,
     }
 
     /// <summary>Medios que asigna el sistema (crédito de un cambio, cupo del cliente, puntos): no se eligen en el cobro.</summary>
@@ -37,6 +45,12 @@ public sealed partial class Caja
     private static readonly decimal[] Billetes = [5_000m, 10_000m, 20_000m, 50_000m, 100_000m];
 
     private static readonly TimeSpan IntervaloConexion = TimeSpan.FromSeconds(15);
+
+    /// <summary>Cada cuánto la caja pregunta por el cobro de Sistecrédito mientras el cliente confirma en su celular.</summary>
+    private static readonly TimeSpan IntervaloSistecredito = TimeSpan.FromSeconds(3);
+
+    /// <summary>Tipos de documento que acepta Sistecrédito en la caja (D7B-07).</summary>
+    private static readonly string[] TiposDocumento = ["CC", "CE", "NIT", "PA", "TI"];
 
     private sealed record PendingAction(ApiException Error, Func<Guid?, Task> Retry);
 
@@ -74,6 +88,13 @@ public sealed partial class Caja
     private decimal _amount;
     private string? _reference;
     private string _completionKey = Guid.NewGuid().ToString();
+
+    // Fase 7-B: cobro con Sistecrédito en curso.
+    private string _scTipo = "CC";
+    private string? _scDocumento;
+    private SistecreditoPaymentDto? _sc;
+    private string? _scQr;
+    private CancellationTokenSource? _scCts;
     private Receipt? _lastReceipt;
     private decimal? _lastChange;
     private List<SaleSummary> _held = [];
@@ -94,6 +115,15 @@ public sealed partial class Caja
     private decimal _descuentoValor;
     private string? _descuentoMotivo;
 
+    // Fase 7-C: lectura automática de la báscula al registrar un producto de báscula.
+    private ScanResult? _pesoProducto;
+    private Guid _pesoProductoId;
+    private string _pesoMensaje = string.Empty;
+    private string _pesoTono = "info";
+    private ScaleRead? _pesoLectura;
+    private CancellationTokenSource? _pesoCts;
+    private decimal _pesoDigitado;
+
     [Inject]
     private ApiClient Api { get; set; } = default!;
 
@@ -102,6 +132,9 @@ public sealed partial class Caja
 
     [Inject]
     private AgentPrinter Printer { get; set; } = default!;
+
+    [Inject]
+    private AgentScale Scale { get; set; } = default!;
 
     [Inject]
     private ISnackbar Snackbar { get; set; } = default!;
@@ -115,7 +148,7 @@ public sealed partial class Caja
     private decimal Pagado => _payments.Sum(p => p.Amount);
 
     /// <summary>Lo pagado más el valor escrito y aún no agregado (Enter/F10 lo toma con el medio seleccionado).</summary>
-    private decimal PagadoConEscrito => Pagado + (_payments.Count == 0 && _methodSelected is not null ? _amount : 0);
+    private decimal PagadoConEscrito => Pagado + (_payments.Count == 0 && _methodSelected is not null && !EsSistecredito(_methodSelected) ? _amount : 0);
 
     private bool HayLineas => _sale is not null && _sale.ActiveLines.Any();
 
@@ -134,6 +167,11 @@ public sealed partial class Caja
             _methods = [.. (await Api.GetAsync<List<PaymentMethod>>("api/v1/cash/payment-methods")).Where(m => m.Status == "ACTIVE" && !ReservedKinds.Contains(m.Kind)).OrderBy(m => m.SortOrder)];
             _cashDenominations = [.. (await Api.GetAsync<List<Denomination>>("api/v1/cash/denominations")).Where(d => d.Status == "ACTIVE").OrderByDescending(d => d.Value)];
             _session = await OptionalAsync<CashSession>("api/v1/cash/sessions/current");
+            if (Session.Me?.PosTerminalId is { } terminalId && await Scale.LoadAsync(terminalId) is { } avisoBascula)
+            {
+                Snackbar.Add($"Báscula: {avisoBascula} Mientras tanto se puede digitar el peso.", Severity.Warning);
+            }
+
             if (_session is not null)
             {
                 _sale = await OptionalAsync<Sale>("api/v1/sales/current");
@@ -258,6 +296,9 @@ public sealed partial class Caja
             case "Delete" when _panel == Panel.None:
                 await AnularLineaAsync();
                 break;
+            case "Insert" when _panel is Panel.None or Panel.Pesando && Scale.Enabled:
+                await TaraManualAsync();
+                break;
         }
 
         StateHasChanged();
@@ -340,7 +381,185 @@ public sealed partial class Caja
         var (quantity, _) = Separar(_scan);
         _scan = string.Empty;
         CerrarSugerencias();
-        await AgregarAsync(new { productId = product.GetProperty("id").GetGuid(), quantity });
+        var productId = product.GetProperty("id").GetGuid();
+        if (quantity is null && Scale.Enabled && await ProductoDeBasculaAsync(product.Str("sku")) is { } pesable)
+        {
+            await PesarAsync(pesable, productId);
+            return;
+        }
+
+        await AgregarAsync(new { productId, quantity });
+    }
+
+    // ------------------------------------------------------------------------------------------ Báscula (Fase 7-C)
+
+    /// <summary>
+    /// Si el código es de un producto "Se vende por báscula" (y no una etiqueta de báscula, que ya trae el peso), lo devuelve para
+    /// leer la báscula. Solo se consulta cuando la caja tiene báscula configurada.
+    /// </summary>
+    private async Task<ScanResult?> ProductoDeBasculaAsync(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        try
+        {
+            var item = await Api.GetAsync<ScanResult>($"api/v1/catalog/scan/{Uri.EscapeDataString(code)}?branchId={Session.Me!.BranchId}");
+            return item is { IsSoldByScale: true, PackagingId: null, Source: not ("SCALE_WEIGHT" or "SCALE_PRICE") } ? item : null;
+        }
+        catch (ApiException)
+        {
+            // Código desconocido u otro problema: la venta normal da el mensaje.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Lee la báscula y agrega la línea con el peso estable (decisión del propietario): espera hasta "Espera peso estable" segundos a
+    /// que se quede quieto y hasta "Espera producto" a que pongan el producto; con sobrepeso, negativo o sin báscula avisa. Esc cancela.
+    /// </summary>
+    private async Task PesarAsync(ScanResult producto, Guid productId)
+    {
+        _pesoCts?.Cancel();
+        var cts = _pesoCts = new CancellationTokenSource();
+        _pesoProducto = producto;
+        _pesoProductoId = productId;
+        _pesoLectura = null;
+        _pesoMensaje = "Leyendo la báscula…";
+        _pesoTono = "info";
+        _panel = Panel.Pesando;
+        StateHasChanged();
+
+        var config = Scale.Config!;
+        var inicio = DateTime.UtcNow;
+        DateTime? inestableDesde = null;
+        var tara = producto.TareGrams / 1000m;
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                var lectura = _pesoLectura = await AgentScale.ReadAsync();
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                if (lectura.Unavailable)
+                {
+                    BasculaSinRespuesta(lectura.Message, config.AllowManualWeight);
+                    return;
+                }
+
+                var ahora = DateTime.UtcNow;
+                if (lectura.IsOk && lectura.WeightKg - tara > 0m)
+                {
+                    _panel = Panel.None;
+                    await AgregarAsync(new { productId, weightKg = lectura.WeightKg, weightSource = "SCALE" });
+                    return;
+                }
+
+                if (lectura.Status == "UNSTABLE")
+                {
+                    inestableDesde ??= ahora;
+                    (_pesoMensaje, _pesoTono) = ("Esperando peso estable…", "info");
+                    if (ahora - inestableDesde > TimeSpan.FromSeconds(config.StableWaitSeconds))
+                    {
+                        TerminarPesaje("El peso no se quedó quieto: no se agregó. Vuelva a registrar el producto.");
+                        return;
+                    }
+                }
+                else
+                {
+                    inestableDesde = null;
+                    (_pesoMensaje, _pesoTono) = lectura.Status switch
+                    {
+                        "OK" => ($"El peso no supera la tara del producto ({producto.TareGrams} g): ponga el producto en la báscula.", "alerta"),
+                        "ZERO" => ("Ponga el producto en la báscula", "info"),
+                        _ => (lectura.Message, "error"),
+                    };
+                    if (ahora - inicio > TimeSpan.FromSeconds(config.EmptyWaitSeconds))
+                    {
+                        TerminarPesaje(lectura.Status == "ZERO" || lectura.Status == "OK"
+                            ? "No llegó peso a la báscula: no se agregó nada."
+                            : $"{lectura.Message} No se agregó nada.");
+                        return;
+                    }
+                }
+
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(150, cts.Token);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // El cajero canceló con Esc.
+        }
+    }
+
+    private void TerminarPesaje(string mensaje)
+    {
+        _panel = Panel.None;
+        Snackbar.Add(mensaje, Severity.Warning);
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await FocusScannerAsync();
+        });
+    }
+
+    /// <summary>La báscula o el agente no responden: si la caja lo permite, se digita el peso (queda marcado y exige permiso).</summary>
+    private void BasculaSinRespuesta(string mensaje, bool permiteDigitar)
+    {
+        if (!permiteDigitar)
+        {
+            TerminarPesaje($"{mensaje} Avise al administrador.");
+            return;
+        }
+
+        _pesoMensaje = mensaje;
+        _pesoDigitado = 0m;
+        _panel = Panel.PesoDigitado;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task PesoDigitadoTeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AgregarPesoDigitadoAsync();
+        }
+    }
+
+    private async Task AgregarPesoDigitadoAsync()
+    {
+        if (_pesoDigitado <= 0m)
+        {
+            Snackbar.Add("Escriba el peso en kilos, por ejemplo 0,700.", Severity.Warning);
+            return;
+        }
+
+        var body = new { productId = _pesoProductoId, weightKg = _pesoDigitado };
+        _panel = Panel.None;
+        await RunAsync(async grant =>
+        {
+            _sale ??= await Api.PostAsync<Sale>("api/v1/sales");
+            _lastChange = null;
+            _sale = await Api.PostAsync<Sale>($"api/v1/sales/{_sale.Id}/lines/manual-weight", body, grant);
+            _selected = _sale.ActiveLines.LastOrDefault()?.Id;
+            _nueva = _selected;
+        });
+    }
+
+    /// <summary>Tara manual (tecla Insert): toma el peso actual (bolsa o bandeja que no está en el producto) y lo descuenta.</summary>
+    private async Task TaraManualAsync()
+    {
+        var lectura = await AgentScale.TareAsync(clear: false);
+        Snackbar.Add(
+            lectura.Unavailable || lectura.Status == "ERROR" ? lectura.Message
+                : lectura.TareKg > 0m ? $"Tara tomada: {lectura.TareKg.ToString("0.000", Format.Colombia)} kg." : "Tara quitada.",
+            lectura.Unavailable || lectura.Status == "ERROR" ? Severity.Warning : Severity.Info);
     }
 
     private async Task EscanerTeclaAsync(KeyboardEventArgs e)
@@ -398,6 +617,12 @@ public sealed partial class Caja
 
         _scan = string.Empty;
         CerrarSugerencias();
+        if (quantity is null && Scale.Enabled && await ProductoDeBasculaAsync(text) is { } pesable)
+        {
+            await PesarAsync(pesable, pesable.ProductId);
+            return;
+        }
+
         await AgregarAsync(new { code = text, quantity });
     }
 
@@ -817,6 +1042,7 @@ public sealed partial class Caja
         }
 
         _payments.Clear();
+        NuevoSistecredito();
         _completionKey = Guid.NewGuid().ToString();
         _methodSelected = _methods.FirstOrDefault(m => m.AffectsCashDrawer) ?? (_methods.Count > 0 ? _methods[0] : null);
         _amount = _sale.AmountDue;
@@ -830,6 +1056,22 @@ public sealed partial class Caja
         {
             _methodSelected = method;
             _amount = Math.Max(0, _sale!.AmountDue - Pagado);
+            if (EsSistecredito(method))
+            {
+                PrellenarDocumento();
+            }
+
+            return;
+        }
+
+        // Sistecrédito no se agrega a mano: entra solo cuando el cliente aprueba el cobro ("Generar cobro").
+        if (EsSistecredito(method))
+        {
+            if (_sc is null)
+            {
+                Snackbar.Add("Con Sistecrédito: escriba el documento del cliente y pulse «Generar cobro».", Severity.Info);
+            }
+
             return;
         }
 
@@ -914,6 +1156,209 @@ public sealed partial class Caja
             _ = ImprimirAsync(receipt.Ticket);
         });
     }
+
+    // ------------------------------------------------------------------------------------------ Sistecrédito (Fase 7-B)
+
+    private static bool EsSistecredito(PaymentMethod? method) => method is not null && EnumText.Same(method.Kind, "SISTECREDITO");
+
+    /// <summary>Documento del cliente asignado a la venta, si es de un tipo que acepta Sistecrédito.</summary>
+    private void PrellenarDocumento()
+    {
+        if (_sc is null && string.IsNullOrWhiteSpace(_scDocumento) && _sale?.Customer is { Identification: { Length: > 0 } documento } cliente
+            && TiposDocumento.Contains(cliente.IdentificationType))
+        {
+            _scTipo = cliente.IdentificationType;
+            _scDocumento = documento;
+        }
+    }
+
+    /// <summary>Deja el panel listo para un cobro nuevo (deja de consultar el anterior: si el cliente igual aprueba, la revisión automática lo ve).</summary>
+    private void NuevoSistecredito()
+    {
+        _scCts?.Cancel();
+        _scCts?.Dispose();
+        _pesoCts?.Cancel();
+        _pesoCts?.Dispose();
+        _scCts = null;
+        _sc = null;
+        _scQr = null;
+        _scDocumento = null;
+        _scTipo = "CC";
+        PrellenarDocumento();
+    }
+
+    private async Task GenerarSistecreditoAsync()
+    {
+        if (_sale is null || _methodSelected is null || _amount <= 0)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_scDocumento))
+        {
+            Snackbar.Add("Escriba el número de documento del cliente.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _sc = await Api.PostAsync<SistecreditoPaymentDto>("api/v1/cash/sistecredito/payments", new
+            {
+                saleId = _sale.Id, amount = _amount, documentType = _scTipo, documentNumber = _scDocumento,
+            });
+            _offline = false;
+            await AplicarSistecreditoAsync();
+            if (_sc is { Status: "PENDING" } pendiente)
+            {
+                _scCts = new CancellationTokenSource();
+                _ = VigilarSistecreditoAsync(pendiente.Id, _scCts.Token);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, ex.Status == HttpStatusCode.UnprocessableEntity ? Severity.Warning : Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            _offline = true;
+            Snackbar.Add("Se perdió la conexión con el servidor de la tienda. Reintente.", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Estado en vivo: pregunta cada 3 s hasta que el cliente aprueba, Sistecrédito rechaza o la cajera cancela.</summary>
+    private async Task VigilarSistecreditoAsync(Guid attemptId, CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(IntervaloSistecredito, token);
+                SistecreditoPaymentDto estado;
+                try
+                {
+                    estado = await Api.PostAsync<SistecreditoPaymentDto>($"api/v1/cash/sistecredito/payments/{attemptId}/check");
+                }
+                catch (Exception ex) when (ex is ApiException or HttpRequestException)
+                {
+                    continue; // se reintenta en la siguiente vuelta
+                }
+
+                if (token.IsCancellationRequested || _sc?.Id != attemptId)
+                {
+                    return;
+                }
+
+                await InvokeAsync(async () =>
+                {
+                    _sc = estado;
+                    await AplicarSistecreditoAsync();
+                    StateHasChanged();
+                });
+                if (estado.Status != "PENDING")
+                {
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Se canceló el cobro o se cerró el panel.
+        }
+        catch (ObjectDisposedException)
+        {
+            // La pantalla se cerró.
+        }
+    }
+
+    /// <summary>Muestra el QR cuando llega la URL; si el cliente aprobó, agrega el pago y sigue con el cobro normal.</summary>
+    private async Task AplicarSistecreditoAsync()
+    {
+        if (_sc is not { } cobro)
+        {
+            return;
+        }
+
+        if (cobro.Status == "PENDING" && cobro.RedirectUrl is not null && _scQr is null)
+        {
+            try
+            {
+                var (_, type, content) = await Api.DownloadAsync($"api/v1/cash/sistecredito/payments/{cobro.Id}/qr");
+                _scQr = $"data:{type};base64,{Convert.ToBase64String(content)}";
+            }
+            catch (Exception ex) when (ex is ApiException or HttpRequestException)
+            {
+                // Sin QR se reintenta en la siguiente consulta.
+            }
+        }
+
+        if (cobro.Status != "APPROVED" || cobro.CompletedSaleId is not null || _methods.FirstOrDefault(EsSistecredito) is not { } medio)
+        {
+            return;
+        }
+
+        if (!_payments.Any(p => p.Reference == cobro.TransactionId))
+        {
+            _payments.Add(new PaymentLine(medio.Id, cobro.Amount, cobro.TransactionId));
+        }
+
+        Snackbar.Add($"Sistecrédito aprobó el crédito{(cobro.Installments is { } cuotas ? $" a {cuotas} cuotas" : "")}.", Severity.Success);
+        NuevoSistecredito();
+        if (_sale is not null && Pagado >= _sale.AmountDue)
+        {
+            await CobrarAsync();
+        }
+        else if (_sale is not null)
+        {
+            // Pago mixto: falta una parte, que se cobra con otro medio.
+            _methodSelected = _methods.FirstOrDefault(m => m.AffectsCashDrawer) ?? _methodSelected;
+            _amount = Math.Max(0, _sale.AmountDue - Pagado);
+        }
+    }
+
+    private async Task CancelarSistecreditoAsync()
+    {
+        if (_sc is not { } cobro)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _scCts?.Cancel();
+            _sc = await Api.PostAsync<SistecreditoPaymentDto>($"api/v1/cash/sistecredito/payments/{cobro.Id}/cancel");
+            if (_sc.Status == "APPROVED")
+            {
+                await AplicarSistecreditoAsync();
+            }
+            else
+            {
+                Snackbar.Add(
+                    _sc.Status == "REVIEW_REQUIRED" ? _sc.Message ?? "Cobro cancelado: la administración debe revisarlo." : "Cobro de Sistecrédito cancelado.",
+                    Severity.Info);
+                NuevoSistecredito();
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Warning);
+        }
+        catch (HttpRequestException)
+        {
+            _offline = true;
+            Snackbar.Add("Se perdió la conexión con el servidor de la tienda. Reintente.", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
 
     private async Task ImprimirAsync(JsonElement ticket)
     {
@@ -1040,6 +1485,8 @@ public sealed partial class Caja
 
         _panel = Panel.None;
         _pending = null;
+        _pesoCts?.Cancel();
+        NuevoSistecredito();
         await FocusScannerAsync();
     }
 
@@ -1175,6 +1622,7 @@ public sealed partial class Caja
         "TRANSFER" => Icons.Material.Outlined.AccountBalance,
         "WALLET" => Icons.Material.Outlined.QrCode2,
         "VOUCHER" => Icons.Material.Outlined.CardGiftcard,
+        "SISTECREDITO" => Icons.Material.Outlined.CreditScore,
         _ => method.AffectsCashDrawer ? Icons.Material.Outlined.Payments : Icons.Material.Outlined.Wallet,
     };
 
@@ -1197,6 +1645,9 @@ public sealed partial class Caja
         };
     }
 
+    /// <summary>Abreviatura de la unidad de peso (kg, g, lb).</summary>
+    private static string UnidadPeso(string? unitCode) => Pos.SharedKernel.Measurement.WeightUnits.Label(unitCode);
+
     private static string EstadoLicencia(LicenseSummary license) => license.State switch
     {
         "DEMO" => $"Demostración · {license.DaysLeft} días",
@@ -1208,6 +1659,8 @@ public sealed partial class Caja
     {
         await _stop.CancelAsync();
         _stop.Dispose();
+        _scCts?.Cancel();
+        _scCts?.Dispose();
         try
         {
             await Js.InvokeVoidAsync("pos.unregisterKeys");

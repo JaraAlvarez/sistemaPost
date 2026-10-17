@@ -101,9 +101,11 @@
                             </MudSelect>
                         </MudItem>
                         <MudItem xs="12" sm="6">
-                            @if (_unit == "KG")
+                            @if (ModoVenta == "Weight")
                             {
-                                <MudCheckBox T="bool" @bind-Value="_scale" Label="Se vende por báscula (requiere PLU)" ReadOnly="@(!PuedeEditar)" />
+                                <MudCheckBox T="bool" @bind-Value="_scale" Label="Se vende por báscula (la caja lee el peso al registrarlo)" ReadOnly="@(!PuedeEditar)" />
+                                <MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_tare" Label="Tara (g)" Min="0" Max="5000" ReadOnly="@(!PuedeEditar)"
+                                                 HelperText="Peso de la bolsa o bandeja que se descuenta solo al pesar (0 = sin tara)" Class="mb-2" />
                             }
                             @if (ModoVenta == "Unit")
                             {
@@ -428,6 +430,7 @@
     private string _unit = "UND", _productType = "Stockable";
     private Guid? _category, _brand;
     private decimal? _netContent;
+    private int _tare;
     private decimal _price;
     private bool _scale, _decimal, _openPrice, _lots, _expiry;
 
@@ -462,8 +465,8 @@
     private bool FormularioValido => !string.IsNullOrWhiteSpace(_name) && _category is not null && !string.IsNullOrWhiteSpace(_unit)
                                      && !(PluObligatorio && string.IsNullOrWhiteSpace(_plu));
 
-    /// <summary>El servidor exige PLU a los productos vendidos por báscula (solo kilogramos).</summary>
-    private bool PluObligatorio => _unit == "KG" && _scale;
+    /// <summary>Fase 7-C: el PLU solo hace falta para las etiquetas de la báscula etiquetadora; ya no es obligatorio.</summary>
+    private bool PluObligatorio => false;
 
     private IReadOnlyList<BarcodeDto> Codigos => _producto?.Barcodes ?? [];
 
@@ -607,6 +610,7 @@
         _unit = p?.BaseUnitCode ?? "UND";
         _productType = p is not null && EnumText.Same(p.ProductType, "SERVICE") ? "Service" : "Stockable";
         _scale = p?.IsSoldByScale ?? false;
+        _tare = p?.TareGrams ?? 0;
         _decimal = p?.AllowsDecimalQuantity ?? false;
         _openPrice = p?.AllowsOpenPrice ?? false;
         _lots = p?.TracksLots ?? false;
@@ -621,9 +625,10 @@
     private void CambiarUnidad(string unit)
     {
         _unit = unit;
-        if (unit != "KG")
+        if (ModoVenta != "Weight")
         {
             _scale = false;
+            _tare = 0;
         }
     }
 
@@ -643,7 +648,8 @@
             baseUnitCode = _unit,
             saleMode = mode,
             productType = _productType,
-            isSoldByScale = _unit == "KG" && _scale,
+            isSoldByScale = mode == "Weight" && _scale,
+            tareGrams = mode == "Weight" ? _tare : 0,
             allowsDecimalQuantity = mode != "Unit" || _decimal,
             allowsOpenPrice = _openPrice,
             tracksLots = stockable && _lots,

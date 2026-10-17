@@ -4,6 +4,7 @@
 @inject SessionState Session
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
+@implements IDisposable
 
 <PageTitle>Cajas y equipos · BusinessPost</PageTitle>
 
@@ -37,6 +38,7 @@
                     {
                         <MudButton Size="Size.Small" OnClick="@(() => EditarCaja(context))">Editar</MudButton>
                         <MudButton Size="Size.Small" OnClick="@(() => AbrirImpresoraAsync(context))">Impresora</MudButton>
+                        <MudButton Size="Size.Small" OnClick="@(() => AbrirBasculaAsync(context))">Báscula</MudButton>
                         @if (Activa(context.Status))
                         {
                             <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar caja", $"La caja {context.Code} dejará de poder abrir jornadas hasta que la active de nuevo.", "Inactivar", true)) { await CambiarEstadoAsync(context, "Inactive"); } })">Inactivar</MudButton>
@@ -161,6 +163,105 @@
     </div>
 }
 
+@if (_basculaDe is not null)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width:min(640px, 96vw); max-height:94vh; overflow:auto" role="dialog" aria-modal="true">
+            <h2>Báscula · caja @_basculaDe.Code</h2>
+            @if (!_basculaConfigurada)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">La caja aún no tiene báscula. Conecte la báscula al computador de esta caja (cable serial o USB-serial) y elija su protocolo.</MudAlert>
+            }
+            <MudCheckBox T="bool" @bind-Value="_bActiva" Label="Esta caja tiene báscula conectada" />
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="string" Value="_bDriver" ValueChanged="CambiarDriver" Label="Marca o protocolo">
+                        <MudSelectItem T="string" Value="@("TOLEDO_8217")">Toledo 8217 (Mettler Toledo, Torrey, Moretti y compatibles)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("CAS")">CAS (formato ST/US de 22 bytes)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("GENERIC")">Otra (genérica: número y unidad)</MudSelectItem>
+                        @if (_agente?.SimulatorAvailable == true)
+                        {
+                            <MudSelectItem T="string" Value="@("SIMULATED")">Báscula simulada (solo desarrollo)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    @if (_bDriver != "SIMULATED")
+                    {
+                        <MudSelect T="string" @bind-Value="_bPuerto" Label="Puerto" HelperText="@(_agente is null ? "No se pudo leer el agente de este equipo: escriba el puerto en Opciones avanzadas" : "Puertos serie de este equipo")">
+                            @foreach (var port in PuertosDisponibles)
+                            {
+                                <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </MudItem>
+                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_bMarca" Label="Marca (opcional)" Immediate="true" /></MudItem>
+                <MudItem xs="6" sm="3"><MudTextField @bind-Value="_bModelo" Label="Modelo (opcional)" Immediate="true" /></MudItem>
+                <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_bEsperaEstable" Label="Espera peso estable (s)" Min="1" Max="15" /></MudItem>
+                <MudItem xs="6" sm="3"><MudNumericField T="int" @bind-Value="_bEsperaProducto" Label="Espera producto (s)" Min="1" Max="30" /></MudItem>
+            </MudGrid>
+            <MudCheckBox T="bool" @bind-Value="_bDigitar" Label="Si la báscula no responde, permitir digitar el peso (con permiso o supervisor)" />
+            <MudExpansionPanels Elevation="0" Class="my-2">
+                <MudExpansionPanel Text="Opciones avanzadas del puerto serie (técnico)">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="6" sm="4"><MudTextField @bind-Value="_bPuerto" Label="Puerto (COMx)" Immediate="true" /></MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudSelect T="int" @bind-Value="_bBaudios" Label="Velocidad">
+                                @foreach (var baud in new[] { 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 })
+                                {
+                                    <MudSelectItem T="int" Value="@baud">@baud</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudSelect T="int" @bind-Value="_bBits" Label="Bits de datos">
+                                <MudSelectItem T="int" Value="7">7</MudSelectItem>
+                                <MudSelectItem T="int" Value="8">8</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudSelect T="string" @bind-Value="_bParidad" Label="Paridad">
+                                <MudSelectItem T="string" Value="@("NONE")">Ninguna</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("EVEN")">Par</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("ODD")">Impar</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudSelect T="int" @bind-Value="_bParada" Label="Bits de parada">
+                                <MudSelectItem T="int" Value="1">1</MudSelectItem>
+                                <MudSelectItem T="int" Value="2">2</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudSelect T="string" @bind-Value="_bModo" Label="Envío del peso">
+                                <MudSelectItem T="string" Value="@("REQUEST")">La caja lo pide</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("CONTINUOUS")">Continuo</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="6" sm="4"><MudTextField @bind-Value="_bComando" Label="Comando de lectura" Immediate="true" HelperText="Toledo: W · admite \r \n \xHH" /></MudItem>
+                        <MudItem xs="6" sm="4"><MudNumericField T="int" @bind-Value="_bTiempo" Label="Tiempo de espera (ms)" Min="200" Max="5000" /></MudItem>
+                        <MudItem xs="6" sm="4"><MudNumericField T="int" @bind-Value="_bDecimales" Label="Decimales sin punto" Min="0" Max="4" /></MudItem>
+                    </MudGrid>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+
+            <div class="caja-total-caja" style="margin:8px 0">
+                <div class="caja-total-etiqueta"><span>Peso en vivo</span><span>@(_lectura?.Stable == true ? "Estable" : _lectura is null ? "" : "Sin estabilizar")</span></div>
+                <div class="caja-total" aria-live="polite">@(_lectura?.Display ?? "--")</div>
+                <MudText Typo="Typo.caption">@(_lectura?.Message ?? "Pulse «Probar báscula» con la báscula conectada a ESTE computador.")@(_lectura is { TareKg: > 0 } t ? $" · Tara {t.TareKg:0.000} kg" : "")</MudText>
+            </div>
+            <div class="acciones">
+                <MudButton OnClick="CerrarBascula">Cancelar</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@(_probando is null)" OnClick="@(() => TaraAsync(false))">Tara</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@(_probando is null)" OnClick="@(() => TaraAsync(true))">Quitar tara</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="@(!_bActiva)" OnClick="ProbarBasculaAsync">@(_probando is null ? "Probar báscula" : "Detener prueba")</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarBasculaAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
 @if (_codigo is not null)
 {
     <div class="panel-fondo">
@@ -211,6 +312,19 @@
     private int _iPapel = 80;
 
     private bool PuedeEmparejar => Session.Has("organization.device.manage") && Session.IsMulti;
+
+    // Báscula (Fase 7-C).
+    private TerminalDto? _basculaDe;
+    private AgentScaleStatus? _agente;
+    private ScaleRead? _lectura;
+    private CancellationTokenSource? _probando;
+    private bool _basculaConfigurada, _bActiva, _bDigitar = true;
+    private string _bDriver = "TOLEDO_8217", _bParidad = "EVEN", _bModo = "REQUEST";
+    private string? _bPuerto, _bMarca, _bModelo, _bComando = "W";
+    private int _bBaudios = 9600, _bBits = 7, _bParada = 1, _bTiempo = 1000, _bDecimales = 3, _bEsperaEstable = 3, _bEsperaProducto = 5;
+
+    private IEnumerable<string> PuertosDisponibles =>
+        (_agente?.SerialPorts ?? []).Concat(_bPuerto is { Length: > 0 } p ? [p] : []).Distinct(StringComparer.OrdinalIgnoreCase);
 
     private string EtiquetaDireccion => _iConexion switch
     {
@@ -402,6 +516,155 @@
 
         _busy = false;
     }
+
+    // ------------------------------------------------------------------------------------------ Báscula
+
+    private async Task AbrirBasculaAsync(TerminalDto terminal)
+    {
+        try
+        {
+            var scale = await Api.GetAsync<TerminalScaleDto>($"api/v1/organization/terminals/{terminal.Id}/scale");
+            _agente = await AgentScale.StatusAsync();
+            _basculaConfigurada = scale.Configured;
+            _bActiva = scale.Configured ? scale.Enabled : true;
+            CambiarDriver(scale.Configured ? scale.Driver : "TOLEDO_8217");
+            _bPuerto = scale.Port ?? _agente?.SerialPorts.FirstOrDefault();
+            _bBaudios = scale.BaudRate ?? _bBaudios;
+            _bBits = scale.DataBits ?? _bBits;
+            _bParidad = scale.Parity ?? _bParidad;
+            _bParada = scale.StopBits ?? _bParada;
+            _bModo = scale.ReadMode ?? _bModo;
+            _bComando = scale.RequestCommand ?? _bComando;
+            _bTiempo = scale.TimeoutMs ?? 1000;
+            _bDecimales = scale.Decimals ?? 3;
+            _bMarca = scale.Brand;
+            _bModelo = scale.Model;
+            _bEsperaEstable = scale.StableWaitSeconds;
+            _bEsperaProducto = scale.EmptyWaitSeconds;
+            _bDigitar = scale.AllowManualWeight;
+            _lectura = null;
+            _basculaDe = terminal;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+    }
+
+    /// <summary>Al elegir la marca se proponen sus valores de fábrica (el técnico los puede cambiar en Opciones avanzadas).</summary>
+    private void CambiarDriver(string driver)
+    {
+        _bDriver = driver;
+        var defaults = _agente?.Drivers.FirstOrDefault(d => d.Code == (driver == "SIMULATED" ? "TOLEDO_8217" : driver));
+        (_bBaudios, _bBits, _bParidad, _bParada, _bModo, _bComando) = defaults is not null
+            ? (defaults.BaudRate, defaults.DataBits, defaults.Parity, defaults.StopBits, defaults.ReadMode, defaults.RequestCommand)
+            : driver switch
+            {
+                "CAS" or "GENERIC" => (9600, 8, "NONE", 1, "CONTINUOUS", (string?)null),
+                _ => (9600, 7, "EVEN", 1, "REQUEST", "W"),
+            };
+    }
+
+    private object ConfigBascula() => new
+    {
+        enabled = _bActiva,
+        driver = _bDriver,
+        port = _bDriver == "SIMULATED" || string.IsNullOrWhiteSpace(_bPuerto) ? null : _bPuerto.Trim().ToUpperInvariant(),
+        baudRate = _bBaudios,
+        dataBits = _bBits,
+        parity = _bParidad,
+        stopBits = _bParada,
+        readMode = _bModo,
+        requestCommand = string.IsNullOrEmpty(_bComando) ? null : _bComando,
+        timeoutMs = _bTiempo,
+        decimals = _bDecimales,
+        brand = _bMarca,
+        model = _bModelo,
+        catalogCode = (string?)null,
+        stableWaitSeconds = _bEsperaEstable,
+        emptyWaitSeconds = _bEsperaProducto,
+        allowManualWeight = _bDigitar,
+    };
+
+    /// <summary>"Probar báscula": aplica la configuración en el agente de ESTE equipo (sin guardarla) y muestra el peso en vivo.</summary>
+    private async Task ProbarBasculaAsync()
+    {
+        if (_probando is not null)
+        {
+            DetenerPrueba();
+            return;
+        }
+
+        var cts = _probando = new CancellationTokenSource();
+        _lectura = await AgentScale.TestAsync(ConfigBascula());
+        StateHasChanged();
+        try
+        {
+            while (!cts.IsCancellationRequested && _lectura is { Unavailable: false })
+            {
+                await Task.Delay(400, cts.Token);
+                _lectura = await AgentScale.ReadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Prueba detenida.
+        }
+
+        if (ReferenceEquals(_probando, cts))
+        {
+            DetenerPrueba();
+        }
+    }
+
+    private async Task TaraAsync(bool clear)
+    {
+        _lectura = await AgentScale.TareAsync(clear);
+        if (!_lectura.Unavailable && _lectura.Status == "ERROR")
+        {
+            Snackbar.Add(_lectura.Message, Severity.Warning);
+        }
+    }
+
+    private void DetenerPrueba()
+    {
+        _probando?.Cancel();
+        _probando?.Dispose();
+        _probando = null;
+    }
+
+    private void CerrarBascula()
+    {
+        DetenerPrueba();
+        _basculaDe = null;
+    }
+
+    private async Task GuardarBasculaAsync()
+    {
+        if (_basculaDe is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var saved = await Api.PutAsync<TerminalScaleDto>($"api/v1/organization/terminals/{_basculaDe.Id}/scale", ConfigBascula());
+            // Si este equipo es la caja, el agente queda configurado de una vez; si no, la caja se lo entrega al abrir.
+            var aviso = Session.Me?.PosTerminalId == _basculaDe.Id ? await AgentScale.PushAsync(saved) : null;
+            Snackbar.Add(aviso ?? "Báscula guardada. La caja la usa desde que vuelva a abrir la pantalla de venta.", aviso is null ? Severity.Success : Severity.Warning);
+            CerrarBascula();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    public void Dispose() => DetenerPrueba();
 
     // ------------------------------------------------------------------------------------------ Equipos
 

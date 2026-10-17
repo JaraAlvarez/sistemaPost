@@ -8,4 +8,9 @@
     <ProjectReference Include="../../../BuildingBlocks/Pos.Infrastructure/Pos.Infrastructure.csproj" />
     <ProjectReference Include="../Pos.Modules.Cash.Application/Pos.Modules.Cash.Application.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Fase 7-B: cliente HTTP de Sistecrédito (Sistecredito/). -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
 </Project>

@@ -12,6 +12,7 @@ using Pos.Modules.Sales.Application;
 using Pos.Modules.Sales.Contracts;
 using Pos.Modules.Sales.Domain;
 using Pos.SharedKernel.Results;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Sales.Infrastructure;
 
@@ -392,6 +393,20 @@ internal sealed class OpenSalesProbe(PosDbContext context) : IOpenSalesProbe
             .ToListAsync(cancellationToken);
 }
 
+/// <summary>Fase 7-B: la caja pregunta por la venta en curso que va a cobrar con Sistecrédito.</summary>
+internal sealed class SaleChargeProbe(PosDbContext context) : ISaleChargeProbe
+{
+    public async Task<SaleChargeInfo?> GetAsync(Guid saleId, CancellationToken cancellationToken = default) =>
+        await context.Set<Sale>().AsNoTracking()
+            .Where(s => s.Id == saleId)
+            .Select(s => new { s.Id, s.PosTerminalId, s.Status, s.Total, s.ExchangeCredit, s.CustomerIdentificationType, s.CustomerIdentification })
+            .FirstOrDefaultAsync(cancellationToken) is { } sale
+            ? new SaleChargeInfo(
+                sale.Id, sale.PosTerminalId, sale.Status.UpperSnake(), Math.Max(0m, sale.Total - sale.ExchangeCredit), sale.CustomerIdentificationType,
+                sale.CustomerIdentification)
+            : null;
+}
+
 internal sealed class SalesConstraintErrors : IConstraintErrorProvider
 {
     public IReadOnlyDictionary<string, Error> GetConstraintErrors() => new Dictionary<string, Error>
@@ -411,6 +426,7 @@ public static class SalesInfrastructureRegistration
         services.AddScoped<ISalesStore, SalesStore>();
         services.AddScoped<ISalesReadModel, SalesReadModel>();
         services.AddScoped<IOpenSalesProbe, OpenSalesProbe>();
+        services.AddScoped<ISaleChargeProbe, SaleChargeProbe>();
         services.AddScoped<ICustomerSalesHistory, CustomerSalesHistory>();
     }
 }

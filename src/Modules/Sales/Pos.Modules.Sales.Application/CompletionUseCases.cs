@@ -260,6 +260,7 @@ internal sealed class CompleteSaleHandler(
     CustomerResolver customers,
     ICustomerCreditGate credit,
     ILoyaltyProgram loyalty,
+    ISistecreditoPayments sistecredito,
     IOutbox outbox,
     IIdGenerator ids,
     IClock clock) : ICommandHandler<CompleteSaleCommand, SaleReceiptDto>
@@ -440,6 +441,17 @@ internal sealed class CompleteSaleHandler(
             if ((method.RequiresReference && reference is null) || reference is { Length: > 60 })
             {
                 return SalesErrors.ReferenceRequired;
+            }
+
+            // Sistecrédito (Fase 7-B, D7B-05): solo con un cobro APROBADO de esta venta, por este valor y sin usar; queda usado en esta
+            // misma transacción (si la venta no se completa, se revierte). La referencia es el id de la transacción de Sistecrédito.
+            if (method.Kind == "SISTECREDITO")
+            {
+                var used = await sistecredito.UseApprovedAsync(sale.Id, reference!, payment.Amount, cancellationToken);
+                if (used.IsFailure)
+                {
+                    return used.Error;
+                }
             }
 
             var last4 = string.IsNullOrWhiteSpace(payment.CardLast4) ? null : payment.CardLast4.Trim();
