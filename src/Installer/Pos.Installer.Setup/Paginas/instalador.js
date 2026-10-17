@@ -258,13 +258,13 @@ function prepararCuenta() {
   const prueba = S.prueba;
   $("cuentaTitulo").textContent = prueba ? "Crea tu usuario de administrador" : "Entra con tu cuenta de BusinessPost";
   $("cuentaLead").textContent = prueba
-    ? "Con él administrarás la tienda: crear cajeros, cargar productos y ver reportes. Usa tu correo; la contraseña debe tener al menos 10 caracteres."
+    ? "Con él administrarás la tienda: crear cajeros, cargar productos y ver reportes. Usa tu correo; la contraseña debe tener al menos 8 caracteres."
     : "Es la misma cuenta de tu portal. Con ella administrarás la tienda: crear cajeros, cargar productos y ver reportes. Funciona también sin internet.";
   $("cuentaPortal").classList.toggle("oculto", prueba);
   $("campoNombre").classList.toggle("oculto", !prueba);
   $("campoConfirmar").classList.toggle("oculto", !prueba);
   $("campoTotp").classList.add("oculto");
-  $("cuentaContrasena").placeholder = prueba ? "Mínimo 10 caracteres" : "Tu contraseña del portal";
+  $("cuentaContrasena").placeholder = prueba ? "Mínimo 8 caracteres" : "Tu contraseña del portal";
   if (prueba && S.google === "esperando") cancelarGoogle();
   if (prueba) { S.google = null; S.googleCuenta = null; }
   vistaGoogle();
@@ -364,11 +364,17 @@ $("btnCuenta").onclick = async () => {
 
   if (S.prueba) {
     const nombre = $("cuentaNombre").value.trim();
-    const usuario = correo.split("@")[0];
     if (!nombre) { aviso("avisoCuenta", "Escribe tu nombre.", "error"); return; }
-    if (contrasena.length < 10) { aviso("avisoCuenta", "La contraseña debe tener al menos 10 caracteres.", "error"); return; }
-    if (new Set(contrasena).size <= 2 || (usuario.length >= 4 && contrasena.toLowerCase().includes(usuario))) {
-      aviso("avisoCuenta", "Esa contraseña es muy fácil de adivinar. Usa una frase o mezcla letras y números.", "error"); return;
+    // Misma regla y mismos textos que el servidor de la tienda, que es quien la valida (IdentityRules.CheckPassword con la longitud
+    // mínima por defecto, security.password_min_length = 8). La lista de contraseñas comunes la revisa el servidor.
+    if (contrasena.length < 8) { aviso("avisoCuenta", "La contraseña debe tener al menos 8 caracteres.", "error"); return; }
+    if (contrasena.length > 128) { aviso("avisoCuenta", "La contraseña admite hasta 128 caracteres.", "error"); return; }
+    // El usuario del propietario es el correo (como en el servidor: igual o contenido en la contraseña).
+    if (contrasena.toLowerCase() === correo || (correo.length >= 4 && contrasena.toLowerCase().includes(correo))) {
+      aviso("avisoCuenta", "La contraseña no puede contener el nombre de usuario.", "error"); return;
+    }
+    if (new Set(contrasena).size <= 2) {
+      aviso("avisoCuenta", "La contraseña es demasiado común o predecible.", "error"); return;
     }
     if (contrasena !== $("cuentaConfirmar").value) { aviso("avisoCuenta", "Las dos contraseñas no coinciden.", "error"); return; }
     S.cuenta = { usuario: correo, nombre, contrasena, enlace: null };

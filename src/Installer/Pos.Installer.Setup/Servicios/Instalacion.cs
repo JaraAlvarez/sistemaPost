@@ -71,6 +71,12 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         catch (OperationCanceledException)
         {
             LeerNuevo(Registro, registroInno, lector);
+            if (!lector.EnPasoCritico && proceso is { HasExited: false })
+            {
+                // P3: última lectura del registro JUSTO antes de cortar: si en ese instante entró en la base de datos, no se corta.
+                LeerNuevo(Registro, registroInno, lector);
+            }
+
             if (lector.EnPasoCritico)
             {
                 // IL5: migrando o restaurando NO se corta (Inno, el migrador o pg_restore a mitad dejan una base a medias): se espera a que
@@ -84,10 +90,12 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
                 // Antes de la base de datos: el paquete (y lo que haya lanzado) no debe seguir solo en segundo plano. IR5: app\current
                 // sigue en la versión anterior, así que vuelven a arrancar los servicios que el paquete había detenido (con el actualizador
                 // anterior), en vez de dejarlos en manual.
+                var seguiaVivo = proceso is { HasExited: false };
                 Detener(proceso);
-                if (lector.TocoElEquipo)
+                if (seguiaVivo && lector.TocoElEquipo)
                 {
-                    Sistema.ReanudarServiciosDetenidos(Registro);
+                    // El actualizador anterior solo se recupera si el paquete ya empezó a copiar (antes su copia .anterior podría ser vieja).
+                    Sistema.ReanudarServiciosDetenidos(Registro, restaurarActualizador: lector.PorcentajeCopia > 0);
                 }
             }
 

@@ -385,7 +385,7 @@ internal static partial class Sistema
     /// recupera el actualizador anterior (si el paquete ya lo había reemplazado) y vuelven a arrancar los servicios que el paquete había
     /// detenido (los "Deteniendo …" de su registro), en orden. Así el equipo sigue funcionando con la versión de antes.
     /// </summary>
-    public static void ReanudarServiciosDetenidos(string? registro)
+    public static void ReanudarServiciosDetenidos(string? registro, bool restaurarActualizador)
     {
         if (registro is null || !File.Exists(registro))
         {
@@ -404,7 +404,7 @@ internal static partial class Sistema
         }
 
         var lineas = new List<string> { "Instalador premium: se cortó el paquete antes de la base de datos; vuelve la versión anterior." };
-        if (CarpetaInstalada() is { } carpeta)
+        if (restaurarActualizador && CarpetaInstalada() is { } carpeta)
         {
             var actualizador = Path.Combine(carpeta, "updater", "Pos.Server.Updater.exe");
             if (File.Exists(actualizador + ".anterior"))

@@ -95,7 +95,11 @@ public sealed class PreUpdateRollbackTests(PostgresFixture postgres) : IDisposab
     {
         var broken = MigrationScript.Parse("V2099.12.991__system__falla_a_mitad.sql", "SELECT 1 / 0;");
         var all = ScriptCatalog.Default;
-        var next = new ScriptCatalog(all.Versioned.Append(NewTable).Append(broken).Concat(all.Repeatable).Concat(all.Always));
+        // P6: la versión nueva también cambia privilegios antes de fallar; la copia los arrastra y apply-always de la versión anterior los corrige.
+        var privileges = MigrationScript.Parse(
+            "V2099.12.989__system__privilegios_nuevos.sql",
+            "REVOKE INSERT ON system.idempotency_keys FROM pos_app;\nGRANT DELETE ON ref.countries TO pos_app;");
+        var next = new ScriptCatalog(all.Versioned.Append(privileges).Append(NewTable).Append(broken).Concat(all.Repeatable).Concat(all.Always));
 
         var (db, target, outcome, update) = await UpdateThatFailsAsync(next);
 
@@ -113,7 +117,7 @@ public sealed class PreUpdateRollbackTests(PostgresFixture postgres) : IDisposab
         await using (var active = new NpgsqlConnection(db.AppConnectionString))
         {
             await active.OpenAsync(Ct);
-            (await new DatabaseMigrator(all).GetStatusAsync(active, Ct)).UnknownVersions.ShouldBe(["2099.12.990"]);
+            (await new DatabaseMigrator(all).GetStatusAsync(active, Ct)).UnknownVersions.ShouldBe(["2099.12.989", "2099.12.990"]);
         }
 
         await using (var back = new NpgsqlConnection(postgres.ConnectionString(target, DatabaseCreator.AppRole, PostgresFixture.Passwords.App)))
@@ -144,11 +148,17 @@ public sealed class PreUpdateRollbackTests(PostgresFixture postgres) : IDisposab
             (await Should.ThrowAsync<PostgresException>(() => update1.ExecuteNonQueryAsync(Ct))).SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
         }
 
+        (await db.ScalarAsync<bool>("SELECT has_table_privilege('pos_app', 'ref.countries', 'DELETE')", restored))
+            .ShouldBeTrue("La copia trae lo que dejó la migración fallida en la BD activa.");
+        (await db.ScalarAsync<bool>("SELECT has_table_privilege('pos_app', 'system.idempotency_keys', 'INSERT')", restored)).ShouldBeFalse();
+
         // IR2: el migrador de la versión anterior deja después sus privilegios exactos (apply-always) sobre la BD restaurada.
         await new DatabaseMigrator(all).ApplyAlwaysAsync(
             postgres.ConnectionString(target, DatabaseCreator.MigratorRole, PostgresFixture.Passwords.Migrator), "1.0.0", Ct);
         await AppReadsReportingAsync(db, target, app);
         (await db.ScalarAsync<bool>("SELECT has_table_privilege('pos_app', 'inventory.stock_movements', 'UPDATE')", restored)).ShouldBeFalse();
+        (await db.ScalarAsync<bool>("SELECT has_table_privilege('pos_app', 'ref.countries', 'DELETE')", restored)).ShouldBeFalse("P6: apply-always lo corrige.");
+        (await db.ScalarAsync<bool>("SELECT has_table_privilege('pos_app', 'system.idempotency_keys', 'INSERT')", restored)).ShouldBeTrue();
     }
 
     /// <summary>

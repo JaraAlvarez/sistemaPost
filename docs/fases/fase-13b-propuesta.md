@@ -351,3 +351,12 @@ recuperación y no quedaría dónde leer el motivo. Si la instalación se cancel
 hace lo mismo si se cierra antes de la base de datos. Si vence la espera del premium con el paquete trabajando, no se borra el archivo del
 código de recuperación (lo borra Inno, o la próxima ejecución si tiene más de 2 horas). La guía de recuperación explica cómo devolver los
 servicios a automático después de restaurar con soporte.
+
+**Ronda corta antes de unir (P1-P6).** El premium ya no corta el paquete desde que entró en la base de datos (o, en una caja, desde que
+activa la versión nueva, que ahora deja su propia línea "Paso:"), aunque el registro diga que falló: mientras esté vivo, espera. Justo
+antes de cortarlo vuelve a leer el registro, y solo recupera el actualizador anterior si el paquete ya había empezado a copiar. Con el
+código 3 el instalador corre primero `migrate --no-backup` del migrador ANTERIOR (existe desde la Fase 13): sobre la BD restaurada solo
+aplica sus privilegios, y si la falla no traía cambios de esquema vuelve a aplicar sus repetibles y privilegios. Si no funciona, se
+intenta `apply-always`; los migradores sin ese comando quedan como aviso en el registro, no como error. La contraseña del administrador
+en la prueba de 30 días sigue la regla del servidor de la tienda, que es quien la valida: mínimo 8 caracteres, sin el correo y no
+trivial, con los mismos textos.

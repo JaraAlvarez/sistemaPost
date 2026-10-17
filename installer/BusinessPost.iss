@@ -712,7 +712,8 @@ end;
 
 // El migrador, con su salida en el registro de la instalación (IN4: ahí queda el mensaje de "restaurar con soporte" y la ruta del
 // backup). Devuelve su código de salida (-1 si no se pudo ejecutar); no muestra mensajes: los decide quien llama.
-function RunMigrator(const FileName, Params, Step: String): Integer;
+// Ejecuta el migrador sin dejar "Resultado: ERROR" en el registro (lo decide quien llama): para pasos de mejor esfuerzo (P4).
+function RunMigratorQuiet(const FileName, Params, Step: String): Integer;
 begin
   Log(Step + ': ' + FileName + ' ' + MaskSecrets(Params));
   try
@@ -722,6 +723,11 @@ begin
     Log('No se pudo ejecutar el migrador: ' + GetExceptionMessage);
     Result := -1;
   end;
+end;
+
+function RunMigrator(const FileName, Params, Step: String): Integer;
+begin
+  Result := RunMigratorQuiet(FileName, Params, Step);
   if Result <> 0 then
     Log('Resultado: ERROR ' + Step + ' (código ' + IntToStr(Result) + ')');
 end;
@@ -1090,16 +1096,25 @@ begin
     if Code <> 0 then
     begin
       MarkFailed(ExitDatabaseFailed, 'Base de datos');
-      // IR2: el migrador volvió a los datos de antes (código 3): el migrador de la versión ANTERIOR (app\current sigue en ella) deja sus
-      // privilegios exactos con "apply-always". Los migradores viejos no tienen ese comando (código 2): quedan los privilegios que copió
-      // la vuelta atrás.
+      // IR2/P5: el migrador volvió a los datos de antes (código 3). El migrador de la versión ANTERIOR (app\current sigue en ella) deja la
+      // base como la dejaba esa versión con "migrate --no-backup" (existe desde la Fase 13, la primera con instalador): sobre la BD
+      // restaurada no hay nada pendiente y solo corre sus scripts "always" (privilegios); si la falla no traía cambios de esquema, vuelve
+      // a aplicar sus repetibles (vistas, catálogos) y sus "always". No borra datos: solo aplica lo que esa versión ya tenía. Si no
+      // funciona, se intenta "apply-always" (solo privilegios); los migradores viejos no lo tienen (código 2): quedan los privilegios que
+      // copió la vuelta atrás. Son pasos de mejor esfuerzo: van al registro como avisos, no como "Resultado: ERROR".
       if (Code = 3) and FileExists(App + '\app\current\migrator\Pos.Server.Migrator.exe') then
       begin
-        case RunMigrator(App + '\app\current\migrator\Pos.Server.Migrator.exe', 'apply-always --data-root "' + Data + '"',
-          'Privilegios de la versión anterior') of
-          0: Log('Privilegios de la versión anterior aplicados.');
-          2: Log('El migrador anterior no tiene "apply-always": quedan los privilegios copiados de la base activa.');
-        end;
+        if RunMigratorQuiet(App + '\app\current\migrator\Pos.Server.Migrator.exe', 'migrate --no-backup --data-root "' + Data + '"',
+          'Base de datos como la dejaba la versión anterior') = 0 then
+          Log('La versión anterior volvió a aplicar sus repetibles y sus privilegios.')
+        else
+          case RunMigratorQuiet(App + '\app\current\migrator\Pos.Server.Migrator.exe', 'apply-always --data-root "' + Data + '"',
+            'Privilegios de la versión anterior') of
+            0: Log('Privilegios de la versión anterior aplicados.');
+            2: Log('Aviso: El migrador anterior no tiene "apply-always": quedan los privilegios copiados de la base activa.');
+          else
+            Log('Aviso: No se pudieron aplicar los privilegios de la versión anterior: quedan los copiados de la base activa.');
+          end;
       end;
       RollBack(True);
       if not Premium then
@@ -1151,6 +1166,8 @@ begin
 
   // Versión activa (IN9): si no se pudo cambiar app\current no se registran servicios apuntando a una ruta que no existe. La base de datos
   // ya quedó en la versión nueva: no se arranca el servidor anterior; volver a ejecutar el instalador termina el cambio.
+  // P2: con su propia línea "Paso:", el instalador premium sabe que desde aquí no se corta (en una caja no hubo paso de base de datos).
+  ShowStep('Activando la versión nueva de BusinessPost…', '');
   if not ActivateVersion(App, Version) then
   begin
     MarkFailed(ExitActivationFailed, 'Versión activa');

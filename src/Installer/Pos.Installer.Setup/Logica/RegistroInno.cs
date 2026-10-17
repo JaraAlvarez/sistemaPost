@@ -48,10 +48,11 @@ public sealed class RegistroInno
     public string? Error { get; private set; }
 
     /// <summary>
-    /// IL5: el paquete está en un paso que NO se debe cortar (base de datos o recuperación y lo que sigue: versión activa y servicios):
-    /// matar a Inno o al migrador a mitad deja una base o una versión a medias.
+    /// IL5/P1: el paquete ya entró en un paso que NO se debe cortar (base de datos o recuperación y todo lo que sigue: versión activa y
+    /// servicios; en una caja, desde que activa la versión nueva). Matar a Inno o al migrador ahí deja una base o una versión a medias.
+    /// No mira <see cref="Resultado"/>: mientras el paquete siga vivo, desde aquí se espera a que termine solo.
     /// </summary>
-    public bool EnPasoCritico => Etapa >= Etapa.CreandoBaseDeDatos && Resultado == ResultadoInno.EnCurso;
+    public bool EnPasoCritico => Etapa >= Etapa.CreandoBaseDeDatos;
 
     /// <summary>El paquete ya empezó a trabajar (detuvo los servicios o copió archivos): cortarlo deja el equipo a medias.</summary>
     public bool TocoElEquipo => PasoActual is not null || PorcentajeCopia > 0;
@@ -153,7 +154,9 @@ public sealed class RegistroInno
             _ when paso.StartsWith("Revisando", StringComparison.OrdinalIgnoreCase) => Etapa.RevisandoDefender,
             _ when paso.StartsWith("Creando la base", StringComparison.OrdinalIgnoreCase)
                 || paso.StartsWith("Recuperando", StringComparison.OrdinalIgnoreCase) => Etapa.CreandoBaseDeDatos,
-            _ when paso.StartsWith("Registrando", StringComparison.OrdinalIgnoreCase) => Etapa.PreparandoCaja,
+            // P2: "Activando la versión nueva" (app\current) ya no se corta: en una caja es el primer paso crítico (no hay base de datos).
+            _ when paso.StartsWith("Registrando", StringComparison.OrdinalIgnoreCase)
+                || paso.StartsWith("Activando", StringComparison.OrdinalIgnoreCase) => Etapa.PreparandoCaja,
             _ when paso.StartsWith("Iniciando", StringComparison.OrdinalIgnoreCase)
                 || paso.StartsWith("Esperando", StringComparison.OrdinalIgnoreCase) => Etapa.IniciandoBusinessPost,
             _ => Etapa.CopiandoProgramas,

@@ -317,8 +317,18 @@ public class ModoYAvisosTests
         lector.EnPasoCritico.ShouldBeFalse();
         lector.Procesar("2026-10-17 09:22:01.123   Paso: Creando la base de datos…");
         lector.EnPasoCritico.ShouldBeTrue();
-        lector.Procesar("2026-10-17 09:23:01.123   Resultado: OK");
-        lector.EnPasoCritico.ShouldBeFalse("Terminado: ya no hay nada que esperar.");
+        lector.Procesar("2026-10-17 09:23:01.123   Resultado: ERROR Base de datos (código 3)");
+        lector.EnPasoCritico.ShouldBeTrue("P1: con el paquete vivo se espera igual, sin mirar el resultado (está volviendo atrás).");
+    }
+
+    [Fact]
+    public void P2_en_una_caja_activar_la_version_nueva_ya_no_se_corta()
+    {
+        var lector = new RegistroInno();
+        lector.Procesar("2026-10-17 09:21:01.123   Paso: Revisando los archivos con Windows Defender (la primera vez puede tardar varios minutos)…");
+        lector.EnPasoCritico.ShouldBeFalse();
+        lector.Procesar("2026-10-17 09:22:01.123   Paso: Activando la versión nueva de BusinessPost…");
+        lector.EnPasoCritico.ShouldBeTrue();
     }
 
     [Fact]
