@@ -352,12 +352,18 @@ internal static partial class Sistema
     /// PN1: archivos con el código de recuperación que pudieron quedar en la carpeta temporal (el paquete los borra al leerlos; si se
     /// canceló antes, quedaban). Se llama al salir, cuando ya no hay instalación en curso.
     /// </summary>
-    public static void BorrarArchivosDeCodigo()
+    /// <param name="antiguedadMinima">Solo los archivos más viejos que esto (al empezar: los que dejó una ejecución anterior).</param>
+    public static void BorrarArchivosDeCodigo(TimeSpan? antiguedadMinima = null)
     {
         try
         {
             foreach (var archivo in Directory.EnumerateFiles(CarpetaTemporal(), $"{Logica.Rutas.PrefijoArchivoCodigo}*.txt"))
             {
+                if (antiguedadMinima is { } minima && DateTime.UtcNow - File.GetLastWriteTimeUtc(archivo) < minima)
+                {
+                    continue;
+                }
+
                 try
                 {
                     File.Delete(archivo);
@@ -375,38 +381,68 @@ internal static partial class Sistema
     }
 
     /// <summary>
-    /// IL5: si hubo que cortar el paquete después de que detuvo los servicios o copió archivos, el equipo queda como en un fallo de versión
-    /// activa (código 22 del paquete): el servidor y el actualizador en inicio MANUAL (no arrancan solos sobre una instalación a medias) y
-    /// el aviso en el registro. La próxima instalación que termine bien los deja automáticos.
+    /// IR5: se cerró la ventana ANTES de la base de datos y hubo que cortar el paquete: app\current sigue en la versión anterior, así que se
+    /// recupera el actualizador anterior (si el paquete ya lo había reemplazado) y vuelven a arrancar los servicios que el paquete había
+    /// detenido (los "Deteniendo …" de su registro), en orden. Así el equipo sigue funcionando con la versión de antes.
     /// </summary>
-    public static void DejarServiciosEnManual(string? registro)
+    public static void ReanudarServiciosDetenidos(string? registro)
     {
-        var sc = Path.Combine(Environment.SystemDirectory, "sc.exe");
-        var lineas = new List<string> { "Instalador premium: se cortó el paquete con el equipo a medias." };
-        foreach (var servicio in new[] { "BusinessPost-Server", "BusinessPost-Updater" })
+        if (registro is null || !File.Exists(registro))
         {
-            try
+            return;
+        }
+
+        string texto;
+        try
+        {
+            using var lector = new StreamReader(new FileStream(registro, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+            texto = lector.ReadToEnd();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var lineas = new List<string> { "Instalador premium: se cortó el paquete antes de la base de datos; vuelve la versión anterior." };
+        if (CarpetaInstalada() is { } carpeta)
+        {
+            var actualizador = Path.Combine(carpeta, "updater", "Pos.Server.Updater.exe");
+            if (File.Exists(actualizador + ".anterior"))
             {
-                using var proceso = Process.Start(new ProcessStartInfo(sc) { ArgumentList = { "config", servicio, "start=", "demand" }, UseShellExecute = false, CreateNoWindow = true });
-                var termino = proceso?.WaitForExit(TimeSpan.FromSeconds(15)) ?? false;
-                lineas.Add($"Aviso: {servicio} quedó en inicio manual (sc config: {(termino ? proceso!.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture) : "sin respuesta")}).");
-            }
-            catch (Win32Exception ex)
-            {
-                lineas.Add($"Aviso: no se pudo dejar {servicio} en inicio manual ({ex.Message}).");
+                try
+                {
+                    File.Copy(actualizador + ".anterior", actualizador, overwrite: true);
+                    lineas.Add("Se recuperó el actualizador anterior.");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    lineas.Add($"Aviso: no se pudo recuperar el actualizador anterior ({ex.Message}).");
+                }
             }
         }
 
-        if (registro is not null)
+        var sc = Path.Combine(Environment.SystemDirectory, "sc.exe");
+        foreach (var servicio in Logica.RegistroInno.ServiciosDetenidos(texto.Split('\n')))
         {
             try
             {
-                File.AppendAllLines(registro, lineas);
+                using var proceso = Process.Start(new ProcessStartInfo(sc) { ArgumentList = { "start", servicio }, UseShellExecute = false, CreateNoWindow = true });
+                proceso?.WaitForExit(TimeSpan.FromSeconds(15));
+                lineas.Add($"sc start {servicio}: {(proceso is { HasExited: true } ? proceso.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture) : "sin respuesta")}");
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Win32Exception ex)
             {
-                // Sin registro: el estado de los servicios ya quedó cambiado.
+                lineas.Add($"Aviso: no se pudo iniciar {servicio} ({ex.Message}).");
             }
+        }
+
+        try
+        {
+            File.AppendAllLines(registro, lineas);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Sin registro: los servicios ya se iniciaron.
         }
     }
 

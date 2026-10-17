@@ -50,6 +50,8 @@ internal static class Program
         }
 
         Sistema.BorrarCopiasViejas();
+        // IR6: archivos del código que dejó una ejecución anterior cuyo paquete siguió trabajando.
+        Sistema.BorrarArchivosDeCodigo(TimeSpan.FromHours(2));
         ApplicationConfiguration.Initialize();
         // ‑‑maqueta ‑‑pantalla <nombre>: abre directo en una pantalla (revisión del diseño).
         var pantalla = Array.FindIndex(args, a => string.Equals(a, "--pantalla", StringComparison.OrdinalIgnoreCase)) is var p and >= 0 && p + 1 < args.Length ? args[p + 1] : null;
@@ -59,7 +61,10 @@ internal static class Program
         // archivo del código de recuperación. Antes el proceso salía sin esperarla. Se espera con límite (Detener espera hasta 30 s).
         // IL5: si el paquete está en la base de datos (migrar o restaurar) no se corta: se espera a que termine (con un límite amplio).
         EsperarTrabajoPendiente(PasoCritico ? Instalacion.EsperaPasoCritico + TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(45));
-        Sistema.BorrarArchivosDeCodigo();
+        if (!PaqueteSigue)
+        {
+            Sistema.BorrarArchivosDeCodigo();
+        }
         if (copiaTemporal)
         {
             // La copia temporal no puede borrarse mientras corre: se borra al salir (y, si algo lo impide, al reiniciar Windows).
@@ -72,6 +77,9 @@ internal static class Program
     private static readonly List<Task> TrabajosPendientes = [];
 
     private static volatile bool _pasoCritico;
+
+    /// <summary>IR6: venció la espera y el paquete Inno sigue trabajando (no se borra el archivo del código).</summary>
+    public static bool PaqueteSigue { get; set; }
 
     /// <summary>IL5: el paquete Inno está migrando o restaurando la base de datos (no se debe cortar).</summary>
     public static bool PasoCritico

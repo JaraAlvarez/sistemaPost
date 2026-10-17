@@ -93,6 +93,13 @@ public sealed class PortalAdminReauthTests(ShiftableClockCloudFixture cloud) : I
         (await PortalApi.SendAsync(admin, HttpMethod.Put, customerUrl, Customer(first.AccountId))).Status.ShouldBe(HttpStatusCode.NoContent, "Solo el nombre.");
         (await PortalApi.SendAsync(admin, HttpMethod.Put, customerUrl, Customer(second.AccountId))).Code.ShouldBe("PORTAL.REAUTH_REQUIRED");
         (await PortalApi.SendAsync(admin, HttpMethod.Put, customerUrl, Customer(second.AccountId, PortalApi.NewPassword))).Status.ShouldBe(HttpStatusCode.NoContent);
+        var changed = await PortalApi.GetAsync<List<CloudAuditEntryDto>>(admin, $"/admin/audit?action=PORTAL_USER_SECURITY_CHANGED&text={Uri.EscapeDataString(customer.Email)}");
+        changed.ShouldContain(a => a.Summary!.Contains(second.AccountId.ToString(), StringComparison.Ordinal)
+            && a.Summary.Contains(first.AccountId.ToString(), StringComparison.Ordinal), "La auditoría menciona la cuenta nueva y la anterior.");
+
+        // IL6: un cliente sin cuenta se rechaza ANTES de pedir la confirmación.
+        (await PortalApi.SendAsync(admin, HttpMethod.Put, customerUrl, new { displayName = "Cliente", role = "CUSTOMER", isActive = true }))
+            .Code.ShouldBe("PORTAL.RESELLER_ACCOUNT_REQUIRED");
     }
 
     /// <summary>IL6: sobre sí mismo no se cambia el rol ni el estado (con su propio error, no el de "restablecer").</summary>
@@ -104,6 +111,7 @@ public sealed class PortalAdminReauthTests(ShiftableClockCloudFixture cloud) : I
                  {
                      new { displayName = "Dueño", role = "SUPPORT", isActive = true, confirmation = PortalApi.NewPassword },
                      new { displayName = "Dueño", role = "SUPERADMIN", isActive = false, confirmation = PortalApi.NewPassword },
+                     new { displayName = "Dueño", role = "SUPERADMIN", isActive = true, resellerAccountId = (Guid?)Guid.NewGuid(), confirmation = PortalApi.NewPassword },
                  })
         {
             (await PortalApi.SendAsync(cloud.Superadmin, HttpMethod.Put, $"/admin/users/{me}", body)).Code.ShouldBe("PORTAL.CANNOT_CHANGE_SELF");

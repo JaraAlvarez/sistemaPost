@@ -322,12 +322,28 @@ public class ModoYAvisosTests
     }
 
     [Fact]
+    public void IR5_los_servicios_detenidos_por_el_paquete_se_reanudan_en_orden()
+    {
+        string[] registro =
+        [
+            "2026-10-17 09:20:01.123   Paso: Deteniendo BusinessPost para actualizar sus archivos…",
+            "2026-10-17 09:20:01.200   Deteniendo BusinessPost-Updater",
+            "2026-10-17 09:20:02.200   Deteniendo BusinessPost-Server",
+            "2026-10-17 09:20:03.200   Deteniendo BusinessPost-DB",
+            "2026-10-17 09:20:03.300   Deteniendo OtroServicio",
+        ];
+
+        RegistroInno.ServiciosDetenidos(registro).ShouldBe(["BusinessPost-DB", "BusinessPost-Server", "BusinessPost-Updater"]);
+    }
+
+    [Fact]
     public void IN7_el_codigo_de_salida_del_paquete_da_un_mensaje_claro()
     {
         SalidaPaquete.Mensaje(SalidaPaquete.RestaurarConSoporte, "Base de datos").ShouldContain("soporte restaure el backup previo");
         SalidaPaquete.Mensaje(SalidaPaquete.BaseDeDatos, "Base de datos").ShouldContain("sigue con la versión anterior");
         SalidaPaquete.Mensaje(SalidaPaquete.BaseDeDatos, "Recuperación desde el backup").ShouldContain("No se pudo recuperar el backup");
         SalidaPaquete.Mensaje(SalidaPaquete.VersionActiva, null).ShouldContain("vuelve a ejecutar el instalador");
+        SalidaPaquete.Mensaje(SalidaPaquete.VersionActiva, null).ShouldContain("PRE_UPDATE");
         SalidaPaquete.Mensaje(5, null).ShouldContain("código 5");
     }
 

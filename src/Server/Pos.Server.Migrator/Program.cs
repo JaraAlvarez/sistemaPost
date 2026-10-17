@@ -16,6 +16,8 @@ using Pos.Server.Migrator;
 //   Pos.Server.Migrator create-database --superuser "<cadena>" [--database pos]
 //                                       --migrator-password <p> --app-password <p> --backup-password <p>
 //   Pos.Server.Migrator migrate  [--connection "<cadena pos_migrator>"]
+//   Pos.Server.Migrator apply-always [--connection "<cadena pos_migrator>"] [--data-root D]
+//                       Solo los privilegios (scripts "always") de esta versión, sin migrar (la BD debe estar en esta versión).
 //   Pos.Server.Migrator status   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify   [--connection "<cadena>"]
 //   Pos.Server.Migrator verify-audit [--seal <n> --code <XXXX-XXXX-XXXX-XXXX>] [--connection "<cadena>"]
@@ -60,7 +62,7 @@ if (Pos.Shared.Precalentamiento.Pedido(args))
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("Comandos: install | create-database | migrate | status | verify | verify-audit | verify-consistency | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");
+    Console.Error.WriteLine("Comandos: install | create-database | migrate | apply-always | status | verify | verify-audit | verify-consistency | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");
     return 2;
 }
 
@@ -106,6 +108,13 @@ try
 
             var report = await migrator.MigrateAsync(Connection(options), appVersion);
             Console.WriteLine($"Versión de esquema: {report.SchemaVersion} ({report.AppliedScripts.Count} scripts aplicados).");
+            return 0;
+
+        case "apply-always":
+            // IR2: solo los privilegios (scripts "always") de ESTA versión; el instalador lo usa con el migrador de la versión anterior
+            // después de volver al backup PRE_UPDATE. Código 3 si la BD no está en la versión de este migrador.
+            await migrator.ApplyAlwaysAsync(Connection(options), appVersion);
+            Console.WriteLine("Privilegios de esta versión aplicados.");
             return 0;
 
         case "status":

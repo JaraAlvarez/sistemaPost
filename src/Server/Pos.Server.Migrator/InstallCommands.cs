@@ -87,6 +87,23 @@ internal static class InstallCommands
                 cancellationToken);
             if (update.Outcome != GuardedUpdateOutcome.Updated)
             {
+                if (update.Outcome == GuardedUpdateOutcome.FailedRestored && update.RestoredDatabase is null
+                    && BackupCommands.ConfigSecret(dataRoot, "SuperuserConnectionString") is { } adminConnection)
+                {
+                    // IR2: sin cambios de esquema (solo repetibles) no hay backup que restaurar, pero un repetible que falló después de
+                    // R__reporting__views dejó esas vistas sin privilegios en la BD activa: se devuelve la lectura a pos_app.
+                    try
+                    {
+                        await PreUpdateRollback.GrantReportingAsync(
+                            new NpgsqlConnectionStringBuilder(adminConnection) { Database = new NpgsqlConnectionStringBuilder(connection).Database }.ConnectionString,
+                            CancellationToken.None);
+                    }
+                    catch (NpgsqlException ex)
+                    {
+                        Console.Error.WriteLine($"No se pudieron revisar los privilegios de los reportes: {ex.Message}");
+                    }
+                }
+
                 return await ReportFailedUpdateAsync(dataRoot, update, cancellationToken);
             }
 

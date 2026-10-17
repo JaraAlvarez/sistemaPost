@@ -62,11 +62,14 @@ internal sealed partial class DatabaseStartup(
 
             await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
             var version = await DatabaseMigrator.GetDatabaseVersionAsync(connection, cancellationToken);
-            if (version != expected)
+            // IR3: no basta la última versión: si la BD tiene migraciones que esta versión no conoce (quedó a medio actualizar, o es de una
+            // versión más nueva) o le falta alguna, el servidor no atiende operaciones de negocio y lo dice claro.
+            var status = await new DatabaseMigrator(ScriptCatalog.Default).GetStatusAsync(connection, cancellationToken);
+            if (version != expected || status.UnknownVersions.Count > 0 || status.PendingVersioned.Count > 0)
             {
                 readiness.Set(
                     DatabaseStatus.SchemaOutdated,
-                    $"La base de datos está en la versión {version ?? "(sin migrar)"} y la aplicación espera {expected}. Ejecute el migrador.",
+                    SchemaMessage(version, expected, status),
                     version,
                     expected);
                 LogSchemaOutdated(logger, version, expected);
@@ -98,6 +101,14 @@ internal sealed partial class DatabaseStartup(
             LogInitializationFailed(logger, ex);
         }
     }
+
+    internal static string SchemaMessage(string? version, string? expected, MigrationStatus status) =>
+        status.UnknownVersions.Count > 0
+            ? $"La base de datos tiene migraciones que esta versión de BusinessPost no conoce ({string.Join(", ", status.UnknownVersions)}): quedó a " +
+              "medio actualizar o es de una versión más nueva. BusinessPost no atiende hasta resolverlo: vuelva a ejecutar el instalador de la " +
+              "versión correcta o restaure con soporte el backup PRE_UPDATE (carpeta backups/local de los datos de BusinessPost)."
+            : $"La base de datos está en la versión {version ?? "(sin migrar)"} y esta versión de BusinessPost espera {expected} " +
+              $"({status.PendingVersioned.Count} migraciones pendientes). Ejecute el instalador (o el migrador) para actualizarla.";
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Base de datos lista: esquema {Version}, nodo {NodeId}, configurada: {SetupCompleted}")]
     private static partial void LogReady(ILogger logger, string? version, Guid nodeId, bool setupCompleted);

@@ -79,6 +79,7 @@ public sealed class PreUpdateRollback(IPgTools tools)
         await createDatabase(superuserConnectionString, targetDatabase, cancellationToken);
         await tools.RestoreAsync(target, dump, BackupRestoreProcedure.SchemaOwnerRole, cancellationToken);
         var privileges = await CopyPrivilegesAsync(source, target, ApplicationRoles, cancellationToken);
+        await GrantReportingAsync(target, cancellationToken);
 
         await using var connection = new NpgsqlConnection(target);
         await connection.OpenAsync(cancellationToken);
@@ -141,6 +142,30 @@ public sealed class PreUpdateRollback(IPgTools tools)
 
         await transaction.CommitAsync(cancellationToken);
         return applied;
+    }
+
+    /// <summary>
+    /// IR2: respaldo para las vistas de <c>reporting</c>. Si la migración falló en un repetible posterior a <c>R__reporting__views</c> (que
+    /// las borra y las vuelve a crear) o en los scripts "always", en la BD activa quedaron SIN privilegios y la copia tampoco los trae. Todas
+    /// las versiones dan a pos_app solo lectura de ese esquema (A__system__privileges), así que se otorga eso. Lo exacto lo deja después el
+    /// migrador de la versión anterior con <c>apply-always</c>, si lo tiene.
+    /// </summary>
+    public static async Task GrantReportingAsync(string connectionString, CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            DO $$
+            BEGIN
+                IF to_regnamespace('reporting') IS NOT NULL AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pos_app') THEN
+                    GRANT USAGE ON SCHEMA reporting TO pos_app;
+                    GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO pos_app;
+                END IF;
+            END
+            $$
+            """,
+            cancellationToken: cancellationToken));
     }
 
     /// <summary>

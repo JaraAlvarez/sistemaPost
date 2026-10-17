@@ -81,12 +81,13 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
             }
             else
             {
-                // Antes de la base de datos: el paquete (y lo que haya lanzado) no debe seguir solo en segundo plano. Si ya había detenido los
-                // servicios o copiado archivos, el equipo queda como en un fallo de versión activa (código 22): inicio manual y registro.
+                // Antes de la base de datos: el paquete (y lo que haya lanzado) no debe seguir solo en segundo plano. IR5: app\current
+                // sigue en la versión anterior, así que vuelven a arrancar los servicios que el paquete había detenido (con el actualizador
+                // anterior), en vez de dejarlos en manual.
                 Detener(proceso);
                 if (lector.TocoElEquipo)
                 {
-                    Sistema.DejarServiciosEnManual(Registro);
+                    Sistema.ReanudarServiciosDetenidos(Registro);
                 }
             }
 
@@ -301,6 +302,8 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         }
         catch (TimeoutException)
         {
+            // IR6: el archivo del código de recuperación NO se borra: Inno lo borra al leerlo, o lo borra la próxima ejecución.
+            Program.PaqueteSigue = true;
             Anotar(registro, "Instalador premium: el paquete sigue trabajando; NO se cortó (terminará solo).");
         }
     }

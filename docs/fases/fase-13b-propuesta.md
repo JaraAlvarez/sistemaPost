@@ -335,3 +335,19 @@ queda el mismo estado del código 22. *Portal:* reactivar, cambiar la cuenta aso
 también piden confirmar; cambiarse el propio rol, la cuenta o desactivarse da `PORTAL.CANNOT_CHANGE_SELF`; el motivo "se canceló por
 demasiados códigos incorrectos" se mantiene al recargar la página (se deduce de `code_attempts`). `confirmation` quedó documentado en
 `http/fase-12a.http`.
+
+**Cuarta revisión (IR1-IR6).** La prueba de la vuelta atrás con PostgreSQL real ya no depende de las últimas migraciones del producto: la
+"versión anterior" es el catálogo actual y la "versión nueva" son migraciones propias de la prueba. Si la migración falla en un repetible
+posterior a `R__reporting__views` (que borra y recrea las vistas) o en los scripts "always", las vistas de `reporting` quedaban sin
+privilegios: la restauración (y, sin cambios de esquema, la BD activa) devuelve la lectura de `reporting` a `pos_app`, y después el
+instalador corre `apply-always` con el migrador de la versión ANTERIOR (comando nuevo: solo los scripts "always", y solo si la BD está en
+su versión). Los migradores viejos no lo tienen (responden 2) y quedan los privilegios copiados. Mientras se migra, el servidor y el
+actualizador quedan en inicio manual y el registro de Windows conserva la versión y el modo anteriores; ambos se actualizan recién cuando
+la instalación terminó bien (`CreateService` los devuelve a automático; la vuelta atrás también). El servidor, al arrancar, compara el
+estado completo de las migraciones (no solo la última versión): con migraciones desconocidas o pendientes no atiende operaciones de negocio
+(503 en `/health/ready`) y explica qué hacer. Se eligió no cerrar el proceso: Windows lo reiniciaría en bucle por las acciones de
+recuperación y no quedaría dónde leer el motivo. Si la instalación se cancela o se aborta después de detener los servicios y antes de
+`ssPostInstall`, `DeinitializeSetup` recupera el actualizador anterior y vuelve a arrancar los servicios que estaban en marcha; el premium
+hace lo mismo si se cierra antes de la base de datos. Si vence la espera del premium con el paquete trabajando, no se borra el archivo del
+código de recuperación (lo borra Inno, o la próxima ejecución si tiene más de 2 horas). La guía de recuperación explica cómo devolver los
+servicios a automático después de restaurar con soporte.

@@ -80,7 +80,8 @@ public static class SalidaPaquete
             "con soporte y comparte el registro.",
         VersionActiva =>
             "No se pudo terminar el cambio a la versión nueva de BusinessPost. Reinicia el computador y vuelve a ejecutar el instalador; si sigue " +
-            "igual, comunícate con soporte. Mientras tanto BusinessPost quedó en inicio manual.",
+            "igual, comunícate con soporte (código 22). Mientras tanto BusinessPost quedó en inicio manual. Si hace falta volver a los datos de " +
+            "antes de la actualización, el backup PRE_UPDATE está en la carpeta backups\\local de los datos de BusinessPost.",
         _ when pasoConError is { } paso => $"La instalación no pudo terminar el paso \"{paso}\".",
         _ => $"La instalación no pudo terminar (código {salida}).",
     };

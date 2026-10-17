@@ -125,6 +125,26 @@ public sealed class RegistroInno
     }
 
     /// <summary>Etapa que corresponde a un "Paso:" del instalador (textos de BusinessPost.iss).</summary>
+    /// <summary>
+    /// IR5: servicios que el paquete detuvo (líneas "Deteniendo BusinessPost-…" del registro), en el orden en que se vuelven a iniciar:
+    /// base de datos, agente, servidor y actualizador.
+    /// </summary>
+    public static IReadOnlyList<string> ServiciosDetenidos(IEnumerable<string> lineas)
+    {
+        ArgumentNullException.ThrowIfNull(lineas);
+        string[] orden = ["BusinessPost-DB", "BusinessPost-TerminalAgent", "BusinessPost-Server", "BusinessPost-Updater"];
+        var detenidos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var linea in lineas)
+        {
+            if (Marca(linea, "Deteniendo ") is { } servicio && orden.Contains(servicio.Trim(), StringComparer.OrdinalIgnoreCase))
+            {
+                detenidos.Add(servicio.Trim());
+            }
+        }
+
+        return [.. orden.Where(detenidos.Contains)];
+    }
+
     public static Etapa EtapaDelPaso(string paso)
     {
         ArgumentNullException.ThrowIfNull(paso);

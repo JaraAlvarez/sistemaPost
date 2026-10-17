@@ -136,6 +136,13 @@ var
   DbReEnabled: Boolean;
   // IN7: distinto de cero si algo falló después de copiar los archivos (código de salida del paquete).
   FailureCode: Integer;
+  // IR3: la instalación terminó bien (recién entonces se registran la versión y el modo nuevos). IR4: se llegó a ssPostInstall y
+  // PrepareToInstall detuvo los servicios (si se aborta antes, DeinitializeSetup los vuelve a arrancar). IR3: el servidor y el actualizador
+  // se pasaron a inicio manual mientras se migra.
+  InstallSucceeded: Boolean;
+  PostInstallReached: Boolean;
+  ServicesStoppedForInstall: Boolean;
+  ServicesSetManual: Boolean;
 
 // ------------------------------------------------------------------------------------------------------------------------------------
 // Instalador premium (Fase 13-B, D13B-08): BusinessPost-Setup.exe recoge los datos con su propio diseño y ejecuta ESTE paquete en
@@ -279,10 +286,10 @@ begin
   end;
 end;
 
-// IN7: el modo nuevo solo se recuerda si la instalación terminó bien; si falló se deja el de antes (el equipo sigue en ese modo).
+// IN7/IR3: el modo nuevo solo se recuerda si la instalación terminó bien; mientras tanto (o si falló) queda el de antes.
 function ModeToRemember: String;
 begin
-  if (FailureCode <> 0) and (PreviousMode >= 0) then
+  if (not InstallSucceeded) and (PreviousMode >= 0) then
     Result := ModeName(PreviousMode)
   else
     Result := ModeName(ModePage.SelectedValueIndex);
@@ -290,34 +297,44 @@ end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
 begin
-  // Una instalación NUEVA que falló no recuerda ningún modo (no quedó instalada en ninguno).
-  if (FailureCode = 0) or (PreviousMode >= 0) then
+  // Una instalación NUEVA que todavía no terminó bien no recuerda ningún modo (al terminar lo escribe RegisterNewInstallData).
+  if InstallSucceeded or (PreviousMode >= 0) then
     SetPreviousData(PreviousDataKey, 'Modo', ModeToRemember);
 end;
 
-// IN7: Inno registra la versión y los datos previos ANTES de ssPostInstall; si después falla la base de datos (o la recuperación, o el
-// cambio de versión activa) se vuelven a dejar la versión y el modo de antes en la clave de desinstalación.
+// IN7/IR3: Inno registra la versión y los datos previos ANTES de ssPostInstall. Al empezar ssPostInstall (y en la vuelta atrás) se dejan
+// la versión y el modo de ANTES en la clave de desinstalación; los nuevos se escriben solo cuando la instalación terminó bien
+// (RegisterNewInstallData). Así un apagón a mitad no deja registrada una versión que no quedó instalada.
 procedure KeepPreviousInstallData;
 begin
   if PreviousMode >= 0 then
   begin
     if RegWriteStringValue(HKLM, UninstallKey, 'Inno Setup CodeFile: Modo', ModeToRemember) then
-      Log('Vuelta atrás: se conserva el modo ' + ModeToRemember);
+      Log('Registro de Windows: queda el modo ' + ModeToRemember + ' hasta que la instalación termine bien');
   end;
   if PreviousVersion <> '' then
   begin
     if RegWriteStringValue(HKLM, UninstallKey, 'DisplayVersion', PreviousVersion) then
-      Log('Vuelta atrás: se conserva la versión ' + PreviousVersion);
+      Log('Registro de Windows: queda la versión ' + PreviousVersion + ' hasta que la instalación termine bien');
   end
   else
   begin
-    // Instalación NUEVA que falló: no queda registrada como si la versión nueva estuviera instalada (sigue en "Aplicaciones" para
+    // Instalación NUEVA sin terminar: no queda registrada como si la versión nueva estuviera instalada (sigue en "Aplicaciones" para
     // poder desinstalarla).
     RegDeleteValue(HKLM, UninstallKey, 'DisplayVersion');
     if PreviousMode < 0 then
       RegDeleteValue(HKLM, UninstallKey, 'Inno Setup CodeFile: Modo');
-    Log('Instalación nueva sin terminar: no se registra la versión {#AppVersion}.');
+    Log('Instalación nueva: la versión {#AppVersion} se registra cuando termine bien.');
   end;
+end;
+
+// IR3: la instalación terminó bien: ahora sí la versión y el modo nuevos.
+procedure RegisterNewInstallData;
+begin
+  InstallSucceeded := True;
+  RegWriteStringValue(HKLM, UninstallKey, 'DisplayVersion', '{#AppVersion}');
+  RegWriteStringValue(HKLM, UninstallKey, 'Inno Setup CodeFile: Modo', ModeName(ModePage.SelectedValueIndex));
+  Log('Registro de Windows: versión {#AppVersion}, modo ' + ModeName(ModePage.SelectedValueIndex));
 end;
 
 // IN7: el paquete termina con un código distinto de cero si algo falló después de copiar (Inno solo llama a esta función si la
@@ -508,7 +525,21 @@ begin
     Log('Resultado: ERROR Detener los servicios de BusinessPost');
     exit;
   end;
+  ServicesStoppedForInstall := True;
   BackupUpdater;
+end;
+
+// IR4: si la instalación se cancela o se aborta DESPUÉS de detener los servicios pero ANTES de ssPostInstall (por ejemplo, durante la copia
+// de archivos), app\current sigue en la versión anterior: se recupera el actualizador anterior y vuelven a arrancar los servicios que
+// estaban en marcha (antes quedaban detenidos).
+procedure DeinitializeSetup;
+begin
+  if ServicesStoppedForInstall and not PostInstallReached then
+  begin
+    Log('La instalación terminó antes de copiar todo: se recupera el actualizador y vuelven a arrancar los servicios.');
+    RestoreUpdater;
+    RestartStoppedServices(True);
+  end;
 end;
 
 procedure InitializeWizard;
@@ -543,6 +574,10 @@ begin
   // Actualizar o reinstalar: se propone el modo con el que ya está instalado (antes el asistente clásico proponía siempre "única caja"
   // y pasaba MULTI→SINGLE, quitaba el firewall y creaba el agente; en una caja adicional instalaba PostgreSQL y un servidor vacío).
   FailureCode := 0;
+  InstallSucceeded := False;
+  PostInstallReached := False;
+  ServicesStoppedForInstall := False;
+  ServicesSetManual := False;
   DbReEnabled := False;
   StoppedServices := '';
   if not RegQueryStringValue(HKLM, UninstallKey, 'DisplayVersion', PreviousVersion) then
@@ -582,8 +617,9 @@ begin
         WizardForm.FinishedLabel.Caption := 'La actualización de la base de datos falló y no se pudo volver a los datos de antes. No use ' +
           'BusinessPost: genere un paquete de soporte (menú Inicio → BusinessPost → Paquete de soporte) y contacte a soporte.';
       ExitActivationFailed:
-        WizardForm.FinishedLabel.Caption := 'No se pudo activar la versión nueva. Reinicie el computador y vuelva a ejecutar el instalador; ' +
-          'si sigue igual, genere un paquete de soporte.';
+        WizardForm.FinishedLabel.Caption := 'No se pudo activar la versión nueva (código 22). Reinicie el computador y vuelva a ejecutar el ' +
+          'instalador; si sigue igual, genere un paquete de soporte. El backup PRE_UPDATE de antes de actualizar está en la carpeta ' +
+          'backups\local de los datos de BusinessPost.';
     else
       WizardForm.FinishedLabel.Caption := 'No se pudo preparar la base de datos o recuperar el backup. Revise el mensaje anterior y el ' +
         'registro de la instalación; vuelva a ejecutar el instalador o genere un paquete de soporte.';
@@ -776,12 +812,17 @@ end;
 // IL4: con la base de datos para restaurar con soporte (código 21) o la versión nueva sin activar (código 22) el servidor y el
 // actualizador quedan en inicio MANUAL: ni al reiniciar el equipo arrancan sobre una base que no les corresponde. La próxima instalación o
 // actualización que termine bien los vuelve a dejar automáticos (CreateService usa "start= auto").
-procedure LeaveServicesManual;
+procedure SetServerStart(const Mode: String);
 begin
   if ServiceExists('{#Product}-Server') then
-    ScOptional('config {#Product}-Server start= demand', 'dejar en inicio manual el servidor');
+    ScOptional('config {#Product}-Server start= ' + Mode, 'cambiar el inicio del servidor a ' + Mode);
   if ServiceExists('{#Product}-Updater') then
-    ScOptional('config {#Product}-Updater start= demand', 'dejar en inicio manual el actualizador');
+    ScOptional('config {#Product}-Updater start= ' + Mode, 'cambiar el inicio del actualizador a ' + Mode);
+end;
+
+procedure LeaveServicesManual;
+begin
+  SetServerStart('demand');
   Log('Aviso: El servidor y el actualizador de BusinessPost quedaron en inicio MANUAL hasta que una instalación termine bien.');
 end;
 
@@ -793,7 +834,9 @@ begin
     ScOptional('config {#Product}-DB start= disabled', 'volver a deshabilitar la base de datos de la caja adicional');
   KeepPreviousInstallData;
   if not StartServer then
-    LeaveServicesManual;
+    LeaveServicesManual
+  else if ServicesSetManual then
+    SetServerStart('auto');
   RestartStoppedServices(StartServer);
 end;
 
@@ -980,6 +1023,9 @@ begin
   if CurStep <> ssPostInstall then
     exit;
 
+  PostInstallReached := True;
+  // IR3: hasta que todo termine bien, el registro de Windows conserva la versión y el modo de antes.
+  KeepPreviousInstallData;
   App := ExpandConstant('{app}');
   Data := ExpandConstant('{#DataDir}');
   // Se trabaja con la versión NUEVA por su carpeta (app\<versión>); la unión app\current se cambia recién cuando la base de datos quedó
@@ -1019,6 +1065,14 @@ begin
     ShowStep('Creando la base de datos…', 'Prepara la base de datos de la tienda en este equipo. Puede tardar unos minutos.');
     if IsMulti then Edition := 'MULTI' else Edition := 'SINGLE';
     Migrator := Version + '\migrator\Pos.Server.Migrator.exe';
+    // IR3: mientras se migra, el servidor y el actualizador quedan en inicio manual: si se corta la luz a mitad, al encender no arranca
+    // el servidor anterior sobre una base a medio migrar. Al terminar bien CreateService los deja automáticos; la vuelta atrás también.
+    if (PreviousVersion <> '') and ServiceExists('{#Product}-Server') then
+    begin
+      SetServerStart('demand');
+      ServicesSetManual := True;
+      Log('El servidor y el actualizador quedan en inicio manual mientras se actualiza la base de datos.');
+    end;
     Code := RunMigrator(Migrator, 'install --pg-bin "' + App + '\pgsql\bin" --data-root "' + Data + '" --edition ' + Edition +
       ' --license-server "{#LicenseServer}" --update-manifest "{#UpdateManifest}"', 'Base de datos');
     if Code = 8 then
@@ -1036,6 +1090,17 @@ begin
     if Code <> 0 then
     begin
       MarkFailed(ExitDatabaseFailed, 'Base de datos');
+      // IR2: el migrador volvió a los datos de antes (código 3): el migrador de la versión ANTERIOR (app\current sigue en ella) deja sus
+      // privilegios exactos con "apply-always". Los migradores viejos no tienen ese comando (código 2): quedan los privilegios que copió
+      // la vuelta atrás.
+      if (Code = 3) and FileExists(App + '\app\current\migrator\Pos.Server.Migrator.exe') then
+      begin
+        case RunMigrator(App + '\app\current\migrator\Pos.Server.Migrator.exe', 'apply-always --data-root "' + Data + '"',
+          'Privilegios de la versión anterior') of
+          0: Log('Privilegios de la versión anterior aplicados.');
+          2: Log('El migrador anterior no tiene "apply-always": quedan los privilegios copiados de la base activa.');
+        end;
+      end;
       RollBack(True);
       if not Premium then
         MsgBox('No se pudo preparar la base de datos (código ' + IntToStr(Code) + '). BusinessPost sigue con la versión anterior y sus ' +
@@ -1063,7 +1128,8 @@ begin
           MsgBox('No se pudo recuperar el backup (revise el archivo y el código de recuperación). La base de datos de este equipo ya quedó ' +
             'en la versión nueva, así que la versión anterior de BusinessPost no se volvió a iniciar.' + #13#10#13#10 +
             'Vuelva a ejecutar el instalador (con el backup y el código correctos, o sin backup para seguir con los datos actuales). El ' +
-            'servidor y el actualizador quedaron en inicio manual hasta entonces.', mbError, MB_OK);
+            'servidor y el actualizador quedaron en inicio manual hasta entonces (código 22).' + #13#10#13#10 +
+            'Si hace falta volver a los datos de antes de la actualización, el backup PRE_UPDATE está en ' + Data + '\backups\local.', mbError, MB_OK);
         WizardForm.ProgressGauge.Style := npbstNormal;
         exit;
       end;
@@ -1091,8 +1157,9 @@ begin
     RollBack(not IsServerMode);
     if not Premium then
       MsgBox('No se pudo activar la versión nueva de BusinessPost (app\current). Reinicie el computador y vuelva a ejecutar el instalador; ' +
-        'si el problema sigue, genere un paquete de soporte.' + #13#10#13#10 +
-        'Mientras tanto el servidor y el actualizador quedaron en inicio manual.', mbError, MB_OK);
+        'si el problema sigue, genere un paquete de soporte (código 22).' + #13#10#13#10 +
+        'Mientras tanto el servidor y el actualizador quedaron en inicio manual. Si hace falta volver a los datos de antes de la ' +
+        'actualización, el backup PRE_UPDATE está en ' + Data + '\backups\local.', mbError, MB_OK);
     WizardForm.ProgressGauge.Style := npbstNormal;
     exit;
   end;
@@ -1131,6 +1198,8 @@ begin
   if ModePage.SelectedValueIndex <> 1 then
     StartService('{#Product}-TerminalAgent');
   StartService('{#Product}-Updater');
+  // IR3: todo quedó instalado (aunque todavía no responda): ahora sí se registran la versión y el modo nuevos.
+  RegisterNewInstallData;
 
   // 5. Esperar a que responda y solo entonces abrir el navegador (antes: "localhost rechazó la conexión").
   if Premium then

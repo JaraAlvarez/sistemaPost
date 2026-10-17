@@ -137,6 +137,12 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
             return PortalIdentityErrors.LastSuperadmin;
         }
 
+        // IL6: los datos inválidos se rechazan ANTES de pedir la confirmación (no se gasta un código TOTP ni un intento en algo que no procede).
+        if (PortalUser.NeedsAccount(role) != request.ResellerAccountId.HasValue)
+        {
+            return PortalIdentityErrors.ResellerAccountRequired;
+        }
+
         if (changesRole || changesStatus || changesAccount)
         {
             var action = changesRole ? "cambiar el rol" : changesStatus ? (request.IsActive ? "reactivar" : "desactivar") : "cambiar la cuenta asociada";
@@ -150,6 +156,7 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
         }
 
         var version = user.SecurityVersion;
+        var previousAccount = user.ResellerAccountId;
         var updated = user.Update(request.DisplayName, role, request.ResellerAccountId, request.IsActive);
         if (updated.IsFailure)
         {
@@ -161,7 +168,10 @@ internal sealed class UpdatePortalUserHandler(IPortalIdentityStore store, IPorta
             await PortalUserUseCaseMapping.RevokeAllAsync(store, user.Id, "Cambio de rol o estado del usuario", auth.Clock.UtcNow, cancellationToken);
             await audit.WriteAsync(
                 new AuditEntry("portal", "PORTAL_USER_SECURITY_CHANGED", nameof(PortalUser), user.Id, user.AuditLabel,
-                    $"{user.Email}: rol {PortalRoleCodes.DisplayName(PortalRoleCodes.ToCode(role))}, {(request.IsActive ? "activo" : "deshabilitado")}; se cerraron sus sesiones.",
+                    $"{user.Email}: rol {PortalRoleCodes.DisplayName(PortalRoleCodes.ToCode(role))}, {(request.IsActive ? "activo" : "deshabilitado")}, " +
+                    $"cuenta {(user.ResellerAccountId?.ToString() ?? "(ninguna)")}" +
+                    (previousAccount != user.ResellerAccountId ? $" (antes {previousAccount?.ToString() ?? "(ninguna)"})" : string.Empty) +
+                    "; se cerraron sus sesiones.",
                     Severity: AuditSeverity.Critical),
                 cancellationToken);
         }
