@@ -2,6 +2,7 @@
    cantidad y costo; en la factura también descuento, lote y vencimiento). Agrega y quita directamente en la lista Lineas. *@
 @inject ApiClient Api
 @inject ISnackbar Snackbar
+@using Pos.Modules.Catalog.Contracts
 
 <MudTextField T="string" @bind-Value="_buscar" Label="Buscar producto por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
               Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarAsync())" Class="mb-2" />
@@ -12,9 +13,9 @@
             @foreach (var product in _resultados)
             {
                 <tr>
-                    <td>@product.Str("sku")</td>
-                    <td>@product.Str("name")</td>
-                    <td>@product.Str("primaryBarcode")</td>
+                    <td>@product.Sku</td>
+                    <td>@product.Name</td>
+                    <td>@product.PrimaryBarcode</td>
                     <td><MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => AgregarAsync(product))">Agregar</MudButton></td>
                 </tr>
             }
@@ -83,7 +84,7 @@
     [Parameter]
     public bool Compra { get; set; }
 
-    private List<JsonElement> _resultados = [];
+    private List<ProductSummaryDto> _resultados = [];
     private List<LineaProducto>? _lineasPrevias;
     private string? _buscar;
 
@@ -107,7 +108,7 @@
 
         try
         {
-            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            _resultados = [.. (await Api.GetAsync<PagedResult<ProductSummaryDto>>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(_buscar.Trim())}")).Items];
         }
         catch (ApiException ex)
         {
@@ -115,21 +116,21 @@
         }
     }
 
-    private async Task AgregarAsync(JsonElement product)
+    private async Task AgregarAsync(ProductSummaryDto product)
     {
         try
         {
-            var detail = await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{product.GetProperty("id").GetGuid()}");
+            var detail = await Api.GetAsync<ProductDetailDto>($"api/v1/catalog/products/{product.Id}");
             Lineas.Add(new LineaProducto
             {
-                ProductId = detail.GetProperty("id").GetGuid(),
-                Sku = detail.Str("sku"),
-                Nombre = detail.Str("name"),
-                Unidad = detail.Str("baseUnitCode"),
-                Lotes = detail.Bool("tracksLots"),
-                Vence = detail.Bool("tracksExpiry"),
-                Empaques = [.. detail.Prop("packagings").Items().Where(p => p.Bool("isPurchasable"))
-                    .Select(p => new EmpaqueProducto(p.GetProperty("id").GetGuid(), $"{p.Str("name")} (× {Format.Quantity(p.Dec("factor"))})"))],
+                ProductId = detail.Id,
+                Sku = detail.Sku,
+                Nombre = detail.Name,
+                Unidad = detail.BaseUnitCode,
+                Lotes = detail.TracksLots,
+                Vence = detail.TracksExpiry,
+                Empaques = [.. detail.Packagings.Where(p => p.IsPurchasable)
+                    .Select(p => new EmpaqueProducto(p.Id, $"{p.Name} (× {Format.Quantity(p.Factor)})"))],
             });
             _resultados = [];
             _buscar = null;

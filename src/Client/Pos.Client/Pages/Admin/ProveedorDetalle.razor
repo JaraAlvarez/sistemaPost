@@ -5,6 +5,8 @@
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
+@using Pos.Modules.Parties.Contracts
+@using Pos.Modules.Purchasing.Contracts
 
 <PageTitle>@Titulo · BusinessPost</PageTitle>
 
@@ -25,7 +27,7 @@
         }
     </Acciones>
     <ChildContent>
-        @if (Id is null || _proveedor.ValueKind == JsonValueKind.Object)
+        @if (Id is null || _proveedor is not null)
         {
             <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Outlined="true" TabPanelsClass="pa-4">
                 <MudTabPanel Text="Datos">
@@ -70,11 +72,11 @@
                     {
                         <MudGrid Spacing="2">
                             <MudItem xs="12" sm="6">
-                                <MudTextField T="string" Value="@_proveedor.Str("identification")" Label="Identificación (no se puede cambiar)" ReadOnly="true" />
+                                <MudTextField T="string" Value="@_proveedor?.Identification" Label="Identificación (no se puede cambiar)" ReadOnly="true" />
                             </MudItem>
-                            @if (_party.ValueKind == JsonValueKind.Object)
+                            @if (_party is { } party)
                             {
-                                @if (_party.Str("personType") == "LEGAL")
+                                @if (EnumText.Same(party.PersonType, "LEGAL"))
                                 {
                                     <MudItem xs="12" sm="6"><MudTextField @bind-Value="_legalName" Label="Razón social" Immediate="true" ReadOnly="@(!PuedeEditar)" /></MudItem>
                                 }
@@ -88,7 +90,7 @@
                             }
                             else
                             {
-                                <MudItem xs="12" sm="6"><MudTextField T="string" Value="@_proveedor.Str("name")" Label="Nombre" ReadOnly="true" /></MudItem>
+                                <MudItem xs="12" sm="6"><MudTextField T="string" Value="@_proveedor?.Name" Label="Nombre" ReadOnly="true" /></MudItem>
                             }
                         </MudGrid>
                     }
@@ -134,15 +136,15 @@
                         else
                         {
                             <MudText Typo="Typo.overline" Class="d-block">Saldo por pagar</MudText>
-                            <MudText Typo="Typo.h4" Class="num mb-3">@Format.Money(_cuenta.Dec("balance"))</MudText>
-                            @if (_resumen.ValueKind == JsonValueKind.Object)
+                            <MudText Typo="Typo.h4" Class="num mb-3">@Format.Money(_cuenta?.Balance ?? 0m)</MudText>
+                            @if (_resumen is { } resumen)
                             {
                                 <MudSimpleTable Dense="true" Outlined="true" Class="mb-4">
                                     <tbody>
-                                        <tr><td>Comprado del @Dia(_resumen, "from") al @Dia(_resumen, "to")</td><td class="num">@Format.Money(_resumen.Dec("purchasedTotal")) (@_resumen.Dec("purchaseCount") compra(s))</td></tr>
-                                        <tr><td>Última compra</td><td class="num">@UltimaCompra()</td></tr>
-                                        <tr><td>Devoluciones en el período</td><td class="num">@Format.Money(_resumen.Dec("returnsTotal")) (@_resumen.Dec("returnCount"))</td></tr>
-                                        <tr><td>Vencido</td><td class="num">@Format.Money(_resumen.Dec("overdueBalance")) (@_resumen.Dec("overdueCount") factura(s))</td></tr>
+                                        <tr><td>Comprado del @Dia(resumen.From) al @Dia(resumen.To)</td><td class="num">@Format.Money(resumen.PurchasedTotal) (@resumen.PurchaseCount compra(s))</td></tr>
+                                        <tr><td>Última compra</td><td class="num">@UltimaCompra(resumen)</td></tr>
+                                        <tr><td>Devoluciones en el período</td><td class="num">@Format.Money(resumen.ReturnsTotal) (@resumen.ReturnCount)</td></tr>
+                                        <tr><td>Vencido</td><td class="num">@Format.Money(resumen.OverdueBalance) (@resumen.OverdueCount factura(s))</td></tr>
                                     </tbody>
                                 </MudSimpleTable>
                             }
@@ -152,11 +154,11 @@
                                     <MudTh>Documento</MudTh><MudTh>Emisión</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">Saldo</MudTh><MudTh>Estado</MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
-                                    <MudTd>@context.Str("documentNumber")</MudTd>
-                                    <MudTd>@Dia(context, "issueDate")</MudTd>
-                                    <MudTd>@Dia(context, "dueDate")</MudTd>
-                                    <MudTd Class="num">@Format.Money(context.Dec("originalAmount"))</MudTd>
-                                    <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                                    <MudTd>@context.DocumentNumber</MudTd>
+                                    <MudTd>@Dia(context.IssueDate)</MudTd>
+                                    <MudTd>@Dia(context.DueDate)</MudTd>
+                                    <MudTd Class="num">@Format.Money(context.OriginalAmount)</MudTd>
+                                    <MudTd Class="num">@Format.Money(context.Balance)</MudTd>
                                     <MudTd>@EstadoCuenta(context)</MudTd>
                                 </RowTemplate>
                                 <NoRecordsContent><EstadoVacio Mensaje="Sin facturas." Compacto="true" /></NoRecordsContent>
@@ -167,11 +169,11 @@
                                     <MudTh>Número</MudTh><MudTh>Fecha</MudTh><MudTh>Referencia</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Estado</MudTh>
                                 </HeaderContent>
                                 <RowTemplate>
-                                    <MudTd>@context.Str("number")</MudTd>
-                                    <MudTd>@Dia(context, "date")</MudTd>
-                                    <MudTd>@context.Str("reference")</MudTd>
-                                    <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
-                                    <MudTd>@(context.Str("status") == "VOIDED" ? "Anulado" : "Registrado")</MudTd>
+                                    <MudTd>@context.Number</MudTd>
+                                    <MudTd>@Dia(context.Date)</MudTd>
+                                    <MudTd>@context.Reference</MudTd>
+                                    <MudTd Class="num">@Format.Money(context.Total)</MudTd>
+                                    <MudTd>@(EnumText.Same(context.Status, "VOIDED") ? "Anulado" : "Registrado")</MudTd>
                                 </RowTemplate>
                                 <NoRecordsContent><EstadoVacio Mensaje="Sin pagos." Compacto="true" /></NoRecordsContent>
                             </MudTable>
@@ -187,7 +189,10 @@
     [Parameter]
     public Guid? Id { get; set; }
 
-    private JsonElement _proveedor, _party, _cuenta, _resumen;
+    private SupplierDto? _proveedor;
+    private PartyDto? _party;
+    private SupplierStatementDto? _cuenta;
+    private SupplierSummaryDto? _resumen;
     private string? _clave, _error, _errorCuenta;
     private bool _loading = true, _busy;
     private int _tab;
@@ -198,19 +203,19 @@
     private decimal? _creditLimit;
     private bool _issuesInvoices = true;
 
-    private bool EsExistente => Id is not null && _proveedor.ValueKind == JsonValueKind.Object;
+    private bool EsExistente => Id is not null && _proveedor is not null;
 
     private bool PuedeEditar => Session.Has("purchasing.supplier.manage");
 
-    private string Estado => _proveedor.Str("status");
+    private string Estado => EnumText.Normalize(_proveedor?.Status);
 
-    private string Titulo => EsExistente ? _proveedor.Str("name") : Id is null ? "Nuevo proveedor" : "Proveedor";
+    private string Titulo => Id is not null && _proveedor is { } proveedor ? proveedor.Name : Id is null ? "Nuevo proveedor" : "Proveedor";
 
-    private string? Subtitulo => EsExistente ? $"Código {_proveedor.Str("code")} · {_proveedor.Str("identification")} · {NombreEstado(Estado)}" : null;
+    private string? Subtitulo => Id is not null && _proveedor is { } proveedor ? $"Código {proveedor.Code} · {proveedor.Identification} · {NombreEstado(Estado)}" : null;
 
-    private List<JsonElement> Facturas => _cuenta.Prop("accounts").Items();
+    private IReadOnlyList<PayableDto> Facturas => _cuenta?.Accounts ?? [];
 
-    private List<JsonElement> Pagos => _cuenta.Prop("payments").Items();
+    private IReadOnlyList<PurchasingDocumentDto> Pagos => _cuenta?.Payments ?? [];
 
     protected override async Task OnParametersSetAsync()
     {
@@ -233,7 +238,10 @@
             }
             else
             {
-                _proveedor = _party = _cuenta = _resumen = default;
+                _proveedor = null;
+                _party = null;
+                _cuenta = null;
+                _resumen = null;
                 _personType = "Legal";
                 _idType = "NIT";
                 _idNumber = _checkDigit = null;
@@ -252,13 +260,14 @@
 
     private async Task CargarAsync(Guid id)
     {
-        _proveedor = await Api.GetAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}");
-        _party = default;
+        var proveedor = await Api.GetAsync<SupplierDto>($"api/v1/purchasing/suppliers/{id}");
+        _proveedor = proveedor;
+        _party = null;
         if (Session.Has("parties.party.manage"))
         {
             try
             {
-                _party = await Api.GetAsync<JsonElement>($"api/v1/parties/{_proveedor.GetProperty("partyId").GetGuid()}");
+                _party = await Api.GetAsync<PartyDto>($"api/v1/parties/{proveedor.PartyId}");
             }
             catch (ApiException ex)
             {
@@ -279,8 +288,8 @@
 
         try
         {
-            _resumen = await Api.GetAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}/summary");
-            _cuenta = await Api.GetAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}/statement");
+            _resumen = await Api.GetAsync<SupplierSummaryDto>($"api/v1/purchasing/suppliers/{id}/summary");
+            _cuenta = await Api.GetAsync<SupplierStatementDto>($"api/v1/purchasing/suppliers/{id}/statement");
             _errorCuenta = null;
         }
         catch (ApiException ex)
@@ -292,18 +301,18 @@
     /// <summary>Copia los datos del proveedor y su tercero al formulario (o lo deja en blanco para uno nuevo).</summary>
     private void LlenarFormulario()
     {
-        _legalName = Texto(_party, "legalName");
-        _firstNames = Texto(_party, "firstNames");
-        _lastNames = Texto(_party, "lastNames");
-        _phone = Texto(_party, "phone");
-        _email = Texto(_party, "email");
-        _code = Texto(_proveedor, "code");
-        _notes = Texto(_proveedor, "notes");
-        if (_proveedor.ValueKind == JsonValueKind.Object)
+        _legalName = Texto(_party?.LegalName);
+        _firstNames = Texto(_party?.FirstNames);
+        _lastNames = Texto(_party?.LastNames);
+        _phone = Texto(_party?.Phone);
+        _email = Texto(_party?.Email);
+        _code = Texto(_proveedor?.Code);
+        _notes = Texto(_proveedor?.Notes);
+        if (_proveedor is { } proveedor)
         {
-            _termDays = (int)_proveedor.Dec("paymentTermDays");
-            _creditLimit = _proveedor.Str("creditLimit") == "" ? null : _proveedor.Dec("creditLimit");
-            _issuesInvoices = _proveedor.Bool("issuesInvoices");
+            _termDays = proveedor.PaymentTermDays;
+            _creditLimit = proveedor.CreditLimit;
+            _issuesInvoices = proveedor.IssuesInvoices;
         }
         else
         {
@@ -311,7 +320,7 @@
         }
     }
 
-    private static string? Texto(JsonElement element, string name) => element.Str(name) is { Length: > 0 } value ? value : null;
+    private static string? Texto(string? value) => value is { Length: > 0 } ? value : null;
 
     private async Task CrearAsync()
     {
@@ -319,7 +328,7 @@
         try
         {
             var partyId = await TerceroAsync();
-            var created = await Api.PostAsync<JsonElement>("api/v1/purchasing/suppliers", new
+            var created = await Api.PostAsync<SupplierDto>("api/v1/purchasing/suppliers", new
             {
                 partyId,
                 supplier = new
@@ -329,7 +338,7 @@
                 },
             });
             Snackbar.Add("Proveedor creado.", Severity.Success);
-            Navigation.NavigateTo($"/admin/proveedores/{created.GetProperty("id").GetGuid()}", replace: true);
+            Navigation.NavigateTo($"/admin/proveedores/{created.Id}", replace: true);
         }
         catch (ApiException ex)
         {
@@ -345,10 +354,10 @@
         var number = (_idNumber ?? "").Trim();
         try
         {
-            var existing = await Api.GetAsync<JsonElement>($"api/v1/parties/by-identification?type={Uri.EscapeDataString(_idType)}&number={Uri.EscapeDataString(number)}");
-            if (existing.ValueKind == JsonValueKind.Object)
+            PartyDto? existing = await Api.GetAsync<PartyDto>($"api/v1/parties/by-identification?type={Uri.EscapeDataString(_idType)}&number={Uri.EscapeDataString(number)}");
+            if (existing is not null)
             {
-                return existing.GetProperty("id").GetGuid();
+                return existing.Id;
             }
         }
         catch (ApiException ex) when (ex.Status == HttpStatusCode.NotFound)
@@ -357,7 +366,7 @@
         }
 
         var legal = _personType == "Legal";
-        var party = await Api.PostAsync<JsonElement>("api/v1/parties", new
+        var party = await Api.PostAsync<PartyDto>("api/v1/parties", new
         {
             personType = _personType, identificationType = _idType, identificationNumber = number,
             checkDigit = _idType == "NIT" && !string.IsNullOrWhiteSpace(_checkDigit) ? _checkDigit.Trim() : null,
@@ -366,34 +375,34 @@
             email = string.IsNullOrWhiteSpace(_email) ? null : _email.Trim(), phone = string.IsNullOrWhiteSpace(_phone) ? null : _phone.Trim(),
             address = (string?)null, municipalityCode = (string?)null, notes = (string?)null, contacts = (object[]?)null,
         });
-        return party.GetProperty("id").GetGuid();
+        return party.Id;
     }
 
     private async Task GuardarAsync()
     {
         await EjecutarAsync(async id =>
         {
-            if (_party.ValueKind == JsonValueKind.Object)
+            if (_party is { } party)
             {
-                var legal = _party.Str("personType") == "LEGAL";
-                await Api.PutAsync<JsonElement>($"api/v1/parties/{_party.GetProperty("id").GetGuid()}", new
+                var legal = EnumText.Same(party.PersonType, "LEGAL");
+                await Api.PutAsync<PartyDto>($"api/v1/parties/{party.Id}", new
                 {
-                    personType = legal ? "Legal" : "Natural", identificationType = _party.Str("identificationType"), identificationNumber = _party.Str("identificationNumber"),
-                    checkDigit = _party.Str("checkDigit") is { Length: > 0 } dv ? dv : null,
+                    personType = legal ? "Legal" : "Natural", identificationType = party.IdentificationType, identificationNumber = party.IdentificationNumber,
+                    checkDigit = Texto(party.CheckDigit),
                     legalName = legal ? _legalName : null, firstNames = legal ? null : _firstNames, lastNames = legal ? null : _lastNames,
-                    tradeName = _party.Str("tradeName") is { Length: > 0 } trade ? trade : null, taxRegime = _party.Str("taxRegime"),
-                    fiscalResponsibilities = _party.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()).ToList(),
+                    tradeName = Texto(party.TradeName), taxRegime = party.TaxRegime,
+                    fiscalResponsibilities = party.FiscalResponsibilities.ToList(),
                     email = string.IsNullOrWhiteSpace(_email) ? null : _email.Trim(), phone = string.IsNullOrWhiteSpace(_phone) ? null : _phone.Trim(),
-                    address = _party.Str("address") is { Length: > 0 } address ? address : null,
-                    municipalityCode = _party.Str("municipalityCode") is { Length: > 0 } municipality ? municipality : null,
-                    notes = _party.Str("notes") is { Length: > 0 } partyNotes ? partyNotes : null, contacts = (object[]?)null,
+                    address = Texto(party.Address),
+                    municipalityCode = Texto(party.MunicipalityCode),
+                    notes = Texto(party.Notes), contacts = (object[]?)null,
                 });
             }
 
-            await Api.PutAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}", new
+            await Api.PutAsync<SupplierDto>($"api/v1/purchasing/suppliers/{id}", new
             {
                 code = string.IsNullOrWhiteSpace(_code) ? null : _code.Trim(), paymentTermDays = _termDays,
-                preferredPaymentMethodId = _proveedor.Str("preferredPaymentMethodId") is { Length: > 0 } method ? Guid.Parse(method) : (Guid?)null,
+                preferredPaymentMethodId = _proveedor?.PreferredPaymentMethodId,
                 creditLimit = _creditLimit, issuesInvoices = _issuesInvoices, notes = string.IsNullOrWhiteSpace(_notes) ? null : _notes,
             });
             return "Proveedor actualizado.";
@@ -402,7 +411,7 @@
 
     private async Task InactivarAsync()
     {
-        if (await Dialogs.ConfirmarAsync("Inactivar proveedor", $"{_proveedor.Str("name")} quedará inactivo: no podrá usarse en compras nuevas.", "Inactivar", true))
+        if (await Dialogs.ConfirmarAsync("Inactivar proveedor", $"{_proveedor?.Name} quedará inactivo: no podrá usarse en compras nuevas.", "Inactivar", true))
         {
             await EstadoAsync("Inactive", "Proveedor inactivado.");
         }
@@ -411,7 +420,7 @@
     private Task EstadoAsync(string status, string message) =>
         EjecutarAsync(async id =>
         {
-            await Api.PostAsync<JsonElement>($"api/v1/purchasing/suppliers/{id}/status", new { status });
+            await Api.PostAsync<SupplierDto>($"api/v1/purchasing/suppliers/{id}/status", new { status });
             return message;
         });
 
@@ -438,10 +447,10 @@
         _busy = false;
     }
 
-    private string UltimaCompra() =>
-        _resumen.Str("lastPurchaseDate") == "" ? "Sin compras" : $"{Dia(_resumen, "lastPurchaseDate")} · {Format.Money(_resumen.Dec("lastPurchaseTotal"))}";
+    private static string UltimaCompra(SupplierSummaryDto resumen) =>
+        resumen.LastPurchaseDate is not { } date ? "Sin compras" : $"{Dia(date)} · {Format.Money(resumen.LastPurchaseTotal ?? 0m)}";
 
-    private static string NombreEstado(string status) => status switch
+    private static string NombreEstado(string status) => EnumText.Normalize(status) switch
     {
         "ACTIVE" => "Activo",
         "BLOCKED" => "Bloqueado",
@@ -449,16 +458,15 @@
         _ => status,
     };
 
-    private static string EstadoCuenta(JsonElement account) => account.Str("status") switch
+    private static string EstadoCuenta(PayableDto account) => EnumText.Normalize(account.Status) switch
     {
-        "OPEN" when account.Dec("daysOverdue") > 0 => $"Vencida ({account.Dec("daysOverdue")} días)",
+        "OPEN" when account.DaysOverdue > 0 => $"Vencida ({account.DaysOverdue} días)",
         "OPEN" => "Pendiente",
         "SETTLED" => "Pagada",
         "VOIDED" => "Anulada",
         var other => other,
     };
 
-    /// <summary>Fecha sin hora (DateOnly del servidor, "yyyy-MM-dd").</summary>
-    private static string Dia(JsonElement element, string name) =>
-        DateOnly.TryParse(element.Str(name), CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "—";
+    /// <summary>Fecha sin hora (DateOnly del servidor) como día/mes/año.</summary>
+    private static string Dia(DateOnly? date) => date is { } value ? value.ToString("dd/MM/yyyy", Format.Colombia) : "—";
 }

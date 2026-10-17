@@ -23,7 +23,7 @@ public class OrganizationApiTests
         branch.Branch.Code.ShouldBe("S01");
         branch.Branch.IsHomeBranch.ShouldBeTrue();
         branch.Branch.DefaultWarehouseId.ShouldBe(setup.SalesFloorWarehouseId);
-        branch.Warehouses.Select(w => w.Kind).ShouldBe(["Damaged", "SalesFloor", "InTransit"], ignoreOrder: true);
+        branch.Warehouses.Select(w => w.Kind).ShouldBe(["DAMAGED", "SALES_FLOOR", "IN_TRANSIT"], ignoreOrder: true);
         branch.Terminals.Single().Code.ShouldBe("C01");
 
         (await GetAsync<List<JsonElement>>(client, "/api/v1/identity/roles")).Count.ShouldBe(8); // Fase 7: PROMOTIONS_MANAGER
@@ -121,7 +121,7 @@ public class OrganizationApiTests
         (await client.PostAsync($"/api/v1/organization/branches/{s02.Branch.Id}/deactivate", null, Ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         // Bodegas: las de sistema y la bodega por defecto no se inactivan.
-        var damaged = s02.Warehouses.Single(w => w.Kind == "Damaged");
+        var damaged = s02.Warehouses.Single(w => w.Kind == "DAMAGED");
         await client.PostAsync($"/api/v1/organization/warehouses/{damaged.Id}/deactivate", null, Ct)
             .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "ORGANIZATION.SYSTEM_WAREHOUSE");
         await client.PostAsync($"/api/v1/organization/warehouses/{setup.SalesFloorWarehouseId}/deactivate", null, Ct)

@@ -1,4 +1,5 @@
 @page "/admin/backups"
+@using Pos.Modules.Backup.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -13,9 +14,9 @@
         }
     </Acciones>
     <ChildContent>
-        @if (_alerts.ValueKind == JsonValueKind.Object)
+        @if (_alerts is { } alerts)
         {
-            @if (_alerts.Bool("recoveryCodePending"))
+            @if (alerts.RecoveryCodePending)
             {
                 <MudAlert Severity="Severity.Warning" Class="mb-2">
                     Falta confirmar el código de recuperación: sin él los backups solo se abren en este equipo.
@@ -25,13 +26,13 @@
                     }
                 </MudAlert>
             }
-            @if (_alerts.Bool("lastBackupTooOld"))
+            @if (alerts.LastBackupTooOld)
             {
-                <MudAlert Severity="Severity.Warning" Class="mb-2">El último backup verificado es muy antiguo (@Format.Date(_alerts.Date("lastVerifiedBackupAt"))).</MudAlert>
+                <MudAlert Severity="Severity.Warning" Class="mb-2">El último backup verificado es muy antiguo (@Format.Date(alerts.LastVerifiedBackupAt)).</MudAlert>
             }
-            @if (_alerts.Dec("failingDestinations") > 0)
+            @if (alerts.FailingDestinations > 0)
             {
-                <MudAlert Severity="Severity.Error" Class="mb-2">@_alerts.Dec("failingDestinations") destino(s) de backup fallando.</MudAlert>
+                <MudAlert Severity="Severity.Error" Class="mb-2">@alerts.FailingDestinations destino(s) de backup fallando.</MudAlert>
             }
         }
         @if (_code is not null)
@@ -47,11 +48,11 @@
         <MudTable RowsPerPage="25" Items="_runs" Dense="true" Striped="true">
             <HeaderContent><MudTh>Fecha</MudTh><MudTh>Tipo</MudTh><MudTh>Resultado</MudTh><MudTh Class="num">Tamaño</MudTh><MudTh>Copias</MudTh></HeaderContent>
             <RowTemplate>
-                <MudTd>@Format.Date(context.Date("startedAt"))</MudTd>
-                <MudTd>@context.Str("kind")</MudTd>
-                <MudTd>@(context.Bool("succeeded") ? context.Bool("verified") ? "Correcto y verificado" : "Correcto" : "Falló: " + context.Str("error"))</MudTd>
-                <MudTd Class="num">@(context.Dec("sizeBytes") > 0 ? (context.Dec("sizeBytes") / 1024 / 1024).ToString("0.0", Format.Colombia) + " MB" : "")</MudTd>
-                <MudTd>@string.Join(" · ", context.Prop("copies").Items().Select(c => $"{c.Str("destinationName")}: {c.Str("status")}"))</MudTd>
+                <MudTd>@Format.Date(context.StartedAt)</MudTd>
+                <MudTd>@context.Kind</MudTd>
+                <MudTd>@(context.Succeeded ? context.Verified ? "Correcto y verificado" : "Correcto" : "Falló: " + context.Error)</MudTd>
+                <MudTd Class="num">@(context.SizeBytes is > 0 and var size ? ((decimal)size / 1024 / 1024).ToString("0.0", Format.Colombia) + " MB" : "")</MudTd>
+                <MudTd>@string.Join(" · ", context.Copies.Select(c => $"{c.DestinationName}: {c.Status}"))</MudTd>
             </RowTemplate>
             <NoRecordsContent><EstadoVacio Mensaje="Aún no hay backups." /></NoRecordsContent>
             <PagerContent><Paginador /></PagerContent>
@@ -61,8 +62,8 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _runs = [];
-    private JsonElement _alerts;
+    private IReadOnlyList<BackupRunDto> _runs = [];
+    private BackupAlertsDto? _alerts;
     private bool _loading = true, _busy;
     private string? _error, _code, _confirm;
 
@@ -72,8 +73,8 @@
     {
         try
         {
-            _runs = (await Api.GetAsync<JsonElement>("api/v1/backups?limit=30")).Items();
-            _alerts = await Api.GetAsync<JsonElement>("api/v1/backups/alerts");
+            _runs = await Api.GetAsync<IReadOnlyList<BackupRunDto>>("api/v1/backups?limit=30");
+            _alerts = await Api.GetAsync<BackupAlertsDto>("api/v1/backups/alerts");
         }
         catch (ApiException ex)
         {
@@ -103,7 +104,7 @@
     {
         try
         {
-            _code = (await Api.PostAsync<JsonElement>("api/v1/backups/recovery-code")).Str("code");
+            _code = (await Api.PostAsync<RecoveryCodeDto>("api/v1/backups/recovery-code")).Code;
         }
         catch (ApiException ex)
         {

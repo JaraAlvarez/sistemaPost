@@ -1,6 +1,7 @@
 @page "/admin/existencias"
 @inject ApiClient Api
 @inject NavigationManager Navigation
+@using Pos.Modules.Inventory.Contracts
 
 <PageTitle>Existencias · BusinessPost</PageTitle>
 
@@ -15,20 +16,20 @@
             <MudTh Class="num">Costo promedio</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Último movimiento</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd>@context.Str("warehouseCode")</MudTd>
-            <MudTd>@context.Str("sku")</MudTd>
+            <MudTd>@context.WarehouseCode</MudTd>
+            <MudTd>@context.Sku</MudTd>
             <MudTd>
-                @context.Str("productName")
-                @if (context.Bool("belowMinimum"))
+                @context.ProductName
+                @if (context.BelowMinimum)
                 {
                     <MudChip T="string" Size="Size.Small" Color="Color.Warning">Bajo el mínimo</MudChip>
                 }
             </MudTd>
-            <MudTd Class="num">@Format.Quantity(context.Dec("quantity")) @context.Str("baseUnitCode")</MudTd>
-            <MudTd Class="num">@(context.Str("minQuantity") == "" ? "—" : Format.Quantity(context.Dec("minQuantity")))</MudTd>
-            <MudTd Class="num">@(context.Str("averageCost") == "" ? "—" : Format.Money(context.Dec("averageCost")))</MudTd>
-            <MudTd Class="num">@(context.Str("totalValue") == "" ? "—" : Format.Money(context.Dec("totalValue")))</MudTd>
-            <MudTd>@Format.Date(context.Date("lastMovementAt"))</MudTd>
+            <MudTd Class="num">@Format.Quantity(context.Quantity) @context.BaseUnitCode</MudTd>
+            <MudTd Class="num">@(context.MinQuantity is { } minimo ? Format.Quantity(minimo) : "—")</MudTd>
+            <MudTd Class="num">@Format.Money(context.AverageCost)</MudTd>
+            <MudTd Class="num">@Format.Money(context.TotalValue)</MudTd>
+            <MudTd>@Format.Date(context.LastMovementAt)</MudTd>
         </RowTemplate>
         <NoRecordsContent><EstadoVacio Mensaje="Sin existencias que coincidan." /></NoRecordsContent>
         <PagerContent><Paginador /></PagerContent>
@@ -36,7 +37,7 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _items = [];
+    private List<StockDto> _items = [];
     private string? _search, _error;
     private bool _below, _loading = true;
 
@@ -66,7 +67,7 @@
         try
         {
             var below = _below ? "true" : "false";
-            _items = [.. (await Api.GetAsync<JsonElement>($"api/v1/inventory/stock?search={Uri.EscapeDataString(_search ?? "")}&belowMinimum={below}")).Items().Take(300)];
+            _items = [.. (await Api.GetAsync<List<StockDto>>($"api/v1/inventory/stock?search={Uri.EscapeDataString(_search ?? "")}&belowMinimum={below}")).Take(300)];
             _error = null;
         }
         catch (ApiException ex)

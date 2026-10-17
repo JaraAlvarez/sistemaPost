@@ -1,4 +1,5 @@
 @page "/admin/auditoria"
+@using Pos.Modules.Audit.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -14,10 +15,10 @@
         }
     </Acciones>
     <ChildContent>
-        @foreach (var incident in _incidents.Where(i => i.Str("acknowledgedAt") == ""))
+        @foreach (var incident in _incidents.Where(i => i.AcknowledgedAt is null))
         {
             <MudAlert Severity="Severity.Error" Class="mb-2">
-                Incidente de integridad (@Format.Date(incident.Date("detectedAt"))): @incident.Str("summary")
+                Incidente de integridad (@Format.Date(incident.DetectedAt)): @incident.Summary
                 @if (Session.Has("audit.incident.acknowledge"))
                 {
                     <MudButton Size="Size.Small" Class="ml-2" OnClick="@(() => ReconocerAsync(incident))">Reconocer</MudButton>
@@ -35,15 +36,15 @@
         <MudTable RowsPerPage="25" Items="_logs" Dense="true" Hover="true" Striped="true">
             <HeaderContent><MudTh>Fecha</MudTh><MudTh>Acción</MudTh><MudTh>Usuario</MudTh><MudTh>Registro</MudTh><MudTh>Resumen</MudTh></HeaderContent>
             <RowTemplate>
-                <MudTd>@Format.Date(context.Date("occurredAt"))</MudTd>
+                <MudTd>@Format.Date(context.OccurredAt)</MudTd>
                 <MudTd>
-                    <MudChip T="string" Size="Size.Small" Color="@(context.Str("severity") == "CRITICAL" ? Color.Error : context.Str("severity") == "WARNING" ? Color.Warning : Color.Default)">
-                        @(context.Str("actionName") is { Length: > 0 } name ? name : context.Str("action"))
+                    <MudChip T="string" Size="Size.Small" Color="@(EnumText.Same(context.Severity, "CRITICAL") ? Color.Error : EnumText.Same(context.Severity, "WARNING") ? Color.Warning : Color.Default)">
+                        @(context.ActionName is { Length: > 0 } name ? name : context.Action)
                     </MudChip>
                 </MudTd>
-                <MudTd>@context.Str("userDisplayName")</MudTd>
-                <MudTd>@context.Str("entityLabel")</MudTd>
-                <MudTd>@context.Str("summary")</MudTd>
+                <MudTd>@context.UserDisplayName</MudTd>
+                <MudTd>@context.EntityLabel</MudTd>
+                <MudTd>@context.Summary</MudTd>
             </RowTemplate>
             <PagerContent><Paginador /></PagerContent>
             <NoRecordsContent><EstadoVacio Mensaje="No hay eventos de auditoría con esos filtros." Detalle="Cambie el texto o la severidad para ver más." /></NoRecordsContent>
@@ -52,8 +53,8 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _logs = [];
-    private List<JsonElement> _incidents = [];
+    private IReadOnlyList<AuditLogEntryDto> _logs = [];
+    private IReadOnlyList<IntegrityIncidentDto> _incidents = [];
     private bool _loading = true, _busy;
     private string? _error, _q, _severity;
 
@@ -84,10 +85,10 @@
         _loading = true;
         try
         {
-            _logs = (await Api.GetAsync<JsonElement>($"api/v1/audit/logs?pageSize=100&q={Uri.EscapeDataString(_q ?? "")}{(string.IsNullOrEmpty(_severity) ? "" : "&severity=" + _severity)}")).Items();
+            _logs = (await Api.GetAsync<AuditLogPage>($"api/v1/audit/logs?pageSize=100&q={Uri.EscapeDataString(_q ?? "")}{(string.IsNullOrEmpty(_severity) ? "" : "&severity=" + _severity)}")).Items;
             if (Session.Has("audit.log.verify"))
             {
-                _incidents = (await Api.GetAsync<JsonElement>("api/v1/audit/incidents")).Items();
+                _incidents = await Api.GetAsync<IReadOnlyList<IntegrityIncidentDto>>("api/v1/audit/incidents");
             }
         }
         catch (ApiException ex)
@@ -103,9 +104,9 @@
         _busy = true;
         try
         {
-            var result = await Api.PostAsync<JsonElement>("api/v1/audit/verify");
-            Snackbar.Add(result.Bool("isValid") ? "La bitácora está íntegra." : "La verificación encontró hallazgos: revise los incidentes.",
-                result.Bool("isValid") ? Severity.Success : Severity.Error);
+            var result = await Api.PostAsync<AuditVerificationDto>("api/v1/audit/verify");
+            Snackbar.Add(result.IsValid ? "La bitácora está íntegra." : "La verificación encontró hallazgos: revise los incidentes.",
+                result.IsValid ? Severity.Success : Severity.Error);
             await CargarAsync();
         }
         catch (ApiException ex)
@@ -116,11 +117,11 @@
         _busy = false;
     }
 
-    private async Task ReconocerAsync(JsonElement incident)
+    private async Task ReconocerAsync(IntegrityIncidentDto incident)
     {
         try
         {
-            await Api.PostAsync($"api/v1/audit/incidents/{incident.GetProperty("id").GetGuid()}/acknowledge", new { note = "Revisado desde la administración" });
+            await Api.PostAsync($"api/v1/audit/incidents/{incident.Id}/acknowledge", new { note = "Revisado desde la administración" });
             await CargarAsync();
         }
         catch (ApiException ex)

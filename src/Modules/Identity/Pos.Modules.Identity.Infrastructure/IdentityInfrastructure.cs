@@ -5,6 +5,7 @@ using Pos.Modules.Identity.Application;
 using Pos.Modules.Identity.Contracts;
 using Pos.Modules.Identity.Domain;
 using Pos.SharedKernel.Results;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Identity.Infrastructure;
 
@@ -345,7 +346,7 @@ internal sealed class IdentityStore(PosDbContext context) : IIdentityStore
         var employees = await context.Set<Employee>().AsNoTracking().OrderBy(e => e.LastName).ThenBy(e => e.FirstName).ToListAsync(cancellationToken);
         return employees
             .Select(e => new EmployeeDto(e.Id, e.BranchId, e.IdentificationType, e.IdentificationNumber, e.FirstName, e.LastName, e.Phone, e.Email,
-                e.Status.ToString()))
+                e.Status.UpperSnake()))
             .ToList();
     }
 
@@ -388,10 +389,10 @@ internal sealed class IdentityStore(PosDbContext context) : IIdentityStore
             .ToListAsync(cancellationToken);
 
     private static UserDto ToDto(User u, Dictionary<Guid, string> roles) => new(
-        u.Id, u.Username, u.DisplayName, u.Email, u.Status.ToString(), u.PosCode, u.PinHash is not null, u.MustChangePassword, u.EmployeeId,
+        u.Id, u.Username, u.DisplayName, u.Email, u.Status.UpperSnake(), u.PosCode, u.PinHash is not null, u.MustChangePassword, u.EmployeeId,
         u.LastLoginAt,
         [.. u.Roles.Select(r => new UserRoleDto(r.RoleId, roles.GetValueOrDefault(r.RoleId, "?"), r.BranchId))],
-        [.. u.Overrides.Select(o => new UserOverrideDto(o.PermissionCode, o.Effect.ToString(), o.BranchId, o.Reason))]);
+        [.. u.Overrides.Select(o => new UserOverrideDto(o.PermissionCode, o.Effect.UpperSnake(), o.BranchId, o.Reason))]);
 }
 
 internal sealed class SessionStore(PosDbContext context, Pos.SharedKernel.Time.IClock clock) : ISessionStore, ILoginAttemptLog, IAuthorizationGrantStore

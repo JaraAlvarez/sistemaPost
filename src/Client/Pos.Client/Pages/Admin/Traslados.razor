@@ -88,7 +88,7 @@
 
     private void Ver(JsonElement transfer) => Navigation.NavigateTo($"/admin/traslados/{transfer.GetProperty("id").GetGuid()}");
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "IN_TRANSIT" => "En tránsito",

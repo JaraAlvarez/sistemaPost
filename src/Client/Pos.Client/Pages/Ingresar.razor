@@ -52,7 +52,7 @@
         {
             <div class="acceso-equipo">
                 <MudIcon Icon="@Icons.Material.Outlined.Devices" Size="Size.Small" />
-                Equipo emparejado como @(Session.Device.DeviceKind == "Terminal" ? "caja" : "puesto administrativo").
+                Equipo emparejado como @(EnumText.Same(Session.Device.DeviceKind, "TERMINAL") ? "caja" : "puesto administrativo").
             </div>
         }
     }
@@ -89,7 +89,7 @@
             // En Multicaja, un equipo de la red (no el propio servidor) debe estar emparejado para entrar.
             var local = Navigation.BaseUri.Contains("://localhost", StringComparison.OrdinalIgnoreCase) || Navigation.BaseUri.Contains("://127.0.0.1", StringComparison.Ordinal);
             _needsPairing = Session.IsMulti && !local && Session.Device is null;
-            _tab = Session.Device?.DeviceKind == "Terminal" || !Session.IsMulti ? 0 : 1;
+            _tab = EnumText.Same(Session.Device?.DeviceKind, "TERMINAL") || !Session.IsMulti ? 0 : 1;
         }
         catch (ApiException ex)
         {

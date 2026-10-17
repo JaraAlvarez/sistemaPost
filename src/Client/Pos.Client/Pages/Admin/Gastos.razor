@@ -1,4 +1,6 @@
 @page "/admin/gastos"
+@using Pos.Modules.Cash.Contracts
+@using Pos.Modules.Expenses.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -30,7 +32,7 @@
                         <MudSelectItem T="Guid?" Value="@((Guid?)null)">Todas</MudSelectItem>
                         @foreach (var category in _categories)
                         {
-                            <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@NombreCategoria(category)</MudSelectItem>
+                            <MudSelectItem T="Guid?" Value="@category.Id">@NombreCategoria(category)</MudSelectItem>
                         }
                     </MudSelect>
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="FiltrarAsync">Consultar</MudButton>
@@ -41,19 +43,19 @@
                         <MudTh>De la caja</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">IVA</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("number")</MudTd>
-                        <MudTd>@Fecha(context.Str("businessDate"))</MudTd>
-                        <MudTd>@context.Str("categoryName")</MudTd>
-                        <MudTd>@context.Str("description")</MudTd>
-                        <MudTd>@NombreMedio(context.Str("paymentMethodId"))</MudTd>
-                        <MudTd>@context.Str("reference")</MudTd>
-                        <MudTd>@(context.Str("cashSessionId").Length > 0 ? "Sí" : "")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("amount"))</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("taxAmount"))</MudTd>
+                        <MudTd>@context.Number</MudTd>
+                        <MudTd>@context.BusinessDate.ToString("dd/MM/yyyy", Format.Colombia)</MudTd>
+                        <MudTd>@context.CategoryName</MudTd>
+                        <MudTd>@context.Description</MudTd>
+                        <MudTd>@NombreMedio(context.PaymentMethodId)</MudTd>
+                        <MudTd>@context.Reference</MudTd>
+                        <MudTd>@(context.CashSessionId is not null ? "Sí" : "")</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Amount)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.TaxAmount)</MudTd>
                         <MudTd>
-                            @if (context.Str("status") == "VOIDED")
+                            @if (Anulado(context))
                             {
-                                <span title="@context.Str("voidReason")">Anulado</span>
+                                <span title="@context.VoidReason">Anulado</span>
                             }
                             else
                             {
@@ -61,7 +63,7 @@
                             }
                         </MudTd>
                         <MudTd>
-                            @if (Session.Has("expenses.expense.manage") && context.Str("status") != "VOIDED")
+                            @if (Session.Has("expenses.expense.manage") && !Anulado(context))
                             {
                                 <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => Anular(context))">Anular</MudButton>
                             }
@@ -71,7 +73,7 @@
                     <PagerContent><Paginador /></PagerContent>
                 </MudTable>
                 <MudText Typo="Typo.body2" Class="mt-2">
-                    @_items.Count gasto(s) · Total registrado (sin anulados): <b>@Format.Money(_items.Where(e => e.Str("status") != "VOIDED").Sum(e => e.Dec("amount")))</b>
+                    @_items.Count gasto(s) · Total registrado (sin anulados): <b>@Format.Money(_items.Where(e => !Anulado(e)).Sum(e => e.Amount))</b>
                 </MudText>
             </MudTabPanel>
             <MudTabPanel Text="Categorías">
@@ -81,8 +83,8 @@
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd>@NombreCategoria(context)</MudTd>
-                        <MudTd Class="num">@context.Dec("sortOrder")</MudTd>
-                        <MudTd>@(context.Str("status") == "ACTIVE" ? "Activa" : "Inactiva")</MudTd>
+                        <MudTd Class="num">@context.SortOrder</MudTd>
+                        <MudTd>@(EnumText.Same(context.Status, "ACTIVE") ? "Activa" : "Inactiva")</MudTd>
                         <MudTd>
                             @if (Session.Has("expenses.expense.manage"))
                             {
@@ -104,9 +106,9 @@
         <div class="panel" role="dialog" aria-modal="true">
             <h2>Registrar gasto</h2>
             <MudSelect T="Guid?" @bind-Value="_categoria" Label="Categoría">
-                @foreach (var category in _categories.Where(c => c.Str("status") == "ACTIVE"))
+                @foreach (var category in _categories.Where(c => EnumText.Same(c.Status, "ACTIVE")))
                 {
-                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@NombreCategoria(category)</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@category.Id">@NombreCategoria(category)</MudSelectItem>
                 }
             </MudSelect>
             <MudTextField @bind-Value="_descripcion" Label="Descripción" Immediate="true" />
@@ -117,7 +119,7 @@
             <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
                 @foreach (var method in _methods)
                 {
-                    <MudSelectItem T="Guid?" Value="@method.GetProperty("id").GetGuid()">@method.Str("name")</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@method.Id">@method.Name</MudSelectItem>
                 }
             </MudSelect>
             <MudTextField @bind-Value="_referencia" Label="Referencia o número de factura (opcional)" Immediate="true" />
@@ -128,8 +130,8 @@
                     <MudSelectItem T="Guid?" Value="@((Guid?)null)">No, se pagó fuera de la caja</MudSelectItem>
                     @foreach (var session in _sessions)
                     {
-                        <MudSelectItem T="Guid?" Value="@session.GetProperty("id").GetGuid()">
-                            Turno @session.Str("number") · caja @session.Str("terminalCode") · @session.Str("cashierName")
+                        <MudSelectItem T="Guid?" Value="@session.Id">
+                            Turno @session.Number · caja @session.TerminalCode · @session.CashierName
                         </MudSelectItem>
                     }
                 </MudSelect>
@@ -143,21 +145,21 @@
     </div>
 }
 
-@if (_anular.ValueKind == JsonValueKind.Object)
+@if (_anular is not null)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Anular gasto @_anular.Str("number")</h2>
+            <h2>Anular gasto @_anular.Number</h2>
             <MudText Typo="Typo.body2">
-                @_anular.Str("description") por @Format.Money(_anular.Dec("amount")).
-                @if (_anular.Str("cashSessionId").Length > 0)
+                @_anular.Description por @Format.Money(_anular.Amount).
+                @if (_anular.CashSessionId is not null)
                 {
                     <span> Salió de la caja: el dinero vuelve a ese turno con una corrección.</span>
                 }
             </MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo de la anulación" Immediate="true" AutoFocus="true" />
             <div class="acciones">
-                <MudButton OnClick="@(() => _anular = default)">Cancelar</MudButton>
+                <MudButton OnClick="@(() => _anular = null)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="AnularAsync">Anular</MudButton>
             </div>
         </div>
@@ -174,9 +176,9 @@
             {
                 <MudSelect T="Guid?" @bind-Value="_categoriaPadre" Label="Dentro de (opcional)">
                     <MudSelectItem T="Guid?" Value="@((Guid?)null)">Ninguna (categoría principal)</MudSelectItem>
-                    @foreach (var category in _categories.Where(c => c.Str("parentId").Length == 0))
+                    @foreach (var category in _categories.Where(c => c.ParentId is null))
                     {
-                        <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("name")</MudSelectItem>
+                        <MudSelectItem T="Guid?" Value="@category.Id">@category.Name</MudSelectItem>
                     }
                 </MudSelect>
             }
@@ -194,17 +196,17 @@
 }
 
 @code {
-    private List<JsonElement> _items = [];
-    private List<JsonElement> _categories = [];
-    private List<JsonElement> _methods = [];
-    private List<JsonElement> _sessions = [];
+    private List<ExpenseDto> _items = [];
+    private List<ExpenseCategoryDto> _categories = [];
+    private List<PaymentMethodDto> _methods = [];
+    private List<CashSessionSummaryDto> _sessions = [];
     private int _tab, _categoriaOrden;
     private string? _error, _descripcion, _referencia, _motivo, _categoriaNombre;
     private bool _loading = true, _busy, _nuevo, _categoriaForm, _categoriaActiva;
     private DateTime? _desde = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1), _hasta = DateTime.Today, _fecha;
     private Guid? _filtroCategoria, _categoria, _medio, _jornada, _categoriaId, _categoriaPadre;
     private decimal _valor, _iva;
-    private JsonElement _anular;
+    private ExpenseDto? _anular;
 
     [SupplyParameterFromQuery(Name = "desde")]
     public string? Desde { get; set; }
@@ -226,14 +228,14 @@
         _hasta = Filtros.Fecha(Hasta) ?? _hasta;
         _tab = Pestana == "categorias" ? 1 : 0;
         await CargarCategoriasAsync();
-        if (Guid.TryParse(CategoriaQuery, out var categoria) && _categories.Any(c => Guid.TryParse(c.Str("id"), out var id) && id == categoria))
+        if (Guid.TryParse(CategoriaQuery, out var categoria) && _categories.Any(c => c.Id == categoria))
         {
             _filtroCategoria = categoria;
         }
 
         try
         {
-            _methods = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
+            _methods = await Api.GetAsync<List<PaymentMethodDto>>("api/v1/cash/payment-methods");
         }
         catch (ApiException ex)
         {
@@ -284,7 +286,7 @@
                 query.Add($"categoryId={category}");
             }
 
-            _items = (await Api.GetAsync<JsonElement>($"api/v1/expenses?{string.Join("&", query)}")).Items();
+            _items = await Api.GetAsync<List<ExpenseDto>>($"api/v1/expenses?{string.Join("&", query)}");
             _error = null;
         }
         catch (ApiException ex)
@@ -299,7 +301,7 @@
     {
         try
         {
-            _categories = (await Api.GetAsync<JsonElement>("api/v1/expenses/categories")).Items();
+            _categories = await Api.GetAsync<List<ExpenseCategoryDto>>("api/v1/expenses/categories");
         }
         catch (ApiException ex)
         {
@@ -307,22 +309,20 @@
         }
     }
 
-    private string NombreCategoria(JsonElement category)
+    private string NombreCategoria(ExpenseCategoryDto category)
     {
-        var parentId = category.Str("parentId");
-        if (parentId.Length == 0)
+        if (category.ParentId is not { } parentId)
         {
-            return category.Str("name");
+            return category.Name;
         }
 
-        var parent = _categories.FirstOrDefault(c => c.Str("id") == parentId).Str("name");
-        return parent.Length > 0 ? $"{parent} › {category.Str("name")}" : category.Str("name");
+        var parent = _categories.FirstOrDefault(c => c.Id == parentId)?.Name;
+        return !string.IsNullOrEmpty(parent) ? $"{parent} › {category.Name}" : category.Name;
     }
 
-    private string NombreMedio(string id) => _methods.FirstOrDefault(m => m.Str("id") == id).Str("name");
+    private string NombreMedio(Guid id) => _methods.FirstOrDefault(m => m.Id == id)?.Name ?? "";
 
-    private static string Fecha(string value) =>
-        DateOnly.TryParse(value, CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : value;
+    private static bool Anulado(ExpenseDto expense) => EnumText.Same(expense.Status, "VOIDED");
 
     private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -333,7 +333,7 @@
         {
             try
             {
-                _sessions = (await Api.GetAsync<JsonElement>("api/v1/cash/sessions?status=OPEN")).Items();
+                _sessions = await Api.GetAsync<List<CashSessionSummaryDto>>("api/v1/cash/sessions?status=OPEN");
             }
             catch (ApiException)
             {
@@ -383,7 +383,7 @@
         _busy = false;
     }
 
-    private void Anular(JsonElement expense)
+    private void Anular(ExpenseDto expense)
     {
         _anular = expense;
         _motivo = null;
@@ -391,12 +391,17 @@
 
     private async Task AnularAsync()
     {
+        if (_anular is null)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/expenses/{_anular.GetProperty("id").GetGuid()}/void", new { reason = Nulo(_motivo) });
+            await Api.PostAsync<JsonElement>($"api/v1/expenses/{_anular.Id}/void", new { reason = Nulo(_motivo) });
             Snackbar.Add("Gasto anulado.", Severity.Success);
-            _anular = default;
+            _anular = null;
             await BuscarAsync();
         }
         catch (ApiException ex)
@@ -416,13 +421,13 @@
         _categoriaForm = true;
     }
 
-    private void EditarCategoria(JsonElement category)
+    private void EditarCategoria(ExpenseCategoryDto category)
     {
-        _categoriaId = category.GetProperty("id").GetGuid();
+        _categoriaId = category.Id;
         _categoriaPadre = null;
-        _categoriaNombre = category.Str("name");
-        _categoriaOrden = (int)category.Dec("sortOrder");
-        _categoriaActiva = category.Str("status") == "ACTIVE";
+        _categoriaNombre = category.Name;
+        _categoriaOrden = category.SortOrder;
+        _categoriaActiva = EnumText.Same(category.Status, "ACTIVE");
         _categoriaForm = true;
     }
 

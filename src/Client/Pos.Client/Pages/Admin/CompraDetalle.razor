@@ -5,6 +5,8 @@
 @inject Bodegas Bodegas
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@using Pos.Modules.Cash.Contracts
+@using Pos.Modules.Purchasing.Contracts
 
 <PageTitle>@TituloPagina · BusinessPost</PageTitle>
 
@@ -18,18 +20,18 @@
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save" Disabled="_busy || _loading" OnClick="CrearAsync" Class="ml-2">Guardar borrador</MudButton>
             }
         }
-        else if (_compra.ValueKind == JsonValueKind.Object)
+        else if (_compra is { } compra)
         {
             <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack" Href="/admin/compras">Volver a la lista</MudButton>
-            @if (_compra.Str("status") == "DRAFT" && Session.Has("purchasing.purchase.manage"))
+            @if (EnumText.Same(compra.Status, "DRAFT") && Session.Has("purchasing.purchase.manage"))
             {
                 <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="GuardarTotalAsync" Class="ml-2">Guardar total</MudButton>
             }
-            @if (_compra.Str("status") == "DRAFT" && Session.Has("purchasing.purchase.post"))
+            @if (EnumText.Same(compra.Status, "DRAFT") && Session.Has("purchasing.purchase.post"))
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ContabilizarAsync" Class="ml-2">Confirmar compra</MudButton>
             }
-            @if (_compra.Str("status") == "POSTED" && Session.Has("purchasing.purchase.void"))
+            @if (EnumText.Same(compra.Status, "POSTED") && Session.Has("purchasing.purchase.void"))
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="PedirAnulacion" Class="ml-2">Anular</MudButton>
             }
@@ -49,7 +51,7 @@
                         <MudSelect T="Guid?" @bind-Value="_proveedor" Label="Proveedor" Disabled="_ordenId is not null">
                             @foreach (var supplier in _proveedores)
                             {
-                                <MudSelectItem T="Guid?" Value="@supplier.GetProperty("id").GetGuid()">@supplier.Str("name") (@supplier.Str("identification"))</MudSelectItem>
+                                <MudSelectItem T="Guid?" Value="@supplier.Id">@supplier.Name (@supplier.Identification)</MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
@@ -76,7 +78,7 @@
                             <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
                                 @foreach (var method in _medios)
                                 {
-                                    <MudSelectItem T="Guid?" Value="@method.GetProperty("id").GetGuid()">@method.Str("name")</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@method.Id">@method.Name</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
@@ -91,12 +93,12 @@
                 <LineasProductos Lineas="_lineas" Compra="true" />
             </MudPaper>
         }
-        else if (_compra.ValueKind == JsonValueKind.Object)
+        else if (_compra is { } compra)
         {
-            <MudChip T="string" Size="Size.Small" Color="@ColorEstado(_compra.Str("status"))" Class="ml-0 mb-3">@Compras.EstadoCompra(_compra.Str("status"))</MudChip>
-            @foreach (var alert in Alertas)
+            <MudChip T="string" Size="Size.Small" Color="@ColorEstado(compra.Status)" Class="ml-0 mb-3">@Compras.EstadoCompra(compra.Status)</MudChip>
+            @foreach (var alert in compra.Alerts)
             {
-                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-1">@alert.Str("sku") @alert.Str("productName"): @alert.Str("message")</MudAlert>
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-1">@alert.Sku @alert.ProductName: @alert.Message</MudAlert>
             }
             <MudPaper Outlined="true" Class="pa-4 mb-4">
                 <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Productos</MudText>
@@ -105,17 +107,17 @@
                         <tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Costo unitario</th><th class="num">Descuento</th><th class="num">Impuestos</th><th class="num">Total</th><th>Lote</th><th>Vence</th></tr>
                     </thead>
                     <tbody>
-                        @foreach (var line in LineasCompra)
+                        @foreach (var line in compra.Lines)
                         {
                             <tr>
-                                <td>@line.Str("sku") · @line.Str("productName")</td>
-                                <td class="num">@Format.Quantity(line.Dec("quantity"))@(line.Dec("factor") != 1 ? $" × {Format.Quantity(line.Dec("factor"))}" : "")</td>
-                                <td class="num">@Format.Money(line.Dec("unitCost"))</td>
-                                <td class="num">@Format.Money(line.Dec("discountAmount"))</td>
-                                <td class="num">@Format.Money(line.Dec("taxAmount"))</td>
-                                <td class="num">@Format.Money(line.Dec("lineTotal"))</td>
-                                <td>@line.Str("lotNumber")</td>
-                                <td>@Compras.Dia(line, "expiryDate")</td>
+                                <td>@line.Sku · @line.ProductName</td>
+                                <td class="num">@Format.Quantity(line.Quantity)@(line.Factor != 1 ? $" × {Format.Quantity(line.Factor)}" : "")</td>
+                                <td class="num">@Format.Money(line.UnitCost)</td>
+                                <td class="num">@Format.Money(line.DiscountAmount)</td>
+                                <td class="num">@Format.Money(line.TaxAmount)</td>
+                                <td class="num">@Format.Money(line.LineTotal)</td>
+                                <td>@line.LotNumber</td>
+                                <td>@Compras.Dia(line.ExpiryDate)</td>
                             </tr>
                         }
                     </tbody>
@@ -123,28 +125,28 @@
             </MudPaper>
             <MudGrid Spacing="3">
                 <MudItem xs="12" md="7">
-                    @if (_compra.Str("status") == "DRAFT")
+                    @if (EnumText.Same(compra.Status, "DRAFT"))
                     {
                         <MudPaper Outlined="true" Class="pa-4">
                             <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Total de la factura del proveedor</MudText>
                             <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al confirmar la compraizar)" Min="0" />
                         </MudPaper>
                     }
-                    else if (_compra.Str("status") == "VOIDED")
+                    else if (EnumText.Same(compra.Status, "VOIDED"))
                     {
-                        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Anulada el @Format.Date(_compra.Date("voidedAt")): @_compra.Str("voidReason")</MudAlert>
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">Anulada el @Format.Date(compra.VoidedAt): @compra.VoidReason</MudAlert>
                     }
                 </MudItem>
                 <MudItem xs="12" md="5">
                     <MudSimpleTable Dense="true" Outlined="true">
                         <tbody>
-                            <tr><td>Subtotal</td><td class="num">@Format.Money(_compra.Dec("subtotal"))</td></tr>
-                            <tr><td>Descuentos</td><td class="num">@Format.Money(_compra.Dec("discountTotal"))</td></tr>
-                            <tr><td>Impuestos</td><td class="num">@Format.Money(_compra.Dec("taxTotal"))</td></tr>
-                            <tr><td>Cargos</td><td class="num">@Format.Money(_compra.Dec("chargesTotal"))</td></tr>
-                            <tr><td><b>Total</b></td><td class="num"><b>@Format.Money(_compra.Dec("total"))</b></td></tr>
-                            <tr><td>Retenciones</td><td class="num">@Format.Money(_compra.Dec("withholdingTotal"))</td></tr>
-                            <tr><td>A pagar al proveedor</td><td class="num">@Format.Money(_compra.Dec("payableTotal"))</td></tr>
+                            <tr><td>Subtotal</td><td class="num">@Format.Money(compra.Subtotal)</td></tr>
+                            <tr><td>Descuentos</td><td class="num">@Format.Money(compra.DiscountTotal)</td></tr>
+                            <tr><td>Impuestos</td><td class="num">@Format.Money(compra.TaxTotal)</td></tr>
+                            <tr><td>Cargos</td><td class="num">@Format.Money(compra.ChargesTotal)</td></tr>
+                            <tr><td><b>Total</b></td><td class="num"><b>@Format.Money(compra.Total)</b></td></tr>
+                            <tr><td>Retenciones</td><td class="num">@Format.Money(compra.WithholdingTotal)</td></tr>
+                            <tr><td>A pagar al proveedor</td><td class="num">@Format.Money(compra.PayableTotal)</td></tr>
                         </tbody>
                     </MudSimpleTable>
                 </MudItem>
@@ -153,11 +155,11 @@
     </ChildContent>
 </Pagina>
 
-@if (_anulando && _compra.ValueKind == JsonValueKind.Object)
+@if (_anulando && _compra is { } anular)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Anular la compra @_compra.Str("number")</h2>
+            <h2>Anular la compra @anular.Number</h2>
             <MudText Typo="Typo.body2">Se reversan las entradas al inventario y la cuenta por pagar. No se puede si ya tiene pagos o devoluciones, o si deja existencias negativas.</MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo (5 a 300 caracteres)" Immediate="true" AutoFocus="true" Lines="2" />
             <div class="acciones">
@@ -169,8 +171,8 @@
 }
 
 @code {
-    private List<JsonElement> _proveedores = [];
-    private List<JsonElement> _medios = [];
+    private List<SupplierDto> _proveedores = [];
+    private List<PaymentMethodDto> _medios = [];
     private List<LineaProducto> _lineas = [];
     private string _modo = "Credit";
     private string? _error, _factura, _referencia, _notas, _motivo, _ordenNumero, _clave;
@@ -178,7 +180,7 @@
     private DateTime? _fecha;
     private decimal? _totalFactura;
     private bool _loading = true, _busy, _anulando;
-    private JsonElement _compra;
+    private PurchaseDto? _compra;
 
     /// <summary>La compra que se muestra; sin valor (ruta <c>/nueva</c>), el formulario de una factura nueva.</summary>
     [Parameter]
@@ -190,17 +192,13 @@
 
     private string TituloPagina => Id is null
         ? "Nueva factura de compra"
-        : _compra.ValueKind == JsonValueKind.Object ? $"Compra {_compra.Str("number")}" : "Compra";
+        : _compra is { } compra ? $"Compra {compra.Number}" : "Compra";
 
-    private string? Resumen => Id is null || _compra.ValueKind != JsonValueKind.Object
+    private string? Resumen => Id is null || _compra is not { } compra
         ? null
-        : $"{_compra.Str("supplierName")} · factura {_compra.Str("supplierInvoiceNumber")} del {Compras.Dia(_compra, "invoiceDate")} · vence {Compras.Dia(_compra, "dueDate")} · "
-          + (_compra.Str("paymentMode") == "CASH" ? "de contado" : "a crédito")
-          + (_compra.Bool("requiresSupportDocument") ? " · requiere documento soporte" : "");
-
-    private List<JsonElement> LineasCompra => _compra.Prop("lines").Items();
-
-    private List<JsonElement> Alertas => _compra.Prop("alerts").Items();
+        : $"{compra.SupplierName} · factura {compra.SupplierInvoiceNumber} del {Compras.Dia(compra.InvoiceDate)} · vence {Compras.Dia(compra.DueDate)} · "
+          + (EnumText.Same(compra.PaymentMode, "CASH") ? "de contado" : "a crédito")
+          + (compra.RequiresSupportDocument ? " · requiere documento soporte" : "");
 
     protected override async Task OnParametersSetAsync()
     {
@@ -219,12 +217,12 @@
         {
             if (Id is { } id)
             {
-                _compra = await Api.GetAsync<JsonElement>($"api/v1/purchasing/purchases/{id}");
-                _totalFactura = TotalDeclarado(_compra);
+                _compra = await Api.GetAsync<PurchaseDto>($"api/v1/purchasing/purchases/{id}");
+                _totalFactura = _compra.InvoiceTotal;
             }
             else
             {
-                _compra = default;
+                _compra = null;
                 await PrepararNuevaAsync();
             }
         }
@@ -239,13 +237,9 @@
     /// <summary>El valor de la base de datos (CREDIT, VALUE, RETEFUENTE) como lo recibe la API (Credit, Value, Retefuente).</summary>
     private static string Enumeracion(string value) => value.Length == 0 ? value : value[..1].ToUpperInvariant() + value[1..].ToLowerInvariant();
 
-    private static Guid? GuidOpcional(JsonElement element, string name) => Guid.TryParse(element.Str(name), out var id) ? id : null;
-
-    private static decimal? TotalDeclarado(JsonElement purchase) => purchase.Str("invoiceTotal") == "" ? null : purchase.Dec("invoiceTotal");
-
     private static string? Texto(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static Color ColorEstado(string status) => status switch
+    private static Color ColorEstado(string status) => EnumText.Normalize(status) switch
     {
         "POSTED" => Color.Success,
         "VOIDED" => Color.Error,
@@ -254,21 +248,21 @@
 
     private async Task PrepararNuevaAsync()
     {
-        _proveedores = (await Api.GetAsync<JsonElement>("api/v1/purchasing/suppliers")).Items();
-        _medios = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
+        _proveedores = [.. await Api.GetAsync<List<SupplierDto>>("api/v1/purchasing/suppliers")];
+        _medios = [.. await Api.GetAsync<List<PaymentMethodDto>>("api/v1/cash/payment-methods")];
         await Bodegas.CargarAsync();
 
-        JsonElement? order = Orden is { } orderId ? await Api.GetAsync<JsonElement>($"api/v1/purchasing/orders/{orderId}") : null;
+        var order = Orden is { } orderId ? await Api.GetAsync<PurchaseOrderDto>($"api/v1/purchasing/orders/{orderId}") : null;
         _lineas = [];
         _factura = _referencia = _notas = null;
         _fecha = DateTime.Today;
         _totalFactura = null;
         _modo = "Credit";
         _medio = null;
-        _ordenId = order?.GetProperty("id").GetGuid();
-        _ordenNumero = order?.Str("number");
-        _proveedor = order?.GetProperty("supplierId").GetGuid();
-        _bodega = order?.GetProperty("warehouseId").GetGuid() ?? Bodegas.Primera(Bodegas.Elegibles);
+        _ordenId = order?.Id;
+        _ordenNumero = order?.Number;
+        _proveedor = order?.SupplierId;
+        _bodega = order?.WarehouseId ?? Bodegas.Primera(Bodegas.Elegibles);
     }
 
     private async Task CrearAsync()
@@ -282,7 +276,7 @@
         _busy = true;
         try
         {
-            var purchase = await Api.PostAsync<JsonElement>("api/v1/purchasing/purchases", new
+            var purchase = await Api.PostAsync<PurchaseDto>("api/v1/purchasing/purchases", new
             {
                 supplierId = _proveedor, warehouseId = _bodega, purchaseOrderId = _ordenId, supplierInvoiceNumber = (_factura ?? "").Trim(),
                 invoiceDate = DateOnly.FromDateTime(_fecha ?? DateTime.Today), businessDate = (DateOnly?)null, dueDate = (DateOnly?)null,
@@ -296,10 +290,10 @@
                 }).ToList(),
                 withholdings = (object[]?)null,
             });
-            Snackbar.Add($"Compra {purchase.Str("number")} guardada en borrador.", Severity.Success);
-            var id = purchase.GetProperty("id").GetGuid();
+            Snackbar.Add($"Compra {purchase.Number} guardada en borrador.", Severity.Success);
+            var id = purchase.Id;
             _compra = purchase;
-            _totalFactura = TotalDeclarado(purchase);
+            _totalFactura = purchase.InvoiceTotal;
             _clave = $"{id}|";
             Navigation.NavigateTo($"/admin/compras/{id}", replace: true);
         }
@@ -312,36 +306,40 @@
     }
 
     /// <summary>Reenvía el borrador tal como está, cambiando solo el total de la factura digitado.</summary>
-    private async Task ActualizarTotalAsync()
+    private async Task ActualizarTotalAsync(PurchaseDto p)
     {
-        var p = _compra;
-        var manual = p.Str("prorationMethod") == "MANUAL";
-        _compra = await Api.PutAsync<JsonElement>($"api/v1/purchasing/purchases/{p.GetProperty("id").GetGuid()}", new
+        var manual = EnumText.Same(p.ProrationMethod, "MANUAL");
+        _compra = await Api.PutAsync<PurchaseDto>($"api/v1/purchasing/purchases/{p.Id}", new
         {
-            supplierId = p.GetProperty("supplierId").GetGuid(), warehouseId = p.GetProperty("warehouseId").GetGuid(), purchaseOrderId = GuidOpcional(p, "purchaseOrderId"),
-            supplierInvoiceNumber = p.Str("supplierInvoiceNumber"), invoiceDate = p.Str("invoiceDate"), businessDate = p.Str("businessDate"), dueDate = (string?)null,
-            paymentMode = Enumeracion(p.Str("paymentMode")), paymentMethodId = GuidOpcional(p, "paymentMethodId"), paymentReference = Texto(p.Str("paymentReference")),
-            invoiceTotal = _totalFactura, proration = Enumeracion(p.Str("prorationMethod")), chargesTotal = p.Dec("chargesTotal"), chargesNotes = Texto(p.Str("chargesNotes")),
-            notes = Texto(p.Str("notes")),
-            lines = p.Prop("lines").Items().Select(l => new
+            supplierId = p.SupplierId, warehouseId = p.WarehouseId, purchaseOrderId = p.PurchaseOrderId,
+            supplierInvoiceNumber = p.SupplierInvoiceNumber, invoiceDate = p.InvoiceDate, businessDate = p.BusinessDate, dueDate = (string?)null,
+            paymentMode = Enumeracion(p.PaymentMode), paymentMethodId = p.PaymentMethodId, paymentReference = Texto(p.PaymentReference),
+            invoiceTotal = _totalFactura, proration = Enumeracion(p.ProrationMethod), chargesTotal = p.ChargesTotal, chargesNotes = Texto(p.ChargesNotes),
+            notes = Texto(p.Notes),
+            lines = p.Lines.Select(l => new
             {
-                productId = l.GetProperty("productId").GetGuid(), code = (string?)null, packagingId = GuidOpcional(l, "packagingId"), quantity = l.Dec("quantity"),
-                unitCost = (decimal?)l.Dec("unitCost"), discount = l.Dec("discountAmount"), taxes = (object[]?)null, manualCharges = manual ? l.Dec("chargesAmount") : (decimal?)null,
-                lotNumber = Texto(l.Str("lotNumber")), expiryDate = Texto(l.Str("expiryDate")), orderLineId = GuidOpcional(l, "orderLineId"),
+                productId = l.ProductId, code = (string?)null, packagingId = l.PackagingId, quantity = l.Quantity,
+                unitCost = (decimal?)l.UnitCost, discount = l.DiscountAmount, taxes = (object[]?)null, manualCharges = manual ? l.ChargesAmount : (decimal?)null,
+                lotNumber = Texto(l.LotNumber), expiryDate = l.ExpiryDate, orderLineId = l.OrderLineId,
             }).ToList(),
-            withholdings = p.Prop("withholdings").Items().Select(w => new
+            withholdings = p.Withholdings.Select(w => new
             {
-                kind = Enumeracion(w.Str("kind")), @base = w.Dec("base"), rate = w.Str("rate") == "" ? (decimal?)null : w.Dec("rate"), amount = (decimal?)w.Dec("amount"),
+                kind = Enumeracion(w.Kind), @base = w.Base, rate = w.Rate, amount = (decimal?)w.Amount,
             }).ToList(),
         });
     }
 
     private async Task GuardarTotalAsync()
     {
+        if (_compra is not { } compra)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            await ActualizarTotalAsync();
+            await ActualizarTotalAsync(compra);
             Snackbar.Add("Total de la factura guardado.", Severity.Success);
         }
         catch (ApiException ex)
@@ -358,18 +356,23 @@
     /// </summary>
     private async Task ContabilizarAsync()
     {
+        if (_compra is not { } compra)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            if (_totalFactura != TotalDeclarado(_compra))
+            if (_totalFactura != compra.InvoiceTotal)
             {
-                await ActualizarTotalAsync();
+                await ActualizarTotalAsync(compra);
             }
 
-            var posted = await Api.PostAsync<JsonElement>($"api/v1/purchasing/purchases/{_compra.GetProperty("id").GetGuid()}/post", new { cashSessionId = (Guid?)null });
-            Snackbar.Add($"Compra {posted.Str("number")} confirmada: entró al inventario y a cuentas por pagar.", Severity.Success);
+            var posted = await Api.PostAsync<PurchaseDto>($"api/v1/purchasing/purchases/{compra.Id}/post", new { cashSessionId = (Guid?)null });
+            Snackbar.Add($"Compra {posted.Number} confirmada: entró al inventario y a cuentas por pagar.", Severity.Success);
             _compra = posted;
-            _totalFactura = TotalDeclarado(posted);
+            _totalFactura = posted.InvoiceTotal;
         }
         catch (ApiException ex)
         {
@@ -387,15 +390,20 @@
 
     private async Task AnularAsync()
     {
+        if (_compra is not { } compra)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            var id = _compra.GetProperty("id").GetGuid();
-            await Api.PostAsync<JsonElement>($"api/v1/purchasing/purchases/{id}/void", new { reason = (_motivo ?? "").Trim() });
-            Snackbar.Add($"Compra {_compra.Str("number")} anulada.", Severity.Success);
+            var id = compra.Id;
+            await Api.PostAsync<PurchaseDto>($"api/v1/purchasing/purchases/{id}/void", new { reason = (_motivo ?? "").Trim() });
+            Snackbar.Add($"Compra {compra.Number} anulada.", Severity.Success);
             _anulando = false;
-            _compra = await Api.GetAsync<JsonElement>($"api/v1/purchasing/purchases/{id}");
-            _totalFactura = TotalDeclarado(_compra);
+            _compra = await Api.GetAsync<PurchaseDto>($"api/v1/purchasing/purchases/{id}");
+            _totalFactura = _compra.InvoiceTotal;
         }
         catch (ApiException ex)
         {

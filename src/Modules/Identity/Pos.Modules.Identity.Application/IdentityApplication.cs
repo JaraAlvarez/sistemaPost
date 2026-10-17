@@ -8,6 +8,7 @@ using Pos.Modules.Identity.Domain;
 using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
 using Pos.SharedKernel.Time;
+using Pos.SharedKernel.Text;
 
 namespace Pos.Modules.Identity.Application;
 
@@ -382,5 +383,5 @@ internal sealed class EmployeeHandlers(
     }
 
     private static EmployeeDto ToDto(Employee e) =>
-        new(e.Id, e.BranchId, e.IdentificationType, e.IdentificationNumber, e.FirstName, e.LastName, e.Phone, e.Email, e.Status.ToString());
+        new(e.Id, e.BranchId, e.IdentificationType, e.IdentificationNumber, e.FirstName, e.LastName, e.Phone, e.Email, e.Status.UpperSnake());
 }

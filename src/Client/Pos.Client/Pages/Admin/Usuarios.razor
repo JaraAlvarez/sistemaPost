@@ -1,4 +1,5 @@
 @page "/admin/usuarios"
+@using Pos.Modules.Identity.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -19,14 +20,14 @@
                 <MudTh>Usuario</MudTh><MudTh>Nombre</MudTh><MudTh>Roles</MudTh><MudTh>Código de caja</MudTh><MudTh>Estado</MudTh><MudTh>Último ingreso</MudTh><MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd>@context.Str("username")</MudTd>
-                <MudTd>@context.Str("displayName")</MudTd>
-                <MudTd>@string.Join(", ", context.Prop("roles").Items().Select(r => NombreRol(r.Str("roleCode"))))</MudTd>
-                <MudTd>@context.Str("posCode")</MudTd>
+                <MudTd>@context.Username</MudTd>
+                <MudTd>@context.DisplayName</MudTd>
+                <MudTd>@string.Join(", ", context.Roles.Select(r => NombreRol(r.RoleCode)))</MudTd>
+                <MudTd>@context.PosCode</MudTd>
                 <MudTd>@(Estado(context) == "ACTIVE" ? "Activo" : Estado(context) == "LOCKED" ? "Bloqueado" : "Inactivo")</MudTd>
-                <MudTd>@Format.Date(context.Date("lastLoginAt"))</MudTd>
+                <MudTd>@Format.Date(context.LastLoginAt)</MudTd>
                 <MudTd>
-                    @if (Session.Has("identity.user.manage") && context.Str("username") != "system")
+                    @if (Session.Has("identity.user.manage") && context.Username != "system")
                     {
                         @if (Estado(context) == "LOCKED")
                         {
@@ -34,7 +35,7 @@
                         }
                         else if (Estado(context) == "ACTIVE")
                         {
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar usuario", $"{context.Str("displayName")} ya no podrá entrar a la caja ni a la administración. Puede activarlo de nuevo después.", "Inactivar", true)) { await AccionAsync(context, "deactivate", "Usuario inactivado."); } })">Inactivar</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar usuario", $"{context.DisplayName} ya no podrá entrar a la caja ni a la administración. Puede activarlo de nuevo después.", "Inactivar", true)) { await AccionAsync(context, "deactivate", "Usuario inactivado."); } })">Inactivar</MudButton>
                         }
                         else
                         {
@@ -60,7 +61,7 @@
             <MudSelect T="Guid?" @bind-Value="_role" Label="Rol">
                 @foreach (var role in _roles)
                 {
-                    <MudSelectItem T="Guid?" Value="@role.GetProperty("id").GetGuid()">@role.Str("name")</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@role.Id">@role.Name</MudSelectItem>
                 }
             </MudSelect>
             <MudTextField @bind-Value="_posCode" Label="Código de caja (opcional, 3 a 6 dígitos)" Immediate="true" />
@@ -74,8 +75,8 @@
 }
 
 @code {
-    private List<JsonElement> _users = [];
-    private List<JsonElement> _roles = [];
+    private List<UserDto> _users = [];
+    private List<RoleDto> _roles = [];
     private bool _loading = true, _busy, _nuevo;
     private string? _error, _username, _displayName, _password, _posCode, _pin;
     private Guid? _role;
@@ -87,8 +88,8 @@
         _loading = true;
         try
         {
-            _users = (await Api.GetAsync<JsonElement>("api/v1/identity/users")).Items();
-            _roles = (await Api.GetAsync<JsonElement>("api/v1/identity/roles")).Items();
+            _users = await Api.GetAsync<List<UserDto>>("api/v1/identity/users");
+            _roles = await Api.GetAsync<List<RoleDto>>("api/v1/identity/roles");
         }
         catch (ApiException ex)
         {
@@ -99,9 +100,9 @@
     }
 
     /// <summary>Estado del usuario en mayúsculas (la API puede enviar "Active" o "ACTIVE").</summary>
-    private static string Estado(JsonElement user) => user.Str("status").ToUpperInvariant();
+    private static string Estado(UserDto user) => EnumText.Normalize(user.Status);
 
-    private string NombreRol(string code) => _roles.FirstOrDefault(r => r.Str("code") == code).Str("name") is { Length: > 0 } name ? name : code;
+    private string NombreRol(string code) => _roles.FirstOrDefault(r => r.Code == code)?.Name is { Length: > 0 } name ? name : code;
 
     private void Nuevo()
     {
@@ -133,11 +134,11 @@
         _busy = false;
     }
 
-    private async Task AccionAsync(JsonElement user, string action, string message)
+    private async Task AccionAsync(UserDto user, string action, string message)
     {
         try
         {
-            await Api.PostAsync($"api/v1/identity/users/{user.GetProperty("id").GetGuid()}/{action}");
+            await Api.PostAsync($"api/v1/identity/users/{user.Id}/{action}");
             Snackbar.Add(message, Severity.Success);
             await CargarAsync();
         }

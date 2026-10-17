@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject NavigationManager Navigation
+@using Pos.Modules.Purchasing.Contracts
 
 <PageTitle>Proveedores · BusinessPost</PageTitle>
 
@@ -19,19 +20,19 @@
             <MudCheckBox T="bool" Value="_inactivos" ValueChanged="@(v => FiltrarAsync(v))" Label="Incluir inactivos" />
         </MudStack>
         <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
-                  OnRowClick="@((TableRowClickEventArgs<JsonElement> fila) => Abrir(fila.Item))">
+                  OnRowClick="@((TableRowClickEventArgs<SupplierDto> fila) => Abrir(fila.Item!))">
             <HeaderContent>
                 <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Identificación</MudTh><MudTh Class="num">Plazo</MudTh><MudTh>Factura electrónica</MudTh>
                 <MudTh>Estado</MudTh><MudTh Class="num">Saldo por pagar</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd>@context.Str("code")</MudTd>
-                <MudTd><a href="/admin/proveedores/@context.Str("id")" @onclick:stopPropagation="true">@context.Str("name")</a></MudTd>
-                <MudTd>@context.Str("identification")</MudTd>
-                <MudTd Class="num">@context.Dec("paymentTermDays") días</MudTd>
-                <MudTd>@(context.Bool("issuesInvoices") ? "Sí" : "No (documento soporte)")</MudTd>
-                <MudTd>@Estado(context.Str("status"))</MudTd>
-                <MudTd Class="num">@Format.Money(context.Dec("openBalance"))</MudTd>
+                <MudTd>@context.Code</MudTd>
+                <MudTd><a href="/admin/proveedores/@context.Id" @onclick:stopPropagation="true">@context.Name</a></MudTd>
+                <MudTd>@context.Identification</MudTd>
+                <MudTd Class="num">@context.PaymentTermDays días</MudTd>
+                <MudTd>@(context.IssuesInvoices ? "Sí" : "No (documento soporte)")</MudTd>
+                <MudTd>@Estado(context.Status)</MudTd>
+                <MudTd Class="num">@Format.Money(context.OpenBalance)</MudTd>
             </RowTemplate>
             <NoRecordsContent><EstadoVacio Mensaje="No hay proveedores que coincidan." /></NoRecordsContent>
             <PagerContent><Paginador /></PagerContent>
@@ -40,7 +41,7 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _items = [];
+    private List<SupplierDto> _items = [];
     private string? _search, _error;
     private bool _loading = true, _inactivos;
 
@@ -57,7 +58,7 @@
         return CargarAsync();
     }
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "ACTIVE" => "Activo",
         "BLOCKED" => "Bloqueado",
@@ -65,7 +66,7 @@
         _ => status,
     };
 
-    private void Abrir(JsonElement supplier) => Navigation.NavigateTo($"/admin/proveedores/{supplier.GetProperty("id").GetGuid()}");
+    private void Abrir(SupplierDto supplier) => Navigation.NavigateTo($"/admin/proveedores/{supplier.Id}");
 
     private async Task FiltrarAsync(bool inactivos)
     {
@@ -80,7 +81,7 @@
         try
         {
             var inactive = _inactivos ? "true" : "false";
-            _items = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/suppliers?search={Uri.EscapeDataString(_search ?? "")}&includeInactive={inactive}")).Items();
+            _items = [.. await Api.GetAsync<List<SupplierDto>>($"api/v1/purchasing/suppliers?search={Uri.EscapeDataString(_search ?? "")}&includeInactive={inactive}")];
             _error = null;
         }
         catch (ApiException ex)

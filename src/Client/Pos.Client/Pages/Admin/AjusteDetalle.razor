@@ -6,6 +6,8 @@
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Inventory.Contracts
 
 <PageTitle>@Titulo · BusinessPost</PageTitle>
 
@@ -17,7 +19,7 @@
             <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(false))">Guardar borrador</MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => CrearAsync(true))">Guardar y aplicar</MudButton>
         }
-        else if (_ajuste.ValueKind == JsonValueKind.Object)
+        else if (_ajuste is not null)
         {
             @if (Status is "DRAFT" or "PENDING_APPROVAL" && Session.Has("inventory.adjustment.manage"))
             {
@@ -54,18 +56,18 @@
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudSelect T="Guid?" @bind-Value="_motivo" Label="Motivo">
-                            @foreach (var reason in _motivos.Where(r => r.Str("status") == "ACTIVE"))
+                            @foreach (var reason in _motivos.Where(r => EnumText.Same(r.Status, "ACTIVE")))
                             {
-                                <MudSelectItem T="Guid?" Value="@reason.GetProperty("id").GetGuid()">@reason.Str("name")</MudSelectItem>
+                                <MudSelectItem T="Guid?" Value="@reason.Id">@reason.Name</MudSelectItem>
                             }
                         </MudSelect>
-                        @if (Motivo.ValueKind == JsonValueKind.Object)
+                        @if (Motivo is { } motivo)
                         {
-                            <MudText Typo="Typo.caption" Class="d-block mt-1">@AyudaMotivo(Motivo.Str("kind"))</MudText>
+                            <MudText Typo="Typo.caption" Class="d-block mt-1">@AyudaMotivo(motivo.Kind)</MudText>
                         }
                     </MudItem>
                     <MudItem xs="12">
-                        <MudTextField T="string" @bind-Value="_notas" Label="@(Motivo.Bool("requiresNote") ? "Observación (obligatoria para este motivo)" : "Observación (opcional)")" Immediate="true" />
+                        <MudTextField T="string" @bind-Value="_notas" Label="@(Motivo?.RequiresNote == true ? "Observación (obligatoria para este motivo)" : "Observación (opcional)")" Immediate="true" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudStack Row="true" AlignItems="AlignItems.Center">
@@ -92,9 +94,9 @@
                                     @foreach (var product in _resultados)
                                     {
                                         <tr>
-                                            <td>@product.Str("sku")</td>
-                                            <td>@product.Str("name")</td>
-                                            <td>@product.Str("baseUnitCode")</td>
+                                            <td>@product.Sku</td>
+                                            <td>@product.Name</td>
+                                            <td>@product.BaseUnitCode</td>
                                             <td><MudButton Size="Size.Small" OnClick="@(() => AgregarLinea(product))">Agregar</MudButton></td>
                                         </tr>
                                     }
@@ -128,9 +130,9 @@
                 </tbody>
             </MudSimpleTable>
         }
-        else if (_ajuste.ValueKind == JsonValueKind.Object)
+        else if (_ajuste is not null)
         {
-            @if (_ajuste.Str("notes") is { Length: > 0 } notes)
+            @if (_ajuste.Notes is { Length: > 0 } notes)
             {
                 <MudText Typo="Typo.body2" Class="mb-2">Observación: @notes</MudText>
             }
@@ -150,36 +152,36 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var line in _ajuste.Prop("lines").Items())
+                    @foreach (var line in _ajuste.Lines)
                     {
                         <tr>
-                            <td>@line.Str("sku")</td>
-                            <td>@line.Str("productName")</td>
-                            <td class="num">@(line.Dec("quantity") > 0 ? "+" : "")@Format.Quantity(line.Dec("quantity"))</td>
+                            <td>@line.Sku</td>
+                            <td>@line.ProductName</td>
+                            <td class="num">@(line.Quantity > 0 ? "+" : "")@Format.Quantity(line.Quantity)</td>
                             @if (VerCostos)
                             {
-                                <td class="num">@(line.Prop("unitCost").ValueKind == JsonValueKind.Number ? Format.Money(line.Dec("unitCost")) : "—")</td>
+                                <td class="num">@Format.Money(line.UnitCost)</td>
                             }
-                            <td>@line.Str("lotNumber")</td>
-                            <td>@Fecha(line.Str("expiryDate"))</td>
-                            <td>@line.Str("notes")</td>
+                            <td>@line.LotNumber</td>
+                            <td>@Fecha(line.ExpiryDate)</td>
+                            <td>@line.Notes</td>
                         </tr>
                     }
                 </tbody>
             </MudSimpleTable>
-            @if (VerCostos && _ajuste.Prop("totalValue").ValueKind == JsonValueKind.Number)
+            @if (VerCostos && _ajuste.TotalValue is { } valor)
             {
-                <MudText Typo="Typo.body2">Valor del ajuste: @Format.Money(_ajuste.Dec("totalValue"))</MudText>
+                <MudText Typo="Typo.body2">Valor del ajuste: @Format.Money(valor)</MudText>
             }
         }
     </ChildContent>
 </Pagina>
 
 @code {
-    private List<JsonElement> _motivos = [];
-    private List<JsonElement> _resultados = [];
+    private List<AdjustmentReasonDto> _motivos = [];
+    private IReadOnlyList<ProductSummaryDto> _resultados = [];
     private readonly List<Linea> _lineas = [];
-    private JsonElement _ajuste;
+    private AdjustmentDto? _ajuste;
     private string? _error, _notas, _buscar, _lote, _cargado;
     private Guid? _bodega, _motivo;
     private decimal _cantidad = 1;
@@ -191,37 +193,37 @@
     [Parameter]
     public Guid? Id { get; set; }
 
-    private string Status => _ajuste.Str("status");
+    private string Status => EnumText.Normalize(_ajuste?.Status);
 
     private bool VerCostos => Session.Has("inventory.cost.view");
 
-    private string Titulo => Id is null ? "Nuevo ajuste" : _ajuste.ValueKind == JsonValueKind.Object ? $"Ajuste {_ajuste.Str("number")}" : "Ajuste";
+    private string Titulo => Id is null ? "Nuevo ajuste" : _ajuste is { } ajuste ? $"Ajuste {ajuste.Number}" : "Ajuste";
 
     private string? Resumen
     {
         get
         {
-            if (Id is null || _ajuste.ValueKind != JsonValueKind.Object)
+            if (Id is null || _ajuste is not { } ajuste)
             {
                 return null;
             }
 
-            var texto = $"{Estado(Status)} · Bodega {Bodegas.Nombre(_ajuste.Str("warehouseId"))} · Motivo: {NombreMotivo(_ajuste.Str("reasonId"), _ajuste.Str("reasonCode"))} · "
-                + $"Fecha contable {Fecha(_ajuste.Str("businessDate"))}";
-            return _ajuste.Date("postedAt") is { } posted ? $"{texto} · Aplicado {Format.Date(posted)}" : texto;
+            var texto = $"{Estado(Status)} · Bodega {Bodegas.Nombre(ajuste.WarehouseId)} · Motivo: {NombreMotivo(ajuste.ReasonId, ajuste.ReasonCode)} · "
+                + $"Fecha contable {Fecha(ajuste.BusinessDate)}";
+            return ajuste.PostedAt is { } posted ? $"{texto} · Aplicado {Format.Date(posted)}" : texto;
         }
     }
 
-    private JsonElement Motivo => _motivos.FirstOrDefault(r => _motivo is { } id && r.Prop("id").TryGetGuid(out var reasonId) && reasonId == id);
+    private AdjustmentReasonDto? Motivo => _motivos.FirstOrDefault(r => r.Id == _motivo);
 
-    private bool EsSaldoInicial => Motivo.Str("kind") == "INITIAL_BALANCE";
+    private bool EsSaldoInicial => EnumText.Same(Motivo?.Kind, "INITIAL_BALANCE");
 
     protected override async Task OnInitializedAsync()
     {
         await Bodegas.CargarAsync();
         try
         {
-            _motivos = (await Api.GetAsync<JsonElement>("api/v1/inventory/reasons")).Items();
+            _motivos = await Api.GetAsync<List<AdjustmentReasonDto>>("api/v1/inventory/reasons");
         }
         catch (ApiException ex)
         {
@@ -249,9 +251,9 @@
         }
     }
 
-    private string NombreMotivo(string id, string code) => _motivos.FirstOrDefault(r => r.Str("id") == id).Str("name") is { Length: > 0 } name ? name : code;
+    private string NombreMotivo(Guid id, string code) => _motivos.FirstOrDefault(r => r.Id == id)?.Name is { Length: > 0 } name ? name : code;
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "PENDING_APPROVAL" => "Pendiente de aprobación",
@@ -260,15 +262,14 @@
         _ => status,
     };
 
-    private static string AyudaMotivo(string kind) => kind switch
+    private static string AyudaMotivo(string kind) => EnumText.Normalize(kind) switch
     {
         "INITIAL_BALANCE" => "Saldo inicial: solo entradas y cada línea lleva su costo unitario.",
         "ADJUSTMENT" => "Cantidad positiva = entra; negativa = sale. Entra al costo promedio vigente.",
         _ => "Este motivo es de salida: las cantidades se descuentan del inventario.",
     };
 
-    private static string Fecha(string value) =>
-        DateOnly.TryParse(value, CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "";
+    private static string Fecha(DateOnly? value) => value?.ToString("dd/MM/yyyy", Format.Colombia) ?? "";
 
     private void Nuevo()
     {
@@ -301,7 +302,7 @@
 
         try
         {
-            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            _resultados = (await Api.GetAsync<PagedResult<ProductSummaryDto>>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items;
             if (_resultados.Count == 0)
             {
                 Snackbar.Add("No hay productos que coincidan.", Severity.Info);
@@ -317,9 +318,9 @@
         }
     }
 
-    private void AgregarLinea(JsonElement product)
+    private void AgregarLinea(ProductSummaryDto product)
     {
-        var id = product.GetProperty("id").GetGuid();
+        var id = product.Id;
         if (_lineas.Any(l => l.ProductId == id))
         {
             Snackbar.Add("El producto ya está en el ajuste.", Severity.Warning);
@@ -328,7 +329,7 @@
 
         var lote = string.IsNullOrWhiteSpace(_lote) ? null : _lote.Trim();
         _lineas.Add(new Linea(
-            id, product.Str("sku"), product.Str("name"), product.Str("baseUnitCode"), _cantidad, EsSaldoInicial ? _costo : null, lote,
+            id, product.Sku, product.Name, product.BaseUnitCode, _cantidad, EsSaldoInicial ? _costo : null, lote,
             lote is not null && _vence is { } vence ? DateOnly.FromDateTime(vence) : null));
         _resultados = [];
         _buscar = _lote = null;
@@ -343,7 +344,7 @@
         Guid? creado = null;
         try
         {
-            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/adjustments", new
+            var created = await Api.PostAsync<AdjustmentDto>("api/v1/inventory/adjustments", new
             {
                 warehouseId = _bodega,
                 reasonId = _motivo,
@@ -354,10 +355,10 @@
                     productId = l.ProductId, quantity = l.Cantidad, unitCost = l.Costo, notes = (string?)null, lotNumber = l.Lote, expiryDate = l.Vence,
                 }).ToList(),
             });
-            creado = created.GetProperty("id").GetGuid();
+            creado = created.Id;
             if (publicar)
             {
-                var posted = await Api.PostAsync<JsonElement>($"api/v1/inventory/adjustments/{creado}/post");
+                var posted = await Api.PostAsync<AdjustmentDto>($"api/v1/inventory/adjustments/{creado}/post");
                 Snackbar.Add(MensajePublicacion(posted), Severity.Success);
             }
             else
@@ -378,7 +379,7 @@
         }
     }
 
-    private static string MensajePublicacion(JsonElement adjustment) => adjustment.Str("status") == "PENDING_APPROVAL"
+    private static string MensajePublicacion(AdjustmentDto adjustment) => EnumText.Same(adjustment.Status, "PENDING_APPROVAL")
         ? "El ajuste supera el umbral: quedó pendiente de aprobación por otro usuario."
         : "Ajuste aplicado al inventario.";
 
@@ -387,7 +388,7 @@
         _loading = true;
         try
         {
-            _ajuste = await Api.GetAsync<JsonElement>($"api/v1/inventory/adjustments/{id}");
+            _ajuste = await Api.GetAsync<AdjustmentDto>($"api/v1/inventory/adjustments/{id}");
             _error = null;
         }
         catch (ApiException ex)
@@ -406,8 +407,13 @@
             return;
         }
 
+        if (_ajuste is not { } ajuste)
+        {
+            return;
+        }
+
         _busy = true;
-        var id = _ajuste.GetProperty("id").GetGuid();
+        var id = ajuste.Id;
         try
         {
             if (action == "cancel")
@@ -417,7 +423,7 @@
             }
             else
             {
-                var result = await Api.PostAsync<JsonElement>($"api/v1/inventory/adjustments/{id}/{action}");
+                var result = await Api.PostAsync<AdjustmentDto>($"api/v1/inventory/adjustments/{id}/{action}");
                 Snackbar.Add(MensajePublicacion(result), Severity.Success);
             }
 

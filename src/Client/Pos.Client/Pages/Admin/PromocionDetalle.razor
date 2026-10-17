@@ -1,5 +1,8 @@
 @page "/admin/promociones/nueva"
 @page "/admin/promociones/{Id:guid}"
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Promotions.Contracts
+@using Pos.Modules.Sales.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -9,9 +12,9 @@
 
 <Pagina Titulo="@Titulo" Miga="@Miga" Subtitulo="@Subtitulo" Cargando="_loading" Error="@_error">
     <Acciones>
-        @if (Id is not null && _promo.ValueKind == JsonValueKind.Object && Session.Has("promotions.promotion.manage"))
+        @if (Id is not null && _promo is not null && Session.Has("promotions.promotion.manage"))
         {
-            var status = _promo.Str("status");
+            var status = EnumText.Normalize(_promo.Status);
             if (status is "DRAFT" or "PAUSED")
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.PlayArrow" Disabled="_busy"
@@ -39,7 +42,7 @@
                 </MudPaper>
             }
         }
-        else if (_promo.ValueKind == JsonValueKind.Object)
+        else if (_promo is not null)
         {
             <MudTabs Elevation="0" Outlined="true" TabPanelsClass="pa-3">
                 <MudTabPanel Text="@(Editable ? "Datos" : "Resumen")">
@@ -68,7 +71,7 @@
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Terminar @_promo.Str("name")</h2>
+            <h2>Terminar @(_promo?.Name)</h2>
             <MudText>Una promoción terminada deja de aplicarse y no se puede volver a activar. ¿Terminarla?</MudText>
             <div class="acciones">
                 <MudButton OnClick="@(() => _terminar = false)">Cancelar</MudButton>
@@ -168,7 +171,7 @@
                 <MudSelect T="Guid?" @bind-Value="_brandSel" Label="Marca">
                     @foreach (var brand in _brands)
                     {
-                        <MudSelectItem T="Guid?" Value="@brand.GetProperty("id").GetGuid()">@brand.Str("name")</MudSelectItem>
+                        <MudSelectItem T="Guid?" Value="@brand.Id">@brand.Name</MudSelectItem>
                     }
                 </MudSelect>
                 <MudButton Size="Size.Small" OnClick="AgregarMarca">Agregar</MudButton>
@@ -186,9 +189,9 @@
                     @foreach (var product in _productResults)
                     {
                         <tr>
-                            <td>@product.Str("sku")</td>
-                            <td>@product.Str("name")</td>
-                            <td class="num">@Format.Money(product.Dec("price"))</td>
+                            <td>@product.Sku</td>
+                            <td>@product.Name</td>
+                            <td class="num">@Format.Money(product.Price ?? 0m)</td>
                             <td><MudButton Size="Size.Small" OnClick="@(() => AgregarProducto(product))">Agregar</MudButton></td>
                         </tr>
                     }
@@ -233,23 +236,28 @@
 
     private RenderFragment Resumen => __builder =>
     {
+        if (_promo is not { } promo)
+        {
+            return;
+        }
+
         <MudSimpleTable Dense="true">
             <tbody>
-                <tr><td>Tipo</td><td>@NombreTipo(_promo.Str("type"))</td></tr>
-                <tr><td>Condición</td><td>@Condicion(_promo)</td></tr>
-                <tr><td>Desde</td><td>@Format.Date(_promo.Date("validFrom"))</td></tr>
-                <tr><td>Hasta</td><td>@(_promo.Date("validTo") is { } to ? $"{to.ToLocalTime().AddTicks(-1).ToString("dd/MM/yyyy", Format.Colombia)}, inclusive" : "Sin fecha de fin")</td></tr>
-                <tr><td>Días</td><td>@DiasTexto(_promo)</td></tr>
-                <tr><td>Horario</td><td>@(_promo.Str("startTime").Length > 0 || _promo.Str("endTime").Length > 0 ? $"{Texto(_promo.Str("startTime"))} a {Texto(_promo.Str("endTime"))}" : "Todo el día")</td></tr>
-                <tr><td>Máximo por venta</td><td>@(_promo.Dec("maxApplications") > 0 ? Format.Quantity(_promo.Dec("maxApplications")) : "Sin límite")</td></tr>
-                <tr><td>Texto en el tiquete</td><td>@Texto(_promo.Str("ticketText"))</td></tr>
-                <tr><td>Sucursales</td><td>@(_promo.Prop("branchIds").Items().Count is > 0 and var n ? $"Solo {n} sucursal(es) elegidas" : "Todas")</td></tr>
-                <tr><td>Activada</td><td>@Format.Date(_promo.Date("activatedAt"))</td></tr>
-                <tr><td>Terminada</td><td>@Format.Date(_promo.Date("endedAt"))</td></tr>
+                <tr><td>Tipo</td><td>@NombreTipo(promo.Type)</td></tr>
+                <tr><td>Condición</td><td>@Condicion(promo)</td></tr>
+                <tr><td>Desde</td><td>@Format.Date(promo.ValidFrom)</td></tr>
+                <tr><td>Hasta</td><td>@(promo.ValidTo is { } to ? $"{to.ToLocalTime().AddTicks(-1).ToString("dd/MM/yyyy", Format.Colombia)}, inclusive" : "Sin fecha de fin")</td></tr>
+                <tr><td>Días</td><td>@DiasTexto(promo)</td></tr>
+                <tr><td>Horario</td><td>@(promo.StartTime is not null || promo.EndTime is not null ? $"{Texto(HoraTexto(promo.StartTime))} a {Texto(HoraTexto(promo.EndTime))}" : "Todo el día")</td></tr>
+                <tr><td>Máximo por venta</td><td>@(promo.MaxApplications is > 0 and var max ? Format.Quantity(max) : "Sin límite")</td></tr>
+                <tr><td>Texto en el tiquete</td><td>@Texto(promo.TicketText)</td></tr>
+                <tr><td>Sucursales</td><td>@(promo.BranchIds.Count is > 0 and var n ? $"Solo {n} sucursal(es) elegidas" : "Todas")</td></tr>
+                <tr><td>Activada</td><td>@Format.Date(promo.ActivatedAt)</td></tr>
+                <tr><td>Terminada</td><td>@Format.Date(promo.EndedAt)</td></tr>
             </tbody>
         </MudSimpleTable>
-        <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-5">@(_promo.Str("type") == "COMBO" ? "Productos del combo" : "Aplica a")</MudText>
-        if (_promo.Prop("items").Items() is { Count: > 0 } items)
+        <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-5">@(EnumText.Same(promo.Type, "COMBO") ? "Productos del combo" : "Aplica a")</MudText>
+        if (promo.Items is { Count: > 0 } items)
         {
             <MudSimpleTable Dense="true">
                 <thead><tr><th>Tipo</th><th>Nombre</th><th class="num">Cantidad</th></tr></thead>
@@ -257,9 +265,9 @@
                     @foreach (var i in items)
                     {
                         <tr>
-                            <td>@(i.Str("productId").Length > 0 ? "Producto" : i.Str("categoryId").Length > 0 ? "Categoría" : "Marca")</td>
-                            <td>@(i.Str("productName") is { Length: > 0 } pn ? pn : i.Str("categoryName") is { Length: > 0 } cn ? cn : i.Str("brandName"))</td>
-                            <td class="num">@Format.Quantity(i.Dec("quantity"))</td>
+                            <td>@TipoItem(i)</td>
+                            <td>@NombreItem(i)</td>
+                            <td class="num">@Format.Quantity(i.Quantity)</td>
                         </tr>
                     }
                 </tbody>
@@ -295,9 +303,9 @@
                     @foreach (var product in _simResults)
                     {
                         <tr>
-                            <td>@product.Str("sku")</td>
-                            <td>@product.Str("name")</td>
-                            <td class="num">@Format.Money(product.Dec("price"))</td>
+                            <td>@product.Sku</td>
+                            <td>@product.Name</td>
+                            <td class="num">@Format.Money(product.Price ?? 0m)</td>
                             <td><MudButton Size="Size.Small" OnClick="@(() => AgregarLinea(product))">Agregar</MudButton></td>
                         </tr>
                     }
@@ -307,7 +315,7 @@
         <MudStack Row="true" Justify="Justify.FlexEnd" Class="mt-3">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Calculate" Disabled="_busy" OnClick="EjecutarSimulacionAsync">Simular</MudButton>
         </MudStack>
-        if (_resultado.ValueKind == JsonValueKind.Object)
+        if (_resultado is { } resultado)
         {
             <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-3">Resultado</MudText>
             <div style="overflow-x: auto">
@@ -316,24 +324,24 @@
                         <tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Bruto</th><th>Promoción</th><th class="num">Descuento</th><th class="num">Total</th></tr>
                     </thead>
                     <tbody>
-                        @foreach (var line in _resultado.Prop("lines").Items())
+                        @foreach (var line in resultado.Lines)
                         {
                             <tr>
-                                <td>@line.Str("sku") · @line.Str("name")</td>
-                                <td class="num">@Format.Quantity(line.Dec("quantity"))</td>
-                                <td class="num">@Format.Money(line.Dec("unitPrice"))</td>
-                                <td class="num">@Format.Money(line.Dec("gross"))</td>
-                                <td>@line.Str("promotionName")</td>
-                                <td class="num">@Format.Money(line.Dec("promotionDiscount"))</td>
-                                <td class="num">@Format.Money(line.Dec("total"))</td>
+                                <td>@line.Sku · @line.Name</td>
+                                <td class="num">@Format.Quantity(line.Quantity)</td>
+                                <td class="num">@Format.Money(line.UnitPrice)</td>
+                                <td class="num">@Format.Money(line.Gross)</td>
+                                <td>@line.PromotionName</td>
+                                <td class="num">@Format.Money(line.PromotionDiscount)</td>
+                                <td class="num">@Format.Money(line.Total)</td>
                             </tr>
                         }
                         <tr>
                             <td colspan="3"><b>Totales</b></td>
-                            <td class="num"><b>@Format.Money(_resultado.Dec("gross"))</b></td>
+                            <td class="num"><b>@Format.Money(resultado.Gross)</b></td>
                             <td></td>
-                            <td class="num"><b>@Format.Money(_resultado.Dec("promotionTotal"))</b></td>
-                            <td class="num"><b>@Format.Money(_resultado.Dec("total"))</b></td>
+                            <td class="num"><b>@Format.Money(resultado.PromotionTotal)</b></td>
+                            <td class="num"><b>@Format.Money(resultado.Total)</b></td>
                         </tr>
                     </tbody>
                 </MudSimpleTable>
@@ -357,9 +365,9 @@
     ];
 
     private List<JsonElement> _categories = [];
-    private List<JsonElement> _brands = [];
-    private List<JsonElement> _productResults = [];
-    private List<JsonElement> _simResults = [];
+    private IReadOnlyList<BrandDto> _brands = [];
+    private IReadOnlyList<ProductSummaryDto> _productResults = [];
+    private IReadOnlyList<ProductSummaryDto> _simResults = [];
     private List<ItemForm> _itemsForm = [];
     private List<LineaForm> _lineas = [];
     private List<Guid> _branchIds = [];
@@ -373,22 +381,23 @@
     private int _buy = 3, _pay = 2;
     private int? _maxApp;
     private decimal _price, _percent, _minQty;
-    private JsonElement _promo, _resultado;
+    private PromotionDto? _promo;
+    private SimulationDto? _resultado;
 
     /// <summary>Id de la promoción; nulo en <c>/admin/promociones/nueva</c>.</summary>
     [Parameter]
     public Guid? Id { get; set; }
 
-    private string Titulo => Id is null ? "Nueva promoción" : _promo.Str("name") is { Length: > 0 } name ? name : "Promoción";
+    private string Titulo => Id is null ? "Nueva promoción" : _promo?.Name is { Length: > 0 } name ? name : "Promoción";
 
-    private string Miga => Id is null ? "Nueva promoción" : _promo.Str("number") is { Length: > 0 } number ? $"Promoción {number}" : "Promoción";
+    private string Miga => Id is null ? "Nueva promoción" : _promo?.Number is { Length: > 0 } number ? $"Promoción {number}" : "Promoción";
 
-    private string? Subtitulo => Id is not null && _promo.ValueKind == JsonValueKind.Object
-        ? $"{_promo.Str("number")} · {NombreTipo(_promo.Str("type"))} · {NombreEstado(_promo.Str("status"))}"
+    private string? Subtitulo => Id is not null && _promo is { } promo
+        ? $"{promo.Number} · {NombreTipo(promo.Type)} · {NombreEstado(promo.Status)}"
         : null;
 
     /// <summary>Solo un borrador se corrige (una activa se pausa o se termina y se crea otra).</summary>
-    private bool Editable => _formListo && _promo.Str("status") == "DRAFT" && Session.Has("promotions.promotion.manage");
+    private bool Editable => _formListo && EnumText.Same(_promo?.Status, "DRAFT") && Session.Has("promotions.promotion.manage");
 
     protected override async Task OnParametersSetAsync()
     {
@@ -410,7 +419,7 @@
         _formListo = false;
         if (Id is not { } id)
         {
-            _promo = default;
+            _promo = null;
             if (await CargarMaestrosAsync())
             {
                 NuevoFormulario();
@@ -420,31 +429,31 @@
         {
             try
             {
-                _promo = await Api.GetAsync<JsonElement>($"api/v1/promotions/{id}");
+                _promo = await Api.GetAsync<PromotionDto>($"api/v1/promotions/{id}");
             }
             catch (ApiException ex)
             {
-                _promo = default;
+                _promo = null;
                 _error = ex.Texto;
             }
 
-            if (_promo.ValueKind == JsonValueKind.Object)
+            if (_promo is { } promo)
             {
-                if (_promo.Str("status") == "DRAFT" && Session.Has("promotions.promotion.manage") && await CargarMaestrosAsync())
+                if (EnumText.Same(promo.Status, "DRAFT") && Session.Has("promotions.promotion.manage") && await CargarMaestrosAsync())
                 {
-                    LlenarFormulario(_promo);
+                    LlenarFormulario(promo);
                 }
 
-                PrepararSimulacion(_promo);
+                PrepararSimulacion(promo);
             }
         }
 
         _loading = false;
     }
 
-    internal static string NombreTipo(string code) => Tipos.FirstOrDefault(t => t.Code == code).Label ?? code;
+    internal static string NombreTipo(string code) => Tipos.FirstOrDefault(t => t.Code == EnumText.Normalize(code)).Label ?? code;
 
-    internal static string NombreEstado(string status) => status switch
+    internal static string NombreEstado(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "ACTIVE" => "Activa",
@@ -455,22 +464,32 @@
 
     private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static string Texto(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+    private static string Texto(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 
-    private static string Condicion(JsonElement promotion) => promotion.Str("type") switch
+    /// <summary>La hora como la daba la API ("08:00:00"); vacío si no hay.</summary>
+    private static string HoraTexto(TimeOnly? time) => time?.ToString("HH:mm:ss", CultureInfo.InvariantCulture) ?? "";
+
+    private static string TipoItem(PromotionItemDto item) => item.ProductId is not null ? "Producto" : item.CategoryId is not null ? "Categoría" : "Marca";
+
+    private static string NombreItem(PromotionItemDto item) =>
+        item.ProductName is { Length: > 0 } pn ? pn : item.CategoryName is { Length: > 0 } cn ? cn : item.BrandName ?? "";
+
+    private static string Condicion(PromotionDto promotion) => EnumText.Normalize(promotion.Type) switch
     {
-        "MULTI_BUY" => $"Lleve {Format.Quantity(promotion.Dec("buyQuantity"))} pague {Format.Quantity(promotion.Dec("payQuantity"))}",
-        "SPECIAL_PRICE" => $"Precio especial de {Format.Money(promotion.Dec("price"))} por unidad",
-        "PERCENT_OFF" => $"{promotion.Dec("percent").ToString("0.##", Format.Colombia)} % de descuento",
-        "QUANTITY_PRICE" => $"Desde {Format.Quantity(promotion.Dec("minQuantity"))} unidades, {Format.Money(promotion.Dec("price"))} por unidad",
-        "COMBO" => $"Combo a {Format.Money(promotion.Dec("price"))}",
+        "MULTI_BUY" => $"Lleve {Format.Quantity(promotion.BuyQuantity ?? 0)} pague {Format.Quantity(promotion.PayQuantity ?? 0)}",
+        "SPECIAL_PRICE" => $"Precio especial de {Format.Money(promotion.Price ?? 0m)} por unidad",
+        "PERCENT_OFF" => $"{(promotion.Percent ?? 0m).ToString("0.##", Format.Colombia)} % de descuento",
+        "QUANTITY_PRICE" => $"Desde {Format.Quantity(promotion.MinQuantity ?? 0m)} unidades, {Format.Money(promotion.Price ?? 0m)} por unidad",
+        "COMBO" => $"Combo a {Format.Money(promotion.Price ?? 0m)}",
         _ => "—",
     };
 
-    private static string DiasTexto(JsonElement promotion)
+    private static HashSet<DayOfWeek> DiasDe(PromotionDto promotion) =>
+        promotion.Days.Select(d => Enum.TryParse<DayOfWeek>(d, true, out var day) ? day : (DayOfWeek?)null).OfType<DayOfWeek>().ToHashSet();
+
+    private static string DiasTexto(PromotionDto promotion)
     {
-        var days = promotion.Prop("days").Items().Select(d => Enum.TryParse<DayOfWeek>(d.ToString(), true, out var day) ? day : (DayOfWeek?)null)
-            .OfType<DayOfWeek>().ToHashSet();
+        var days = DiasDe(promotion);
         return days.Count is 0 or 7 ? "Todos los días" : string.Join(", ", Dias.Where(d => days.Contains(d.Day)).Select(d => d.Label));
     }
 
@@ -485,7 +504,7 @@
 
             if (_brands.Count == 0)
             {
-                _brands = (await Api.GetAsync<JsonElement>("api/v1/catalog/brands")).Items();
+                _brands = await Api.GetAsync<IReadOnlyList<BrandDto>>("api/v1/catalog/brands");
             }
 
             return true;
@@ -524,38 +543,37 @@
         _formListo = true;
     }
 
-    private void LlenarFormulario(JsonElement promotion)
+    private void LlenarFormulario(PromotionDto promotion)
     {
-        _name = promotion.Str("name");
-        _type = Tipos.FirstOrDefault(t => t.Code == promotion.Str("type")).Value ?? "SpecialPrice";
-        _buy = (int)promotion.Dec("buyQuantity");
-        _pay = (int)promotion.Dec("payQuantity");
-        _price = promotion.Dec("price");
-        _percent = promotion.Dec("percent");
-        _minQty = promotion.Dec("minQuantity");
-        _maxApp = promotion.Dec("maxApplications") is > 0 and var max ? (int)max : null;
-        _ticket = Nulo(promotion.Str("ticketText"));
-        _desde = promotion.Date("validFrom")?.ToLocalTime().Date;
-        _hasta = promotion.Date("validTo") is { } to ? to.ToLocalTime().AddTicks(-1).Date : null;
-        _horaDesde = Hora(promotion.Str("startTime"));
-        _horaHasta = Hora(promotion.Str("endTime"));
-        var days = promotion.Prop("days").Items().Select(d => Enum.TryParse<DayOfWeek>(d.ToString(), true, out var day) ? day : (DayOfWeek?)null)
-            .OfType<DayOfWeek>().ToHashSet();
+        _name = promotion.Name;
+        _type = Tipos.FirstOrDefault(t => t.Code == EnumText.Normalize(promotion.Type)).Value ?? "SpecialPrice";
+        _buy = promotion.BuyQuantity ?? 0;
+        _pay = promotion.PayQuantity ?? 0;
+        _price = promotion.Price ?? 0m;
+        _percent = promotion.Percent ?? 0m;
+        _minQty = promotion.MinQuantity ?? 0m;
+        _maxApp = promotion.MaxApplications is > 0 and var max ? max : null;
+        _ticket = Nulo(promotion.TicketText);
+        _desde = promotion.ValidFrom.ToLocalTime().Date;
+        _hasta = promotion.ValidTo is { } to ? to.ToLocalTime().AddTicks(-1).Date : null;
+        _horaDesde = promotion.StartTime?.ToTimeSpan();
+        _horaHasta = promotion.EndTime?.ToTimeSpan();
+        var days = DiasDe(promotion);
         if (days.Count == 7)
         {
             days.Clear();
         }
 
         _dias = days;
-        _branchIds = promotion.Prop("branchIds").Items().Select(b => b.GetGuid()).ToList();
-        _itemsForm = promotion.Prop("items").Items().Select(i => new ItemForm
+        _branchIds = [.. promotion.BranchIds];
+        _itemsForm = promotion.Items.Select(i => new ItemForm
         {
-            ProductId = Guid.TryParse(i.Str("productId"), out var p) ? p : null,
-            CategoryId = Guid.TryParse(i.Str("categoryId"), out var c) ? c : null,
-            BrandId = Guid.TryParse(i.Str("brandId"), out var b) ? b : null,
-            Kind = i.Str("productId").Length > 0 ? "Producto" : i.Str("categoryId").Length > 0 ? "Categoría" : "Marca",
-            Label = i.Str("productName") is { Length: > 0 } pn ? pn : i.Str("categoryName") is { Length: > 0 } cn ? cn : i.Str("brandName"),
-            Quantity = i.Dec("quantity") > 0 ? i.Dec("quantity") : 1m,
+            ProductId = i.ProductId,
+            CategoryId = i.CategoryId,
+            BrandId = i.BrandId,
+            Kind = TipoItem(i),
+            Label = NombreItem(i),
+            Quantity = i.Quantity > 0 ? i.Quantity : 1m,
         }).ToList();
         _itemKind = "product";
         _productSearch = null;
@@ -563,8 +581,6 @@
         _formListo = true;
     }
 
-    private static TimeSpan? Hora(string value) =>
-        TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var time) ? time.ToTimeSpan() : null;
 
     private void CambiarDia(DayOfWeek day, bool selected)
     {
@@ -582,7 +598,7 @@
 
     private async Task BuscarProductosSimAsync(string _) => _simResults = await BuscarProductosAsync(_simSearch);
 
-    private async Task<List<JsonElement>> BuscarProductosAsync(string? search)
+    private async Task<IReadOnlyList<ProductSummaryDto>> BuscarProductosAsync(string? search)
     {
         if (string.IsNullOrWhiteSpace(search))
         {
@@ -591,7 +607,7 @@
 
         try
         {
-            return (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(search)}")).Items();
+            return (await Api.GetAsync<PagedResult<ProductSummaryDto>>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(search)}")).Items;
         }
         catch (ApiException ex)
         {
@@ -600,12 +616,12 @@
         }
     }
 
-    private void AgregarProducto(JsonElement product)
+    private void AgregarProducto(ProductSummaryDto product)
     {
-        var id = product.GetProperty("id").GetGuid();
+        var id = product.Id;
         if (_itemsForm.All(i => i.ProductId != id))
         {
-            _itemsForm.Add(new ItemForm { ProductId = id, Kind = "Producto", Label = $"{product.Str("sku")} · {product.Str("name")}", Quantity = 1m });
+            _itemsForm.Add(new ItemForm { ProductId = id, Kind = "Producto", Label = $"{product.Sku} · {product.Name}", Quantity = 1m });
         }
     }
 
@@ -621,7 +637,7 @@
     {
         if (_brandSel is { } id && _itemsForm.All(i => i.BrandId != id))
         {
-            _itemsForm.Add(new ItemForm { BrandId = id, Kind = "Marca", Label = _brands.First(b => b.GetProperty("id").GetGuid() == id).Str("name"), Quantity = 1m });
+            _itemsForm.Add(new ItemForm { BrandId = id, Kind = "Marca", Label = _brands.First(b => b.Id == id).Name, Quantity = 1m });
         }
     }
 
@@ -661,17 +677,17 @@
             };
             if (Id is { } id)
             {
-                await Api.PutAsync<JsonElement>($"api/v1/promotions/{id}", body);
+                await Api.PutAsync<PromotionDto>($"api/v1/promotions/{id}", body);
                 Snackbar.Add("Promoción actualizada.", Severity.Success);
                 _busy = false;
                 await CargarAsync();
             }
             else
             {
-                var created = await Api.PostAsync<JsonElement>("api/v1/promotions", body);
+                var created = await Api.PostAsync<PromotionDto>("api/v1/promotions", body);
                 Snackbar.Add("Promoción creada en borrador. Simúlela y actívela cuando esté lista.", Severity.Success);
                 _busy = false;
-                Navigation.NavigateTo($"/admin/promociones/{created.GetProperty("id").GetGuid()}", replace: true);
+                Navigation.NavigateTo($"/admin/promociones/{created.Id}", replace: true);
             }
 
             return;
@@ -694,7 +710,7 @@
         _busy = true;
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/promotions/{id}/{action}");
+            await Api.PostAsync<PromotionDto>($"api/v1/promotions/{id}/{action}");
             Snackbar.Add(message, Severity.Success);
             await CargarAsync();
         }
@@ -713,39 +729,39 @@
     }
 
     /// <summary>Venta de ejemplo inicial: los productos de la promoción con la cantidad que la dispara.</summary>
-    private void PrepararSimulacion(JsonElement promotion)
+    private void PrepararSimulacion(PromotionDto promotion)
     {
-        var type = promotion.Str("type");
-        _lineas = promotion.Prop("items").Items()
-            .Where(i => i.Str("productId").Length > 0)
+        var type = EnumText.Normalize(promotion.Type);
+        _lineas = promotion.Items
+            .Where(i => i.ProductId is not null)
             .Select(i => new LineaForm
             {
-                ProductId = i.GetProperty("productId").GetGuid(),
-                Label = i.Str("productName"),
+                ProductId = i.ProductId.GetValueOrDefault(),
+                Label = i.ProductName ?? "",
                 Quantity = type switch
                 {
-                    "MULTI_BUY" => promotion.Dec("buyQuantity"),
-                    "QUANTITY_PRICE" => promotion.Dec("minQuantity"),
-                    "COMBO" => i.Dec("quantity"),
+                    "MULTI_BUY" => promotion.BuyQuantity ?? 0,
+                    "QUANTITY_PRICE" => promotion.MinQuantity ?? 0m,
+                    "COMBO" => i.Quantity,
                     _ => 1m,
                 },
             })
             .ToList();
         _simSearch = null;
         _simResults = [];
-        _resultado = default;
+        _resultado = null;
     }
 
-    private void AgregarLinea(JsonElement product)
+    private void AgregarLinea(ProductSummaryDto product)
     {
-        var id = product.GetProperty("id").GetGuid();
+        var id = product.Id;
         if (_lineas.FirstOrDefault(l => l.ProductId == id) is { } line)
         {
             line.Quantity += 1m;
         }
         else
         {
-            _lineas.Add(new LineaForm { ProductId = id, Label = $"{product.Str("sku")} · {product.Str("name")}", Quantity = 1m });
+            _lineas.Add(new LineaForm { ProductId = id, Label = $"{product.Sku} · {product.Name}", Quantity = 1m });
         }
     }
 
@@ -765,7 +781,7 @@
         _busy = true;
         try
         {
-            _resultado = await Api.PostAsync<JsonElement>(
+            _resultado = await Api.PostAsync<SimulationDto>(
                 $"api/v1/promotions/{id}/simulate",
                 _lineas.Select(l => new { productId = l.ProductId, packagingId = (Guid?)null, quantity = l.Quantity }).ToList());
         }

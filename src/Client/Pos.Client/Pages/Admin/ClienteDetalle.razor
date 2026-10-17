@@ -1,5 +1,9 @@
 @page "/admin/clientes/nuevo"
 @page "/admin/clientes/{Id:guid}"
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Customers.Contracts
+@using Pos.Modules.Reference.Contracts
+@using Pos.Modules.Sales.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -9,10 +13,10 @@
 
 <Pagina Titulo="@Titulo" Miga="@Titulo" Subtitulo="@Subtitulo" Cargando="_loading" Error="@_error">
     <Acciones>
-        @if (Id is not null && !_editando && _ficha.ValueKind == JsonValueKind.Object && Session.Has("customers.customer.manage"))
+        @if (Id is not null && !_editando && _ficha is not null && Session.Has("customers.customer.manage"))
         {
             <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Edit" Disabled="_busy" OnClick="EditarAsync">Corregir datos</MudButton>
-            @if (_ficha.Str("status") == "BLOCKED" || _ficha.Str("status") == "INACTIVE")
+            @if (EnumText.Same(_ficha.Status, "BLOCKED") || EnumText.Same(_ficha.Status, "INACTIVE"))
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ActivarAsync">Activar</MudButton>
             }
@@ -40,9 +44,9 @@
                     </MudItem>
                     <MudItem xs="12" sm="6">
                         <MudSelect T="string" @bind-Value="_idType" Label="Tipo de identificación">
-                            @foreach (var type in _idTypes.Where(t => _personType == "LEGAL" ? t.Bool("allowsLegal") : t.Bool("allowsNatural")))
+                            @foreach (var type in _idTypes.Where(t => _personType == "LEGAL" ? t.AllowsLegal : t.AllowsNatural))
                             {
-                                <MudSelectItem T="string" Value="@type.Str("code")">@type.Str("name")</MudSelectItem>
+                                <MudSelectItem T="string" Value="@type.Code">@type.Name</MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
@@ -112,7 +116,7 @@
                 </MudStack>
             </MudPaper>
         }
-        else if (_ficha.ValueKind == JsonValueKind.Object)
+        else if (_ficha is { } ficha)
         {
             if (_fichaError is not null)
             {
@@ -122,12 +126,12 @@
                 <MudTabPanel Text="Datos">
                     <MudSimpleTable Dense="true">
                         <tbody>
-                            <tr><td>Identificación</td><td>@Identificacion(_ficha)</td><td>Estado</td><td>@NombreEstado(_ficha.Str("status"))@(_ficha.Str("blockReason") is { Length: > 0 } reason ? $" ({reason})" : "")</td></tr>
-                            <tr><td>Celular</td><td>@Texto(_ficha.Str("phone"))</td><td>Correo</td><td>@Texto(_ficha.Str("email"))</td></tr>
-                            <tr><td>Dirección</td><td>@Texto(_ficha.Str("address"))</td><td>Grupo</td><td>@_ficha.Str("groupCode")</td></tr>
+                            <tr><td>Identificación</td><td>@Identificacion(ficha)</td><td>Estado</td><td>@NombreEstado(ficha.Status)@(ficha.BlockReason is { Length: > 0 } reason ? $" ({reason})" : "")</td></tr>
+                            <tr><td>Celular</td><td>@Texto(ficha.Phone)</td><td>Correo</td><td>@Texto(ficha.Email)</td></tr>
+                            <tr><td>Dirección</td><td>@Texto(ficha.Address)</td><td>Grupo</td><td>@ficha.GroupCode</td></tr>
                             <tr>
-                                <td>Siempre pide factura</td><td>@(_ficha.Bool("alwaysRequestsInvoice") ? "Sí" : "No")</td>
-                                <td>Autorizó datos</td><td>@(_ficha.Bool("serviceConsent") ? $"Sí (política v{_ficha.Str("consentPolicyVersion")})" : "No")</td>
+                                <td>Siempre pide factura</td><td>@(ficha.AlwaysRequestsInvoice ? "Sí" : "No")</td>
+                                <td>Autorizó datos</td><td>@(ficha.ServiceConsent ? $"Sí (política v{ficha.ConsentPolicyVersion})" : "No")</td>
                             </tr>
                         </tbody>
                     </MudSimpleTable>
@@ -136,16 +140,16 @@
                         <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-4">Grupo y lista de precios</MudText>
                         <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
                             <MudSelect T="Guid?" @bind-Value="_fichaGrupo" Label="Grupo" Style="min-width: 220px">
-                                @foreach (var group in _groups.Where(g => g.Str("status") == "ACTIVE"))
+                                @foreach (var group in _groups.Where(g => EnumText.Same(g.Status, "ACTIVE")))
                                 {
-                                    <MudSelectItem T="Guid?" Value="@group.GetProperty("id").GetGuid()">@group.Str("name")</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@group.Id">@group.Name</MudSelectItem>
                                 }
                             </MudSelect>
                             <MudSelect T="Guid?" @bind-Value="_fichaLista" Label="Lista de precios propia" Style="min-width: 220px">
                                 <MudSelectItem T="Guid?" Value="@((Guid?)null)">La del grupo</MudSelectItem>
                                 @foreach (var list in _priceLists)
                                 {
-                                    <MudSelectItem T="Guid?" Value="@list.GetProperty("id").GetGuid()">@list.Str("name")</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@list.Id">@list.Name</MudSelectItem>
                                 }
                             </MudSelect>
                             <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="AsignarPreciosAsync">Guardar grupo</MudButton>
@@ -155,25 +159,25 @@
                 @if (Session.Has("customers.history.view"))
                 {
                     <MudTabPanel Text="Compras">
-                        @if (_resumen.ValueKind == JsonValueKind.Object)
+                        @if (_resumen is { } resumen)
                         {
                             <MudSimpleTable Dense="true">
                                 <tbody>
-                                    <tr><td>Compras</td><td class="num">@_resumen.Dec("purchases")</td><td>Total comprado</td><td class="num">@Format.Money(_resumen.Dec("totalPurchased"))</td></tr>
-                                    <tr><td>Ticket promedio</td><td class="num">@Format.Money(_resumen.Dec("averageTicket"))</td><td>Sucursal habitual</td><td>@Texto(_resumen.Str("usualBranch"))</td></tr>
-                                    <tr><td>Primera compra</td><td>@Format.Date(_resumen.Date("firstPurchaseAt"))</td><td>Última compra</td><td>@Format.Date(_resumen.Date("lastPurchaseAt"))</td></tr>
-                                    <tr><td>Ventas anuladas</td><td class="num">@_resumen.Dec("voidedSales")</td><td>Cambios</td><td class="num">@_resumen.Dec("exchanges") (@Format.Money(_resumen.Dec("returnedCredit")))</td></tr>
+                                    <tr><td>Compras</td><td class="num">@resumen.Purchases</td><td>Total comprado</td><td class="num">@Format.Money(resumen.TotalPurchased)</td></tr>
+                                    <tr><td>Ticket promedio</td><td class="num">@Format.Money(resumen.AverageTicket)</td><td>Sucursal habitual</td><td>@Texto(resumen.UsualBranch)</td></tr>
+                                    <tr><td>Primera compra</td><td>@Format.Date(resumen.FirstPurchaseAt)</td><td>Última compra</td><td>@Format.Date(resumen.LastPurchaseAt)</td></tr>
+                                    <tr><td>Ventas anuladas</td><td class="num">@resumen.VoidedSales</td><td>Cambios</td><td class="num">@resumen.Exchanges (@Format.Money(resumen.ReturnedCredit))</td></tr>
                                 </tbody>
                             </MudSimpleTable>
                             <MudText Typo="Typo.h6" HtmlTag="h2" Class="mt-4">Productos frecuentes</MudText>
-                            @if (_resumen.Prop("topProducts").Items() is { Count: > 0 } top)
+                            @if (resumen.TopProducts is { Count: > 0 } top)
                             {
                                 <MudSimpleTable Dense="true">
                                     <thead><tr><th>SKU</th><th>Producto</th><th class="num">Cantidad</th><th class="num">Total</th></tr></thead>
                                     <tbody>
                                         @foreach (var product in top)
                                         {
-                                            <tr><td>@product.Str("sku")</td><td>@product.Str("name")</td><td class="num">@Format.Quantity(product.Dec("quantity"))</td><td class="num">@Format.Money(product.Dec("total"))</td></tr>
+                                            <tr><td>@product.Sku</td><td>@product.Name</td><td class="num">@Format.Quantity(product.Quantity)</td><td class="num">@Format.Money(product.Total)</td></tr>
                                         }
                                     </tbody>
                                 </MudSimpleTable>
@@ -198,13 +202,13 @@
                                         @foreach (var entry in _historial)
                                         {
                                             <tr>
-                                                <td>@Format.Date(entry.Date("at"))</td>
-                                                <td>@entry.Str("number")@(entry.Str("originalSaleNumber") is { Length: > 0 } original ? $" (de {original})" : "")</td>
-                                                <td>@NombreMovimiento(entry.Str("kind"))</td>
-                                                <td>@entry.Str("branchName") / @entry.Str("terminalCode")</td>
-                                                <td>@string.Join(", ", entry.Prop("paymentMethods").Items().Select(p => p.ToString()))</td>
-                                                <td>@entry.Str("status")</td>
-                                                <td class="num">@Format.Money(entry.Dec("total"))</td>
+                                                <td>@Format.Date(entry.At)</td>
+                                                <td>@entry.Number@(entry.OriginalSaleNumber is { Length: > 0 } original ? $" (de {original})" : "")</td>
+                                                <td>@NombreMovimiento(entry.Kind)</td>
+                                                <td>@entry.BranchName / @entry.TerminalCode</td>
+                                                <td>@string.Join(", ", entry.PaymentMethods)</td>
+                                                <td>@entry.Status</td>
+                                                <td class="num">@Format.Money(entry.Total)</td>
                                             </tr>
                                         }
                                     </tbody>
@@ -227,7 +231,7 @@
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Bloquear a @_ficha.Str("displayName")</h2>
+            <h2>Bloquear a @(_ficha?.DisplayName)</h2>
             <MudText Typo="Typo.body2">Un cliente bloqueado no se puede asignar a ventas nuevas.</MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo" Immediate="true" AutoFocus="true" />
             <div class="acciones">
@@ -239,27 +243,28 @@
 }
 
 @code {
-    private List<JsonElement> _groups = [];
-    private List<JsonElement> _priceLists = [];
-    private List<JsonElement> _idTypes = [];
-    private List<JsonElement> _historial = [];
+    private List<CustomerGroupDto> _groups = [];
+    private List<PriceListDto> _priceLists = [];
+    private List<IdentificationTypeDto> _idTypes = [];
+    private IReadOnlyList<CustomerHistoryEntryDto> _historial = [];
     private List<string>? _responsibilities;
     private string _personType = "NATURAL", _consentChannel = "PaperForm";
     private string? _error, _idType, _idNumber, _checkDigit, _firstNames, _lastNames, _legalName, _tradeName, _email, _phone, _address, _municipality,
         _taxRegime, _motivo, _fichaError;
     private bool _loading = true, _busy, _editando, _bloquear, _alwaysInvoice, _serviceConsent, _namesUnknown, _maestros, _iniciado;
     private Guid? _fichaGrupo, _fichaLista, _cargado;
-    private JsonElement _ficha, _resumen;
+    private CustomerDto? _ficha;
+    private CustomerSalesSummaryDto? _resumen;
 
     /// <summary>El partyId del cliente; nulo en <c>/admin/clientes/nuevo</c>.</summary>
     [Parameter]
     public Guid? Id { get; set; }
 
-    private string Titulo => Id is null ? "Nuevo cliente" : _ficha.Str("displayName") is { Length: > 0 } name ? name : "Cliente";
+    private string Titulo => Id is null ? "Nuevo cliente" : _ficha?.DisplayName is { Length: > 0 } name ? name : "Cliente";
 
-    private string? Subtitulo => Id is not null && _ficha.ValueKind == JsonValueKind.Object ? $"{Identificacion(_ficha)} · {NombreEstado(_ficha.Str("status"))}" : null;
+    private string? Subtitulo => Id is not null && _ficha is { } ficha ? $"{Identificacion(ficha)} · {NombreEstado(ficha.Status)}" : null;
 
-    private bool RequiereDv => _idTypes.FirstOrDefault(t => t.Str("code") == _idType).Bool("requiresCheckDigit");
+    private bool RequiereDv => _idTypes.FirstOrDefault(t => t.Code == _idType)?.RequiresCheckDigit == true;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -293,9 +298,12 @@
     }
 
     internal static string Identificacion(JsonElement customer) =>
-        $"{customer.Str("identificationType")} {customer.Str("identificationNumber")}{(customer.Str("checkDigit") is { Length: > 0 } dv ? "-" + dv : "")}";
+        Identificacion(customer.Str("identificationType"), customer.Str("identificationNumber"), customer.Str("checkDigit"));
 
-    internal static string NombreEstado(string status) => status switch
+    internal static string Identificacion(CustomerDto customer) =>
+        Identificacion(customer.IdentificationType, customer.IdentificationNumber, customer.CheckDigit);
+
+    internal static string NombreEstado(string status) => EnumText.Normalize(status) switch
     {
         "ACTIVE" => "Activo",
         "INACTIVE" => "Inactivo",
@@ -303,7 +311,10 @@
         _ => status,
     };
 
-    private static string NombreMovimiento(string kind) => kind switch
+    private static string Identificacion(string type, string number, string? checkDigit) =>
+        $"{type} {number}{(checkDigit is { Length: > 0 } dv ? "-" + dv : "")}";
+
+    private static string NombreMovimiento(string kind) => EnumText.Normalize(kind) switch
     {
         "SALE" => "Venta",
         "VOID" => "Anulación",
@@ -312,7 +323,7 @@
         _ => kind,
     };
 
-    private static string Texto(string value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
+    private static string Texto(string? value) => string.IsNullOrWhiteSpace(value) ? "—" : value;
 
     private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -327,7 +338,7 @@
         _maestros = true;
         try
         {
-            _groups = (await Api.GetAsync<JsonElement>("api/v1/customers/groups")).Items();
+            _groups = [.. await Api.GetAsync<IReadOnlyList<CustomerGroupDto>>("api/v1/customers/groups")];
         }
         catch (ApiException ex)
         {
@@ -336,7 +347,7 @@
 
         try
         {
-            _priceLists = (await Api.GetAsync<JsonElement>("api/v1/catalog/price-lists")).Items().Where(l => l.Str("status") == "ACTIVE").ToList();
+            _priceLists = (await Api.GetAsync<IReadOnlyList<PriceListDto>>("api/v1/catalog/price-lists")).Where(l => EnumText.Same(l.Status, "ACTIVE")).ToList();
         }
         catch (ApiException)
         {
@@ -348,7 +359,7 @@
     {
         if (_idTypes.Count == 0)
         {
-            _idTypes = (await Api.GetAsync<JsonElement>("api/v1/reference/identification-types")).Items();
+            _idTypes = [.. await Api.GetAsync<IReadOnlyList<IdentificationTypeDto>>("api/v1/reference/identification-types")];
         }
     }
 
@@ -364,7 +375,7 @@
             return;
         }
 
-        _ficha = default;
+        _ficha = null;
         _personType = "NATURAL";
         _idType = "CC";
         _idNumber = _checkDigit = _firstNames = _lastNames = _legalName = _tradeName = _email = _phone = _address = _municipality = _taxRegime = null;
@@ -387,23 +398,23 @@
         try
         {
             await CargarTiposAsync();
-            var customer = await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}");
-            _personType = customer.Str("personType") is { Length: > 0 } personType ? personType : "NATURAL";
-            _idType = customer.Str("identificationType");
-            _idNumber = customer.Str("identificationNumber");
-            _checkDigit = Nulo(customer.Str("checkDigit"));
-            _email = Nulo(customer.Str("email"));
-            _phone = Nulo(customer.Str("phone"));
-            _address = Nulo(customer.Str("address"));
-            _municipality = Nulo(customer.Str("municipalityCode"));
-            _taxRegime = Nulo(customer.Str("taxRegime"));
-            _responsibilities = customer.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()).ToList();
-            _alwaysInvoice = customer.Bool("alwaysRequestsInvoice");
+            var customer = await Api.GetAsync<CustomerDto>($"api/v1/customers/{partyId}");
+            _personType = customer.PersonType is { Length: > 0 } personType ? personType : "NATURAL";
+            _idType = customer.IdentificationType;
+            _idNumber = customer.IdentificationNumber;
+            _checkDigit = Nulo(customer.CheckDigit);
+            _email = Nulo(customer.Email);
+            _phone = Nulo(customer.Phone);
+            _address = Nulo(customer.Address);
+            _municipality = Nulo(customer.MunicipalityCode);
+            _taxRegime = Nulo(customer.TaxRegime);
+            _responsibilities = [.. customer.FiscalResponsibilities];
+            _alwaysInvoice = customer.AlwaysRequestsInvoice;
             // El cliente trae nombres, apellidos y razón social por separado (no hay que volver a escribirlos al corregir).
-            _firstNames = Nulo(customer.Str("firstNames"));
-            _lastNames = Nulo(customer.Str("lastNames"));
-            _legalName = Nulo(customer.Str("legalName")) ?? (_personType == "LEGAL" ? customer.Str("displayName") : null);
-            _tradeName = Nulo(customer.Str("tradeName"));
+            _firstNames = Nulo(customer.FirstNames);
+            _lastNames = Nulo(customer.LastNames);
+            _legalName = Nulo(customer.LegalName) ?? (_personType == "LEGAL" ? customer.DisplayName : null);
+            _tradeName = Nulo(customer.TradeName);
             _namesUnknown = false;
 
             _editando = true;
@@ -443,14 +454,14 @@
             };
             if (Id is { } id)
             {
-                await Api.PutAsync<JsonElement>($"api/v1/customers/{id}", new { party, alwaysRequestsInvoice = _alwaysInvoice });
+                await Api.PutAsync<CustomerDto>($"api/v1/customers/{id}", new { party, alwaysRequestsInvoice = _alwaysInvoice });
                 Snackbar.Add("Datos del cliente corregidos.", Severity.Success);
                 _busy = false;
                 await CargarAsync();
             }
             else
             {
-                var created = await Api.PostAsync<JsonElement>("api/v1/customers", new
+                var created = await Api.PostAsync<CustomerDto>("api/v1/customers", new
                 {
                     party,
                     alwaysRequestsInvoice = _alwaysInvoice,
@@ -458,7 +469,7 @@
                 });
                 Snackbar.Add("Cliente creado.", Severity.Success);
                 _busy = false;
-                Navigation.NavigateTo($"/admin/clientes/{created.GetProperty("partyId").GetGuid()}", replace: true);
+                Navigation.NavigateTo($"/admin/clientes/{created.PartyId}", replace: true);
             }
 
             return;
@@ -482,7 +493,7 @@
         _busy = true;
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/customers/{_ficha.GetProperty("partyId").GetGuid()}/status", new { status = "Blocked", reason = Nulo(_motivo) });
+            await Api.PostAsync<CustomerDto>($"api/v1/customers/{_ficha?.PartyId}/status", new { status = "Blocked", reason = Nulo(_motivo) });
             Snackbar.Add("Cliente bloqueado.", Severity.Success);
             _bloquear = false;
             await CargarAsync();
@@ -500,7 +511,7 @@
         _busy = true;
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/customers/{_ficha.GetProperty("partyId").GetGuid()}/status", new { status = "Active", reason = (string?)null });
+            await Api.PostAsync<CustomerDto>($"api/v1/customers/{_ficha?.PartyId}/status", new { status = "Active", reason = (string?)null });
             Snackbar.Add("Cliente activado.", Severity.Success);
             await CargarAsync();
         }
@@ -514,22 +525,22 @@
 
     private async Task FichaAsync(Guid partyId)
     {
-        _resumen = default;
+        _resumen = null;
         _historial = [];
         _fichaError = null;
         try
         {
-            _ficha = await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}");
+            _ficha = await Api.GetAsync<CustomerDto>($"api/v1/customers/{partyId}");
         }
         catch (ApiException ex)
         {
-            _ficha = default;
+            _ficha = null;
             _error = ex.Texto;
             return;
         }
 
-        _fichaGrupo = _ficha.GetProperty("groupId").GetGuid();
-        _fichaLista = Guid.TryParse(_ficha.Str("priceListId"), out var list) ? list : null;
+        _fichaGrupo = _ficha.GroupId;
+        _fichaLista = _ficha.PriceListId;
         if (!Session.Has("customers.history.view"))
         {
             return;
@@ -537,8 +548,8 @@
 
         try
         {
-            _resumen = await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}/summary");
-            _historial = (await Api.GetAsync<JsonElement>($"api/v1/customers/{partyId}/history?pageSize=50")).Items();
+            _resumen = await Api.GetAsync<CustomerSalesSummaryDto>($"api/v1/customers/{partyId}/summary");
+            _historial = await Api.GetAsync<IReadOnlyList<CustomerHistoryEntryDto>>($"api/v1/customers/{partyId}/history?pageSize=50");
         }
         catch (ApiException ex)
         {
@@ -548,7 +559,7 @@
 
     private async Task AsignarPreciosAsync()
     {
-        if (_fichaGrupo is not { } groupId)
+        if (_fichaGrupo is not { } groupId || _ficha is null)
         {
             Snackbar.Add("Elija el grupo.", Severity.Warning);
             return;
@@ -557,10 +568,10 @@
         _busy = true;
         try
         {
-            var partyId = _ficha.GetProperty("partyId").GetGuid();
-            _ficha = await Api.PutAsync<JsonElement>($"api/v1/customers/{partyId}/pricing", new { groupId, priceListId = _fichaLista });
-            _fichaGrupo = _ficha.GetProperty("groupId").GetGuid();
-            _fichaLista = Guid.TryParse(_ficha.Str("priceListId"), out var list) ? list : null;
+            var partyId = _ficha.PartyId;
+            _ficha = await Api.PutAsync<CustomerDto>($"api/v1/customers/{partyId}/pricing", new { groupId, priceListId = _fichaLista });
+            _fichaGrupo = _ficha.GroupId;
+            _fichaLista = _ficha.PriceListId;
             Snackbar.Add("Grupo y lista de precios asignados.", Severity.Success);
         }
         catch (ApiException ex)

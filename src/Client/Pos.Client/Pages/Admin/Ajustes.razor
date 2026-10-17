@@ -4,6 +4,8 @@
 @inject Bodegas Bodegas
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Inventory.Contracts
 
 <PageTitle>Ajustes · BusinessPost</PageTitle>
 
@@ -57,11 +59,11 @@
                     <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(warehouse)</MudSelectItem>
                 }
             </MudSelect>
-            @if (_producto.ValueKind == JsonValueKind.Object)
+            @if (_producto is { } elegido)
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-2">
-                    <MudText>@_producto.Str("sku") · @_producto.Str("name")</MudText>
-                    <MudButton Size="Size.Small" OnClick="@(() => _producto = default)">Cambiar</MudButton>
+                    <MudText>@elegido.Sku · @elegido.Name</MudText>
+                    <MudButton Size="Size.Small" OnClick="@(() => _producto = null)">Cambiar</MudButton>
                 </MudStack>
             }
             else
@@ -75,8 +77,8 @@
                             @foreach (var product in _resultados)
                             {
                                 <tr>
-                                    <td>@product.Str("sku")</td>
-                                    <td>@product.Str("name")</td>
+                                    <td>@product.Sku</td>
+                                    <td>@product.Name</td>
                                     <td><MudButton Size="Size.Small" OnClick="@(() => ElegirProducto(product))">Elegir</MudButton></td>
                                 </tr>
                             }
@@ -96,8 +98,8 @@
 
 @code {
     private List<JsonElement> _items = [];
-    private List<JsonElement> _resultados = [];
-    private JsonElement _producto;
+    private IReadOnlyList<ProductSummaryDto> _resultados = [];
+    private ProductSummaryDto? _producto;
     private string _estado = "";
     private string? _error, _notas, _buscar;
     private Guid? _bodega;
@@ -145,7 +147,7 @@
 
     private void Ver(JsonElement adjustment) => Navigation.NavigateTo($"/admin/ajustes/{adjustment.GetProperty("id").GetGuid()}");
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "PENDING_APPROVAL" => "Pendiente de aprobación",
@@ -157,7 +159,7 @@
     private void NuevoRapido()
     {
         _bodega = Bodegas.Primera(Bodegas.Elegibles.Where(b => b.Bool("allowsSales")));
-        _producto = default;
+        _producto = null;
         _notas = _buscar = null;
         _cantidad = 1;
         _resultados = [];
@@ -182,7 +184,7 @@
 
         try
         {
-            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            _resultados = (await Api.GetAsync<PagedResult<ProductSummaryDto>>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items;
             if (_resultados.Count == 0)
             {
                 Snackbar.Add("No hay productos que coincidan.", Severity.Info);
@@ -198,7 +200,7 @@
         }
     }
 
-    private void ElegirProducto(JsonElement product)
+    private void ElegirProducto(ProductSummaryDto product)
     {
         _producto = product;
         _resultados = [];
@@ -207,7 +209,7 @@
 
     private async Task AjusteRapidoAsync()
     {
-        if (_producto.ValueKind != JsonValueKind.Object)
+        if (_producto is not { } producto)
         {
             Snackbar.Add("Elija el producto.", Severity.Warning);
             return;
@@ -216,14 +218,14 @@
         _busy = true;
         try
         {
-            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/quick-adjustments", new
+            var created = await Api.PostAsync<AdjustmentDto>("api/v1/inventory/quick-adjustments", new
             {
                 warehouseId = _bodega,
-                productId = _producto.GetProperty("id").GetGuid(),
+                productId = producto.Id,
                 quantity = _cantidad,
                 reason = _notas?.Trim() ?? "",
             });
-            Snackbar.Add($"Ajuste rápido {created.Str("number")} aplicado.", Severity.Success);
+            Snackbar.Add($"Ajuste rápido {created.Number} aplicado.", Severity.Success);
             _rapido = false;
             await CargarAsync();
         }

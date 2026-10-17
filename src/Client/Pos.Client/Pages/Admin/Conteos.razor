@@ -88,7 +88,7 @@
 
     private void Ver(JsonElement count) => Navigation.NavigateTo($"/admin/conteos/{count.GetProperty("id").GetGuid()}");
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "IN_PROGRESS" => "En curso",

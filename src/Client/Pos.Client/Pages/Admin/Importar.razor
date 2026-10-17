@@ -3,6 +3,9 @@
 @inject SessionState Session
 @inject IJSRuntime Js
 @inject ISnackbar Snackbar
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Inventory.Contracts
+@using Pos.Modules.Organization.Contracts
 
 <PageTitle>Importar · BusinessPost</PageTitle>
 
@@ -30,34 +33,34 @@
                 </MudFileUpload>
             </MudStack>
 
-            @if (_batch.ValueKind == JsonValueKind.Object)
+            @if (_batch is { } batch)
             {
                 <MudPaper Outlined="true" Class="pa-4 mb-6">
                     <MudText Typo="Typo.subtitle1">
-                        @_batch.Str("fileName") · @_batch.Dec("totalRows") filas: @_batch.Dec("createRows") nuevas, @_batch.Dec("updateRows") cambian,
-                        @_batch.Dec("unchangedRows") sin cambios, <b>@_batch.Dec("errorRows") con errores</b>. Estado: @Estado(_batch.Str("status"))
+                        @batch.FileName · @batch.TotalRows filas: @batch.CreateRows nuevas, @batch.UpdateRows cambian,
+                        @batch.UnchangedRows sin cambios, <b>@batch.ErrorRows con errores</b>. Estado: @Estado(batch.Status)
                     </MudText>
-                    @if (_batch.Str("status") == "PREVIEW")
+                    @if (EnumText.Same(batch.Status, "PREVIEW"))
                     {
                         <div class="acciones mb-2">
                             <MudButton OnClick="DescartarAsync" Disabled="_busy">Descartar</MudButton>
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _batch.Dec("errorRows") > 0)" OnClick="AplicarAsync">Aplicar</MudButton>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || batch.ErrorRows > 0)" OnClick="AplicarAsync">Aplicar</MudButton>
                         </div>
                     }
                     <MudTable RowsPerPage="25" Items="Filas" Dense="true" Striped="true" Height="420px" FixedHeader="true">
                         <HeaderContent><MudTh>Fila</MudTh><MudTh>Acción</MudTh><MudTh>Producto</MudTh><MudTh>Errores y avisos</MudTh></HeaderContent>
                         <RowTemplate>
-                            <MudTd>@context.Dec("rowNumber")</MudTd>
-                            <MudTd>@Accion(context.Str("action"))</MudTd>
-                            <MudTd>@context.Str("key")</MudTd>
+                            <MudTd>@context.RowNumber</MudTd>
+                            <MudTd>@Accion(context.Action)</MudTd>
+                            <MudTd>@context.Key</MudTd>
                             <MudTd>
-                                @foreach (var e in context.Prop("errors").Items())
+                                @foreach (var e in context.Errors)
                                 {
-                                    <div style="color:var(--mud-palette-error)">@e.GetString()</div>
+                                    <div style="color:var(--mud-palette-error)">@e</div>
                                 }
-                                @foreach (var w in context.Prop("warnings").Items())
+                                @foreach (var w in context.Warnings)
                                 {
-                                    <div style="color:var(--mud-palette-warning)">@w.GetString()</div>
+                                    <div style="color:var(--mud-palette-warning)">@w</div>
                                 }
                             </MudTd>
                         </RowTemplate>
@@ -77,9 +80,9 @@
             </MudText>
             <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
                 <MudSelect T="Guid?" @bind-Value="_warehouse" Label="Sucursal" Style="min-width:260px">
-                    @foreach (var branch in _branches.Where(b => b.Str("defaultWarehouseId").Length > 0))
+                    @foreach (var branch in _branches.Where(b => b.DefaultWarehouseId is not null))
                     {
-                        <MudSelectItem T="Guid?" Value="@Guid.Parse(branch.Str("defaultWarehouseId"))">@branch.Str("name")</MudSelectItem>
+                        <MudSelectItem T="Guid?" Value="@branch.DefaultWarehouseId">@branch.Name</MudSelectItem>
                     }
                 </MudSelect>
                 <MudFileUpload T="IBrowserFile" Accept=".xlsx,.csv" FilesChanged="SaldoInicialAsync" MaximumFileCount="1">
@@ -95,12 +98,13 @@
 
 @code {
     private const long MaxFileBytes = 20 * 1024 * 1024;
-    private JsonElement _batch;
-    private List<JsonElement> _branches = [];
+    private ImportBatchDto? _batch;
+    private List<BranchDto> _branches = [];
     private Guid? _warehouse;
     private bool _busy;
 
-    private List<JsonElement> Filas => _batch.Prop("rows").Items().Where(r => r.Prop("errors").Items().Count > 0 || r.Prop("warnings").Items().Count > 0 || r.Str("action") != "UNCHANGED").Take(500).ToList();
+    private List<ImportRowDto> Filas =>
+        (_batch?.Rows ?? []).Where(r => r.Errors.Count > 0 || r.Warnings.Count > 0 || !EnumText.Same(r.Action, "UNCHANGED")).Take(500).ToList();
 
     protected override async Task OnInitializedAsync()
     {
@@ -108,8 +112,8 @@
         {
             try
             {
-                _branches = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
-                _warehouse = _branches.Count == 1 && Guid.TryParse(_branches[0].Str("defaultWarehouseId"), out var w) ? w : null;
+                _branches = await Api.GetAsync<List<BranchDto>>("api/v1/organization/branches");
+                _warehouse = _branches.Count == 1 ? _branches[0].DefaultWarehouseId : null;
             }
             catch (ApiException ex)
             {
@@ -118,7 +122,7 @@
         }
     }
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "PREVIEW" => "vista previa",
         "APPLIED" => "aplicada",
@@ -126,7 +130,7 @@
         _ => status,
     };
 
-    private static string Accion(string action) => action switch
+    private static string Accion(string action) => EnumText.Normalize(action) switch
     {
         "CREATE" => "Nuevo",
         "UPDATE" => "Cambia",
@@ -165,7 +169,7 @@
         _busy = true;
         try
         {
-            _batch = await Api.UploadAsync<JsonElement>($"api/v1/catalog/imports?kind={kind}", file.Name, await LeerAsync(file));
+            _batch = await Api.UploadAsync<ImportBatchDto>($"api/v1/catalog/imports?kind={kind}", file.Name, await LeerAsync(file));
         }
         catch (ApiException ex)
         {
@@ -185,10 +189,16 @@
 
     private async Task AccionAsync(string action, string done)
     {
+        if (_batch is not { } batch)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            _batch = await Api.PostAsync<JsonElement>($"api/v1/catalog/imports/{_batch.GetProperty("id").GetGuid()}/{action}");
+            // Descartar responde sin cuerpo (204): queda en null y se oculta la vista previa.
+            _batch = await Api.PostAsync<ImportBatchDto?>($"api/v1/catalog/imports/{batch.Id}/{action}");
             Snackbar.Add(done, Severity.Success);
         }
         catch (ApiException ex)
@@ -209,8 +219,8 @@
         _busy = true;
         try
         {
-            var adjustment = await Api.UploadAsync<JsonElement>($"api/v1/inventory/adjustments/initial-balance/import?warehouseId={warehouse}", file.Name, await LeerAsync(file));
-            Snackbar.Add($"Ajuste {adjustment.Str("number")} creado en borrador con {adjustment.Prop("lines").Items().Count} productos. Publíquelo en Ajustes.", Severity.Success);
+            var adjustment = await Api.UploadAsync<AdjustmentDto>($"api/v1/inventory/adjustments/initial-balance/import?warehouseId={warehouse}", file.Name, await LeerAsync(file));
+            Snackbar.Add($"Ajuste {adjustment.Number} creado en borrador con {adjustment.Lines.Count} productos. Publíquelo en Ajustes.", Severity.Success);
         }
         catch (ApiException ex)
         {
