@@ -33,8 +33,8 @@ if (webview) {
 
 // ───────────────────────────── Estado ─────────────────────────────
 const S = {
-  modo: "unica", recuperar: false, prueba: false, clave: null, vista: null, cuenta: null,
-  backup: null, instalando: false, terminado: false, desinstalar: false, maqueta: false, nube: true,
+  modo: "unica", recuperar: false, prueba: false, clave: null, vista: null, cuenta: null, google: null, googleCuenta: null,
+  backup: null, instalando: false, terminado: false, desinstalar: false, maqueta: false, nube: true, tipoNegocio: "SUPERMARKET",
 };
 
 const nombres = {
@@ -51,7 +51,7 @@ function pasosVisibles() {
 }
 
 // Pantallas que se muestran dentro de otro paso del panel izquierdo.
-const pasoDe = { codigo: "instalando", error: "instalando" };
+const pasoDe = { codigo: "instalando", error: "instalando", tipo: "negocio" };
 
 function ir(pantalla) {
   todas(".pantalla").forEach((p) => p.classList.toggle("activa", p.dataset.s === pantalla));
@@ -122,6 +122,7 @@ async function pedirCierre() {
 // ───────────────────────────── Navegación simple ─────────────────────────────
 todas("[data-ir]").forEach((b) => b.addEventListener("click", () => {
   if (b.dataset.ir === "equipo") S.recuperar = false;
+  if (b.dataset.ir === "licencia" && S.google === "esperando") cancelarGoogle();
   if (b.dataset.ir === "licencia" && S.prueba) { S.prueba = false; prepararCuenta(); }
   ir(b.dataset.ir);
 }));
@@ -235,14 +236,94 @@ function prepararCuenta() {
   $("campoConfirmar").classList.toggle("oculto", !prueba);
   $("campoTotp").classList.add("oculto");
   $("cuentaContrasena").placeholder = prueba ? "Mínimo 10 caracteres" : "Tu contraseña del portal";
+  if (prueba && S.google === "esperando") cancelarGoogle();
+  if (prueba) { S.google = null; S.googleCuenta = null; }
+  vistaGoogle();
   aviso("avisoCuenta", "");
 }
 
-$("btnGoogle").onclick = () => aviso("avisoCuenta",
-  "Muy pronto podrás entrar con Google desde el instalador. Por ahora usa el correo y la contraseña de tu portal. Si siempre entras con Google y no " +
-  "recuerdas tu contraseña, en el portal ve a \"Mi cuenta\" → \"Cambiar contraseña\".", "info");
+// ───── "Continuar con Google" ─────
+// Google no permite entrar dentro de esta ventana: la nube crea una solicitud, abrimos el portal en el navegador de Windows y
+// esperamos (la consulta la hace Puente.cs) a que el dueño pulse "Autorizar". Luego pedimos una contraseña LOCAL de BusinessPost.
+function vistaGoogle() {
+  const esperando = S.google === "esperando", autorizada = S.google === "autorizada";
+  $("googleEspera").classList.toggle("oculto", !esperando);
+  $("googleContrasena").classList.toggle("oculto", !autorizada);
+  $("camposCorreo").classList.toggle("oculto", esperando || autorizada);
+  $("cuentaPortal").classList.toggle("oculto", S.prueba || esperando || autorizada);
+  $("btnGoogleCancelar").classList.toggle("oculto", !esperando);
+  $("btnCuenta").disabled = esperando;
+  if (autorizada) $("googleCorreo").textContent = S.googleCuenta.email;
+}
+
+function cancelarGoogle() {
+  S.google = null;
+  S.googleCuenta = null;
+  llamar("googleCancelar").catch(() => {});
+  vistaGoogle();
+}
+
+$("btnGoogle").onclick = async () => {
+  if (!S.clave) { aviso("avisoCuenta", "Primero escribe tu clave de licencia.", "error"); return; }
+  aviso("avisoCuenta", "");
+  S.google = "esperando";
+  $("googleCodigo").textContent = "····-····";
+  vistaGoogle();
+  try {
+    const r = await llamar("googleIniciar", { clave: S.clave });
+    if (S.google === "esperando") $("googleCodigo").textContent = r.codigo;
+  } catch (e) {
+    S.google = null;
+    vistaGoogle();
+    aviso("avisoCuenta", e.message, "error");
+  }
+};
+$("lnkGoogleAbrir").onclick = () => llamar("googleAbrir").catch(() => {});
+$("btnGoogleCancelar").onclick = () => { cancelarGoogle(); aviso("avisoCuenta", ""); };
+$("lnkGoogleOtra").onclick = () => { cancelarGoogle(); aviso("avisoCuenta", ""); };
+
+function alGoogle(m) {
+  if (S.google !== "esperando") return;
+  if (m.estado === "autorizada") {
+    S.google = "autorizada";
+    S.googleCuenta = { email: m.email, displayName: m.displayName };
+    $("localContrasena").value = "";
+    $("localConfirmar").value = "";
+    vistaGoogle();
+    aviso("avisoCuenta", "");
+    setTimeout(() => $("localContrasena").focus(), 50);
+    return;
+  }
+  S.google = null;
+  vistaGoogle();
+  aviso("avisoCuenta", m.mensaje || "No se completó el ingreso con Google. Intenta de nuevo o usa tu correo y contraseña.", "error");
+}
+
+// Misma regla que IngresoGoogle.ValidarContrasenaLocal (Puente.cs la vuelve a revisar).
+function problemaContrasenaLocal(contrasena, confirmacion, correo) {
+  if (contrasena.length < 12) return "La contraseña debe tener al menos 12 caracteres.";
+  if (contrasena.length > 128) return "La contraseña es demasiado larga (máximo 128 caracteres).";
+  if (!/\p{L}/u.test(contrasena) || !/\p{Nd}/u.test(contrasena)) return "Usa letras y números en la contraseña.";
+  const usuario = String(correo || "").split("@")[0];
+  if (new Set(contrasena).size <= 3 || (usuario.length >= 4 && contrasena.toLowerCase().includes(usuario.toLowerCase()))) {
+    return "Esa contraseña es muy fácil de adivinar. Usa una frase o mezcla letras y números.";
+  }
+  return contrasena === confirmacion ? null : "Las dos contraseñas no coinciden.";
+}
 
 $("btnCuenta").onclick = async () => {
+  if (S.google === "esperando") { aviso("avisoCuenta", "Termina en el navegador (pulsa \"Autorizar\") o cancela para usar tu correo.", "info"); return; }
+  if (S.google === "autorizada") {
+    const contrasena = $("localContrasena").value;
+    const problema = problemaContrasenaLocal(contrasena, $("localConfirmar").value, S.googleCuenta.email);
+    if (problema) { aviso("avisoCuenta", problema, "error"); return; }
+    S.cuenta = { usuario: S.googleCuenta.email, nombre: S.googleCuenta.displayName, contrasena, enlace: true };
+    aviso("avisoCuenta", "");
+    prepararNegocio();
+    ir("negocio");
+    return;
+  }
+
   const correo = $("cuentaCorreo").value.trim().toLowerCase();
   const contrasena = $("cuentaContrasena").value;
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) { aviso("avisoCuenta", "Escribe un correo válido.", "error"); return; }
@@ -258,7 +339,7 @@ $("btnCuenta").onclick = async () => {
     if (contrasena !== $("cuentaConfirmar").value) { aviso("avisoCuenta", "Las dos contraseñas no coinciden.", "error"); return; }
     S.cuenta = { usuario: correo, nombre, contrasena, enlace: null };
     prepararNegocio();
-    ir("negocio");
+    ir("tipo");
     return;
   }
 
@@ -270,12 +351,25 @@ $("btnCuenta").onclick = async () => {
     S.cuenta = { usuario: r.email, nombre: r.displayName, contrasena, enlace: true };
     aviso("avisoCuenta", "");
     prepararNegocio();
-    ir("negocio");
+    ir("tipo");
   } catch (e) {
     if (e.codigo === "LICENSE.OWNER_TOTP_REQUIRED") $("campoTotp").classList.remove("oculto");
     aviso("avisoCuenta", e.message, "error");
   } finally { ocupado(boton, false); }
 };
+
+// ───────────────────────────── Tipo de negocio (Fase 7-C parte A) ─────────────────────────────
+function elegirTipo(tarjeta) {
+  todas(".tipo-negocio").forEach((x) => { x.classList.remove("sel"); x.setAttribute("aria-checked", "false"); });
+  tarjeta.classList.add("sel");
+  tarjeta.setAttribute("aria-checked", "true");
+  S.tipoNegocio = tarjeta.dataset.tipo;
+}
+todas(".tipo-negocio").forEach((t) => {
+  t.addEventListener("click", () => elegirTipo(t));
+  t.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); elegirTipo(t); } });
+});
+$("btnTipo").onclick = () => ir("negocio");
 
 // ───────────────────────────── Tu negocio ─────────────────────────────
 let municipioElegido = null;
@@ -353,7 +447,7 @@ $("btnInstalar").onclick = () => {
     negocio: {
       razonSocial: $("razonSocial").value.trim(), nombreComercial: $("nombreComercial").value.trim(), tipoPersona: persona,
       tipoDocumento: "NIT", numero, dv, regimen: $("regimen").value, municipio: municipioElegido, direccion: $("direccion").value.trim(),
-      telefono: $("telefono").value.trim() || null, correo: correo || null,
+      telefono: $("telefono").value.trim() || null, correo: correo || null, tipoNegocio: S.tipoNegocio,
     },
     propietario: { usuario: S.cuenta.usuario, nombre: S.cuenta.nombre, contrasena: S.cuenta.contrasena, enlace: null },
   });
@@ -385,6 +479,7 @@ function progreso(m) {
 
 function alAviso(m) {
   switch (m.evento) {
+    case "google": alGoogle(m); break;
     case "pedirCierre": pedirCierre(); break;
     case "progreso":
       if (S.desinstalar) { $("dBarra").style.width = m.porcentaje + "%"; $("dNota").textContent = m.nota || ""; }
@@ -527,6 +622,8 @@ async function maqueta(p) {
   }
   if (p === "licencia") { $("clave").value = "POS-ABCDE-FGHJK-LMNPQ-RSTUV"; ir("licencia"); await vistaPrevia(); return; }
   if (p === "cuenta-prueba") { S.prueba = true; prepararCuenta(); ir("cuenta"); return; }
+  if (p === "cuenta-google") { S.clave = "POS-X"; S.prueba = false; prepararCuenta(); ir("cuenta"); $("btnGoogle").click(); return; }
+  if (p === "tipo") { S.cuenta = { usuario: "dueno@correo.co" }; ir("tipo"); return; }
   if (p === "negocio") { S.vista = { legalName: "Supermercado La Economía SAS", nit: "900123456-8", city: "Medellín" }; S.cuenta = { usuario: "dueno@correo.co" }; prepararNegocio(); ir("negocio"); return; }
   // Pantallas completas con datos de ejemplo (capturas del manual de instalación: docs/imagenes/instalacion).
   const ejemplo = { legalName: "Supermercado La Economía SAS", nit: "900123456-8", edition: "SINGLE", subscriptionStatus: "ACTIVE", validUntil: "2026-11-16T00:00:00Z", city: "Medellín" };

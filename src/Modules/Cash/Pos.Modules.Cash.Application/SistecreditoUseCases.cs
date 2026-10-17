@@ -139,11 +139,12 @@ public interface ISistecreditoStore
 
 /// <summary>
 /// Ajustes técnicos (<c>Pos:Sistecredito</c>). Las URL de respuesta y confirmación son obligatorias en la API, pero el POS no las usa
-/// (no tiene dirección pública, D7B-03): apuntan a páginas informativas de BusinessPost.
+/// (no tiene dirección pública, D7B-03): apuntan a páginas de la nube de BusinessPost (<c>/sistecredito/respuesta</c>, amable para el
+/// cliente, y <c>/sistecredito/confirmacion</c>, que acepta el aviso con 200 sin guardar nada). El pago se confirma consultando.
 /// </summary>
 public sealed class SistecreditoOptions
 {
-    public string ResponseUrl { get; set; } = "https://businesspost.tutiendanueva.com/";
+    public string ResponseUrl { get; set; } = "https://businesspost.tutiendanueva.com/sistecredito/respuesta";
 
     public string ConfirmationUrl { get; set; } = "https://businesspost.tutiendanueva.com/sistecredito/confirmacion";
 

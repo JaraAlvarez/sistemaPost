@@ -169,6 +169,7 @@ public sealed class LowIpLimitCloudServerFactory : CloudServerFactory
     [
         new("Cloud:Security:PosApiPermitsPerMinute", "3"),
         new("Cloud:Security:LoginPermitsPerMinute", "3"),
+        new("Cloud:Security:SistecreditoPermitsPerMinute", "3"),
     ];
 }
 

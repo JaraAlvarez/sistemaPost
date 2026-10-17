@@ -67,6 +67,15 @@ h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .modo h3{font-size:15px;margin:12px 0 6px}
 .modo p{font-size:12.5px;color:var(--texto-2);line-height:1.5;margin:0}
 .modo .tag{display:inline-block;margin-top:10px;font-size:11px;font-weight:700;color:var(--morado);background:#efeaff;border-radius:999px;padding:3px 9px}
+/* Tipo de negocio (Fase 7-C parte A): las mismas tarjetas de "Este equipo", en dos filas de tres. */
+.tipos{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.tipo-negocio{background:#fff;border:2px solid transparent;border-radius:18px;padding:14px 14px 12px;cursor:pointer;box-shadow:0 10px 24px -14px rgba(31,36,50,.35);transition:.15s;position:relative}
+.tipo-negocio:hover{transform:translateY(-2px)}
+.tipo-negocio:focus-visible{outline:3px solid rgba(91,61,245,.35);outline-offset:2px}
+.tipo-negocio.sel{border-color:var(--morado);box-shadow:0 14px 30px -14px rgba(91,61,245,.55)}
+.tipo-negocio.sel::after{content:"✓";position:absolute;top:10px;right:10px;width:22px;height:22px;border-radius:50%;background:var(--morado);color:#fff;font-size:12px;display:grid;place-items:center}
+.tipo-negocio h3{font-size:14px;margin:8px 0 4px}
+.tipo-negocio p{font-size:12px;color:var(--texto-2);line-height:1.45;margin:0}
 .ayuda{margin-top:16px;font-size:12.5px;color:var(--texto-2)}
 .ayuda a,.demo a,a.enlace{color:var(--morado);font-weight:600;text-decoration:none;cursor:pointer}
 /* Campos. */
@@ -153,6 +162,13 @@ textarea{width:100%;max-width:620px;border:0;border-radius:14px;padding:10px 14p
 .modal h2{font-size:19px;margin:0 0 8px}.modal p{font-size:13.5px;color:var(--texto-2);line-height:1.5;margin:0 0 14px}
 .modal .acciones{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
 .btn-peligro{background:var(--rojo);color:#fff}
+/* "Continuar con Google": espera con el código para comparar. */
+.google-espera{max-width:520px;background:#fff;border:1px solid var(--borde);border-radius:16px;padding:14px 16px;margin-bottom:12px}
+.espera-fila{display:flex;gap:12px;align-items:flex-start;font-size:13.5px;line-height:1.45}
+.espera-fila small{color:var(--texto-2);font-size:12.5px}
+.girando{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--borde);border-top-color:var(--morado);animation:gira .8s linear infinite;flex:none;margin-top:2px}
+.codigo-corto{font-size:24px;padding:10px;margin:12px 0 4px;max-width:none}
+@media (prefers-reduced-motion:reduce){.girando{animation-duration:2.4s}}
 .impresion{display:none}
 @media print{
   .ventana,.velo{display:none!important}

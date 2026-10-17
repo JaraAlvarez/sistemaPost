@@ -13,6 +13,31 @@ public static class LicensingRoutes
 
     /// <summary>Instalador premium (Fase 13-B, D13B-09): valida la cuenta del portal del dueño y entrega el enlace firmado.</summary>
     public const string OwnerLinks = "/v1/owner-links";
+
+    /// <summary>
+    /// Instalador premium: "Continuar con Google" (ingreso en el navegador del sistema, tipo "código de dispositivo"). El instalador
+    /// crea la solicitud con la clave, abre <c>BrowserUrl</c> y consulta <see cref="OwnerLinkRequestPoll"/> hasta que el dueño la autoriza.
+    /// </summary>
+    public const string OwnerLinkRequests = "/v1/owner-link-requests";
+
+    /// <summary>Consulta del estado de una solicitud (POST con el <c>PollToken</c> en el cuerpo, nunca en la URL).</summary>
+    public static string OwnerLinkRequestPoll(Guid requestId) => $"{OwnerLinkRequests}/{requestId:D}/poll";
+}
+
+/// <summary>Estados de una solicitud de "Continuar con Google" vistos por el instalador.</summary>
+public static class OwnerLinkRequestStatuses
+{
+    /// <summary>El dueño todavía no autoriza en el navegador: seguir consultando.</summary>
+    public const string Pending = "PENDING";
+
+    /// <summary>Autorizada: la respuesta trae el enlace firmado (una sola vez).</summary>
+    public const string Approved = "APPROVED";
+
+    /// <summary>El dueño la canceló en el navegador.</summary>
+    public const string Denied = "DENIED";
+
+    /// <summary>Pasaron los minutos de vigencia sin terminar: hay que empezar de nuevo.</summary>
+    public const string Expired = "EXPIRED";
 }
 
 /// <summary>
@@ -76,6 +101,18 @@ public static class LicenseErrorCodes
 
     /// <summary>La contraseña del portal todavía es la temporal: hay que cambiarla primero en el portal.</summary>
     public const string OwnerPasswordChangeRequired = "LICENSE.OWNER_PASSWORD_CHANGE_REQUIRED";
+
+    /// <summary>"Continuar con Google": la solicitud no existe o el token de consulta no es el suyo (misma respuesta).</summary>
+    public const string OwnerLinkRequestNotFound = "LICENSE.OWNER_LINK_REQUEST_NOT_FOUND";
+
+    /// <summary>"Continuar con Google": el enlace de esta solicitud ya se entregó (un solo uso).</summary>
+    public const string OwnerLinkRequestUsed = "LICENSE.OWNER_LINK_REQUEST_USED";
+
+    /// <summary>"Continuar con Google": la solicitud ya no está pendiente (venció, se autorizó o se canceló).</summary>
+    public const string OwnerLinkRequestClosed = "LICENSE.OWNER_LINK_REQUEST_CLOSED";
+
+    /// <summary>Consultas demasiado seguidas (HTTP 429, como <c>slow_down</c> de OAuth): esperar el nuevo intervalo.</summary>
+    public const string OwnerLinkSlowDown = "LICENSE.OWNER_LINK_SLOW_DOWN";
 }
 
 /// <summary>Vista previa de la clave en el instalador (Fase 13-B, D13B-08).</summary>
@@ -99,6 +136,24 @@ public sealed record OwnerLinkRequest(string LicenseKey, string Email, string Pa
 /// <summary>Enlace firmado (<see cref="OwnerLinkToken"/>) para crear al Propietario del POS con la cuenta del portal.</summary>
 public sealed record OwnerLinkResponse(string Token, string Email, string DisplayName, DateTimeOffset ExpiresAt);
 
+/// <summary>"Continuar con Google" desde el instalador: la clave identifica la empresa (misma búsqueda y límites que la vista previa).</summary>
+public sealed record OwnerLinkRequestStart(string LicenseKey);
+
+/// <summary>Solicitud creada.</summary>
+/// <param name="RequestId">Identificador de la solicitud (va en la dirección del navegador y en la ruta de consulta).</param>
+/// <param name="PollToken">Secreto de consulta (32 bytes aleatorios en base64url): solo lo tiene el instalador; la nube guarda su hash.</param>
+/// <param name="BrowserUrl">Página del portal que el instalador abre en el navegador del sistema (siempre del mismo servidor).</param>
+/// <param name="UserCode">Código corto que se muestra en el instalador y en el portal para comparar (<c>XXXX-XXXX</c>).</param>
+/// <param name="ExpiresIn">Segundos de vigencia de la solicitud.</param>
+/// <param name="Interval">Segundos mínimos entre consultas.</param>
+public sealed record OwnerLinkRequestStarted(Guid RequestId, string PollToken, string BrowserUrl, string UserCode, int ExpiresIn, int Interval);
+
+/// <summary>Consulta del estado de la solicitud.</summary>
+public sealed record OwnerLinkPoll(string PollToken);
+
+/// <summary>Estado de la solicitud (<see cref="OwnerLinkRequestStatuses"/>); si es APPROVED trae el MISMO enlace firmado de <c>/v1/owner-links</c>.</summary>
+public sealed record OwnerLinkPollResponse(string Status, int Interval, OwnerLinkResponse? Link = null);
+
 /// <summary>Activación de una instalación con la clave de licencia (asistente inicial del POS o simulador).</summary>
 /// <param name="LicenseKey">Clave tal como la escribió el usuario (se normaliza).</param>
 /// <param name="InstallationId">Id de la instalación (sucursal), generado por el instalador del POS.</param>
@@ -109,6 +164,9 @@ public sealed record OwnerLinkResponse(string Token, string Email, string Displa
 /// <param name="BranchName">Nombre de la sucursal declarado en el POS.</param>
 /// <param name="DeviceName">Nombre del equipo.</param>
 /// <param name="OperatingSystem">Sistema operativo del equipo.</param>
+/// <param name="BusinessProfile">
+/// Tipo de negocio de la tienda (Fase 7-C parte A): <see cref="BusinessProfileCodes"/>. Opcional: los POS anteriores no lo envían.
+/// </param>
 public sealed record ActivationRequest(
     string LicenseKey,
     Guid InstallationId,
@@ -118,7 +176,8 @@ public sealed record ActivationRequest(
     string OrganizationNit,
     string? BranchName = null,
     string? DeviceName = null,
-    string? OperatingSystem = null);
+    string? OperatingSystem = null,
+    string? BusinessProfile = null);
 
 /// <summary>Check-in diario: el token vigente (aunque haya vencido) autentica la instalación junto con la huella actual.</summary>
 /// <param name="Token">Último token recibido.</param>
@@ -127,8 +186,53 @@ public sealed record ActivationRequest(
 /// <param name="ActiveTerminals">Cajas activas en la tienda (detección de abuso; sin límite por edición).</param>
 /// <param name="ReportedClock">Reloj del equipo (detección de relojes atrasados).</param>
 /// <param name="AuditSeal">Último sello de la auditoría del POS (ancla externa, ADR-0048). Opcional: los POS anteriores a 12-B no lo envían.</param>
+/// <param name="BusinessProfile">
+/// Tipo de negocio de la tienda (Fase 7-C parte A): <see cref="BusinessProfileCodes"/>. Opcional: los POS anteriores no lo envían y la nube
+/// conserva el último conocido.
+/// </param>
 public sealed record CheckinRequest(
-    string Token, string Fingerprint, string AppVersion, int ActiveTerminals, DateTimeOffset ReportedClock, CheckinAuditSeal? AuditSeal = null);
+    string Token,
+    string Fingerprint,
+    string AppVersion,
+    int ActiveTerminals,
+    DateTimeOffset ReportedClock,
+    CheckinAuditSeal? AuditSeal = null,
+    string? BusinessProfile = null);
+
+/// <summary>
+/// Tipos de negocio que la tienda informa a la nube (Fase 7-C parte A; los mismos códigos de <c>org.companies.business_profile</c>). La
+/// nube los muestra en el portal ("Tipo de negocio") y filtra por ellos. Un código desconocido se ignora (no rechaza el check-in).
+/// </summary>
+public static class BusinessProfileCodes
+{
+    public const string Supermarket = "SUPERMARKET";
+    public const string FreshMarket = "FRESH_MARKET";
+    public const string Pharmacy = "PHARMACY";
+    public const string Apparel = "APPAREL";
+    public const string Hardware = "HARDWARE";
+    public const string Other = "OTHER";
+
+    public static IReadOnlyList<string> All { get; } = [Supermarket, FreshMarket, Pharmacy, Apparel, Hardware, Other];
+
+    /// <summary>Código normalizado (mayúsculas) si es conocido; si no, <c>null</c>.</summary>
+    public static string? Normalize(string? code)
+    {
+        var upper = code?.Trim().ToUpperInvariant();
+        return upper is not null && All.Contains(upper, StringComparer.Ordinal) ? upper : null;
+    }
+
+    /// <summary>Nombre para el portal.</summary>
+    public static string Name(string? code) => Normalize(code) switch
+    {
+        Supermarket => "Supermercado / minimercado",
+        FreshMarket => "Fruver / carnicería",
+        Pharmacy => "Droguería",
+        Apparel => "Ropa / calzado / deportes",
+        Hardware => "Ferretería / papelería / miscelánea",
+        Other => "Otro",
+        _ => "Sin informar",
+    };
+}
 
 /// <summary>
 /// Sello de la bitácora de auditoría del POS (docs/fases/fase-12b-propuesta.md §8): si alguien reescribe la auditoría de la tienda, el

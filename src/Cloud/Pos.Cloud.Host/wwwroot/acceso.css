@@ -109,6 +109,14 @@
 .acceso .google-button:active { box-shadow: 0 2px 4px rgba(15, 23, 42, .15); transform: translateY(0); }
 .acceso .auth-divider { margin: 1.25rem 0 0; font-size: .75rem; }
 
+/* Autorizar el instalador (/cuenta/vincular-instalador): código para comparar y los dos botones. */
+.acceso .auth-usercode {
+    font-family: var(--bp-fuente-mono), Consolas, monospace; font-size: 1.6rem; font-weight: 700; letter-spacing: .12em; text-align: center;
+    padding: .75rem 1rem; margin: .5rem 0 1rem; border: 2px dashed var(--auth-primario); border-radius: 14px; background: #fff;
+}
+.acceso .auth-actions { display: flex; gap: .75rem; margin-top: .5rem; }
+.acceso .auth-actions .auth-button { flex: 1; }
+
 /* Pantallas angostas: sin la marca ni la onda; el marco queda como fondo de la tarjeta. */
 @media (max-width: 859.98px) {
     .auth.acceso { padding: 1.25rem 1rem; }

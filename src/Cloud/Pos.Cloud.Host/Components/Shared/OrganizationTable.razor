@@ -8,7 +8,7 @@ else
         <MudSimpleTable Dense="true" Hover="true" Elevation="0">
             <thead>
                 <tr>
-                    <th scope="col">Razón social</th><th scope="col">Cliente</th><th scope="col">Edición</th><th scope="col">Suscripción</th>
+                    <th scope="col">Razón social</th><th scope="col">Cliente</th><th scope="col">Tipo de negocio</th><th scope="col">Edición</th><th scope="col">Suscripción</th>
                     <th scope="col">Vigente hasta</th><th scope="col">Clave</th><th scope="col" class="num">Instalaciones</th>
                 </tr>
             </thead>
@@ -21,6 +21,7 @@ else
                             <span class="cell-sub">NIT @o.Nit@(o.City is null ? null : $" · {o.City}")</span>
                         </td>
                         <td>@o.AccountName</td>
+                        <td>@BusinessProfileCodes.Name(o.BusinessProfile)</td>
                         <td>@PortalPageBase.EditionName(o.Subscription?.Edition)</td>
                         <td>
                             @if (o.Subscription is { } s)

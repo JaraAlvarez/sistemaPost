@@ -25,7 +25,7 @@ clientes, sin poner en riesgo la operación de la tienda.
 1. Instale el servidor (o Todo en uno) y complete el asistente: empresa, propietario, **clave de licencia** y **código de recuperación**
    (imprímalo; el dueño lo guarda fuera del local).
 2. **Administración → Configuración:** revise la empresa, la sucursal, la bodega principal, los medios de pago (datáfono, transferencias)
-   y los parámetros.
+   y los parámetros. En **Funciones del negocio** confirme el tipo de negocio y deje encendido solo lo que la tienda usa (sección 11).
 3. **Administración → Cajas e impresoras:** cree cada caja, configure su impresora de tiquetes y empareje cada equipo con su código.
    Imprima un tiquete de prueba desde la caja.
 4. **Inventario → Importar desde Excel:** cargue los productos y precios con la plantilla (revise la vista previa: ninguna fila con
@@ -174,3 +174,79 @@ botón "Pesar". Las etiquetas de la báscula etiquetadora (código que empieza p
 
 **Si no lee**: revise que la báscula esté encendida, el cable, el número de puerto, que ningún otro programa use el puerto y que la
 velocidad, bits y paridad coincidan con el menú de la báscula ("respondió, pero no en el formato…" = protocolo o velocidad distintos).
+
+## 11. Funciones del negocio
+
+En **Administración → Configuración → Funciones del negocio** el dueño ve el **tipo de negocio** que eligió al instalar y un
+interruptor por cada función. El tipo de negocio **no es un plan de precios**: todas las funciones vienen en Caja Única y en Multicaja;
+solo ordena los menús y los formularios para que su negocio vea lo que usa.
+
+| Función | Qué hace | Si se apaga |
+|---|---|---|
+| Báscula y PLU | Lee el peso de la báscula en la caja; PLU, tara y etiquetas de báscula en el producto | La caja no lee la báscula; el producto no muestra PLU ni tara; el botón Báscula de Cajas e impresoras desaparece |
+| Lotes y vencimientos | Lote y fecha de vencimiento en los productos que lo necesitan | El producto no muestra "Maneja lotes" ni "Maneja fecha de vencimiento" |
+| Venta por metro o fracción | Cantidades con decimales en productos que van por unidad (1,5 m de cable) | El producto no muestra "Permite cantidades con decimales" (los productos por peso o volumen siguen con decimales) |
+| Precio abierto | El cajero escribe el precio al vender | El producto no muestra "Permite precio abierto" |
+| Promociones | Descuentos y ofertas automáticas | "Promociones" sale del menú. Las promociones activas **siguen aplicándose**: desactívelas antes si no las quiere |
+| Compras y proveedores | Compras, proveedores y cuentas por pagar | "Compras", "Proveedores" y "Cuentas por pagar" salen del menú |
+| Tallas y colores | Un producto en varias tallas y colores | Aún no existe: aparece deshabilitada, "Disponible en una próxima versión" |
+
+- **Apagar una función nunca borra datos.** Si un producto ya tiene datos de una función apagada (por ejemplo, un PLU), el campo se
+  sigue viendo con el aviso *"Esta función está apagada; los datos se conservan"*. Las pantallas de compras y promociones se pueden
+  abrir desde el enlace "Ver las compras guardadas" / "Ver las promociones guardadas" del interruptor.
+- **Cambiar el tipo de negocio** pide confirmación y deja los interruptores en los valores recomendados de ese tipo; después se puede
+  ajustar cada uno.
+- Lo cambia quien tiene el permiso **"Modificar los datos de la empresa"** (el propietario lo tiene). Cada cambio queda en la
+  **Auditoría** ("Tipo de negocio o funciones del negocio cambiados") con lo que se encendió y lo que se apagó.
+- Los menús se ajustan enseguida para quien hizo el cambio; los demás usuarios lo ven al abrir el Tablero o al volver a ingresar. La
+  caja deja de leer (o vuelve a leer) la báscula la próxima vez que se abre la pantalla de venta.
+- El portal de BusinessPost muestra el tipo de negocio de cada empresa (lo envía la tienda en su verificación diaria de la licencia).
+
+## 12. Reabastecimiento: mínimos, máximos y pedido sugerido
+
+Para no quedarse sin mercancía, cada producto puede tener en cada bodega un **mínimo** (de ahí para abajo hay que pedir), un **máximo**
+(hasta dónde llenar) y, si quiere, un **punto de pedido** (pedir antes de llegar al mínimo). Con eso BusinessPost arma el pedido y crea
+las órdenes de compra.
+
+**Cómo poner los mínimos y máximos** (permiso "Definir mínimos y máximos de existencias"; lo tienen el propietario, el administrador y los
+roles Inventario y Compras: el rol Compras lo recibe a propósito, porque quien compra es quien suele fijar mínimos y máximos. Al actualizar,
+todo rol creado por la empresa que podía hacer ajustes de inventario también lo recibe, para que nadie pierda lo que ya podía hacer)
+- **Uno por uno**: en la ficha del producto, pestaña **Existencias** → "Mínimos y máximos": una fila por bodega con mínimo, punto de
+  pedido, máximo y cantidad a pedir; escriba los números y pulse **Guardar** en esa fila. El máximo puede quedar vacío. Si usa punto de
+  pedido, también hay que poner el máximo o la cantidad a pedir (lo exige el sistema, también al importar).
+- **Desde Excel**: Inventario → Importar desde Excel → "Mínimos y máximos". Descargue la plantilla (columnas `sku` o `codigo_barras`,
+  `minimo`, y opcionales `maximo`, `punto_pedido` y `bodega` con el código de la bodega). Si el archivo no trae la bodega, se usa la
+  que elija en la pantalla. Al subir el archivo se ve la **vista previa** fila por fila (nuevo, cambia, sin cambios o error con el
+  motivo: producto que no existe o descontinuado, máximo menor que el mínimo, producto repetido, decimales en un producto por unidad…;
+  un producto inactivo se acepta con un aviso). Nada se guarda
+  hasta pulsar **Aplicar**, y solo si ninguna fila tiene errores. Una celda vacía de máximo o punto de pedido **conserva** lo que ya
+  tenía.
+- **Calculados con la venta**: Inventario → Reabastecimiento → pestaña **"Calcular mínimos sugeridos"**. Elija la bodega, los días de
+  venta a mirar (p. ej. 30), los días que tarda el proveedor en entregar (p. ej. 3) y los días de cobertura (p. ej. 7):
+  - venta diaria = lo vendido en esos días ÷ días (ventas menos anulaciones y devoluciones);
+  - mínimo = venta diaria × días de entrega; máximo = venta diaria × (días de entrega + días de cobertura), redondeados hacia arriba.
+  - Ejemplo: 90 unidades en 30 días = 3 diarias; entrega en 4 días → mínimo 12; con 7 días de cobertura → máximo 33.
+  Revise la tabla (puede cambiar cualquier número y desmarcar productos) y pulse **Guardar los marcados**. El punto de pedido que ya
+  tuviera se conserva.
+
+**Pedido sugerido** (Inventario → Reabastecimiento → pestaña "Pedido sugerido"; se ve con el permiso de consultar compras y la función
+"Compras y proveedores" encendida)
+- Muestra los productos con la existencia **bajo el mínimo** o en el punto de pedido, agrupados por **proveedor** (el preferido del
+  producto o, si no hay, el de la compra más reciente). Se puede filtrar por bodega, categoría y proveedor.
+- **Pedir** = máximo − (existencia + lo ya pedido). Sin máximo: la cantidad a pedir, si la tiene; si no, hasta el punto de pedido (si es
+  mayor que el mínimo) o hasta el mínimo. Solo aparecen bodegas activas. Lo "ya pedido"
+  son las órdenes de compra en borrador, aprobadas, enviadas o recibidas en parte que aún no llegan: así no se pide dos veces.
+- Si el proveedor vende por **caja** (la presentación del producto en la ficha del proveedor), la cantidad se redondea a **cajas
+  completas**: faltan 30 unidades y la caja es de 24 → 2 cajas (48 unidades).
+- Puede cambiar la cantidad, marcar o desmarcar productos (o un proveedor completo). Los productos **sin proveedor** quedan en el grupo
+  "Sin proveedor": elija uno por producto o para todos los marcados.
+- **Crear órdenes de compra** (permiso "Crear, enviar y cerrar órdenes de compra") crea **una orden en borrador por proveedor y bodega**
+  con el último costo del proveedor, y muestra los enlaces a cada orden (el valor solo lo ve quien puede ver costos). Si una falla (por
+  ejemplo, el proveedor está bloqueado o la bodega se inactivó), no se crea ninguna y el aviso dice cuál falló.
+- **No se pide dos veces**: un doble clic o un reintento después de un corte devuelve las mismas órdenes. Si otra persona pidió alguno
+  de los productos marcados mientras usted revisaba, el sistema lo avisa (con el SKU y el nombre), vuelve a cargar la lista **conservando
+  sus cambios** en los demás productos y resalta y desmarca los que cambiaron para que los revise. Las ventas que ocurran mientras tanto
+  no bloquean: se pide la cantidad que usted eligió.
+- Si hay más de 5.000 productos para pedir, se muestran los primeros 5.000 con un aviso: filtre por categoría o proveedor. Después, en Compras → Órdenes, revise, apruebe y envíe cada una como siempre.
+- Todo queda en la **Auditoría**: cada cambio de mínimo y máximo ("Mínimo y máximo · creado/modificado"), cada importación
+  ("Mínimos y máximos importados de Excel"), los mínimos calculados guardados y las órdenes creadas desde el pedido sugerido.

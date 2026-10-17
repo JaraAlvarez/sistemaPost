@@ -133,7 +133,8 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
         var row = await connection.QuerySingleOrDefaultAsync<SiteRow>(new CommandDefinition(
             """
             SELECT c.identification_number AS Number, c.check_digit AS CheckDigit, c.legal_name AS LegalName, b.name AS BranchName,
-                   (SELECT count(*)::int FROM cash.cash_sessions s WHERE s.status <> 'CLOSED') AS OpenSessions
+                   (SELECT count(*)::int FROM cash.cash_sessions s WHERE s.status <> 'CLOSED') AS OpenSessions,
+                   c.business_profile AS BusinessProfile
             FROM org.companies c
             LEFT JOIN org.branches b ON b.id = @branch
             WHERE c.id = @company
@@ -141,7 +142,7 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
             new { company = companyId, branch = installation.BranchId }, transaction, cancellationToken: cancellationToken));
         return row is null
             ? null
-            : new LicenseSiteInfo(row.CheckDigit is null ? row.Number : $"{row.Number}-{row.CheckDigit}", row.LegalName, row.BranchName, row.OpenSessions);
+            : new LicenseSiteInfo(row.CheckDigit is null ? row.Number : $"{row.Number}-{row.CheckDigit}", row.LegalName, row.BranchName, row.OpenSessions, row.BusinessProfile);
     }
 
     private async Task ExecuteAsync(string sql, object parameters, CancellationToken cancellationToken)
@@ -166,5 +167,5 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
 
     private sealed record CheckinRow(DateTime OccurredAt, string Kind, bool Succeeded, string? ErrorCode, string? SubscriptionStatus, int DurationMs);
 
-    private sealed record SiteRow(string Number, string? CheckDigit, string LegalName, string? BranchName, int OpenSessions);
+    private sealed record SiteRow(string Number, string? CheckDigit, string LegalName, string? BranchName, int OpenSessions, string? BusinessProfile);
 }

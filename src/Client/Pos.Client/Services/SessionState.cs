@@ -40,6 +40,25 @@ public sealed class SessionState
 
     public bool Has(string permission) => Me?.Permissions.Contains(permission) == true;
 
+    /// <summary>
+    /// ¿La función del negocio está encendida? (Fase 7-C parte A, códigos de <c>BusinessCatalog</c>). Sin el dato (servidor anterior) todo se
+    /// ve como antes. Apagar una función solo la oculta: los datos se conservan.
+    /// </summary>
+    public bool Feature(string feature) => Me?.Business is not { } business || business.Has(feature);
+
+    /// <summary>Actualiza las funciones del negocio en la sesión (después de cambiarlas en Configuración) sin volver a ingresar.</summary>
+    public void RefreshBusiness(Pos.Modules.Organization.Contracts.BusinessFeaturesDto business)
+    {
+        if (Me is null)
+        {
+            return;
+        }
+
+        Me = Me with { Business = business };
+        Guardar();
+        Changed?.Invoke();
+    }
+
     public void SignIn(LoginResult login)
     {
         ArgumentNullException.ThrowIfNull(login);

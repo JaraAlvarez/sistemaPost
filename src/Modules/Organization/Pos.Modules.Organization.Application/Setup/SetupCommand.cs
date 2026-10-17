@@ -12,6 +12,7 @@ using Pos.Modules.Organization.Domain;
 using Pos.SharedKernel.Fiscal;
 using Pos.SharedKernel.Identifiers;
 using Pos.SharedKernel.Results;
+using Pos.SharedKernel.Text;
 using Pos.SharedKernel.Time;
 
 namespace Pos.Modules.Organization.Application.Setup;
@@ -36,14 +37,17 @@ public sealed record TerminalInput(string Code, string Name);
 
 /// <summary>
 /// Asistente de configuración inicial (docs/fases/fase-02-propuesta.md §8). Disponible solo mientras la instalación no
-/// esté configurada. Todo en UNA transacción auditada.
+/// esté configurada. Todo en UNA transacción auditada. <c>BusinessProfile</c> (Fase 7-C parte A): tipo de negocio
+/// (SUPERMARKET, FRESH_MARKET, PHARMACY, APPAREL, HARDWARE u OTHER); si no viene (instaladores anteriores) se usa SUPERMARKET. Enciende
+/// las funciones de ese tipo y siembra categorías de ejemplo si el catálogo está vacío.
 /// </summary>
 public sealed record SetupCommand(
     CompanyInput Company,
     BranchInput Branch,
     OwnerInput Owner,
     TerminalInput? Terminal = null,
-    SetupMode Mode = SetupMode.NewCompany) : ICommand<SetupResultDto>, IAllowedWhenRestricted;
+    SetupMode Mode = SetupMode.NewCompany,
+    string? BusinessProfile = null) : ICommand<SetupResultDto>, IAllowedWhenRestricted;
 
 internal sealed class SetupCommandValidator : AbstractValidator<SetupCommand>
 {
@@ -57,6 +61,8 @@ internal sealed class SetupCommandValidator : AbstractValidator<SetupCommand>
         RuleFor(x => x.Owner.Password).NotEmpty().When(x => x.Owner is not null);
         RuleFor(x => x.Terminal!.Code).Matches("^[A-Z0-9]{2,6}$").When(x => x.Terminal is not null);
         RuleFor(x => x.Terminal!.Name).NotEmpty().MaximumLength(60).When(x => x.Terminal is not null);
+        RuleFor(x => x.BusinessProfile).Must(p => BusinessProfiles.TryParseProfile(p, out _)).When(x => !string.IsNullOrWhiteSpace(x.BusinessProfile))
+            .WithMessage("Tipo de negocio desconocido. Use SUPERMARKET, FRESH_MARKET, PHARMACY, APPAREL, HARDWARE u OTHER.");
     }
 }
 
@@ -104,7 +110,8 @@ internal sealed class SetupCommandHandler(
     IUnitOfWork unitOfWork,
     IIdGenerator ids,
     IClock clock,
-    IEnumerable<ICompanyInitializer> initializers) : ICommandHandler<SetupCommand, SetupResultDto>
+    IEnumerable<ICompanyInitializer> initializers,
+    IEnumerable<IBusinessStarterData> starters) : ICommandHandler<SetupCommand, SetupResultDto>
 {
     public const string DefaultCountry = "CO";
     public const string DefaultCurrency = "COP";
@@ -144,6 +151,8 @@ internal sealed class SetupCommandHandler(
             return company.Error;
         }
 
+        var profile = BusinessProfiles.TryParseProfile(request.BusinessProfile, out var chosen) ? chosen : BusinessProfiles.Default;
+        company.Value.ApplyProfile(profile);
         store.Add(company.Value);
 
         var branch = await BranchFactory.CreateWithWarehousesAsync(
@@ -187,6 +196,16 @@ internal sealed class SetupCommandHandler(
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
 
+        // Fase 7-C parte A: categorías de ejemplo del tipo de negocio, solo si el instalador lo eligió (sin tipo, todo queda como antes).
+        if (!string.IsNullOrWhiteSpace(request.BusinessProfile))
+        {
+            foreach (var starter in starters)
+            {
+                await starter.SeedAsync(companyId, profile.UpperSnake(), cancellationToken);
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+        }
+
         await series.CreateBranchSeriesAsync(companyId, branchId, request.Branch.Code, cancellationToken);
         await series.CreateTerminalSeriesAsync(companyId, branchId, request.Branch.Code, terminal.Value.Id, terminalInput.Code, cancellationToken);
         await installationSetup.CompleteAsync(companyId, branchId, SetupMode.NewCompany, cancellationToken);
@@ -199,7 +218,8 @@ internal sealed class SetupCommandHandler(
                 EntityType: nameof(Company),
                 EntityId: companyId,
                 EntityLabel: company.Value.AuditLabel,
-                Summary: $"Configuración inicial completada: {company.Value.TradeName}, sucursal {request.Branch.Code}, caja {terminalInput.Code}, edición {edition}.",
+                Summary: $"Configuración inicial completada: {company.Value.TradeName}, sucursal {request.Branch.Code}, caja {terminalInput.Code}, edición {edition}, " +
+                    $"tipo de negocio {profile.UpperSnake()} (funciones: {company.Value.EnabledFeatures}).",
                 Severity: AuditSeverity.Warning),
             cancellationToken);
 

@@ -126,6 +126,19 @@ public sealed class LicensingModule : IModule
                     : TypedResults.Ok(result.Value.Value);
             })
             .WithSummary("Valida la cuenta del portal del dueño de la licencia y devuelve el enlace firmado para crear al Propietario del POS");
+
+        // "Continuar con Google" del instalador (navegador del sistema, como OAuth 2.0 Device Authorization).
+        pos.MapPost("/owner-link-requests", async (OwnerLinkRequestStart request, HttpContext http, IDispatcher d, CancellationToken ct) =>
+                ToHttp(await d.Send(new StartOwnerLinkRequestCommand(request, http.Connection.RemoteIpAddress, PublicBaseUrl(http.Request)), ct)))
+            .WithSummary("Crea la solicitud para entrar con la cuenta del portal (p. ej. con Google) en el navegador del sistema; devuelve la dirección y el secreto de consulta");
+        pos.MapPost("/owner-link-requests/{id:guid}/poll", async (Guid id, OwnerLinkPoll request, HttpContext http, IDispatcher d, CancellationToken ct) =>
+            {
+                var result = await d.Send(new PollOwnerLinkRequestCommand(id, request, http.Connection.RemoteIpAddress), ct);
+                return result.IsFailure ? LicenseProblem(result.Error)
+                    : result.Value.Error is { } error ? LicenseProblem(error)
+                    : TypedResults.Ok(result.Value.Value);
+            })
+            .WithSummary("Estado de la solicitud; si el dueño la autorizó, entrega UNA vez el mismo enlace firmado de /v1/owner-links");
     }
 
     private static void MapAdminApi(IEndpointRouteBuilder app)
@@ -246,7 +259,7 @@ public sealed class LicensingModule : IModule
         ArgumentNullException.ThrowIfNull(error);
         var status = error.Code switch
         {
-            LicenseErrorCodes.TooManyRequests => StatusCodes.Status429TooManyRequests,
+            LicenseErrorCodes.TooManyRequests or LicenseErrorCodes.OwnerLinkSlowDown => StatusCodes.Status429TooManyRequests,
             LicenseErrorCodes.SigningUnavailable => StatusCodes.Status503ServiceUnavailable,
             _ => ResultHttpExtensions.StatusCodeFor(error.Type),
         };

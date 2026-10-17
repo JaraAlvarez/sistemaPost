@@ -52,7 +52,8 @@ public sealed class AuthServices(
     IIntegrityStatus integrity,
     IBackupStatus backups,
     ILicenseStatus license,
-    ISistecreditoPayments sistecredito)
+    ISistecreditoPayments sistecredito,
+    IBusinessFeatures business)
 {
     /// <summary>Hash válido de una contraseña que no existe: iguala el tiempo de respuesta cuando el usuario no existe.</summary>
     private static string? _dummyHash;
@@ -188,8 +189,11 @@ public sealed class AuthServices(
             summary = summary with { PaymentUrl = null };
         }
 
+        // Tipo de negocio y funciones encendidas (Fase 7-C parte A): la interfaz oculta menús y campos de las funciones apagadas.
+        var features = await business.GetAsync(cancellationToken);
         return new MeDto(user.Id, user.Username, user.DisplayName, sessionId, terminal ? "TERMINAL" : "BACKOFFICE", branchId, posTerminalId,
-            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts, summary, sistecreditoReviews);
+            user.MustChangePassword && !terminal, [.. effective.Order(StringComparer.Ordinal)], openIncidents, backupAlerts, summary, sistecreditoReviews,
+            features);
     }
 
     /// <summary>Ingreso fallido (Fase 10, §5.1): queda en la bitácora además de <c>identity.login_attempts</c>.</summary>

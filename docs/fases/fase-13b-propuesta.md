@@ -189,11 +189,7 @@ búsqueda en tiempo constante que la activación, límite por IP y por licencia;
 - **Actualizar la contraseña en el check-in diario: FUTURO.** La nube no tiene hoy un verificador seguro para el POS (enviar el hash
   Argon2 del portal a cada tienda multiplicaría las copias atacables). Por ahora la contraseña local se conserva; si el dueño la cambia
   en el portal, la cambia también en BusinessPost.
-- **Google: FUTURO (TODO).** Google bloquea con frecuencia el ingreso dentro de un WebView incrustado, así que la opción prevista es
-  de tipo "código de dispositivo": el premium pide a la nube un código de un solo uso atado a la clave, abre el ingreso con Google del
-  portal en el **navegador del sistema** y consulta cada pocos segundos hasta que el CLIENTE de la cuenta lo aprueba; entonces la nube
-  entrega el mismo enlace firmado. Como con Google no hay contraseña, el premium pediría además una contraseña local para el
-  Propietario (para entrar sin internet). Hoy el botón "Continuar con Google" explica que por ahora se usa el correo y la contraseña del portal.
+- **Google: IMPLEMENTADO** (ver §9.5).
 
 ### 9.3 Pruebas
 
@@ -212,3 +208,27 @@ del aliado abre tutiendanueva.com solo si se marcó. 7. Configuración → Aplic
 
 **Riesgos:** sin firma de código, SmartScreen avisa en el archivo descargado; WebView2 elevado (funciona, pero es un caso menos común);
 el desinstalador de Inno se copia a sí mismo (el premium espera hasta 5 minutos a que la instalación desaparezca del registro).
+
+### 9.5 "Continuar con Google" en el instalador (2026-10-17)
+
+Google bloquea su ingreso dentro de un WebView incrustado. Se implementó un flujo tipo **OAuth 2.0 Device Authorization (RFC 8628)**
+con el navegador del sistema; el lado del POS no cambia (recibe el mismo enlace firmado).
+
+| Decisión | Elegido | Motivo |
+|---|---|---|
+| Solicitud | `POST /v1/owner-link-requests {licenseKey}` → `{requestId, pollToken, browserUrl, userCode, expiresIn: 600, interval: 5}`. Misma búsqueda de la clave (tiempo constante) y límites por IP y por licencia que la vista previa; **máximo 5 abiertas por licencia** | Anónima por diseño: la autentica la clave; quien autoriza es el dueño con su sesión |
+| Secreto de consulta | 256 bits aleatorios (base64url) solo en el instalador; la nube guarda su **SHA-256** (`licensing.owner_link_requests`, migración `V2026.10.010`). Se envía en el CUERPO de la consulta, nunca en la URL | Una URL abierta en el navegador o en un registro no permite recoger el enlace |
+| Página | `/cuenta/vincular-instalador?r=<id>` (renderizada en el servidor, sin scripts, formulario POST con antifalsificación). Sin sesión lleva al **ingreso normal** del portal (contraseña o Google, misma cookie `SameSite=Strict`) y vuelve a la página (`SafeReturnUrl` admite SOLO esta ruta de `/cuenta`). Muestra "¿Autorizar la instalación de BusinessPost para <Empresa> (NIT …)?", el **código para comparar** y Autorizar / Cancelar | Reutiliza el ingreso con Google existente (ADR-0062) sin otro cliente OAuth |
+| Quién autoriza | Solo un usuario humano activo, sin bloqueo, rol **CLIENTE** y de la **cuenta dueña** de la empresa (mismas reglas que `/v1/owner-links`; `IPortalCustomerVerifier.VerifySignedInAsync`). Otro usuario ve un aviso **sin** el nombre ni el NIT y queda `PORTAL_OWNER_LINK_REJECTED`. Con contraseña temporal (sesión de contraseña) se pide cambiarla primero | Igual que el flujo de correo y contraseña |
+| Consulta | `POST /v1/owner-link-requests/{id}/poll {pollToken}` → `PENDING` / `APPROVED` (+ el enlace) / `DENIED` / `EXPIRED`. Antes del intervalo: **429 `LICENSE.OWNER_LINK_SLOW_DOWN`** y el intervalo sube 5 s (máx. 30). Id inexistente o secreto ajeno: el mismo 404 | Como `slow_down` / `authorization_pending` de OAuth |
+| Un solo uso | Al entregar el enlace la solicitud queda `CONSUMED` (con el `jti`); otra consulta responde **409 `LICENSE.OWNER_LINK_REQUEST_USED`**. La fila se bloquea (`FOR UPDATE`) al consultar y al decidir. La licencia y la empresa se revisan otra vez al entregar | Sin repeticiones ni carreras |
+| Vencimiento | 10 minutos. No se borra nada (L-09): las filas vencidas quedan como rastro | — |
+| Auditoría | `OWNER_LINK_REQUEST_CREATED`, `OWNER_LINK_REQUEST_APPROVED` / `_DENIED`, `PORTAL_OWNER_LINK_REJECTED`, y al entregar el mismo `OWNER_LINK_ISSUED` ("Continuar con Google") | — |
+| Instalador | "Continuar con Google" → "Te abrimos el navegador para entrar con Google…", el código, un indicador de espera, "Abrirlo otra vez" y **Cancelar**. Abre el navegador con el **usuario normal** (Explorer, no como administrador) y solo si la dirección es **HTTPS del mismo servidor de licencias** (`IngresoGoogle.EsDireccionSegura`). La consulta (`EsperaAutorizacion`, máquina de estados con pruebas) respeta el intervalo, `slow_down`, reintenta sin conexión hasta vencer y se detiene al cancelar o cerrar | Sin WebView para Google |
+| **Ingreso sin internet del dueño de Google** | Después de autorizar, el instalador pide una **contraseña de BusinessPost** (12+ caracteres, letras y números, confirmada; la revisan la página y `Puente.cs`). El Propietario queda con el **correo** como usuario y esa contraseña (hash local), marcado como vinculado al portal. **No** se sincroniza con el portal (con Google no hay contraseña del portal) | El POS trabaja sin internet y no tiene ingreso con Google; la alternativa de "usar la contraseña del portal" no existe para quien solo entra con Google |
+
+Pruebas: `InstallerGoogleSignInTests` (creación y hash, autorizar como el cliente correcto, otra cuenta rechazada aunque fuerce el
+formulario, cancelar, vencimiento, slow_down, secreto ajeno, un solo uso, enlace con el mismo tipo y firma de `/v1/owner-links`) y
+`EsperaAutorizacionTests`/`IngresoGoogleReglasTests` en el instalador. **Despliegue:** requiere publicar la nube (la migración
+`V2026.10.010` se aplica sola con `MigrateOnStartup`) y un instalador nuevo; sin la nube nueva, "Continuar con Google" responde 404 y el
+instalador lo muestra como error (el correo y la contraseña siguen funcionando).

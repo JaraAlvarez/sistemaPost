@@ -7,7 +7,7 @@
 
 <PageTitle>Cuentas por pagar · BusinessPost</PageTitle>
 
-<Pagina Titulo="Cuentas por pagar" Cargando="_loading" Error="@_error">
+<Pagina Funcion="PURCHASING" Titulo="Cuentas por pagar" Cargando="_loading" Error="@_error">
     <Acciones>
         @if (Session.Has("purchasing.payable.pay"))
         {

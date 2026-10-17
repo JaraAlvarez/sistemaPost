@@ -93,13 +93,42 @@
         <button class="google" id="btnGoogle"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Continuar con Google</button>
         <div class="sep">o con tu correo</div>
       </div>
-      <div class="campo oculto" id="campoNombre"><label for="cuentaNombre">Tu nombre</label><input id="cuentaNombre" placeholder="Nombre y apellido" autocomplete="off"></div>
-      <div class="campo"><label for="cuentaCorreo">Correo</label><input id="cuentaCorreo" type="email" placeholder="tu@correo.com" spellcheck="false"></div>
-      <div class="campo"><label for="cuentaContrasena">Contraseña</label><input id="cuentaContrasena" type="password" placeholder="Tu contraseña del portal"></div>
-      <div class="campo oculto" id="campoConfirmar"><label for="cuentaConfirmar">Escríbela otra vez</label><input id="cuentaConfirmar" type="password"></div>
-      <div class="campo oculto" id="campoTotp"><label for="cuentaTotp">Código de verificación (6 dígitos de tu aplicación)</label><input id="cuentaTotp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
+      <!-- "Continuar con Google": Google no deja entrar dentro de esta ventana, así que se entra en el navegador y aquí se espera. -->
+      <div class="google-espera oculto" id="googleEspera">
+        <div class="espera-fila"><span class="girando" aria-hidden="true"></span><div><b>Te abrimos el navegador para entrar con Google…</b><br><small>Entra a tu portal de BusinessPost (con Google o con tu contraseña) y pulsa <b>Autorizar</b>. Revisa que veas este mismo código:</small></div></div>
+        <div class="codigo codigo-corto" id="googleCodigo" aria-label="Código para comparar"></div>
+        <p class="demo">¿No se abrió el navegador? <a id="lnkGoogleAbrir">Abrirlo otra vez</a></p>
+      </div>
+      <div class="oculto" id="googleContrasena">
+        <div class="empresa ver"><span class="ok">✓</span><div><b id="googleCorreo"></b><br><small>Autorizaste la instalación desde tu portal</small></div></div>
+        <p class="demo">Como entras con Google, crea una contraseña de BusinessPost: con tu correo y esta contraseña administrarás la tienda en este equipo, también sin internet. Mínimo 12 caracteres, con letras y números. <a id="lnkGoogleOtra">Usar otra cuenta</a></p>
+        <div class="campo"><label for="localContrasena">Contraseña de BusinessPost</label><input id="localContrasena" type="password" autocomplete="new-password"></div>
+        <div class="campo"><label for="localConfirmar">Escríbela otra vez</label><input id="localConfirmar" type="password" autocomplete="new-password"></div>
+      </div>
+      <div id="camposCorreo">
+        <div class="campo oculto" id="campoNombre"><label for="cuentaNombre">Tu nombre</label><input id="cuentaNombre" placeholder="Nombre y apellido" autocomplete="off"></div>
+        <div class="campo"><label for="cuentaCorreo">Correo</label><input id="cuentaCorreo" type="email" placeholder="tu@correo.com" spellcheck="false"></div>
+        <div class="campo"><label for="cuentaContrasena">Contraseña</label><input id="cuentaContrasena" type="password" placeholder="Tu contraseña del portal"></div>
+        <div class="campo oculto" id="campoConfirmar"><label for="cuentaConfirmar">Escríbela otra vez</label><input id="cuentaConfirmar" type="password"></div>
+        <div class="campo oculto" id="campoTotp"><label for="cuentaTotp">Código de verificación (6 dígitos de tu aplicación)</label><input id="cuentaTotp" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
+      </div>
       <div class="aviso oculto" id="avisoCuenta"></div>
-      <div class="pie"><button class="btn btn-sec" data-ir="licencia">Atrás</button><button class="btn btn-primario" id="btnCuenta">Continuar</button></div>
+      <div class="pie"><button class="btn btn-sec" data-ir="licencia">Atrás</button><button class="btn btn-sec oculto" id="btnGoogleCancelar">Cancelar</button><button class="btn btn-primario" id="btnCuenta">Continuar</button></div>
+    </section>
+
+    <!-- 5a. Tipo de negocio (Fase 7-C parte A) -->
+    <section class="pantalla" data-s="tipo">
+      <h1>¿Qué tipo de negocio tienes?</h1>
+      <p class="lead">Dejamos listas las funciones que tu negocio usa. Puedes cambiarlo cuando quieras en Configuración → Funciones del negocio; no cambia tu plan ni tu precio.</p>
+      <div class="tipos" id="tipos" role="radiogroup" aria-label="Tipo de negocio">
+        <div class="tipo-negocio sel" data-tipo="SUPERMARKET" role="radio" tabindex="0" aria-checked="true"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><path d="M6 10h5l4 18h18l4-12H14" fill="none" stroke="#5B3DF5" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="18" cy="34" r="3" fill="#5B3DF5"/><circle cx="31" cy="34" r="3" fill="#2DD4BF"/></svg><h3>Supermercado o minimercado</h3><p>Báscula, lotes y vencimientos, promociones y compras.</p></div>
+        <div class="tipo-negocio" data-tipo="FRESH_MARKET" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><circle cx="18" cy="25" r="10" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2"/><path d="M18 15c0-5 4-8 9-8-1 5-4 8-9 8z" fill="#2DD4BF"/><rect x="26" y="26" width="13" height="9" rx="2" fill="none" stroke="#5B3DF5" stroke-width="2.2"/></svg><h3>Fruver o carnicería</h3><p>Báscula conectada y de etiqueta, kilo o libra, tara.</p></div>
+        <div class="tipo-negocio" data-tipo="PHARMACY" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><rect x="8" y="8" width="28" height="28" rx="8" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2"/><path d="M22 14v16M14 22h16" stroke="#2DD4BF" stroke-width="4" stroke-linecap="round"/></svg><h3>Droguería</h3><p>Lotes y fechas de vencimiento en cada producto.</p></div>
+        <div class="tipo-negocio" data-tipo="APPAREL" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><path d="M16 7l-9 6 4 7 4-2v18h14V18l4 2 4-7-9-6c-1 3-3 5-6 5s-5-2-6-5z" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2" stroke-linejoin="round"/><circle cx="22" cy="24" r="2.5" fill="#2DD4BF"/></svg><h3>Ropa, calzado o deportes</h3><p>Tallas y colores (en una próxima versión) y cambios.</p></div>
+        <div class="tipo-negocio" data-tipo="HARDWARE" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><path d="M10 34l14-14" stroke="#5B3DF5" stroke-width="4" stroke-linecap="round"/><path d="M24 20a7 7 0 1 0 6-11l-4 4-3-1-1-3 4-4a7 7 0 0 0-2 15z" fill="#efeaff" stroke="#5B3DF5" stroke-width="2"/><rect x="28" y="28" width="10" height="8" rx="2" fill="#2DD4BF"/></svg><h3>Ferretería, papelería o miscelánea</h3><p>Venta por metro o fracción y precio abierto.</p></div>
+        <div class="tipo-negocio" data-tipo="OTHER" role="radio" tabindex="0" aria-checked="false"><svg width="34" height="34" viewBox="0 0 44 44" aria-hidden="true"><rect x="7" y="16" width="30" height="20" rx="4" fill="#efeaff" stroke="#5B3DF5" stroke-width="2.2"/><path d="M7 16l4-8h22l4 8" fill="none" stroke="#5B3DF5" stroke-width="2.2" stroke-linejoin="round"/><rect x="18" y="25" width="8" height="11" fill="#2DD4BF"/></svg><h3>Otro tipo de negocio</h3><p>Lo básico: ventas, inventario, compras y promociones.</p></div>
+      </div>
+      <div class="pie"><button class="btn btn-sec" data-ir="cuenta">Atrás</button><button class="btn btn-primario" id="btnTipo">Continuar</button></div>
     </section>
 
     <!-- 5. Tu negocio -->
@@ -118,7 +147,7 @@
         <div class="campo ancho"><label for="correoNegocio">Correo del negocio (para la factura electrónica)</label><input id="correoNegocio" type="email" maxlength="120"></div>
       </div>
       <div class="aviso error oculto" id="errorNegocio"></div>
-      <div class="pie"><button class="btn btn-sec" data-ir="cuenta">Atrás</button><button class="btn btn-primario" id="btnInstalar">Instalar BusinessPost</button></div>
+      <div class="pie"><button class="btn btn-sec" data-ir="tipo">Atrás</button><button class="btn btn-primario" id="btnInstalar">Instalar BusinessPost</button></div>
     </section>
 
     <!-- 6. Instalación -->
