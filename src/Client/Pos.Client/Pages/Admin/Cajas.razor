@@ -167,10 +167,10 @@
             <h2>Código de emparejamiento @(_codigoCaja is null ? "· PC administrativo" : $"· caja {_codigoCaja}")</h2>
             <div class="cifra my-3" style="font-size: 56px; letter-spacing: 10px; text-align: center;">@_codigo.Str("code")</div>
             <MudText Typo="Typo.body2" Class="mb-2">Vence: @Format.Date(_codigo.Date("expiresAt")). Sirve una sola vez.</MudText>
-            <MudText Typo="Typo.body2">En el equipo nuevo abra la aplicación del POS (la dirección del servidor de la tienda), elija «Emparejar este equipo» y escriba este código.</MudText>
+            <MudText Typo="Typo.body2">En el equipo nuevo abra BusinessPost, elija «Emparejar este equipo» y escriba este código.</MudText>
             @if (_codigo.Str("certificateFingerprint").Length > 0)
             {
-                <MudText Typo="Typo.caption" Class="d-block mt-2">Huella del certificado del servidor (para verificar en el equipo nuevo): @_codigo.Str("certificateFingerprint")</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mt-2">Código de seguridad del servidor (compárelo en el equipo nuevo): @_codigo.Str("certificateFingerprint")</MudText>
             }
             <div class="acciones">
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CerrarCodigoAsync">Listo</MudButton>
@@ -185,7 +185,7 @@
         <div class="panel" role="dialog" aria-modal="true">
             <h2>Revocar el equipo @_revocar.Str("hostname")</h2>
             <MudText Typo="Typo.body2">
-                Su credencial deja de valer y sus sesiones se cierran de inmediato. Para volver a usarlo hay que emparejarlo de nuevo con un código.
+                El equipo queda desconectado de inmediato. Para volver a usarlo hay que emparejarlo de nuevo con un código.
             </MudText>
             <div class="acciones">
                 <MudButton OnClick="@(() => _revocar = default)">Cancelar</MudButton>

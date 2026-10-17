@@ -12,7 +12,7 @@
         @if (_status.Bool("readyToInstall"))
         {
             <MudAlert Severity="Severity.Info" Class="mb-3">
-                Versión @_status.Str("availableVersion") descargada y verificada. Se instala sola a las 02:00 sin jornadas abiertas (@Format.Date(_status.Date("nextWindow"))).
+                Versión @_status.Str("availableVersion") descargada y verificada. Se instala sola a las 02:00, cuando no hay turnos de caja abiertos (@Format.Date(_status.Date("nextWindow"))).
                 <div>@_status.Str("availableNotes")</div>
             </MudAlert>
             @if (Session.Has("system.update.manage") && !_status.Bool("installRequested"))

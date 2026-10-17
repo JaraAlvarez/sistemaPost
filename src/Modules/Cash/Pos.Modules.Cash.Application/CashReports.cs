@@ -110,8 +110,17 @@ public static class CashReports
         if (r.Kind == "Z")
         {
             Line(text, '=');
-            Center(text, r.SealNo is { } sealNo ? $"SELLO #{sealNo.ToString(CultureInfo.InvariantCulture)} · {r.SealCode}" : "SELLO PENDIENTE");
-            Center(text, "Verificación: verify-audit --seal N --code");
+            // Código de control (sello de la auditoría): en palabras del cajero, sin el comando técnico de verificación.
+            if (r.SealNo is { } sealNo)
+            {
+                Center(text, $"CÓDIGO DE CONTROL #{sealNo.ToString(CultureInfo.InvariantCulture)}");
+                Center(text, r.SealCode ?? string.Empty);
+                Center(text, "(prueba que este reporte no se alteró)");
+            }
+            else
+            {
+                Center(text, "CÓDIGO DE CONTROL PENDIENTE");
+            }
         }
 
         Line(text, '=');

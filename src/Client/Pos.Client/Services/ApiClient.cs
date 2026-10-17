@@ -10,7 +10,7 @@ namespace Pos.Client.Services;
 /// Error de la API (ProblemDetails): el mensaje ya viene en español. <see cref="Permission"/>, <see cref="Action"/> y <see cref="TargetId"/>
 /// llegan cuando hace falta la autorización de un supervisor (<c>AUTH.AUTHORIZATION_REQUIRED</c>).
 /// </summary>
-public sealed class ApiException(HttpStatusCode status, string? code, string message, string? permission, string? action, Guid? targetId)
+public sealed partial class ApiException(HttpStatusCode status, string? code, string message, string? permission, string? action, Guid? targetId)
     : Exception(message)
 {
     public HttpStatusCode Status { get; } = status;
@@ -25,8 +25,21 @@ public sealed class ApiException(HttpStatusCode status, string? code, string mes
 
     public bool NeedsSupervisor => Code == "AUTH.AUTHORIZATION_REQUIRED" && Permission is not null;
 
-    /// <summary>El mensaje para la pantalla: en lenguaje simple y con el código del error (para soporte), si lo hay.</summary>
-    public string Texto => Code is null ? Message : $"{Message} (código {Code})";
+    /// <summary>
+    /// El mensaje para la pantalla, en lenguaje simple: sin las referencias internas de los documentos de diseño ("(RN-CSH-05)", "(D6-09)").
+    /// El código del error solo se muestra en los errores inesperados (SYSTEM.*), donde sirve para soporte; los de negocio ya se explican solos.
+    /// </summary>
+    public string Texto
+    {
+        get
+        {
+            var texto = ReferenciaInterna().Replace(Message, string.Empty).Trim();
+            return Code is { } code && code.StartsWith("SYSTEM.", StringComparison.Ordinal) ? $"{texto} (código {code})" : texto;
+        }
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\s*\((?:RN|RF|RNF)-[A-Z]+-\d+(?:/\d+)?[a-z]?\)|\s*\(D\d+[A-Z]?-\d+\)")]
+    private static partial System.Text.RegularExpressions.Regex ReferenciaInterna();
 }
 
 /// <summary>Cliente de la API del servidor de la tienda: sesión, credencial del equipo y autorizaciones de supervisor.</summary>

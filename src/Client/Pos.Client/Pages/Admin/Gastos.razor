@@ -129,11 +129,11 @@
                     @foreach (var session in _sessions)
                     {
                         <MudSelectItem T="Guid?" Value="@session.GetProperty("id").GetGuid()">
-                            Jornada @session.Str("number") · caja @session.Str("terminalCode") · @session.Str("cashierName")
+                            Turno @session.Str("number") · caja @session.Str("terminalCode") · @session.Str("cashierName")
                         </MudSelectItem>
                     }
                 </MudSelect>
-                <MudText Typo="Typo.caption">Si sale de la caja, el efectivo se descuenta de esa jornada en el mismo momento.</MudText>
+                <MudText Typo="Typo.caption">Si sale de la caja, el efectivo se descuenta de ese turno en el mismo momento.</MudText>
             }
             <div class="acciones">
                 <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
@@ -152,7 +152,7 @@
                 @_anular.Str("description") por @Format.Money(_anular.Dec("amount")).
                 @if (_anular.Str("cashSessionId").Length > 0)
                 {
-                    <span> Salió de la caja: el dinero vuelve a esa jornada con una corrección.</span>
+                    <span> Salió de la caja: el dinero vuelve a ese turno con una corrección.</span>
                 }
             </MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo de la anulación" Immediate="true" AutoFocus="true" />

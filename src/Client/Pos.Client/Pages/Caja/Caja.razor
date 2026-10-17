@@ -15,7 +15,7 @@ else if (!Session.IsTerminal)
             <Logo Tamano="40" SobreOscuro="true" />
             <div>
                 <p class="acceso-lema">La caja se abre con el código del cajero.</p>
-                <p class="acceso-texto">Así cada venta, cada jornada y cada arqueo quedan a nombre de quien cobra.</p>
+                <p class="acceso-texto">Así cada venta, cada turno y cada conteo de caja quedan a nombre de quien cobra.</p>
             </div>
             <div class="acceso-pie">BusinessPost · caja</div>
         </div>
@@ -40,7 +40,7 @@ else
                 <b>@(_session?.TerminalCode ?? "—")</b>
             </div>
             <div class="caja-barra-dato">
-                <small>Jornada</small>
+                <small>Turno</small>
                 <b>@(_session is null ? "Sin abrir" : _session.Number)</b>
             </div>
             <div class="caja-barra-dato opcional">
@@ -75,7 +75,7 @@ else
             }
             @if (_session is not null && _session.Status == "OPEN")
             {
-                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LockClock" OnClick="IniciarCierreAsync" Disabled="_busy" title="Cerrar jornada"><span class="texto-boton">Cerrar jornada</span></MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.LockClock" OnClick="IniciarCierreAsync" Disabled="_busy" title="Cerrar turno"><span class="texto-boton">Cerrar turno</span></MudButton>
             }
             <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Logout" OnClick="SalirAsync" title="Salir"><span class="texto-boton">Salir</span></MudButton>
         </header>
@@ -111,13 +111,13 @@ else
             @* -------------------------------------------------------------------------------------------- Abrir jornada (pantalla) *@
             <section class="caja-paso" aria-labelledby="t-abrir">
                 <div class="caja-paso-tarjeta">
-                    <h1 id="t-abrir">Abrir jornada</h1>
+                    <h1 id="t-abrir">Abrir turno</h1>
                     <p class="caja-paso-ayuda">Cuente el efectivo inicial del cajón (la base) y escriba cuánto dinero hay de cada valor, por ejemplo 50.000 en monedas de $ 200. Deje vacío lo que no tenga.</p>
                     <Conteo Denominaciones="_cashDenominations" Cantidades="_opening" OnChanged="@(() => StateHasChanged())" />
                     <div class="conteo-total"><span>Base del cajón</span><span class="cifra">@Format.Money(Total(_opening))</span></div>
                     <div class="acciones">
                         <MudButton Variant="Variant.Text" OnClick="SalirAsync">Salir</MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" Disabled="_busy" OnClick="AbrirJornadaAsync" StartIcon="@Icons.Material.Outlined.LockOpen">Abrir jornada</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" Disabled="_busy" OnClick="AbrirJornadaAsync" StartIcon="@Icons.Material.Outlined.LockOpen">Abrir turno</MudButton>
                     </div>
                 </div>
             </section>
@@ -129,8 +129,8 @@ else
                 <div class="caja-paso-tarjeta">
                     @if (_zReport is null)
                     {
-                        <h1 id="t-cierre">Cerrar jornada @_session?.Number</h1>
-                        <p class="caja-paso-ayuda">Arqueo ciego: cuente el efectivo del cajón y escriba cuánto hay de cada valor; luego el total de los demás medios. El sistema compara al confirmar.</p>
+                        <h1 id="t-cierre">Cerrar turno @_session?.Number</h1>
+                        <p class="caja-paso-ayuda">Cuente el efectivo del cajón y escriba cuánto hay de cada valor; luego el total de los demás medios. El sistema no le muestra lo esperado: compara al confirmar.</p>
                         <Conteo Denominaciones="_cashDenominations" Cantidades="_closing" OnChanged="@(() => StateHasChanged())" />
                         <div class="conteo-total mb-3"><span>Efectivo contado</span><span class="cifra">@Format.Money(Total(_closing))</span></div>
                         <MudGrid Spacing="2">
@@ -151,8 +151,8 @@ else
                     }
                     else
                     {
-                        <h1 id="t-cierre">Jornada cerrada · Reporte Z</h1>
-                        <p class="caja-paso-ayuda">La jornada quedó cerrada y sellada. Guarde el reporte con el efectivo.</p>
+                        <h1 id="t-cierre">Turno cerrado · Reporte Z (cierre)</h1>
+                        <p class="caja-paso-ayuda">El turno quedó cerrado. Guarde el reporte impreso con el efectivo.</p>
                         <div class="tiquete">@_zReport.Text</div>
                         <div class="acciones">
                             <MudButton Variant="Variant.Outlined" Size="Size.Large" StartIcon="@Icons.Material.Outlined.Print" OnClick="ImprimirZAsync">Reimprimir Z</MudButton>
@@ -202,8 +202,8 @@ else
                 {
                     <div class="caja-vacia">
                         <MudIcon Icon="@Icons.Material.Outlined.LockOpen" />
-                        <b>Sin jornada abierta</b>
-                        <span>Cuente la base del cajón y abra la jornada para empezar a vender.</span>
+                        <b>Sin turno abierto</b>
+                        <span>Cuente la base del cajón y abra el turno para empezar a vender.</span>
                     </div>
                 }
                 else if (_sale is null || !_sale.Lines.Any())
@@ -472,9 +472,7 @@ else
         </aside>
 
         <footer class="caja-pie">
-            <span><kbd>↑</kbd><kbd>↓</kbd> elegir línea</span>
-            <span><kbd>3</kbd>*código varias unidades</span>
-            <span><kbd>Esc</kbd> volver</span>
+            @* Solo lo que más se usa; el resto está en F1 (antes la barra repetía la ayuda completa). *@
             <span><kbd>F5</kbd> consultar precio</span>
             <span><kbd>F1</kbd> todos los atajos</span>
         </footer>

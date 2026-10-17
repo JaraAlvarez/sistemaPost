@@ -14,8 +14,7 @@
     </Acciones>
     <ChildContent>
         <MudText Typo="Typo.body2" Class="mb-3">
-            Las promociones se aplican solas en la caja mientras están activas y vigentes. Solo el encargado las crea y administra; una promoción activa no se edita:
-            se pausa o se termina y se crea otra. Abra una promoción para simularla, activarla, pausarla o terminarla.
+            Se aplican solas en la caja mientras están activas. Abra una para simularla, activarla, pausarla o terminarla.
         </MudText>
         <MudSelect T="string" Value="_statusFilter" ValueChanged="@(v => FiltrarAsync(v))" Label="Estado" Style="max-width: 220px" Class="mb-3">
             <MudSelectItem T="string" Value="@("")">Todas</MudSelectItem>

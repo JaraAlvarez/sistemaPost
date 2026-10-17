@@ -85,7 +85,7 @@ public static partial class IdentityRules
 public static class IdentityErrors
 {
     public static readonly Error UserHasOpenCashSession = Error.BusinessRule(
-        "IDENTITY.USER_HAS_OPEN_SESSION", "El usuario tiene una jornada de caja sin cerrar: ciérrela (o que la cierre un supervisor) antes de desactivarlo (RN-SEC-07).");
+        "IDENTITY.USER_HAS_OPEN_SESSION", "El usuario tiene un turno de caja sin cerrar: ciérrelo (o que lo cierre un supervisor) antes de desactivarlo (RN-SEC-07).");
 
     /// <summary>Mismo error exista o no el usuario: no revela qué usuarios existen.</summary>
     public static readonly Error InvalidCredentials =

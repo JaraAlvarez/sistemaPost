@@ -25,7 +25,7 @@ public static class Navegacion
     [
         new("Ventas y caja", Icons.Material.Outlined.PointOfSale,
         [
-            new("Jornadas de caja", "/admin/jornadas", Icons.Material.Outlined.EventNote, s => s.Has("cash.report.view")),
+            new("Turnos de caja", "/admin/jornadas", Icons.Material.Outlined.EventNote, s => s.Has("cash.report.view")),
             new("Gastos", "/admin/gastos", Icons.Material.Outlined.Payments, s => s.Has("expenses.expense.view")),
             new("Reportes", "/admin/reportes", Icons.Material.Outlined.Assessment, Reportes),
             new("Facturación electrónica", "/admin/facturacion", Icons.Material.Outlined.ReceiptLong, s => s.Has("billing.document.view") || s.Has("billing.settings.manage")),

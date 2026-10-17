@@ -2,9 +2,9 @@
 @inject ApiClient Api
 @inject NavigationManager Navigation
 
-<PageTitle>Jornadas de caja · BusinessPost</PageTitle>
+<PageTitle>Turnos de caja · BusinessPost</PageTitle>
 
-<Pagina Titulo="Jornadas de caja" Cargando="_loading" Error="@_error">
+<Pagina Titulo="Turnos de caja" Cargando="_loading" Error="@_error">
     <ChildContent>
         <MudGrid Spacing="2" Class="mb-2">
             <MudItem xs="6" sm="3">
@@ -32,7 +32,7 @@
         <MudTable RowsPerPage="25" Items="_sessions" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
             <HeaderContent>
-                <MudTh>Jornada</MudTh><MudTh>Caja</MudTh><MudTh>Cajero</MudTh><MudTh>Fecha</MudTh><MudTh>Estado</MudTh><MudTh Class="num">Diferencia</MudTh>
+                <MudTh>Turno</MudTh><MudTh>Caja</MudTh><MudTh>Cajero</MudTh><MudTh>Fecha</MudTh><MudTh>Estado</MudTh><MudTh Class="num">Diferencia</MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd><a href="@($"/admin/jornadas/{context.Str("id")}")" @onclick:stopPropagation="true">@context.Str("number")</a></MudTd>
@@ -48,7 +48,7 @@
                 </MudTd>
                 <MudTd Class="num">@(context.Prop("difference").ValueKind == JsonValueKind.Number ? Format.Money(context.Dec("difference")) : "")</MudTd>
             </RowTemplate>
-            <NoRecordsContent><EstadoVacio Mensaje="No hay jornadas con esos filtros." /></NoRecordsContent>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay turnos con esos filtros." /></NoRecordsContent>
             <PagerContent><Paginador /></PagerContent>
         </MudTable>
     </ChildContent>
