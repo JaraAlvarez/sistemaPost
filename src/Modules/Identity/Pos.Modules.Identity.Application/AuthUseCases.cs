@@ -359,36 +359,72 @@ internal sealed class ChangePasswordHandler(ICurrentUser current, AuthServices a
     }
 }
 
-public sealed record ChangePinCommand(string? CurrentPin, string NewPin) : ICommand, IAllowedWhenRestricted;
+/// <summary>
+/// El usuario cambia su propio PIN (con el PIN actual) o, si aún no tiene (p. ej. el Propietario creado por el instalador premium), lo
+/// define confirmando su contraseña y, si tampoco tiene código de caja, eligiéndolo (DU-03). El código existente no se cambia por aquí.
+/// </summary>
+public sealed record ChangePinCommand(string? CurrentPin, string NewPin, string? PosCode = null, string? CurrentPassword = null)
+    : ICommand, IAllowedWhenRestricted;
 
 internal sealed class ChangePinHandler(ICurrentUser current, AuthServices auth, CredentialPolicy policy) : ICommandHandler<ChangePinCommand>
 {
     public async Task<Result> Handle(ChangePinCommand request, CancellationToken cancellationToken)
     {
         var user = await auth.Store.GetUserAsync(current.UserId!.Value, cancellationToken);
-        if (user is null)
+        if (user is not { IsHuman: true })
         {
             return IdentityErrors.UserNotFound;
         }
 
-        if (user.PosCode is null)
+        var firstTime = user.PinHash is null;
+        if (firstTime)
         {
-            return IdentityErrors.InvalidPosCode;
+            if (user.PasswordHash is null
+                || await auth.Hasher.VerifyAsync(request.CurrentPassword ?? string.Empty, user.PasswordHash, SecretKind.Password, cancellationToken)
+                    == SecretVerification.Failed)
+            {
+                return IdentityErrors.CurrentPasswordInvalid;
+            }
+        }
+        else if (await auth.Hasher.VerifyAsync(request.CurrentPin ?? string.Empty, user.PinHash!, SecretKind.Pin, cancellationToken) == SecretVerification.Failed)
+        {
+            return IdentityErrors.CurrentPinInvalid;
         }
 
-        if (user.PinHash is not null
-            && await auth.Hasher.VerifyAsync(request.CurrentPin ?? string.Empty, user.PinHash, SecretKind.Pin, cancellationToken) == SecretVerification.Failed)
+        var posCode = IdentityRules.ResolveOwnPosCode(user.PosCode, request.PosCode);
+        if (posCode.IsFailure)
         {
-            return Error.Validation("IDENTITY.CURRENT_PIN_INVALID", "El PIN actual no es correcto.");
+            return posCode.Error;
         }
 
-        var changed = await policy.SetPinAsync(user, user.PosCode, request.NewPin, cancellationToken);
+        var changed = await policy.SetPinAsync(user, posCode.Value, request.NewPin, cancellationToken);
         if (changed.IsSuccess)
         {
-            await auth.AuditAsync(user, "PIN_CHANGED", $"{user.DisplayName} cambió su PIN.", AuditSeverity.Info, cancellationToken);
+            var summary = firstTime
+                ? $"{user.DisplayName} definió su código de caja ({posCode.Value}) y su PIN."
+                : $"{user.DisplayName} cambió su PIN.";
+            await auth.AuditAsync(user, "PIN_CHANGED", summary, AuditSeverity.Info, cancellationToken);
         }
 
         return changed;
+    }
+}
+
+/// <summary>Código de caja y PIN del usuario de la sesión, con la longitud de PIN configurada (DU-04).</summary>
+public sealed record GetMyPinQuery : IQuery<PinStatusDto>;
+
+internal sealed class GetMyPinHandler(ICurrentUser current, IIdentityStore store, ISettingsReader settings) : IQueryHandler<GetMyPinQuery, PinStatusDto>
+{
+    public async Task<Result<PinStatusDto>> Handle(GetMyPinQuery request, CancellationToken cancellationToken)
+    {
+        var user = await store.GetUserAsync(current.UserId!.Value, cancellationToken);
+        if (user is not { IsHuman: true })
+        {
+            return IdentityErrors.UserNotFound;
+        }
+
+        var length = await settings.GetAsync(SecuritySettings.PinLength, new SettingContext(user.CompanyId), cancellationToken);
+        return new PinStatusDto(user.PosCode, user.PinHash is not null, length);
     }
 }
 

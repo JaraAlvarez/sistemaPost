@@ -85,6 +85,54 @@ public sealed class PrivilegeGuard(ICurrentUser current, IPermissionEvaluator pe
 
     public Result NotSelf(Guid userId) => current.UserId == userId ? IdentityErrors.SelfModification : Result.Success();
 
+    /// <summary>
+    /// DU-06: para restablecer la contraseña o el PIN de <paramref name="target"/>, quien lo hace debe tener todos sus permisos efectivos
+    /// (en todas las sucursales y en cada sucursal donde tiene un rol o una excepción); si no, podría apoderarse de una cuenta con más poder.
+    /// </summary>
+    public async Task<Result> CanResetCredentialsOfAsync(User target, CancellationToken cancellationToken)
+    {
+        if (current.UserId is not { } actor)
+        {
+            return Result.Success();
+        }
+
+        var scopes = target.Roles.Select(r => r.BranchId).Concat(target.Overrides.Select(o => o.BranchId)).Append(null).Distinct();
+        foreach (var branchId in scopes)
+        {
+            var theirs = await permissions.GetEffectiveAsync(target.Id, branchId, null, cancellationToken);
+            var own = await permissions.GetEffectiveAsync(actor, branchId, null, cancellationToken);
+            if (!theirs.All(own.Contains))
+            {
+                return IdentityErrors.CredentialEscalation;
+            }
+        }
+
+        return Result.Success();
+    }
+
+    /// <summary>DU-07: ¿quedaría algún Propietario activo si <paramref name="user"/> deja de serlo (<paramref name="remainsOwner"/> = false)?</summary>
+    public async Task<Result> KeepsAnOwnerAsync(User user, bool remainsOwner, CancellationToken cancellationToken)
+    {
+        if (remainsOwner || !await IsActiveOwnerAsync(user, cancellationToken))
+        {
+            return Result.Success();
+        }
+
+        var error = IdentityRules.CheckOwnerRemains(true, false, await store.CountActiveOwnersAsync(user.Id, cancellationToken));
+        return error == Error.None ? Result.Success() : error;
+    }
+
+    private async Task<bool> IsActiveOwnerAsync(User user, CancellationToken cancellationToken)
+    {
+        if (user.Status != UserStatus.Active && user.Status != UserStatus.Locked)
+        {
+            return false;
+        }
+
+        var roles = await store.GetRolesAsync(user.Roles.Where(r => r.BranchId is null).Select(r => r.RoleId), cancellationToken);
+        return roles.Any(r => r.Code == SystemRoles.Owner);
+    }
+
     /// <summary>¿Quedaría algún administrador activo si <paramref name="user"/> deja de serlo?</summary>
     public async Task<Result> KeepsAnAdministratorAsync(User user, CancellationToken cancellationToken)
     {

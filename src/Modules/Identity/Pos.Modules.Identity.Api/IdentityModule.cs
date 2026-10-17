@@ -79,7 +79,12 @@ public sealed class IdentityModule : IModule
             .AllowWhilePasswordChangeRequired();
 
         group.MapPost("/change-pin", async (ChangePinCommand command, IDispatcher d, CancellationToken ct) => (await d.Send(command, ct)).ToHttpResult())
-            .RequireAuthenticatedUser();
+            .RequireAuthenticatedUser()
+            .WithSummary("Cambia el propio PIN (con el actual) o lo define por primera vez (con la contraseña y, si falta, el código de caja)");
+
+        group.MapGet("/pin", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetMyPinQuery(), ct)).ToHttpResult())
+            .RequireAuthenticatedUser()
+            .WithSummary("Código de caja, si tiene PIN y la longitud de PIN que exige la empresa");
 
         group.MapPost("/authorizations", async (CreateAuthorizationCommand command, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(command, ct)).ToAuthResult(StatusCodes.Status201Created))

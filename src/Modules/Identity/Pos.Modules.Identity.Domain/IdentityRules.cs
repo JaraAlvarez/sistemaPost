@@ -71,6 +71,33 @@ public static partial class IdentityRules
         return Error.None;
     }
 
+    /// <summary>
+    /// Código de caja con el que un usuario define o cambia su propio PIN (DU-03): si ya tiene uno, se conserva (solo un administrador lo
+    /// cambia); si no, debe elegir uno válido.
+    /// </summary>
+    public static Result<string> ResolveOwnPosCode(string? currentPosCode, string? requestedPosCode)
+    {
+        var requested = string.IsNullOrWhiteSpace(requestedPosCode) ? null : requestedPosCode.Trim();
+        if (currentPosCode is not null)
+        {
+            return requested is null || requested == currentPosCode ? currentPosCode : IdentityErrors.PosCodeChangeRequiresAdmin;
+        }
+
+        if (requested is null)
+        {
+            return IdentityErrors.PosCodeRequired;
+        }
+
+        return IsValidPosCode(requested) ? requested : IdentityErrors.InvalidPosCode;
+    }
+
+    /// <summary>
+    /// DU-07: ¿dejaría la empresa sin Propietario activo? <paramref name="isActiveOwner"/>: hoy es Propietario activo;
+    /// <paramref name="remainsOwner"/>: lo sigue siendo tras el cambio; <paramref name="otherActiveOwners"/>: los demás Propietarios activos.
+    /// </summary>
+    public static Error CheckOwnerRemains(bool isActiveOwner, bool remainsOwner, int otherActiveOwners) =>
+        isActiveOwner && !remainsOwner && otherActiveOwners == 0 ? IdentityErrors.LastOwner : Error.None;
+
     // Fase 13-B (D13B-09): también un correo (el Propietario entra con el correo de su cuenta del portal).
     [GeneratedRegex("^[a-z0-9._@+-]{3,120}$", RegexOptions.CultureInvariant)]
     private static partial Regex UsernamePattern();
@@ -124,6 +151,23 @@ public static class IdentityErrors
 
     public static readonly Error LastAdministrator = Error.BusinessRule(
         "IDENTITY.LAST_ADMINISTRATOR", "Debe quedar al menos un Propietario o Administrador activo.");
+
+    public static readonly Error LastOwner = Error.BusinessRule(
+        "IDENTITY.LAST_OWNER", "Debe quedar al menos un Propietario activo: asigne el rol Propietario a otro usuario antes de quitárselo a este.");
+
+    public static readonly Error CredentialEscalation = Error.Forbidden(
+        "IDENTITY.CREDENTIAL_ESCALATION", "No puede restablecer la contraseña ni el PIN de un usuario que tiene permisos que usted no tiene.");
+
+    public static readonly Error PosCodeRequired =
+        Error.Validation("IDENTITY.POS_CODE_REQUIRED", "Elija su código de caja (3 a 6 dígitos) para definir el PIN.");
+
+    public static readonly Error PosCodeChangeRequiresAdmin = Error.Validation(
+        "IDENTITY.POS_CODE_CHANGE_REQUIRES_ADMIN", "Su código de caja solo lo cambia un administrador desde Usuarios → Restablecer PIN.");
+
+    public static readonly Error CurrentPinInvalid = Error.Validation("IDENTITY.CURRENT_PIN_INVALID", "El PIN actual no es correcto.");
+
+    public static readonly Error UseChangePin =
+        Error.BusinessRule("IDENTITY.USE_CHANGE_PIN", "Para su propio PIN use «Cambiar PIN de caja» en su menú de usuario.");
 
     public static readonly Error PrivilegeEscalation = Error.Forbidden(
         "IDENTITY.PRIVILEGE_ESCALATION", "No puede conceder permisos que usted no tiene.");

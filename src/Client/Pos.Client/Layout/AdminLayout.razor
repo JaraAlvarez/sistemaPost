@@ -61,6 +61,7 @@ else
                     </div>
                     <MudDivider />
                     <MudMenuItem Icon="@Icons.Material.Outlined.Password" Href="/cambiar-clave">Cambiar contraseña</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Pin" Href="/cambiar-pin">Cambiar PIN de caja</MudMenuItem>
                     <MudMenuItem Icon="@Icons.Material.Outlined.LightMode" OnClick="@(() => Tema.ElegirAsync(Tema.Claro))">Modo claro @(Tema.Preferencia == Tema.Claro ? "✓" : null)</MudMenuItem>
                     <MudMenuItem Icon="@Icons.Material.Outlined.DarkMode" OnClick="@(() => Tema.ElegirAsync(Tema.Oscuro))">Modo oscuro @(Tema.Preferencia == Tema.Oscuro ? "✓" : null)</MudMenuItem>
                     <MudMenuItem Icon="@Icons.Material.Outlined.SettingsBrightness" OnClick="@(() => Tema.ElegirAsync(Tema.Sistema))">Como el sistema @(Tema.Preferencia == Tema.Sistema ? "✓" : null)</MudMenuItem>

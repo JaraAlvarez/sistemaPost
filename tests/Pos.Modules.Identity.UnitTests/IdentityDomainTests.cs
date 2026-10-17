@@ -231,3 +231,41 @@ public class RoleTests
         employee.Status.ShouldBe(EmployeeStatus.Active);
     }
 }
+
+/// <summary>PIN propio y último Propietario (docs/fases/pantallas-faltantes-propuesta.md, DU-03 y DU-07).</summary>
+public class OwnPinAndOwnerRulesTests
+{
+    [Fact]
+    public void Quien_ya_tiene_codigo_de_caja_lo_conserva_y_no_lo_cambia_por_su_cuenta()
+    {
+        IdentityRules.ResolveOwnPosCode("1234", null).Value.ShouldBe("1234");
+        IdentityRules.ResolveOwnPosCode("1234", " 1234 ").Value.ShouldBe("1234");
+        IdentityRules.ResolveOwnPosCode("1234", "").Value.ShouldBe("1234");
+        IdentityRules.ResolveOwnPosCode("1234", "999").Error.ShouldBe(IdentityErrors.PosCodeChangeRequiresAdmin);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    public void Quien_no_tiene_codigo_debe_elegirlo(string? requested) =>
+        IdentityRules.ResolveOwnPosCode(null, requested).Error.ShouldBe(IdentityErrors.PosCodeRequired);
+
+    [Theory]
+    [InlineData("12")]
+    [InlineData("1234567")]
+    [InlineData("12a4")]
+    public void El_codigo_elegido_debe_tener_de_3_a_6_digitos(string requested) =>
+        IdentityRules.ResolveOwnPosCode(null, requested).Error.ShouldBe(IdentityErrors.InvalidPosCode);
+
+    [Fact]
+    public void Un_codigo_valido_se_acepta_sin_espacios() =>
+        IdentityRules.ResolveOwnPosCode(null, " 0042 ").Value.ShouldBe("0042");
+
+    [Theory]
+    [InlineData(true, false, 0, true)]
+    [InlineData(true, false, 1, false)]
+    [InlineData(true, true, 0, false)]
+    [InlineData(false, false, 0, false)]
+    public void Nunca_queda_la_empresa_sin_Propietario_activo(bool isActiveOwner, bool remainsOwner, int others, bool rejected) =>
+        (IdentityRules.CheckOwnerRemains(isActiveOwner, remainsOwner, others) == IdentityErrors.LastOwner).ShouldBe(rejected);
+}

@@ -361,6 +361,16 @@ internal sealed class IdentityStore(PosDbContext context) : IIdentityStore
             .CountAsync(u => u.Roles.Any(r => r.BranchId == null && adminRoles.Contains(r.RoleId)), cancellationToken);
     }
 
+    public async Task<int> CountActiveOwnersAsync(Guid? excludingUserId, CancellationToken cancellationToken)
+    {
+        var owner = await context.Set<Role>().Where(r => r.IsSystem && r.Code == SystemRoles.Owner).Select(r => (Guid?)r.Id).SingleOrDefaultAsync(cancellationToken);
+        return owner is null
+            ? 0
+            : await context.Set<User>()
+                .Where(u => u.Kind == UserKind.Human && u.Status != UserStatus.Disabled && u.Id != excludingUserId)
+                .CountAsync(u => u.Roles.Any(r => r.BranchId == null && r.RoleId == owner), cancellationToken);
+    }
+
     public async Task<bool> HasActiveOwnerAsync(CancellationToken cancellationToken)
     {
         var owner = await context.Set<Role>().Where(r => r.IsSystem && r.Code == SystemRoles.Owner).Select(r => (Guid?)r.Id).SingleOrDefaultAsync(cancellationToken);

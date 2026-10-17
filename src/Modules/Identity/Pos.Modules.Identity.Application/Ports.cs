@@ -63,6 +63,9 @@ public interface IIdentityStore
 
     Task<bool> HasActiveOwnerAsync(CancellationToken cancellationToken);
 
+    /// <summary>Usuarios humanos activos con rol OWNER para todas las sucursales, sin contar <paramref name="excludingUserId"/> (DU-07).</summary>
+    Task<int> CountActiveOwnersAsync(Guid? excludingUserId, CancellationToken cancellationToken);
+
     /// <summary>Invalida los permisos cacheados de todos los usuarios que tienen el rol.</summary>
     Task BumpSecurityVersionForRoleAsync(Guid roleId, CancellationToken cancellationToken);
 

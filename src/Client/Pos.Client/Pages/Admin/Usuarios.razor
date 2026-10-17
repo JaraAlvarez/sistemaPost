@@ -5,11 +5,15 @@
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 
+@* Usuarios (docs/fases/pantallas-faltantes-propuesta.md, DU-01 a DU-09): alta, detalle (datos, roles, caja) y restablecer PIN o
+   contraseña. Cada acción se muestra solo con el permiso que exige el servidor; las reglas (no a sí mismo, sin escalar permisos,
+   siempre un Propietario) las aplica el servidor y aquí se explican. *@
+
 <PageTitle>Usuarios · BusinessPost</PageTitle>
 
 <Pagina Titulo="Usuarios" Cargando="_loading" Error="@_error">
     <Acciones>
-        @if (Session.Has("identity.user.manage"))
+        @if (PuedeGestionar)
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd" OnClick="Nuevo">Nuevo usuario</MudButton>
         }
@@ -20,14 +24,21 @@
                 <MudTh>Usuario</MudTh><MudTh>Nombre</MudTh><MudTh>Roles</MudTh><MudTh>Código de caja</MudTh><MudTh>Estado</MudTh><MudTh>Último ingreso</MudTh><MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd>@context.Username</MudTd>
+                <MudTd>
+                    <MudLink OnClick="@(() => AbrirDetalle(context))">@context.Username</MudLink>
+                    @if (EsYo(context))
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Class="ml-1">Usted</MudChip>
+                    }
+                </MudTd>
                 <MudTd Class="celda-texto">@context.DisplayName</MudTd>
-                <MudTd Class="celda-texto">@string.Join(", ", context.Roles.Select(r => NombreRol(r.RoleCode)))</MudTd>
-                <MudTd>@context.PosCode</MudTd>
-                <MudTd>@(Estado(context) == "ACTIVE" ? "Activo" : Estado(context) == "LOCKED" ? "Bloqueado" : "Inactivo")</MudTd>
+                <MudTd Class="celda-texto">@string.Join(", ", context.Roles.Select(r => NombreRol(r.RoleCode) + (r.BranchId is null ? "" : " (una sucursal)")))</MudTd>
+                <MudTd>@(context.PosCode ?? "—")@(context.PosCode is not null && !context.HasPin ? " · sin PIN" : null)</MudTd>
+                <MudTd>@EstadoTexto(context)</MudTd>
                 <MudTd>@Format.Date(context.LastLoginAt)</MudTd>
                 <MudTd>
-                    @if (Session.Has("identity.user.manage") && context.Username != "system")
+                    <MudButton Size="Size.Small" StartIcon="@Icons.Material.Outlined.ManageAccounts" OnClick="@(() => AbrirDetalle(context))">Detalle</MudButton>
+                    @if (PuedeGestionar && !EsYo(context))
                     {
                         @if (Estado(context) == "LOCKED")
                         {
@@ -35,7 +46,7 @@
                         }
                         else if (Estado(context) == "ACTIVE")
                         {
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar usuario", $"{context.DisplayName} ya no podrá entrar a la caja ni a la administración. Puede activarlo de nuevo después.", "Inactivar", true)) { await AccionAsync(context, "deactivate", "Usuario inactivado."); } })">Inactivar</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => InactivarAsync(context))">Inactivar</MudButton>
                         }
                         else
                         {
@@ -53,19 +64,15 @@
 @if (_nuevo)
 {
     <div class="panel-fondo">
-        <div class="panel" role="dialog" aria-modal="true">
+        <div class="panel" role="dialog" aria-modal="true" aria-label="Nuevo usuario">
             <h2>Nuevo usuario</h2>
-            <MudTextField @bind-Value="_username" Label="Usuario" Immediate="true" />
+            <MudTextField @bind-Value="_username" Label="Usuario" Immediate="true" HelperText="Minúsculas, dígitos, punto o guion; o un correo." />
             <MudTextField @bind-Value="_displayName" Label="Nombre completo" Immediate="true" />
             <MudTextField @bind-Value="_password" Label="Contraseña inicial (la cambia al entrar)" InputType="InputType.Password" Immediate="true" />
-            <MudSelect T="Guid?" @bind-Value="_role" Label="Rol">
-                @foreach (var role in _roles)
-                {
-                    <MudSelectItem T="Guid?" Value="@role.Id">@role.Name</MudSelectItem>
-                }
-            </MudSelect>
-            <MudTextField @bind-Value="_posCode" Label="Código de caja (opcional, 3 a 6 dígitos)" Immediate="true" />
-            <MudTextField @bind-Value="_pin" Label="PIN de caja (opcional, 4 a 6 dígitos)" InputType="InputType.Password" Immediate="true" />
+            <SeleccionRoles Roles="_roles" Seleccion="_rolesNuevo" />
+            <MudTextField @bind-Value="_posCode" Label="Código de caja (opcional, 3 a 6 dígitos)" Immediate="true" InputMode="InputMode.numeric" MaxLength="6" />
+            <MudTextField @bind-Value="_pin" Label="@($"PIN de caja (opcional, {_pinLength} dígitos)")" InputType="InputType.Password" Immediate="true"
+                          InputMode="InputMode.numeric" MaxLength="_pinLength" HelperText="Si da código de caja, el PIN es obligatorio." />
             <div class="acciones">
                 <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CrearAsync">Crear</MudButton>
@@ -74,12 +81,154 @@
     </div>
 }
 
+@if (_detalle is { } u)
+{
+    <div class="panel-fondo">
+        <div class="panel" style="width:min(680px, 96vw)" role="dialog" aria-modal="true" aria-label="Detalle del usuario">
+            <h2>@u.DisplayName · <span style="font-weight:500">@u.Username</span></h2>
+
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                <MudChip T="string" Size="Size.Small" Color="@(Estado(u) == "ACTIVE" ? Color.Success : Estado(u) == "LOCKED" ? Color.Warning : Color.Default)">@EstadoTexto(u)</MudChip>
+                @if (u.MustChangePassword)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Info">Debe cambiar la contraseña al entrar</MudChip>
+                }
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Último ingreso: @(u.LastLoginAt is null ? "nunca" : Format.Date(u.LastLoginAt))</MudChip>
+            </div>
+
+            @if (EsYo(u))
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Este es su usuario. Sus roles y su estado los cambia otro administrador; su contraseña y su PIN de caja se cambian desde su menú de usuario
+                    (arriba a la derecha).
+                </MudAlert>
+            }
+
+            @* ── Datos ── *@
+            <MudText Typo="Typo.subtitle1" Class="mt-2"><b>Datos</b></MudText>
+            <MudTextField @bind-Value="_eNombre" Label="Nombre completo" Immediate="true" ReadOnly="@(!PuedeGestionar)" MaxLength="120" />
+            <MudTextField @bind-Value="_eCorreo" Label="Correo (opcional)" Immediate="true" ReadOnly="@(!PuedeGestionar)" MaxLength="200" InputType="InputType.Email" />
+            @if (PuedeGestionar)
+            {
+                <div class="d-flex justify-end mt-2">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || !DatosCambiaron(u))" OnClick="GuardarDatosAsync">Guardar datos</MudButton>
+                </div>
+            }
+
+            @* ── Roles ── *@
+            <MudDivider Class="my-3" />
+            <MudText Typo="Typo.subtitle1"><b>Roles</b></MudText>
+            @if (_roles.Count == 0)
+            {
+                <MudText Typo="Typo.body2">@string.Join(", ", u.Roles.Select(r => r.RoleCode))</MudText>
+            }
+            else
+            {
+                <SeleccionRoles Roles="_roles" Seleccion="_eRoles" SoloLectura="@(!PuedeAsignarRoles || EsYo(u))" Cambio="StateHasChanged" />
+            }
+            @if (u.Roles.Any(r => r.BranchId is not null))
+            {
+                <MudText Typo="Typo.caption" Class="d-block">
+                    Además tiene roles solo en una sucursal: @string.Join(", ", u.Roles.Where(r => r.BranchId is not null).Select(r => NombreRol(r.RoleCode))).
+                    Se conservan al guardar.
+                </MudText>
+            }
+            @if (PuedeAsignarRoles && !EsYo(u) && _roles.Count > 0)
+            {
+                <MudText Typo="Typo.caption" Class="d-block">Solo puede asignar roles cuyos permisos usted también tiene. Siempre debe quedar un Propietario activo.</MudText>
+                <div class="d-flex justify-end mt-2">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || !RolesCambiaron(u))" OnClick="GuardarRolesAsync">Guardar roles</MudButton>
+                </div>
+            }
+
+            @* ── Caja ── *@
+            <MudDivider Class="my-3" />
+            <MudText Typo="Typo.subtitle1"><b>Caja</b></MudText>
+            <MudText Typo="Typo.body2">
+                Código de caja: <b>@(u.PosCode ?? "sin código")</b> · PIN: <b>@(u.HasPin ? "asignado" : "sin PIN")</b>
+            </MudText>
+            @if (PuedeGestionar && !EsYo(u))
+            {
+                @if (_panelPin)
+                {
+                    <MudTextField @bind-Value="_rCodigo" Label="Código de caja (3 a 6 dígitos, único)" Immediate="true" InputMode="InputMode.numeric" MaxLength="6"
+                                  Error="@(_rCodigo is { Length: > 0 } && !CodigoValido(_rCodigo))" ErrorText="Use de 3 a 6 dígitos." />
+                    <MudTextField @bind-Value="_rPin" Label="@($"PIN nuevo ({_pinLength} dígitos)")" InputType="InputType.Password" Immediate="true" InputMode="InputMode.numeric"
+                                  MaxLength="_pinLength" autocomplete="off" HelperText="Sin secuencias (1234, 9876) ni el mismo dígito repetido (1111)." />
+                    <MudTextField @bind-Value="_rPin2" Label="Repita el PIN" InputType="InputType.Password" Immediate="true" InputMode="InputMode.numeric" MaxLength="_pinLength"
+                                  autocomplete="off" Error="@(_rPin2 is { Length: > 0 } && _rPin2 != _rPin)" ErrorText="No coincide." />
+                    <div class="d-flex justify-end gap-2 mt-2">
+                        <MudButton Size="Size.Small" OnClick="@(() => _panelPin = false)">Cancelar</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(_busy || !PinListo)" OnClick="RestablecerPinAsync">Restablecer PIN</MudButton>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex justify-end mt-2">
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Pin" OnClick="AbrirPin">
+                            @(u.HasPin ? "Restablecer PIN" : "Asignar código y PIN")
+                        </MudButton>
+                    </div>
+                }
+            }
+
+            @* ── Contraseña ── *@
+            @if (PuedeGestionar && !EsYo(u))
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.subtitle1"><b>Contraseña</b></MudText>
+                @if (_panelClave)
+                {
+                    <MudText Typo="Typo.body2">
+                        Escriba o genere una contraseña temporal y entréguela a la persona. Al entrar deberá cambiarla; sus sesiones abiertas se cierran ya.
+                    </MudText>
+                    <div class="d-flex align-center gap-2">
+                        <MudTextField @bind-Value="_rClave" Label="Contraseña temporal" Immediate="true" autocomplete="off" Class="flex-grow-1"
+                                      HelperText="Al menos 10 caracteres; no puede contener el usuario ni ser una contraseña común." />
+                        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Outlined.Autorenew" OnClick="GenerarClave">Generar</MudButton>
+                    </div>
+                    <div class="d-flex justify-end gap-2 mt-2">
+                        <MudButton Size="Size.Small" OnClick="@(() => _panelClave = false)">Cancelar</MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Disabled="@(_busy || (_rClave?.Length ?? 0) < 8)" OnClick="RestablecerClaveAsync">
+                            Restablecer contraseña
+                        </MudButton>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex justify-end mt-2">
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Password" OnClick="AbrirClave">Restablecer contraseña</MudButton>
+                    </div>
+                }
+            }
+
+            <div class="acciones">
+                <MudButton OnClick="CerrarDetalle">Cerrar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<UserDto> _users = [];
     private List<RoleDto> _roles = [];
-    private bool _loading = true, _busy, _nuevo;
+    private bool _loading = true, _busy, _nuevo, _panelPin, _panelClave;
     private string? _error, _username, _displayName, _password, _posCode, _pin;
-    private Guid? _role;
+    private HashSet<Guid> _rolesNuevo = [];
+    private int _pinLength = 4;
+
+    private UserDto? _detalle;
+    private string? _eNombre, _eCorreo, _rCodigo, _rPin, _rPin2, _rClave;
+    private HashSet<Guid> _eRoles = [];
+
+    private bool PuedeGestionar => Session.Has(IdentityPermissions.UserManage);
+
+    private bool PuedeAsignarRoles => Session.Has(IdentityPermissions.RoleManage);
+
+    private bool EsYo(UserDto user) => Session.Me?.UserId == user.Id;
+
+    private bool PinListo =>
+        CodigoValido(_rCodigo) && _rPin is { } pin && pin.Length == _pinLength && pin.All(char.IsAsciiDigit) && _rPin2 == _rPin;
 
     protected override Task OnInitializedAsync() => CargarAsync();
 
@@ -89,7 +238,16 @@
         try
         {
             _users = await Api.GetAsync<List<UserDto>>("api/v1/identity/users");
-            _roles = await Api.GetAsync<List<RoleDto>>("api/v1/identity/roles");
+            if (Session.Has(IdentityPermissions.PermissionView))
+            {
+                _roles = [.. (await Api.GetAsync<List<RoleDto>>("api/v1/identity/roles")).OrderBy(r => r.IsSystem ? 0 : 1).ThenBy(r => r.Name)];
+            }
+
+            _pinLength = (await Api.GetAsync<PinStatusDto>("api/v1/auth/pin")).PinLength;
+            if (_detalle is not null)
+            {
+                _detalle = _users.FirstOrDefault(x => x.Id == _detalle.Id);
+            }
         }
         catch (ApiException ex)
         {
@@ -102,12 +260,23 @@
     /// <summary>Estado del usuario en mayúsculas (la API puede enviar "Active" o "ACTIVE").</summary>
     private static string Estado(UserDto user) => EnumText.Normalize(user.Status);
 
+    private static string EstadoTexto(UserDto user) => Estado(user) switch
+    {
+        "ACTIVE" => "Activo",
+        "LOCKED" => "Bloqueado",
+        _ => "Inactivo",
+    };
+
+    private static bool CodigoValido(string? code) => code is { Length: >= 3 and <= 6 } && code.All(char.IsAsciiDigit);
+
     private string NombreRol(string code) => _roles.FirstOrDefault(r => r.Code == code)?.Name is { Length: > 0 } name ? name : code;
+
+    // ───────────── Alta ─────────────
 
     private void Nuevo()
     {
         _username = _displayName = _password = _posCode = _pin = null;
-        _role = null;
+        _rolesNuevo = [];
         _nuevo = true;
     }
 
@@ -119,10 +288,10 @@
             await Api.PostAsync<JsonElement>("api/v1/identity/users", new
             {
                 username = _username, displayName = _displayName, email = (string?)null, password = _password,
-                posCode = string.IsNullOrWhiteSpace(_posCode) ? null : _posCode, pin = string.IsNullOrWhiteSpace(_pin) ? null : _pin, employeeId = (Guid?)null,
-                roles = _role is null ? [] : new[] { new { roleId = _role, branchId = (Guid?)null } },
+                posCode = string.IsNullOrWhiteSpace(_posCode) ? null : _posCode.Trim(), pin = string.IsNullOrWhiteSpace(_pin) ? null : _pin, employeeId = (Guid?)null,
+                roles = _rolesNuevo.Select(id => new { roleId = id, branchId = (Guid?)null }).ToArray(),
             });
-            Snackbar.Add("Usuario creado.", Severity.Success);
+            Snackbar.Add("Usuario creado. Deberá cambiar la contraseña la primera vez que entre.", Severity.Success);
             _nuevo = false;
             await CargarAsync();
         }
@@ -132,6 +301,158 @@
         }
 
         _busy = false;
+    }
+
+    // ───────────── Detalle ─────────────
+
+    private void AbrirDetalle(UserDto user)
+    {
+        _detalle = user;
+        _eNombre = user.DisplayName;
+        _eCorreo = user.Email;
+        _eRoles = [.. user.Roles.Where(r => r.BranchId is null).Select(r => r.RoleId)];
+        _panelPin = _panelClave = false;
+    }
+
+    private void CerrarDetalle()
+    {
+        _detalle = null;
+        _rPin = _rPin2 = _rClave = null;
+    }
+
+    private bool DatosCambiaron(UserDto user) =>
+        !string.IsNullOrWhiteSpace(_eNombre) && (_eNombre.Trim() != user.DisplayName || (string.IsNullOrWhiteSpace(_eCorreo) ? null : _eCorreo.Trim()) != user.Email);
+
+    private bool RolesCambiaron(UserDto user) => !_eRoles.SetEquals(user.Roles.Where(r => r.BranchId is null).Select(r => r.RoleId));
+
+    private async Task GuardarDatosAsync()
+    {
+        var user = _detalle!;
+        await GuardarAsync(
+            () => Api.PutAsync<UserDto>($"api/v1/identity/users/{user.Id}", new
+            {
+                displayName = _eNombre!.Trim(), email = string.IsNullOrWhiteSpace(_eCorreo) ? null : _eCorreo.Trim(), employeeId = user.EmployeeId,
+            }),
+            "Datos del usuario guardados.");
+    }
+
+    private async Task GuardarRolesAsync()
+    {
+        var user = _detalle!;
+        var quitaPropietario = user.Roles.Any(r => r.BranchId is null && r.RoleCode == "OWNER")
+                               && !_roles.Any(r => r.Code == "OWNER" && _eRoles.Contains(r.Id));
+        if (quitaPropietario && !await Dialogs.ConfirmarAsync(
+                "Quitar el rol Propietario", $"{user.DisplayName} dejará de ser Propietario y perderá el acceso total. ¿Continuar?", "Quitar", true))
+        {
+            return;
+        }
+
+        // Los roles por sucursal no se gestionan aquí: se reenvían tal cual (PUT roles reemplaza todas las asignaciones).
+        var asignaciones = _eRoles.Select(id => new { roleId = id, branchId = (Guid?)null })
+            .Concat(user.Roles.Where(r => r.BranchId is not null).Select(r => new { roleId = r.RoleId, branchId = r.BranchId }))
+            .ToArray();
+        await GuardarAsync(() => Api.PutAsync<UserDto>($"api/v1/identity/users/{user.Id}/roles", asignaciones), "Roles guardados. Se aplican desde su siguiente acción.");
+    }
+
+    private void AbrirPin()
+    {
+        _rCodigo = _detalle!.PosCode;
+        _rPin = _rPin2 = null;
+        _panelPin = true;
+    }
+
+    private async Task RestablecerPinAsync()
+    {
+        var user = _detalle!;
+        _busy = true;
+        try
+        {
+            await Api.PostAsync($"api/v1/identity/users/{user.Id}/reset-pin", new { posCode = _rCodigo!.Trim(), pin = _rPin });
+            Snackbar.Add($"PIN de {user.DisplayName} restablecido. Entra a la caja con el código {_rCodigo.Trim()}.", Severity.Success);
+            _panelPin = false;
+            _rPin = _rPin2 = null;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private void AbrirClave()
+    {
+        _rClave = null;
+        _panelClave = true;
+    }
+
+    /// <summary>Contraseña temporal legible: sin letras ni dígitos que se confunden (O/0, l/1).</summary>
+    private void GenerarClave()
+    {
+        const string letras = "abcdefghjkmnpqrstuvwxyz", mayusculas = "ABCDEFGHJKLMNPQRSTUVWXYZ", digitos = "23456789";
+        var random = Random.Shared;
+        string Tomar(string fuente, int n) => new([.. Enumerable.Range(0, n).Select(_ => fuente[random.Next(fuente.Length)])]);
+        _rClave = $"{Tomar(mayusculas, 1)}{Tomar(letras, 5)}-{Tomar(digitos, 4)}-{Tomar(mayusculas, 1)}{Tomar(letras, 2)}";
+    }
+
+    private async Task RestablecerClaveAsync()
+    {
+        var user = _detalle!;
+        if (!await Dialogs.ConfirmarAsync(
+                "Restablecer contraseña",
+                $"{user.DisplayName} tendrá la contraseña temporal que escribió, deberá cambiarla al entrar y se cerrarán sus sesiones abiertas.",
+                "Restablecer", true))
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            await Api.PostAsync($"api/v1/identity/users/{user.Id}/reset-password", new { temporaryPassword = _rClave });
+            Snackbar.Add($"Contraseña de {user.DisplayName} restablecida. Entréguele la contraseña temporal: la cambiará al entrar.", Severity.Success);
+            _panelClave = false;
+            _rClave = null;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task GuardarAsync(Func<Task<UserDto>> accion, string mensaje)
+    {
+        _busy = true;
+        try
+        {
+            var actualizado = await accion();
+            Snackbar.Add(mensaje, Severity.Success);
+            await CargarAsync();
+            if (_users.FirstOrDefault(x => x.Id == actualizado.Id) is { } fresco)
+            {
+                AbrirDetalle(fresco);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    // ───────────── Estado ─────────────
+
+    private async Task InactivarAsync(UserDto user)
+    {
+        if (await Dialogs.ConfirmarAsync("Inactivar usuario", $"{user.DisplayName} ya no podrá entrar a la caja ni a la administración. Puede activarlo de nuevo después.", "Inactivar", true))
+        {
+            await AccionAsync(user, "deactivate", "Usuario inactivado.");
+        }
     }
 
     private async Task AccionAsync(UserDto user, string action, string message)

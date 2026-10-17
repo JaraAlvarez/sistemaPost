@@ -185,6 +185,12 @@ internal sealed class SetUserActiveHandler(
             return keeps;
         }
 
+        var keepsOwner = await guard.KeepsAnOwnerAsync(user, remainsOwner: false, cancellationToken);
+        if (keepsOwner.IsFailure)
+        {
+            return keepsOwner;
+        }
+
         user.Deactivate();
         var revoked = await sessions.RevokeAllForUserAsync(user.Id, current.UserId, "USER_DISABLED", null, cancellationToken);
         await audit.WriteAsync(
@@ -233,6 +239,12 @@ internal sealed class ResetPasswordHandler(
             return Error.BusinessRule("IDENTITY.USE_CHANGE_PASSWORD", "Para su propia contraseña use 'cambiar contraseña'.");
         }
 
+        var allowed = await guard.CanResetCredentialsOfAsync(user, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed;
+        }
+
         var changed = await policy.ChangePasswordAsync(user, request.TemporaryPassword, mustChange: true, cancellationToken);
         if (changed.IsSuccess)
         {
@@ -249,7 +261,8 @@ internal sealed class ResetPasswordHandler(
 
 public sealed record ResetPinCommand(Guid UserId, string PosCode, string Pin) : ICommand;
 
-internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy policy, ICurrentUser current, IAuditWriter audit) : ICommandHandler<ResetPinCommand>
+internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy policy, PrivilegeGuard guard, ICurrentUser current, IAuditWriter audit)
+    : ICommandHandler<ResetPinCommand>
 {
     public async Task<Result> Handle(ResetPinCommand request, CancellationToken cancellationToken)
     {
@@ -257,6 +270,18 @@ internal sealed class ResetPinHandler(IIdentityStore store, CredentialPolicy pol
         if (user is not { IsHuman: true })
         {
             return IdentityErrors.UserNotFound;
+        }
+
+        // DU-05: el propio PIN se cambia conociendo el actual (o la contraseña, si aún no tiene) en «Cambiar PIN de caja».
+        if (guard.NotSelf(user.Id).IsFailure)
+        {
+            return IdentityErrors.UseChangePin;
+        }
+
+        var allowed = await guard.CanResetCredentialsOfAsync(user, cancellationToken);
+        if (allowed.IsFailure)
+        {
+            return allowed;
         }
 
         var result = await policy.SetPinAsync(user, request.PosCode, request.Pin, cancellationToken);
@@ -377,6 +402,13 @@ public sealed class UserMutations(IIdentityStore store, PrivilegeGuard guard, IC
             {
                 return keeps;
             }
+        }
+
+        var remainsOwner = assignments.Any(a => a.BranchId is null && roles.Any(r => r.Id == a.RoleId && r.Code == SystemRoles.Owner));
+        var keepsOwner = await guard.KeepsAnOwnerAsync(user, remainsOwner, cancellationToken);
+        if (keepsOwner.IsFailure)
+        {
+            return keepsOwner;
         }
 
         user.ReplaceRoles(assignments.Select(a => (a.RoleId, a.BranchId)), ids.NewId, current.UserId ?? user.Id, clock.UtcNow);
