@@ -80,7 +80,7 @@ public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, Pr
 /// Inicia una venta en la caja de la sesión (D7-01): exige la jornada ABIERTA de la caja (RN-SAL-01) y que no haya otra venta
 /// en curso (una a la vez; las demás se suspenden). La fecha de negocio es la de la jornada (D6-04).
 /// </summary>
-public sealed record StartSaleCommand : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record StartSaleCommand : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class StartSaleHandler(ISalesStore store, TerminalResolver terminals, CustomerResolver customers, IIdGenerator ids, IClock clock)
     : ICommandHandler<StartSaleCommand, SaleDto>
@@ -139,7 +139,7 @@ internal sealed class GetCurrentSaleHandler(ISalesStore store, TerminalResolver 
 /// La cantidad se calcula en la unidad del producto (kg, g, libra de 500 g o libra).</para>
 public sealed record AddLineCommand(
     Guid SaleId, string? Code, Guid? ProductId, Guid? PackagingId, decimal? Quantity, bool AuthorizeExpired = false, decimal? WeightKg = null,
-    string? WeightSource = null, bool AuthorizeManualWeight = false) : ICommand<SaleDto>, IAllowedWhenRestricted;
+    string? WeightSource = null, bool AuthorizeManualWeight = false) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class AddLineHandler(
     SaleEditor editor,
@@ -276,7 +276,7 @@ internal sealed class AddLineHandler(
     }
 }
 
-public sealed record ChangeQuantityCommand(Guid SaleId, Guid LineId, decimal Quantity) : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record ChangeQuantityCommand(Guid SaleId, Guid LineId, decimal Quantity) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class ChangeQuantityHandler(SaleEditor editor, StockGuard stock) : ICommandHandler<ChangeQuantityCommand, SaleDto>
 {
@@ -348,7 +348,7 @@ internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IC
 }
 
 /// <summary>Precio abierto (RN-SAL-05): el endpoint exige el permiso o la autorización de supervisor.</summary>
-public sealed record OverridePriceCommand(Guid SaleId, Guid LineId, decimal Price) : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record OverridePriceCommand(Guid SaleId, Guid LineId, decimal Price) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class OverridePriceHandler(SaleEditor editor, IAuthorizationScope authorization, IActorContext actor, IAuditWriter audit)
     : ICommandHandler<OverridePriceCommand, SaleDto>
@@ -388,7 +388,7 @@ internal sealed class OverridePriceHandler(SaleEditor editor, IAuthorizationScop
 /// Descuento manual de línea (<c>LineId</c>) o global (sin línea): SIEMPRE autorizado (RN-SAL-04, Fase 7 pregunta 4); el
 /// endpoint exige el permiso o la autorización de supervisor. Se aplica después de la promoción.
 /// </summary>
-public sealed record ApplyDiscountCommand(Guid SaleId, Guid? LineId, decimal? Percent, decimal? Amount, string Reason) : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record ApplyDiscountCommand(Guid SaleId, Guid? LineId, decimal? Percent, decimal? Amount, string Reason) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class ApplyDiscountHandler(
     SaleEditor editor, IAuthorizationScope authorization, IActorContext actor, IAuditWriter audit, IIdGenerator ids, IClock clock)
@@ -470,7 +470,7 @@ internal sealed class RemoveDiscountHandler(SaleEditor editor) : ICommandHandler
 /// precio del cliente (D8-09) y RE-PRECIA las líneas activas, salvo precio abierto, modificado o de etiqueta de báscula
 /// (RN-PRL-02); la respuesta avisa qué líneas cambiaron.
 /// </summary>
-public sealed record SetCustomerCommand(Guid SaleId, Guid? PartyId, bool? InvoiceRequested = null) : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record SetCustomerCommand(Guid SaleId, Guid? PartyId, bool? InvoiceRequested = null) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class SetCustomerHandler(SaleEditor editor, CustomerResolver customers, ICatalogSaleItems catalog) : ICommandHandler<SetCustomerCommand, SaleDto>
 {
@@ -516,7 +516,7 @@ internal sealed class SetCustomerHandler(SaleEditor editor, CustomerResolver cus
 }
 
 /// <summary>Suspende la venta con una etiqueta (RN-SAL-07): máximo por caja ⚙️; se resuelve antes del cierre.</summary>
-public sealed record HoldSaleCommand(Guid SaleId, string? Label) : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record HoldSaleCommand(Guid SaleId, string? Label) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class HoldSaleHandler(SaleEditor editor, ISalesStore store, ISettingsReader settings, IClock clock) : ICommandHandler<HoldSaleCommand, SaleDto>
 {
@@ -541,7 +541,7 @@ internal sealed class HoldSaleHandler(SaleEditor editor, ISalesStore store, ISet
 }
 
 /// <summary>Recupera una venta suspendida en la misma caja (si no hay otra en curso) y la recalcula con las promociones de ahora.</summary>
-public sealed record ResumeSaleCommand(Guid SaleId) : ICommand<SaleDto>, IAllowedWhenRestricted;
+public sealed record ResumeSaleCommand(Guid SaleId) : ICommand<SaleDto>, IRestrictedSalesWindow;
 
 internal sealed class ResumeSaleHandler(SaleEditor editor, ISalesStore store) : ICommandHandler<ResumeSaleCommand, SaleDto>
 {

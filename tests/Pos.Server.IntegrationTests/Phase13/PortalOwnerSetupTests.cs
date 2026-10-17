@@ -1,18 +1,31 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pos.Licensing.Contracts;
 using Pos.Modules.Identity.Contracts;
+using Pos.Modules.Licensing.Application;
+using Pos.Modules.Licensing.Infrastructure;
 using Pos.Server.IntegrationTests.Phase2;
 
 namespace Pos.Server.IntegrationTests.Phase13;
 
-/// <summary>Servidor que confía en una clave de firma de prueba (la "nube" que firma el enlace del propietario).</summary>
+/// <summary>
+/// Servidor que confía en una clave de firma de prueba (la "nube" que firma el enlace del propietario). La clave se inyecta como
+/// servicio (no por configuración): vale igual en Debug y en Release (R1).
+/// </summary>
 public sealed class PortalOwnerServerFactory : PosServerFactory
 {
     public LicenseSigningKey CloudKey { get; } = LicenseSigningKey.Generate();
 
-    protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings =>
-        [new("Pos:Licensing:DevelopmentTrustedKeys:0", CloudKey.PublicKey.X)];
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureTestServices(services =>
+            services.Replace(ServiceDescriptor.Singleton<ILicenseKeys>(new EmbeddedLicenseKeys([CloudKey.PublicKey.X]))));
+    }
 
     public override async ValueTask DisposeAsync()
     {

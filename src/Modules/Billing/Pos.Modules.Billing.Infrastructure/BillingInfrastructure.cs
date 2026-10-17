@@ -757,6 +757,13 @@ internal sealed partial class FiscalQueueWorker(
 
 public static class BillingInfrastructureRegistration
 {
+    /// <summary>¿Existe el proveedor simulado por configuración (<c>Pos:Billing:Provider = FAKE</c>)? Solo en compilación Debug (R1).</summary>
+#if DEBUG
+    internal const bool FakeProviderCompiledIn = true;
+#else
+    internal const bool FakeProviderCompiledIn = false;
+#endif
+
     public static void Register(IServiceCollection services)
     {
         // La configuración se lee al resolver (no al registrar): así la ven también los ajustes que agregan las pruebas.
@@ -777,7 +784,9 @@ public static class BillingInfrastructureRegistration
         services.AddScoped<FiscalDocumentProcessor>();
         services.AddScoped<FiscalRangeService>();
 
-        // Adaptador del proveedor: el nulo por defecto (fase apagada); el simulado solo fuera de producción; Factus con Provider = FACTUS.
+        // Adaptador del proveedor: el nulo por defecto (fase apagada); Factus con Provider = FACTUS. El simulado por configuración solo
+        // existe en compilación Debug (R1: el entorno lo cambia cualquier administrador de Windows); las pruebas de integración lo
+        // inyectan reemplazando IFiscalProvider, que funciona también en Release.
         services.AddSingleton<NullFiscalProvider>();
         services.AddSingleton<FakeFiscalProvider>();
         services.AddFactusApi();
@@ -785,7 +794,7 @@ public static class BillingInfrastructureRegistration
         services.AddSingleton<FactusFiscalProvider>();
         services.AddSingleton<IFiscalProvider>(sp => sp.GetRequiredService<BillingOptions>().Provider switch
         {
-            "FAKE" when !sp.GetRequiredService<IHostEnvironment>().IsProduction() => sp.GetRequiredService<FakeFiscalProvider>(),
+            "FAKE" when FakeProviderCompiledIn && !sp.GetRequiredService<IHostEnvironment>().IsProduction() => sp.GetRequiredService<FakeFiscalProvider>(),
             FactusFiscalProvider.ProviderName => sp.GetRequiredService<FactusFiscalProvider>(),
             _ => sp.GetRequiredService<NullFiscalProvider>(),
         });

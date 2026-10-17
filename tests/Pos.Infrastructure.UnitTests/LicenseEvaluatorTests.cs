@@ -35,8 +35,8 @@ public sealed class LicenseEvaluatorTests : IDisposable
     [Fact]
     public void Vigente_sin_conexion_gracia_y_restringida_segun_el_reloj()
     {
-        var checkin = new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero);
-        var record = Record(Token(), lastCheckin: checkin);
+        var checkin = new DateTimeOffset(2026, 12, 15, 0, 0, 0, TimeSpan.Zero);
+        var record = Record(Token(issuedAt: checkin), lastCheckin: checkin);
 
         Evaluate(record, checkin.AddHours(2)).State.ShouldBe(LicenseStates.Valid);
         Evaluate(record, checkin.AddDays(3)).State.ShouldBe(LicenseStates.ValidOffline);
@@ -56,14 +56,14 @@ public sealed class LicenseEvaluatorTests : IDisposable
     public void El_estado_de_la_suscripcion_informado_por_la_nube_manda(string subscription, string expected)
     {
         var at = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
-        Evaluate(Record(Token(subscription), lastCheckin: at), at.AddHours(1)).State.ShouldBe(expected);
+        Evaluate(Record(Token(subscription, at), lastCheckin: at), at.AddHours(1)).State.ShouldBe(expected);
     }
 
     [Fact]
     public void Otro_equipo_otra_instalacion_o_un_token_no_confiable_no_sirven()
     {
         var at = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
-        var record = Record(Token(), lastCheckin: at);
+        var record = Record(Token(issuedAt: at), lastCheckin: at);
 
         // Cambiar el disco: 2 de 3 siguen coincidiendo.
         LicenseEvaluator.Evaluate(record, Verify(record.Token!), DeviceFingerprint.FromHardware("PLACA", "OTRO", "MAQUINA"), DeviceRoles.AllInOne, at)
@@ -83,7 +83,7 @@ public sealed class LicenseEvaluatorTests : IDisposable
     public void Atrasar_el_reloj_mas_de_24_horas_restringe_hasta_que_la_hora_confiable_lo_corrige()
     {
         var seen = new DateTimeOffset(2026, 11, 10, 0, 0, 0, TimeSpan.Zero);
-        var record = Record(Token(), lastCheckin: seen, maxObserved: seen);
+        var record = Record(Token(issuedAt: seen), lastCheckin: seen, maxObserved: seen);
 
         Evaluate(record, seen.AddHours(-23)).State.ShouldNotBe(LicenseStates.Restricted);
         var rolledBack = Evaluate(record, seen.AddHours(-25));
@@ -117,9 +117,10 @@ public sealed class LicenseEvaluatorTests : IDisposable
 
     private LicenseTokenVerification Verify(string token) => LicenseToken.Verify(token, Ring);
 
-    private string Token(string subscription = SubscriptionStatuses.Active) => LicenseToken.Sign(Claims(subscription), _key);
+    private string Token(string subscription = SubscriptionStatuses.Active, DateTimeOffset? issuedAt = null) =>
+        LicenseToken.Sign(Claims(subscription, issuedAt), _key);
 
-    private static LicenseClaims Claims(string subscription) => new()
+    private static LicenseClaims Claims(string subscription, DateTimeOffset? issuedAt = null) => new()
     {
         LicenseId = Guid.CreateVersion7(),
         OrganizationNit = "900123456-7",
@@ -129,7 +130,7 @@ public sealed class LicenseEvaluatorTests : IDisposable
         DeviceRole = DeviceRoles.AllInOne,
         Edition = LicenseEditions.SingleTerminal,
         SubscriptionStatus = subscription,
-        IssuedAt = Installed,
+        IssuedAt = issuedAt ?? Installed,
         ValidUntil = ValidUntil,
         GraceDays = 7,
         RefreshAfter = Installed.AddDays(1),

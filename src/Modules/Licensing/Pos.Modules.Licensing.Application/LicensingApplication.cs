@@ -92,14 +92,18 @@ public interface ILicenseStateStore
 
     Task<string?> GetLastStateAsync(CancellationToken cancellationToken);
 
-    Task SetLastStateAsync(string state, CancellationToken cancellationToken);
+    /// <summary>Guarda el último estado calculado y desde cuándo está restringida (<c>null</c> si no lo está; H6).</summary>
+    Task SetLastStateAsync(string state, DateTimeOffset? restrictedSince, CancellationToken cancellationToken);
 
     /// <summary>
     /// Guarda un token verificado (con la hora CONFIABLE de su emisión) y limpia los indicadores (revocada, reactivación, liberado).
     /// <paramref name="paymentUrl"/> reemplaza el enlace de pago guardado (<c>null</c> lo borra: la licencia está al día).
+    /// <paramref name="trustedNow"/> = hora confiable de la nube: REEMPLAZA la mayor hora observada aunque sea menor (R2: un reloj
+    /// adelantado por error se corrige con el siguiente check-in).
     /// </summary>
     Task SaveTokenAsync(
-        string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, string? paymentUrl, CancellationToken cancellationToken);
+        string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, string? paymentUrl, DateTimeOffset trustedNow,
+        CancellationToken cancellationToken);
 
     Task SaveCheckinErrorAsync(string error, bool? revoked, bool? reactivationRequired, CancellationToken cancellationToken);
 
@@ -158,28 +162,56 @@ public interface ILicenseKeys
     LicenseKeyRing Ring { get; }
 }
 
-/// <summary>Último estado calculado, en memoria: lo leen el filtro del pipeline, <c>/auth/me</c> y los documentos impresos.</summary>
-public sealed class LicenseStateCache : ILicenseGate, ILicenseStatus
+/// <summary>Parámetros de la evaluación que fija la instalación (N1). Solo pueden ACORTAR el máximo del producto.</summary>
+public sealed record LicensePolicy(int MaxOfflineDays = LicenseEvaluator.DefaultMaxOfflineDays)
 {
+    public static readonly LicensePolicy Default = new();
+}
+
+/// <summary>
+/// Último estado calculado, en memoria: lo leen el filtro del pipeline, <c>/auth/me</c> y los documentos impresos. Si no hay un cálculo
+/// exitoso en <see cref="StaleAfter"/> (H5: la evaluación falla una y otra vez), el filtro pasa a RESTRINGIDA con un mensaje claro;
+/// la edad se mide con el reloj MONÓTONO (cambiar la hora de Windows no la altera).
+/// </summary>
+public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate, ILicenseStatus
+{
+    /// <summary>Tolerancia a fallos transitorios del cálculo (BD caída, error inesperado) antes de restringir.</summary>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromHours(1);
+
+    public const string StaleReason =
+        "No se pudo calcular el estado de la licencia en la última hora (error interno o base de datos no disponible). Revise que el servicio y la base de datos estén funcionando y verifique la licencia.";
+
+    private static readonly LicenseGateState Stale = new(true, false, StaleReason, SalesWindowClosed: false);
+
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly long _startedAt = (time ?? TimeProvider.System).GetTimestamp();
     private volatile Snapshot? _snapshot;
 
-    private sealed record Snapshot(LicenseEvaluation Evaluation, LicenseGateState Gate, string? PaymentUrl);
+    private sealed record Snapshot(LicenseEvaluation Evaluation, LicenseGateState Gate, string? PaymentUrl, long At);
 
     public LicenseEvaluation? Current => _snapshot?.Evaluation;
 
-    LicenseGateState ILicenseGate.Current => _snapshot?.Gate ?? LicenseGateState.Unrestricted;
+    LicenseGateState ILicenseGate.Current => _snapshot is { } s
+        ? (_time.GetElapsedTime(s.At) > StaleAfter ? Stale : s.Gate)
+        : (_time.GetElapsedTime(_startedAt) > StaleAfter ? Stale : LicenseGateState.Unrestricted);
 
     public LicenseSummaryDto Summary => _snapshot is { } s
         ? new LicenseSummaryDto(s.Evaluation.State, s.Evaluation.DaysLeft, s.Evaluation.Notices, s.PaymentUrl)
         : new LicenseSummaryDto(LicenseStates.Demo, null, []);
 
-    public void Update(LicenseEvaluation evaluation, string? paymentUrl = null)
+    /// <param name="evaluation">Estado calculado.</param>
+    /// <param name="paymentUrl">Enlace de pago vigente.</param>
+    /// <param name="salesWindowClosed">Restringida desde hace más de <see cref="LicenseEvaluator.RestrictedSalesWindow"/> (H6).</param>
+    public void Update(LicenseEvaluation evaluation, string? paymentUrl = null, bool salesWindowClosed = false)
     {
         ArgumentNullException.ThrowIfNull(evaluation);
         _snapshot = new Snapshot(
             evaluation,
-            new LicenseGateState(evaluation.Restricted, evaluation.State == LicenseStates.Demo, evaluation.Restricted ? evaluation.Reason : null),
-            paymentUrl);
+            new LicenseGateState(
+                evaluation.Restricted, evaluation.State == LicenseStates.Demo, evaluation.Restricted ? evaluation.Reason : null,
+                evaluation.Restricted && salesWindowClosed),
+            paymentUrl,
+            _time.GetTimestamp());
     }
 }
 
@@ -198,15 +230,19 @@ public sealed class LicenseService(
     IInstallationContext installation,
     IAuditWriter audit,
     IAuditAnchor anchor,
-    IClock clock)
+    IClock clock,
+    LicensePolicy? policy = null)
 {
+    private readonly LicensePolicy _policy = policy ?? LicensePolicy.Default;
+
     public string LocalDeviceRole => installation.NodeRole == NodeRole.StoreServer ? DeviceRoles.StoreServer : DeviceRoles.AllInOne;
 
     /// <summary>
     /// Recalcula el estado. Con <paramref name="persist"/> (dentro de un comando) además audita si cambió (<c>LICENSE_STATE_CHANGED</c>)
-    /// y sube la mayor hora observada; las consultas solo leen.
+    /// y sube la mayor hora observada (con el reloj y con el tiempo de funcionamiento <paramref name="elapsed"/>, H3); las consultas solo leen.
     /// </summary>
-    public async Task<(LicenseEvaluation Evaluation, LicenseRecord Record)?> RefreshAsync(bool persist, CancellationToken cancellationToken)
+    public async Task<(LicenseEvaluation Evaluation, LicenseRecord Record)?> RefreshAsync(
+        bool persist, CancellationToken cancellationToken, TimeSpan? elapsed = null)
     {
         var record = await store.GetAsync(cancellationToken);
         if (record is null)
@@ -220,21 +256,28 @@ public sealed class LicenseService(
         }
 
         var evaluation = Evaluate(record);
-        cache.Update(evaluation, PaymentUrlOf(record));
+        var trustedNow = LicenseEvaluator.TrustedNow(record, evaluation);
+        var restrictedSince = evaluation.Restricted ? record.RestrictedSince ?? (persist ? trustedNow : null) : null;
+        cache.Update(evaluation, PaymentUrlOf(record), SalesWindowClosed(record, evaluation.Restricted ? restrictedSince : null, trustedNow));
         if (!persist)
         {
             return (evaluation, record);
         }
 
-        if (!evaluation.ClockRollback && evaluation.EffectiveNow > record.MaxObservedUtc)
+        var mark = LicenseEvaluator.NextMark(record, evaluation, elapsed);
+        if (mark > record.MaxObservedUtc)
         {
-            await store.RaiseMaxObservedAsync(evaluation.EffectiveNow, cancellationToken);
+            await store.RaiseMaxObservedAsync(mark, cancellationToken);
         }
 
         var previous = await store.GetLastStateAsync(cancellationToken);
+        if (previous != evaluation.State || restrictedSince != record.RestrictedSince)
+        {
+            await store.SetLastStateAsync(evaluation.State, restrictedSince, cancellationToken);
+        }
+
         if (previous != evaluation.State)
         {
-            await store.SetLastStateAsync(evaluation.State, cancellationToken);
             if (installation.IsSetupCompleted && previous is not null)
             {
                 if (evaluation.ClockRollback)
@@ -258,8 +301,8 @@ public sealed class LicenseService(
         return (evaluation, record);
     }
 
-    public async Task<Result<LicenseStatusDto>> StatusAsync(CancellationToken cancellationToken, bool persist = true) =>
-        await RefreshAsync(persist, cancellationToken) is { } current
+    public async Task<Result<LicenseStatusDto>> StatusAsync(CancellationToken cancellationToken, bool persist = true, TimeSpan? elapsed = null) =>
+        await RefreshAsync(persist, cancellationToken, elapsed) is { } current
             ? ToDto(current.Evaluation, current.Record)
             : Result.Failure<LicenseStatusDto>(LicenseErrors.SetupRequired);
 
@@ -296,14 +339,14 @@ public sealed class LicenseService(
             return Result.Failure<LicenseStatusDto>(result.Unreachable ? LicenseErrors.Unreachable : LicenseErrors.FromCloud(result.ErrorCode!, result.ErrorMessage));
         }
 
-        if (VerifyForThisDevice(response.Token) is not { } claims)
+        if (VerifyForThisDevice(response.Token, site.OrganizationNit, await store.GetAsync(cancellationToken)) is not { } claims)
         {
             return Result.Failure<LicenseStatusDto>(LicenseErrors.TokenRejected);
         }
 
         await store.SaveTokenAsync(
             response.Token, LicenseKey.VisiblePrefix(key), claims.IssuedAt, activation: true, Offset(claims), LicensePaymentLink.Normalize(response.PaymentUrl),
-            cancellationToken);
+            TrustedNow(claims), cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("licensing", "LICENSE_ACTIVATED", "License", installation.NodeId, "Licencia",
                 $"Licencia {LicenseKey.VisiblePrefix(key)}… activada: {claims.OrganizationName} ({claims.OrganizationNit}), edición {claims.Edition}, vigente hasta {claims.ValidUntil:yyyy-MM-dd}."),
@@ -333,12 +376,12 @@ public sealed class LicenseService(
                 seal is null ? null : new CheckinAuditSeal(installation.NodeId, seal.SealNo, seal.ShortCode, seal.SealedAt), site?.BusinessProfile),
             cancellationToken);
         await RecordAsync(kind, started, result, cancellationToken);
-        if (result.Response is { } response && VerifyForThisDevice(response.Token) is { } claims)
+        if (result.Response is { } response && VerifyForThisDevice(response.Token, site?.OrganizationNit, record) is { } claims)
         {
             // El enlace de pago se reemplaza con lo que diga la nube: si ya no lo envía (pago aplicado), se borra.
             await store.SaveTokenAsync(
                 response.Token, record.LicenseKeyPrefix, claims.IssuedAt, activation: false, Offset(claims), LicensePaymentLink.Normalize(response.PaymentUrl),
-                cancellationToken);
+                TrustedNow(claims), cancellationToken);
         }
         else
         {
@@ -398,21 +441,43 @@ public sealed class LicenseService(
 
     internal LicenseEvaluation Evaluate(LicenseRecord record) =>
         LicenseEvaluator.Evaluate(
-            record, record.Token is null ? null : LicenseToken.Verify(record.Token, keys.Ring), device.Fingerprint, LocalDeviceRole, clock.UtcNow);
+            record, record.Token is null ? null : LicenseToken.Verify(record.Token, keys.Ring), device.Fingerprint, LocalDeviceRole, clock.UtcNow,
+            _policy.MaxOfflineDays);
 
-    /// <summary>Acepta el token solo si verifica con las claves de confianza y es de ESTA instalación y ESTE equipo.</summary>
-    private LicenseClaims? VerifyForThisDevice(string token)
+    /// <summary>
+    /// Acepta el token solo si verifica con las claves de confianza, es de ESTA instalación y ESTE equipo, es de la empresa configurada
+    /// (H7) y no es más viejo que el vigente (H4: no se puede volver a un token anterior para retroceder la hora confiable).
+    /// </summary>
+    private LicenseClaims? VerifyForThisDevice(string token, string? companyNit, LicenseRecord? current)
     {
         var verification = LicenseToken.Verify(token, keys.Ring);
         if (verification is not { IsValid: true, Claims: { } claims } || claims.InstallationId != installation.NodeId
             || device.Fingerprint is not { } fingerprint || !DeviceFingerprint.TryParse(claims.DeviceFingerprint, out var tokenDevice)
-            || !fingerprint.Matches(tokenDevice))
+            || !fingerprint.Matches(tokenDevice)
+            || (companyNit is not null && !LicenseEvaluator.SameNit(claims.OrganizationNit, companyNit)))
+        {
+            return null;
+        }
+
+        if (current?.Token is { } existing && LicenseToken.Verify(existing, keys.Ring) is { IsValid: true, Claims: { } vigente }
+            && claims.IssuedAt < vigente.IssuedAt)
         {
             return null;
         }
 
         return claims;
     }
+
+    /// <summary>Hora confiable al recibir un token (R2): la emisión firmada o el reloj corregido, la que sea mayor.</summary>
+    private DateTimeOffset TrustedNow(LicenseClaims claims)
+    {
+        var corrected = clock.UtcNow.AddSeconds(Offset(claims));
+        return corrected > claims.IssuedAt ? corrected : claims.IssuedAt;
+    }
+
+    /// <summary>¿Pasó la ventana de 24 h para vender desde que quedó restringida (H6)? Con el estado alterado no se confía en la fecha.</summary>
+    private static bool SalesWindowClosed(LicenseRecord record, DateTimeOffset? restrictedSince, DateTimeOffset trustedNow) =>
+        restrictedSince is { } since && (record.Tampered || trustedNow - since > LicenseEvaluator.RestrictedSalesWindow);
 
     /// <summary>Hora confiable (emisión del token) menos el reloj local; diferencias menores a 5 minutos se ignoran (latencia).</summary>
     private long Offset(LicenseClaims claims)
@@ -497,10 +562,14 @@ internal sealed class DeactivateLicenseHandler(LicenseService service) : IComman
         service.DeactivateAsync(command.Reason, cancellationToken);
 }
 
-/// <summary>Recalcula el estado (cada minuto y al arrancar): audita los cambios y sube la mayor hora observada.</summary>
-public sealed record RefreshLicenseCommand : ICommand<LicenseStatusDto>, IAllowedWhenRestricted;
+/// <summary>
+/// Recalcula el estado (cada minuto y al arrancar): audita los cambios y sube la mayor hora observada. <c>Elapsed</c> = tiempo de
+/// funcionamiento desde el recálculo anterior, medido por el proceso de fondo con el reloj monótono (H3).
+/// </summary>
+public sealed record RefreshLicenseCommand(TimeSpan? Elapsed = null) : ICommand<LicenseStatusDto>, IAllowedWhenRestricted;
 
 internal sealed class RefreshLicenseHandler(LicenseService service) : ICommandHandler<RefreshLicenseCommand, LicenseStatusDto>
 {
-    public Task<Result<LicenseStatusDto>> Handle(RefreshLicenseCommand command, CancellationToken cancellationToken) => service.StatusAsync(cancellationToken);
+    public Task<Result<LicenseStatusDto>> Handle(RefreshLicenseCommand command, CancellationToken cancellationToken) =>
+        service.StatusAsync(cancellationToken, elapsed: command.Elapsed);
 }

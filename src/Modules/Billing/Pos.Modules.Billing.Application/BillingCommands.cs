@@ -102,7 +102,7 @@ public sealed record CorrectFiscalBuyerCommand(
     IReadOnlyList<string>? Responsibilities,
     string? Address,
     string? MunicipalityCode,
-    string? Phone) : ICommand<FiscalDocumentDto>;
+    string? Phone) : ICommand<FiscalDocumentDto>, IAllowedWhenRestricted;
 
 internal sealed class CorrectFiscalBuyerHandler(
     IFiscalDocumentStore store, IOutbox outbox, FiscalQueueSignal signal, IAuditWriter audit, IActorContext actor, IIdGenerator ids, IClock clock)
@@ -169,7 +169,7 @@ internal sealed class GetBillingSettingsHandler(
 }
 
 /// <summary>Modo de emisión (OFF, ON_REQUEST, EVERY_SALE) y ambiente (SANDBOX, PRODUCTION). Encender exige credenciales.</summary>
-public sealed record UpdateBillingSettingsCommand(string Mode, string Environment) : ICommand<BillingSettingsDto>;
+public sealed record UpdateBillingSettingsCommand(string Mode, string Environment) : ICommand<BillingSettingsDto>, IAllowedWhenRestricted;
 
 internal sealed class UpdateBillingSettingsHandler(
     IBillingSettingsStore store, IFiscalProvider provider, ISettingsReader settings, IInstallationContext installation, IAuditWriter audit)
@@ -213,7 +213,8 @@ internal sealed class UpdateBillingSettingsHandler(
 }
 
 /// <summary>Credenciales del proveedor (D11B-08): se cifran con DPAPI al recibirlas y nunca se devuelven ni se registran.</summary>
-public sealed record SetProviderCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret) : ICommand<BillingSettingsDto>
+public sealed record SetProviderCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret) : ICommand<BillingSettingsDto>,
+    IAllowedWhenRestricted
 {
     public override string ToString() => "SetProviderCredentialsCommand { *** }";
 }

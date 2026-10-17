@@ -157,19 +157,22 @@ public sealed class LicensePaymentLinkTests : IDisposable
 
         public Task<string?> GetLastStateAsync(CancellationToken cancellationToken) => Task.FromResult(_lastState);
 
-        public Task SetLastStateAsync(string state, CancellationToken cancellationToken)
+        public Task SetLastStateAsync(string state, DateTimeOffset? restrictedSince, CancellationToken cancellationToken)
         {
             _lastState = state;
+            Record = Record with { RestrictedSince = restrictedSince };
             return Task.CompletedTask;
         }
 
         public Task SaveTokenAsync(
-            string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, string? paymentUrl, CancellationToken cancellationToken)
+            string token, string? keyPrefix, DateTimeOffset at, bool activation, long clockOffsetSeconds, string? paymentUrl, DateTimeOffset trustedNow,
+            CancellationToken cancellationToken)
         {
             Record = Record with
             {
                 Token = token, LicenseKeyPrefix = keyPrefix ?? Record.LicenseKeyPrefix, ActivatedAt = activation ? at : Record.ActivatedAt,
                 LastCheckinAt = at, LastCheckinError = null, Deactivated = false, ClockOffsetSeconds = clockOffsetSeconds, PaymentUrl = paymentUrl,
+                MaxObservedUtc = trustedNow,
             };
             return Task.CompletedTask;
         }

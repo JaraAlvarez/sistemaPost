@@ -57,14 +57,35 @@ public sealed record UpdaterSettings(
             configuration["Pos:Database:ConnectionString"],
             configuration["Pos:Backup:PgBinPath"],
             mode == UpdaterMode.Terminal ? [$"{product}-TerminalAgent"] : [$"{product}-Server", $"{product}-TerminalAgent"],
-            production ? [] : [.. updates.GetSection("DevelopmentTrustedKeys").GetChildren().Select(c => c.Value).OfType<string>()]);
+            DevelopmentKeys(updates, DevelopmentKeysCompiledIn && !production));
+    }
+
+    /// <summary>
+    /// Claves de desarrollo de los manifiestos (<c>Pos:Updates:DevelopmentTrustedKeys</c>): solo existen en compilación Debug y fuera de
+    /// producción (R1). El entorno lo cambia cualquier administrador de Windows, así que en Release nunca se leen.
+    /// </summary>
+#if DEBUG
+    internal const bool DevelopmentKeysCompiledIn = true;
+#else
+    internal const bool DevelopmentKeysCompiledIn = false;
+#endif
+
+    internal static IReadOnlyList<string> DevelopmentKeys(IConfiguration updates, bool enabled)
+    {
+#if DEBUG
+        return enabled ? [.. updates.GetSection("DevelopmentTrustedKeys").GetChildren().Select(c => c.Value).OfType<string>()] : [];
+#else
+        _ = updates;
+        _ = enabled;
+        return [];
+#endif
     }
 
     private static int Int(string? text, int fallback, int min, int max) =>
         int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value >= min && value <= max ? value : fallback;
 }
 
-/// <summary>Claves públicas de confianza para los manifiestos: embebidas (<c>update-keys.json</c>) y, fuera de producción, las de la configuración.</summary>
+/// <summary>Claves públicas de confianza para los manifiestos: embebidas (<c>update-keys.json</c>) y, solo en Debug fuera de producción, las de la configuración.</summary>
 public static class UpdateKeys
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
