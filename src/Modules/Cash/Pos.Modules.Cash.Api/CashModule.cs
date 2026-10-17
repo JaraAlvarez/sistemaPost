@@ -93,6 +93,10 @@ public sealed class CashModule : IModule
                 (await d.Send(command, ct)).ToHttpResult())
             .RequirePermission(CashPermissions.SessionOperate)
             .WithSummary("Crea el cobro en Sistecrédito para la venta en curso (requiere internet) y devuelve la URL de pago para el QR");
+        group.MapGet("/sales/{saleId:guid}/approved", async (Guid saleId, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ListUsableSistecreditoPaymentsQuery(saleId), ct)).ToHttpResult())
+            .RequirePermission(CashPermissions.SessionOperate)
+            .WithSummary("Cobros aprobados y sin usar de la venta: la caja los vuelve a poner como pago al abrir el cobro (nunca se cobra dos veces)");
         group.MapGet("/payments/{attemptId:guid}", async (Guid attemptId, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new GetSistecreditoPaymentQuery(attemptId), ct)).ToHttpResult())
             .RequirePermission(CashPermissions.SessionOperate);

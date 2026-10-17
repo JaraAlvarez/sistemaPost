@@ -268,6 +268,55 @@ public class SistecreditoGatewayTests
         fake.Calls.Select(c => c.Headers["SCOrigen"]).ShouldBe(["Staging", "Production"]);
     }
 
+    // Revisión de código M2: "Conectar" no puede dar por buenas unas llaves solo porque la respuesta no traiga errorCode.
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task Verificar_con_401_o_403_de_la_puerta_de_enlace_son_llaves_rechazadas(HttpStatusCode status)
+    {
+        var (gateway, fake) = Gateway((_, _) => Json(new { statusCode = (int)status, message = "Access denied due to invalid subscription key." }, status));
+
+        var result = await gateway.VerifyCredentialsAsync(new SistecreditoConnection(Keys, SistecreditoEnvironment.Production), Ct);
+
+        result.Ok.ShouldBeFalse();
+        result.Message.ShouldContain("no reconoce las credenciales");
+        result.WorkingEnvironment.ShouldBeNull();
+        fake.Calls.Count.ShouldBe(2); // también prueba el otro ambiente
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError, "")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "<html>Service Unavailable</html>")]
+    [InlineData(HttpStatusCode.OK, "")]
+    [InlineData(HttpStatusCode.OK, "<html>portal cautivo</html>")]
+    [InlineData(HttpStatusCode.NotFound, "{\"message\":\"Resource not found\"}")]
+    public async Task Verificar_sin_una_respuesta_reconocible_de_Sistecredito_no_queda_conectado(HttpStatusCode status, string body)
+    {
+        var (gateway, fake) = Gateway((_, _) => new HttpResponseMessage(status) { Content = new StringContent(body) });
+
+        var result = await gateway.VerifyCredentialsAsync(new SistecreditoConnection(Keys, SistecreditoEnvironment.Production), Ct);
+
+        result.Ok.ShouldBeFalse();
+        result.Message.ShouldContain("No se pudo verificar");
+        result.Message.ShouldContain("Intente de nuevo");
+        fake.Calls.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Verificar_con_401_en_el_ambiente_elegido_y_respuesta_valida_en_el_otro_dice_que_cambiar()
+    {
+        var (gateway, _) = Gateway((headers, _) => headers["SCOrigen"] == "Production"
+            ? Json(new { statusCode = 401, message = "Access denied" }, HttpStatusCode.Unauthorized)
+            : Json(new { errorCode = 0, data = new { _id = "abc" } }, HttpStatusCode.Created));
+
+        var result = await gateway.VerifyCredentialsAsync(new SistecreditoConnection(Keys, SistecreditoEnvironment.Production), Ct);
+
+        result.Ok.ShouldBeFalse();
+        result.WorkingEnvironment.ShouldBe(SistecreditoEnvironment.Staging);
+        result.Message.ShouldContain("Cambie el ambiente a Pruebas (Staging)");
+    }
+
     // ─────────────────────────────── Simulador HTTP ───────────────────────────────
 
     private static (SistecreditoHttpGateway Gateway, FakeHandler Fake) Gateway(Func<IReadOnlyDictionary<string, string>, string, HttpResponseMessage> respond)

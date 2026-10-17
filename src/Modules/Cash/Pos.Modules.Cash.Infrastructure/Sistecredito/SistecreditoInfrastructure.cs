@@ -37,6 +37,7 @@ internal sealed class SistecreditoModelContributor : IModelContributor
             b.Property(x => x.Environment).HasUpperSnakeConversion();
             b.Property(x => x.Status).HasUpperSnakeConversion();
             b.Ignore(x => x.MaskedDocument);
+            b.Ignore(x => x.IsUsable);
             b.HasControlColumns();
             b.HasXminConcurrency();
         });
@@ -67,14 +68,17 @@ internal sealed class SistecreditoStore(PosDbContext context) : ISistecreditoSto
         var pendingBefore = now.AddMinutes(-1);
         var cancelledSince = now.AddHours(-24);
         var recheckBefore = now.AddMinutes(-5);
-        var failed = SistecreditoProtocol.FailedStatuses.ToList();
+        var failed = SistecreditoProtocol.FailedStatuses.Append(SistecreditoProtocol.NotFoundStatus).ToList();
+
+        // El que lleva más tiempo sin consultarse va primero: así todos tienen turno aunque haya más de "limit" abiertos.
         return await context.Set<SistecreditoAttempt>()
             .Where(a => (a.Status == SistecreditoAttemptStatus.Pending && a.StartedAt < pendingBefore)
-                        || (a.Status == SistecreditoAttemptStatus.Cancelled && a.CompletedSaleId == null && a.StartedAt > cancelledSince
+                        || (a.Status == SistecreditoAttemptStatus.Cancelled && a.TransactionId != null && a.CompletedSaleId == null && a.StartedAt > cancelledSince
                             && (a.ProviderStatus == null || !failed.Contains(a.ProviderStatus))
                             && (a.LastCheckedAt == null || a.LastCheckedAt < recheckBefore))
                         || (a.Status == SistecreditoAttemptStatus.Approved && a.CompletedSaleId == null))
-            .OrderBy(a => a.StartedAt)
+            .OrderBy(a => a.LastCheckedAt ?? a.StartedAt)
+            .ThenBy(a => a.StartedAt)
             .Take(limit)
             .ToListAsync(cancellationToken);
     }
@@ -203,7 +207,7 @@ public static class SistecreditoInfrastructureRegistration
     /// <summary>
     /// <c>Pos:Sistecredito</c>: <c>ResponseUrl</c>, <c>ConfirmationUrl</c>, <c>Description</c>, <c>TimeoutSeconds</c> (⚙️ 20),
     /// <c>RedirectPollAttempts</c> (⚙️ 3), <c>RedirectPollIntervalMilliseconds</c> (⚙️ 1500), <c>ReconcileIntervalSeconds</c> (⚙️ 60),
-    /// <c>ReviewAfterMinutes</c> (⚙️ 15) y <c>Worker</c> (⚙️ true).
+    /// <c>ReviewAfterMinutes</c> (⚙️ 15), <c>PendingExpiryHours</c> (⚙️ 24), <c>UseRecheckTimeoutSeconds</c> (⚙️ 5) y <c>Worker</c> (⚙️ true).
     /// </summary>
     private static SistecreditoOptions Read(IConfiguration configuration)
     {
@@ -231,6 +235,8 @@ public static class SistecreditoInfrastructureRegistration
             : options.RedirectPollIntervalMilliseconds;
         options.ReconcileIntervalSeconds = int.TryParse(section["ReconcileIntervalSeconds"], out var reconcile) ? reconcile : options.ReconcileIntervalSeconds;
         options.ReviewAfterMinutes = int.TryParse(section["ReviewAfterMinutes"], out var review) ? review : options.ReviewAfterMinutes;
+        options.PendingExpiryHours = int.TryParse(section["PendingExpiryHours"], out var expiry) ? expiry : options.PendingExpiryHours;
+        options.UseRecheckTimeoutSeconds = int.TryParse(section["UseRecheckTimeoutSeconds"], out var recheck) ? recheck : options.UseRecheckTimeoutSeconds;
         options.Worker = !bool.TryParse(section["Worker"], out var worker) || worker;
         return options;
     }

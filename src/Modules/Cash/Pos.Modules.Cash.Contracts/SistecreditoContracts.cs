@@ -28,6 +28,7 @@ public sealed record SistecreditoVerificationDto(bool Ok, string Message, string
 /// <summary>
 /// Un cobro con Sistecrédito. <c>Status</c>: PENDING, APPROVED, REJECTED, EXPIRED, CANCELLED o REVIEW_REQUIRED. El documento va
 /// enmascarado (solo los últimos 4). <c>Warning</c>: aviso temporal (p. ej. sin conexión con Sistecrédito; se sigue intentando).
+/// <c>Usable</c>: aprobado y sin usar (aunque esté en REVIEW_REQUIRED): la caja lo agrega como pago de su venta.
 /// </summary>
 public sealed record SistecreditoPaymentDto(
     Guid Id,
@@ -48,7 +49,8 @@ public sealed record SistecreditoPaymentDto(
     Guid? CompletedSaleId,
     DateTimeOffset? ReviewRequiredAt,
     DateTimeOffset? ReviewedAt,
-    string? ReviewNote);
+    string? ReviewNote,
+    bool Usable = false);
 
 /// <summary>
 /// Sistecrédito visto por ventas (D7B-05): al completar una venta pagada con Sistecrédito, el pago debe corresponder a un cobro APROBADO
@@ -57,6 +59,12 @@ public sealed record SistecreditoPaymentDto(
 public interface ISistecreditoPayments
 {
     Task<Result> UseApprovedAsync(Guid saleId, string transactionId, decimal amount, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// La venta pagada con estos cobros se anuló: quedan "Requiere revisión" para que la administración reverse el pago en el portal de
+    /// Sistecrédito (Sistecrédito no tiene cómo reversarlo desde la caja). Queda en la bitácora.
+    /// </summary>
+    Task SaleVoidedAsync(Guid saleId, string? saleNumber, IReadOnlyList<string> transactionIds, CancellationToken cancellationToken = default);
 
     /// <summary>Cobros aprobados sin venta que la administración debe revisar (aviso en la franja de avisos).</summary>
     Task<int> CountPendingReviewsAsync(CancellationToken cancellationToken = default);

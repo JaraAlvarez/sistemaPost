@@ -135,20 +135,24 @@ public sealed class SistecreditoHttpGateway : ISistecreditoGateway
     {
         ArgumentNullException.ThrowIfNull(connection);
         var chosen = await WorksInAsync(connection.Credentials, connection.Environment, cancellationToken);
-        if (!chosen.Reached)
+        switch (chosen.Outcome)
         {
-            return new SistecreditoVerification(false, "No se pudo conectar con Sistecrédito: revise el internet de este equipo e intente de nuevo.", null);
+            case VerifyOutcome.Works:
+                return new SistecreditoVerification(true, $"Conexión correcta: Sistecrédito reconoce las llaves en {SistecreditoMapping.Name(connection.Environment)}.", null);
+            case VerifyOutcome.Unreachable:
+                return new SistecreditoVerification(false, "No se pudo conectar con Sistecrédito: revise el internet de este equipo e intente de nuevo.", null);
+            case VerifyOutcome.Unverifiable:
+                return new SistecreditoVerification(
+                    false,
+                    $"No se pudo verificar la conexión: Sistecrédito no respondió bien en este momento{(chosen.HttpStatus is { } http ? $" (código {http})" : string.Empty)}. "
+                    + "Intente de nuevo en unos minutos; mientras tanto Sistecrédito no se activa.",
+                    null);
         }
 
-        if (chosen.Works)
-        {
-            return new SistecreditoVerification(true, $"Conexión correcta: Sistecrédito reconoce las llaves en {SistecreditoMapping.Name(connection.Environment)}.", null);
-        }
-
-        // Falló en el ambiente elegido: si en el otro sí las reconocen, el problema es el ambiente (Sistecrédito da un juego de llaves por ambiente).
+        // Llaves rechazadas en el ambiente elegido: si en el otro sí las reconocen, el problema es el ambiente (Sistecrédito da un juego de llaves por ambiente).
         var otherEnvironment = connection.Environment == SistecreditoEnvironment.Staging ? SistecreditoEnvironment.Production : SistecreditoEnvironment.Staging;
         var other = await WorksInAsync(connection.Credentials, otherEnvironment, cancellationToken);
-        if (other is { Works: true, Reached: true })
+        if (other.Outcome == VerifyOutcome.Works)
         {
             var label = otherEnvironment == SistecreditoEnvironment.Staging ? "Pruebas (Staging)" : "Producción";
             return new SistecreditoVerification(
@@ -163,11 +167,29 @@ public sealed class SistecreditoHttpGateway : ISistecreditoGateway
 
     // ─────────────────────────────── Detalle del protocolo ───────────────────────────────
 
+    /// <summary>Resultado de probar las llaves contra un ambiente.</summary>
+    private enum VerifyOutcome
+    {
+        /// <summary>Sistecrédito respondió con su formato y no rechazó las llaves.</summary>
+        Works,
+
+        /// <summary>Sistecrédito (o su puerta de enlace, HTTP 401/403) rechazó las llaves.</summary>
+        CredentialsRejected,
+
+        /// <summary>Sin internet o tiempo agotado.</summary>
+        Unreachable,
+
+        /// <summary>Respondió algo que no es de Sistecrédito (5xx, vacío, HTML…): no se sabe si las llaves sirven.</summary>
+        Unverifiable,
+    }
+
     /// <summary>
     /// Una llamada de verificación contra un ambiente: crea una transacción (queda sin pagar y vence sola). NO usa el simulador: con él
-    /// Sistecrédito responde 618 "SandboxNotDefined" antes de mirar las llaves y las malas pasaban sin aviso.
+    /// Sistecrédito responde 618 "SandboxNotDefined" antes de mirar las llaves y las malas pasaban sin aviso. Solo cuenta como "funciona"
+    /// una respuesta reconocible de Sistecrédito (JSON con <c>errorCode</c> o <c>data</c>) que no sea de llaves rechazadas; un 401/403 de
+    /// la puerta de enlace son llaves malas y un 5xx o una respuesta vacía es "no se pudo verificar".
     /// </summary>
-    private async Task<(bool Works, int? ErrorCode, bool Reached)> WorksInAsync(
+    private async Task<(VerifyOutcome Outcome, int? ErrorCode, int? HttpStatus)> WorksInAsync(
         SistecreditoCredentials credentials, SistecreditoEnvironment environment, CancellationToken cancellationToken)
     {
         var payload = Payload(
@@ -180,12 +202,25 @@ public sealed class SistecreditoHttpGateway : ISistecreditoGateway
             timeout.CancelAfter(Timeout);
             using var response = await _http.SendAsync(request, timeout.Token);
             var body = await response.Content.ReadAsStringAsync(timeout.Token);
-            var code = TryParse(body) is { } root ? ErrorCode(root) : null;
-            return (code is null || !CredentialErrorCodes.Contains(code.Value), code, true);
+            var status = (int)response.StatusCode;
+            var root = TryParse(body);
+            var code = root is { } parsed ? ErrorCode(parsed) : null;
+            if (code is { } known && CredentialErrorCodes.Contains(known))
+            {
+                return (VerifyOutcome.CredentialsRejected, code, status);
+            }
+
+            if (status is 401 or 403)
+            {
+                return (VerifyOutcome.CredentialsRejected, code, status);
+            }
+
+            var recognizable = root is { } json && (Property(json, "errorCode") is not null || Property(json, "data") is not null);
+            return status >= 500 || !recognizable ? (VerifyOutcome.Unverifiable, code, status) : (VerifyOutcome.Works, code, status);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            return (true, null, false);
+            return (VerifyOutcome.Unreachable, null, null);
         }
     }
 

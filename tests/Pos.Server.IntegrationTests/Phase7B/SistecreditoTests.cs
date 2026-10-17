@@ -225,11 +225,11 @@ public class SistecreditoTests
         await Should.ThrowAsync<PostgresException>(() => shop.Catalog.ExecuteAsync("DELETE FROM cash.sistecredito_attempts"));
     }
 
-    private static object Start(Guid saleId, decimal amount, string document = "1020304050") =>
+    internal static object Start(Guid saleId, decimal amount, string document = "1020304050") =>
         new { saleId, amount, documentType = "CC", documentNumber = document };
 
     /// <summary>Lo que hace el proceso en segundo plano, a la hora indicada.</summary>
-    private static async Task<(int Checked, int Changed)> ReconcileAsync(SistecreditoServerFactory factory, DateTimeOffset now)
+    internal static async Task<(int Checked, int Changed)> ReconcileAsync(SistecreditoServerFactory factory, DateTimeOffset now)
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var result = await scope.ServiceProvider.GetRequiredService<SistecreditoReconciler>().RunAsync(now, Ct);
@@ -240,7 +240,7 @@ public class SistecreditoTests
         return result;
     }
 
-    private static async Task<string> ProblemDetailAsync(HttpResponseMessage response, string code)
+    internal static async Task<string> ProblemDetailAsync(HttpResponseMessage response, string code)
     {
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity, await response.Content.ReadAsStringAsync(Ct));
         var problem = await Phase3.SecurityScenario.ProblemAsync(response);
@@ -298,10 +298,24 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
 
     public int? CreateErrorCode { get; set; }
 
+    /// <summary>Transacciones que Sistecrédito "ya no encuentra" (error 708).</summary>
+    public ConcurrentDictionary<string, bool> NotFound { get; } = new();
+
+    /// <summary>Consultas recibidas: transacción y ambiente (SCOrigen) con que se preguntó.</summary>
+    public ConcurrentQueue<(string TransactionId, SistecreditoEnvironment Environment)> Queries { get; } = new();
+
+    /// <summary>Se ejecuta justo antes de crear la transacción (p. ej. para mirar la base de datos en ese momento).</summary>
+    public Func<SistecreditoCreateRequest, Task>? BeforeCreate { get; set; }
+
     public void SetStatus(string transactionId, string status) => _statuses[transactionId] = status;
 
-    public Task<SistecreditoCreated> CreateAsync(SistecreditoConnection connection, SistecreditoCreateRequest request, CancellationToken cancellationToken)
+    public async Task<SistecreditoCreated> CreateAsync(SistecreditoConnection connection, SistecreditoCreateRequest request, CancellationToken cancellationToken)
     {
+        if (BeforeCreate is { } before)
+        {
+            await before(request);
+        }
+
         Guard(connection);
         if (CreateErrorCode is { } code)
         {
@@ -311,12 +325,19 @@ public sealed class FakeSistecreditoGateway : ISistecreditoGateway
         Created.Enqueue(request);
         var id = $"tx-{Interlocked.Increment(ref _next):D4}";
         _statuses[id] = "PendingForPaymentMethod";
-        return Task.FromResult(new SistecreditoCreated(id, "Pending"));
+        return new SistecreditoCreated(id, "Pending");
     }
 
     public Task<SistecreditoTransaction> GetTransactionAsync(SistecreditoConnection connection, string transactionId, CancellationToken cancellationToken)
     {
         Guard(connection);
+        Queries.Enqueue((transactionId, connection.Environment));
+        if (NotFound.ContainsKey(transactionId))
+        {
+            throw new SistecreditoGatewayException(
+                SistecreditoHttpGateway.ErrorMessageFor(SistecreditoProtocol.NotFoundErrorCode, "Error"), SistecreditoFailure.Provider, SistecreditoProtocol.NotFoundErrorCode);
+        }
+
         var status = _statuses.TryGetValue(transactionId, out var current) ? current : "Pending";
         return Task.FromResult(new SistecreditoTransaction(
             transactionId, status, $"https://pagos.sistecredito.test/{transactionId}", status == "Rejected" ? "Cupo insuficiente" : null,

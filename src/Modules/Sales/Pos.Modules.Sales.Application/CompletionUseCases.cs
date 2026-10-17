@@ -506,6 +506,7 @@ internal sealed class VoidSaleHandler(
     IAuthorizationScope authorization,
     IActorContext actor,
     IAuditWriter audit,
+    ISistecreditoPayments sistecredito,
     IOutbox outbox,
     IClock clock) : ICommandHandler<VoidSaleCommand, SaleReceiptDto>
 {
@@ -566,6 +567,12 @@ internal sealed class VoidSaleHandler(
         if (document.IsFailure)
         {
             return document.Error;
+        }
+
+        // Sistecrédito no se reversa desde la caja: su cobro queda "Requiere revisión" para que la administración lo reverse en el portal.
+        if (sale.Payments.Where(p => p.MethodKind == "SISTECREDITO" && p.Reference is not null).Select(p => p.Reference!).ToList() is { Count: > 0 } transactions)
+        {
+            await sistecredito.SaleVoidedAsync(sale.Id, sale.Number, transactions, cancellationToken);
         }
 
         await audit.WriteAsync(

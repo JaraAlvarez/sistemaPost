@@ -1048,6 +1048,7 @@ public sealed partial class Caja
         _amount = _sale.AmountDue;
         _reference = null;
         _panel = Panel.Cobro;
+        _ = RestaurarSistecreditoAsync(_sale.Id);
     }
 
     private void AgregarPago(PaymentMethod method)
@@ -1058,6 +1059,8 @@ public sealed partial class Caja
             _amount = Math.Max(0, _sale!.AmountDue - Pagado);
             if (EsSistecredito(method))
             {
+                // Sistecrédito cobra pesos enteros: se propone lo que falta sin centavos (los centavos van con otro medio).
+                _amount = Math.Floor(_amount);
                 PrellenarDocumento();
             }
 
@@ -1194,6 +1197,18 @@ public sealed partial class Caja
             return;
         }
 
+        if (_amount != Math.Floor(_amount))
+        {
+            _amount = Math.Floor(_amount);
+            Snackbar.Add(_amount > 0
+                ? $"Sistecrédito cobra pesos enteros: se cobrarán {Format.Money(_amount)} y los centavos van con otro medio de pago."
+                : "Sistecrédito cobra pesos enteros: cobre los centavos con otro medio de pago.", Severity.Info);
+            if (_amount <= 0)
+            {
+                return;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(_scDocumento))
         {
             Snackbar.Add("Escriba el número de documento del cliente.", Severity.Warning);
@@ -1296,7 +1311,8 @@ public sealed partial class Caja
             }
         }
 
-        if (cobro.Status != "APPROVED" || cobro.CompletedSaleId is not null || _methods.FirstOrDefault(EsSistecredito) is not { } medio)
+        // Aprobado y sin usar (también si quedó "Requiere revisión": la plata del cliente ya se cobró y completa esta venta).
+        if (!cobro.Usable || cobro.CompletedSaleId is not null || _methods.FirstOrDefault(EsSistecredito) is not { } medio)
         {
             return;
         }
@@ -1318,6 +1334,50 @@ public sealed partial class Caja
             _methodSelected = _methods.FirstOrDefault(m => m.AffectsCashDrawer) ?? _methodSelected;
             _amount = Math.Max(0, _sale.AmountDue - Pagado);
         }
+    }
+
+    /// <summary>
+    /// Al abrir el cobro, los cobros de Sistecrédito ya aprobados y sin usar de esta venta vuelven como pago (p. ej. si se cerró el panel
+    /// en un pago mixto): así nunca se genera otro cobro por lo mismo y el cliente no paga dos veces.
+    /// </summary>
+    private async Task RestaurarSistecreditoAsync(Guid saleId)
+    {
+        if (_methods.FirstOrDefault(EsSistecredito) is not { } medio)
+        {
+            return;
+        }
+
+        List<SistecreditoPaymentDto> aprobados;
+        try
+        {
+            aprobados = await Api.GetAsync<List<SistecreditoPaymentDto>>($"api/v1/cash/sistecredito/sales/{saleId}/approved");
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException)
+        {
+            return; // si no se pudo consultar, el servidor igual rechaza un cobro nuevo que supere lo que falta
+        }
+
+        await InvokeAsync(() =>
+        {
+            if (_sale?.Id != saleId || _panel != Panel.Cobro)
+            {
+                return;
+            }
+
+            var restaurados = 0m;
+            foreach (var cobro in aprobados.Where(c => c.Usable && c.TransactionId is not null && !_payments.Any(p => p.Reference == c.TransactionId)))
+            {
+                _payments.Add(new PaymentLine(medio.Id, cobro.Amount, cobro.TransactionId));
+                restaurados += cobro.Amount;
+            }
+
+            if (restaurados > 0)
+            {
+                _amount = Math.Max(0, _sale.AmountDue - Pagado);
+                Snackbar.Add($"Se recuperó el pago ya aprobado con Sistecrédito por {Format.Money(restaurados)}: cobre solo lo que falta.", Severity.Info);
+                StateHasChanged();
+            }
+        });
     }
 
     private async Task CancelarSistecreditoAsync()

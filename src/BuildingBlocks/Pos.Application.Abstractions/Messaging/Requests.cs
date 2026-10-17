@@ -14,6 +14,15 @@ public interface ICommand : IRequest<Result>;
 /// <summary>Caso de uso que modifica estado y devuelve un dato (p. ej. el Id creado).</summary>
 public interface ICommand<TValue> : IRequest<Result<TValue>>;
 
+/// <summary>
+/// Marca un comando que habla con un servicio externo lento (p. ej. una pasarela de pagos) y guarda en transacciones CORTAS propias con
+/// <c>IUnitOfWork</c>: la canalización no lo envuelve en una transacción, para no dejar una conexión a la base de datos abierta mientras
+/// el servicio responde ni perder, al revertir, el registro de algo que ya existe afuera.
+/// </summary>
+#pragma warning disable CA1040 // Interfaz marcadora intencional.
+public interface ISelfTransactedCommand;
+#pragma warning restore CA1040
+
 /// <summary>Consulta sin efectos secundarios.</summary>
 public interface IQuery<TValue> : IRequest<Result<TValue>>;
 
