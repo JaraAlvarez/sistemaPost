@@ -27,49 +27,67 @@
 
     @if (_settings is { } settings)
     {
-        @if (settings.LastVerifiedAt is not null)
+        @if (Conectado(settings) && !_editando)
         {
-            <MudAlert Severity="@(settings.LastVerificationOk == true ? Severity.Success : Severity.Warning)" Class="mt-2" Dense="true">
-                @settings.LastVerificationMessage <small>(@Format.Date(settings.LastVerifiedAt))</small>
+            <MudAlert Severity="Severity.Success" Class="mt-3" Icon="@Icons.Material.Outlined.CheckCircle">
+                <b>Conectado</b> · @Ambiente(settings.Environment) · llave terminada en @settings.KeyHint.
+                Sistecrédito ya aparece como forma de pago en la caja.
+                @if (settings.LastVerifiedAt is not null)
+                {
+                    <small class="d-block">Última prueba: @Format.Date(settings.LastVerifiedAt)</small>
+                }
             </MudAlert>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="ProbarAsync" StartIcon="@Icons.Material.Outlined.WifiTethering">Volver a probar</MudButton>
+                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => _editando = true)" StartIcon="@Icons.Material.Outlined.Key">Cambiar llaves</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DesactivarAsync">Desconectar</MudButton>
+            </div>
         }
-
-        <MudGrid Class="mt-1">
-            <MudItem xs="12" md="4">
-                <MudTextField @bind-Value="_subscriptionKey" Label="Llave de suscripción (Subscription Key)" InputType="InputType.Password" Immediate="true"
-                              autocomplete="off" HelperText="@Guardada(settings)" />
-            </MudItem>
-            <MudItem xs="12" md="4">
-                <MudTextField @bind-Value="_applicationKey" Label="ApplicationKey" InputType="InputType.Password" Immediate="true" autocomplete="off"
-                              HelperText="@(settings.HasCredentials ? "Guardada. Déjela vacía para conservarla." : null)" />
-            </MudItem>
-            <MudItem xs="12" md="4">
-                <MudTextField @bind-Value="_applicationToken" Label="ApplicationToken" InputType="InputType.Password" Immediate="true" autocomplete="off"
-                              HelperText="@(settings.HasCredentials ? "Guardado. Déjelo vacío para conservarlo." : null)" />
-            </MudItem>
-            <MudItem xs="12" md="4">
-                <MudSelect T="string" @bind-Value="_environment" Label="Ambiente">
-                    <MudSelectItem T="string" Value="@("STAGING")">Pruebas (Staging)</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("PRODUCTION")">Producción</MudSelectItem>
-                </MudSelect>
-            </MudItem>
-            <MudItem xs="12" md="8" Class="d-flex align-center">
-                <MudSwitch T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="@(_enabled ? "Activo en la caja" : "Inactivo en la caja")" />
-            </MudItem>
-        </MudGrid>
-        <MudText Typo="Typo.caption" Class="d-block mt-1">
-            Copie las llaves del correo de Sistecrédito. Si arrastra la etiqueta ("Key", "ID") no pasa nada: se guarda solo el código. Cada ambiente
-            tiene sus propias llaves.
-        </MudText>
-        <div class="d-flex flex-wrap gap-2 mt-3">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarAsync">Guardar</MudButton>
-            <MudButton Variant="Variant.Outlined" Disabled="@(_busy || !settings.HasCredentials)" OnClick="VerificarAsync"
-                       StartIcon="@Icons.Material.Outlined.WifiTethering">Verificar conexión</MudButton>
-            @if (settings.IsEnabled)
+        else
+        {
+            @if (settings.LastVerifiedAt is not null && settings.LastVerificationOk == false)
             {
-                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="DesactivarAsync">Desactivar</MudButton>
+                <MudAlert Severity="Severity.Warning" Class="mt-2" Dense="true">
+                    @settings.LastVerificationMessage <small>(@Format.Date(settings.LastVerifiedAt))</small>
+                </MudAlert>
             }
-        </div>
+
+            <MudText Typo="Typo.subtitle2" Class="mt-3">Conecte su cuenta de aliado</MudText>
+            <MudText Typo="Typo.body2">Pegue las 3 llaves que le envió Sistecrédito y pulse <b>Conectar</b>: probamos la conexión y, si funciona, la forma
+                de pago aparece en la caja.</MudText>
+            <MudGrid Class="mt-1">
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_subscriptionKey" Label="Llave de suscripción (Subscription Key)" InputType="InputType.Password" Immediate="true"
+                                  autocomplete="off" HelperText="@Guardada(settings)" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_applicationKey" Label="ApplicationKey" InputType="InputType.Password" Immediate="true" autocomplete="off"
+                                  HelperText="@(settings.HasCredentials ? "Guardada. Déjela vacía para conservarla." : null)" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_applicationToken" Label="ApplicationToken" InputType="InputType.Password" Immediate="true" autocomplete="off"
+                                  HelperText="@(settings.HasCredentials ? "Guardado. Déjelo vacío para conservarlo." : null)" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-Value="_environment" Label="Ambiente">
+                        <MudSelectItem T="string" Value="@("PRODUCTION")">Producción (cobros reales)</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("STAGING")">Pruebas (Staging)</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+            </MudGrid>
+            <MudText Typo="Typo.caption" Class="d-block mt-1">
+                Copie las llaves del correo de Sistecrédito. Si arrastra la etiqueta ("Key", "ID") no pasa nada: se guarda solo el código. Cada ambiente
+                tiene sus propias llaves.
+            </MudText>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !PuedeConectar(settings))" OnClick="ConectarAsync"
+                           StartIcon="@Icons.Material.Outlined.Link">@(_busy ? "Conectando…" : "Conectar")</MudButton>
+                @if (_editando)
+                {
+                    <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="CancelarEdicion">Cancelar</MudButton>
+                }
+            </div>
+        }
 
         @if (_reviews.Count > 0)
         {
@@ -114,8 +132,8 @@
     private SistecreditoSettingsDto? _settings;
     private List<SistecreditoPaymentDto> _reviews = [];
     private string? _subscriptionKey, _applicationKey, _applicationToken, _error, _note;
-    private string _environment = "STAGING";
-    private bool _enabled, _busy;
+    private string _environment = "PRODUCTION";
+    private bool _busy, _editando;
     private Guid? _resolving;
 
     /// <summary>Al guardar o desactivar cambia el medio de pago SISTECREDITO: la tabla de medios se recarga.</summary>
@@ -143,11 +161,27 @@
     private void Aplicar(SistecreditoSettingsDto settings)
     {
         _settings = settings;
-        _environment = EnumText.Normalize(settings.Environment) is { Length: > 0 } environment ? environment : "STAGING";
-        _enabled = settings.IsEnabled || !settings.HasCredentials;
+        _environment = settings.HasCredentials && EnumText.Normalize(settings.Environment) is { Length: > 0 } environment ? environment : "PRODUCTION";
     }
 
-    private async Task GuardarAsync()
+    private static bool Conectado(SistecreditoSettingsDto settings) => settings.IsEnabled && settings.HasCredentials;
+
+    /// <summary>Primera vez: las tres llaves. Con llaves guardadas basta con cambiar alguna o el ambiente.</summary>
+    private bool PuedeConectar(SistecreditoSettingsDto settings) =>
+        settings.HasCredentials || (!string.IsNullOrWhiteSpace(_subscriptionKey) && !string.IsNullOrWhiteSpace(_applicationKey)
+            && !string.IsNullOrWhiteSpace(_applicationToken));
+
+    private void CancelarEdicion()
+    {
+        _editando = false;
+        _subscriptionKey = _applicationKey = _applicationToken = null;
+    }
+
+    /// <summary>
+    /// "Conectar": guarda las llaves SIN activar, prueba la conexión con Sistecrédito y solo si responde bien activa la forma de pago en la
+    /// caja. Con llaves malas, del otro ambiente o sin internet, la caja no la muestra y se explica qué hacer.
+    /// </summary>
+    private async Task ConectarAsync()
     {
         _busy = true;
         try
@@ -155,28 +189,47 @@
             Aplicar(await Api.PutAsync<SistecreditoSettingsDto>("api/v1/cash/sistecredito/settings", new
             {
                 subscriptionKey = Vacio(_subscriptionKey), applicationKey = Vacio(_applicationKey), applicationToken = Vacio(_applicationToken),
-                environment = _environment, enabled = _enabled,
+                environment = _environment, enabled = false,
             }));
             _subscriptionKey = _applicationKey = _applicationToken = null;
-            Snackbar.Add(_settings!.IsEnabled ? "Sistecrédito guardado y activo en la caja. Pulse \"Verificar conexión\"." : "Sistecrédito guardado (inactivo).",
-                Severity.Success);
+
+            var result = await Api.PostAsync<SistecreditoVerificationDto>("api/v1/cash/sistecredito/settings/verify");
+            if (result.Ok)
+            {
+                Aplicar(await Api.PutAsync<SistecreditoSettingsDto>("api/v1/cash/sistecredito/settings", new
+                {
+                    subscriptionKey = (string?)null, applicationKey = (string?)null, applicationToken = (string?)null, environment = _environment, enabled = true,
+                }));
+                _editando = false;
+                Snackbar.Add("¡Conectado! Sistecrédito ya aparece como forma de pago en la caja.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add($"No se pudo conectar: {result.Message}", Severity.Warning);
+            }
+
             await Cambio.InvokeAsync();
+            await CargarAsync();
         }
         catch (ApiException ex)
         {
             Snackbar.Add(ex.Texto, Severity.Error);
         }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
 
         _busy = false;
     }
 
-    private async Task VerificarAsync()
+    private async Task ProbarAsync()
     {
         _busy = true;
         try
         {
             var result = await Api.PostAsync<SistecreditoVerificationDto>("api/v1/cash/sistecredito/settings/verify");
-            Snackbar.Add(result.Message, result.Ok ? Severity.Success : Severity.Warning);
+            Snackbar.Add(result.Ok ? "La conexión con Sistecrédito funciona." : result.Message, result.Ok ? Severity.Success : Severity.Warning);
             await CargarAsync();
         }
         catch (ApiException ex)
@@ -197,7 +250,7 @@
         try
         {
             Aplicar(await Api.PostAsync<SistecreditoSettingsDto>("api/v1/cash/sistecredito/settings/disable"));
-            Snackbar.Add("Sistecrédito desactivado: ya no aparece en la caja.", Severity.Info);
+            Snackbar.Add("Sistecrédito desconectado: ya no aparece en la caja. Las llaves quedan guardadas.", Severity.Info);
             await Cambio.InvokeAsync();
         }
         catch (ApiException ex)
