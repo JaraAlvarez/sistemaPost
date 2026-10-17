@@ -288,6 +288,43 @@ public class ReplenishmentApiTests
         (await shop.Catalog.ScalarAsync<long>("SELECT count(*) FROM audit.audit_log WHERE action = 'STOCK_POLICIES_SUGGESTED'")).ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Importar_rechaza_descontinuados_y_avisa_de_inactivos()
+    {
+        await using var factory = new PosServerFactory();
+        var shop = await PurchasingScenario.CreateAsync(factory);
+        var owner = shop.Owner;
+        var pantry = await shop.Catalog.CategoryAsync("Despensa");
+        var old = (await shop.Catalog.ProductAsync("VIEJO-1", "Producto descontinuado", pantry, price: 1_000m)).Id;
+        var paused = (await shop.Catalog.ProductAsync("PAUSA-1", "Producto inactivo", pantry, price: 1_000m)).Id;
+        foreach (var (product, status) in new[] { (old, "Discontinued"), (paused, "Inactive") })
+        {
+            var changed = await owner.PostAsJsonAsync($"/api/v1/catalog/products/{product}/status", new { status }, Json, Ct);
+            changed.IsSuccessStatusCode.ShouldBeTrue(await changed.Content.ReadAsStringAsync(Ct));
+        }
+
+        var file = CatalogScenario.Csv("sku;minimo;maximo", "VIEJO-1;2;6", "PAUSA-1;3;9");
+        var preview = await ReadAsync<StockPolicyImportDto>(
+            await shop.Catalog.UploadAsync($"/api/v1/inventory/policies/import?warehouseId={shop.Floor}&apply=true", file, "minimos.csv"));
+
+        preview.Applied.ShouldBeFalse();
+        var discontinued = preview.Rows.Single(r => r.Code == "VIEJO-1");
+        discontinued.Action.ShouldBe("ERROR");
+        discontinued.Errors.ShouldHaveSingleItem().ShouldContain("descontinuado");
+        var inactive = preview.Rows.Single(r => r.Code == "PAUSA-1");
+        inactive.Action.ShouldBe("CREATE");
+        inactive.Errors.ShouldBeEmpty();
+        inactive.Warnings.ShouldHaveSingleItem().ShouldContain("inactivo");
+        (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={paused}")).ShouldBeEmpty();
+
+        // Sin la fila del descontinuado, el inactivo se guarda (con su aviso).
+        var applied = await ReadAsync<StockPolicyImportDto>(await shop.Catalog.UploadAsync(
+            $"/api/v1/inventory/policies/import?warehouseId={shop.Floor}&apply=true", CatalogScenario.Csv("sku;minimo;maximo", "PAUSA-1;3;9"), "minimos.csv"));
+        applied.Applied.ShouldBeTrue();
+        applied.Rows.Single().Warnings.ShouldHaveSingleItem();
+        (await GetAsync<List<StockPolicyDto>>(owner, $"/api/v1/inventory/policies?productId={paused}")).Single().MaxQuantity.ShouldBe(9m);
+    }
+
     private static async Task<Guid> ArroceraAsync(PurchasingScenario shop)
     {
         var party = await shop.CreatePartyAsync(new
