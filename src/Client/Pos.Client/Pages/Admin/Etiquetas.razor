@@ -1,0 +1,396 @@
+@page "/admin/etiquetas"
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+@inject IDialogService Dialogs
+@inject AgentPrinter Printer
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Organization.Contracts
+
+<PageTitle>Etiquetas · BusinessPost</PageTitle>
+
+<Pagina Titulo="Etiquetas de góndola y códigos de barras" Subtitulo="Arme la lista de productos, revise precios y cantidades, y descargue el PDF para imprimir." Cargando="_loading" Error="@_error">
+    <Acciones>
+        @if (_items.Count > 0)
+        {
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.ClearAll" OnClick="Vaciar">Vaciar lista</MudButton>
+        }
+    </Acciones>
+    <ChildContent>
+        <MudPaper Class="pa-4 mb-4" Elevation="1">
+            <MudText Typo="Typo.h6" Class="mb-2">1. ¿Qué productos?</MudText>
+            @if (_avisoSucursal is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-3">@_avisoSucursal</MudAlert>
+            }
+            @if (_sucursales.Count > 1 || (_necesitaSucursal && _sucursales.Count > 0))
+            {
+                <MudSelect T="Guid?" @bind-Value="_sucursal" Label="Sucursal (precios y promociones)" Dense="true" Class="mb-3" Style="max-width: 420px;">
+                    @foreach (var branch in _sucursales)
+                    {
+                        <MudSelectItem T="Guid?" Value="@branch.Id">@branch.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudSelect T="string" @bind-Value="_source" Label="Agregar productos por" Dense="true" Class="mb-3" Style="max-width: 420px;">
+                <MudSelectItem Value="@LabelSources.Products">Buscar productos uno por uno</MudSelectItem>
+                <MudSelectItem Value="@LabelSources.Category">Una categoría</MudSelectItem>
+                <MudSelectItem Value="@LabelSources.PriceChanges">Cambios de precio desde una fecha</MudSelectItem>
+                @if (Session.Feature(BusinessCatalog.Purchasing))
+                {
+                    <MudSelectItem Value="@LabelSources.Purchase">Productos de una compra</MudSelectItem>
+                }
+                <MudSelectItem Value="@LabelSources.WithoutBarcode">Productos sin código de barras</MudSelectItem>
+            </MudSelect>
+
+            @switch (_source)
+            {
+                case LabelSources.Products:
+                    <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="BuscarAsync" />
+                    @if (_results.Count > 0)
+                    {
+                        <MudSimpleTable Dense="true" Class="mt-2">
+                            <tbody>
+                                @foreach (var product in _results)
+                                {
+                                    <tr>
+                                        <td>@product.Sku</td>
+                                        <td>@product.Name</td>
+                                        <td class="num">@Format.Money(product.Price)</td>
+                                        <td><MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => AgregarProductoAsync(product))">Agregar</MudButton></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                    break;
+                case LabelSources.Category:
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                        <MudSelect T="Guid?" @bind-Value="_categoria" Label="Categoría (incluye sus subcategorías)" Dense="true" Style="min-width: 320px;">
+                            @foreach (var category in _categorias)
+                            {
+                                <MudSelectItem T="Guid?" Value="@category.Id">@category.Path</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy || _categoria is null" OnClick="@(() => AgregarAsync(new { source = LabelSources.Category, categoryId = _categoria }))">Agregar a la lista</MudButton>
+                    </MudStack>
+                    break;
+                case LabelSources.PriceChanges:
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                        <MudDatePicker @bind-Date="_desde" Label="Precios que cambiaron desde" DateFormat="dd/MM/yyyy" Style="max-width: 260px;" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy || _desde is null"
+                                   OnClick="@(() => AgregarAsync(new { source = LabelSources.PriceChanges, since = DateOnly.FromDateTime(_desde!.Value) }))">Agregar a la lista</MudButton>
+                    </MudStack>
+                    <MudText Typo="Typo.caption">Trae los productos cuyo precio nuevo ya rige y empezó desde esa fecha: imprima y cambie las etiquetas de la góndola.</MudText>
+                    break;
+                case LabelSources.Purchase:
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                        <MudTextField T="string" @bind-Value="_compra" Label="Número de la compra (el interno, no el de la factura)" Style="max-width: 320px;" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy || string.IsNullOrWhiteSpace(_compra)"
+                                   OnClick="@(() => AgregarAsync(new { source = LabelSources.Purchase, purchaseNumber = _compra }))">Agregar a la lista</MudButton>
+                    </MudStack>
+                    <MudText Typo="Typo.caption">La cantidad de cada producto es lo que llegó (unidades). Lo que se vende por peso lleva una sola etiqueta.</MudText>
+                    break;
+                case LabelSources.WithoutBarcode:
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => AgregarAsync(new { source = LabelSources.WithoutBarcode }))">Agregar productos sin código</MudButton>
+                    <MudText Typo="Typo.caption" Class="d-block mt-1">Sin código, la etiqueta lleva el SKU (la caja también lo lee). Si prefiere, genere un código interno con el botón de la lista.</MudText>
+                    break;
+            }
+
+            @foreach (var aviso in _avisos)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">@aviso</MudAlert>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-4" Elevation="1">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">2. Revise la lista (@_items.Count producto(s), @_items.Sum(i => i.Quantity) etiqueta(s))</MudText>
+                @if (SinCodigo > 0 && Session.Has("catalog.product.manage"))
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.QrCode" Disabled="_busy" OnClick="GenerarCodigosAsync">Generar código interno (@SinCodigo)</MudButton>
+                }
+            </MudStack>
+            <MudTable Items="_items" Dense="true" Hover="true" Striped="true" Class="mt-2">
+                <HeaderContent>
+                    <MudTh>Producto</MudTh><MudTh>Código</MudTh><MudTh Class="num">Precio</MudTh><MudTh>Oferta</MudTh><MudTh Style="width: 120px;">Cantidad</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Name@(context.IsActive ? "" : " (inactivo)")<br /><MudText Typo="Typo.caption">SKU @context.Sku@(context.UnitMeasurePrice is { } u ? $" · {u}" : "")</MudText></MudTd>
+                    <MudTd>
+                        @if (context.HasBarcode)
+                        {
+                            @context.Barcode
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning">Sin código (usa el SKU)</MudText>
+                        }
+                    </MudTd>
+                    <MudTd Class="num">@(context.Price is { } p ? Format.Money(p) + (context.PriceUnit is { } pu ? $" /{pu}" : "") : "Sin precio")</MudTd>
+                    <MudTd>@(context.PromoText is { } t ? (context.PromoPrice is { } pp ? $"{Format.Money(pp)} · {t}" : t) + (context.PromoValidUntil is { } hasta ? $" (hasta {hasta:dd/MM})" : "") : "")</MudTd>
+                    <MudTd><MudNumericField T="int" Value="@context.Quantity" ValueChanged="@(v => CambiarCantidad(context, v))" Min="0" Max="500" Variant="Variant.Outlined" /></MudTd>
+                    <MudTd><MudIconButton Icon="@Icons.Material.Outlined.Delete" Size="Size.Small" aria-label="Quitar" OnClick="@(() => Quitar(context))" /></MudTd>
+                </RowTemplate>
+                <NoRecordsContent><EstadoVacio Mensaje="La lista está vacía: agregue productos arriba." /></NoRecordsContent>
+            </MudTable>
+        </MudPaper>
+
+        <MudPaper Class="pa-4" Elevation="1">
+            <MudText Typo="Typo.h6" Class="mb-2">3. Imprimir</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="3">
+                <MudSelect T="string" @bind-Value="_plantilla" Label="Tamaño de la etiqueta" Dense="true" Style="min-width: 360px;">
+                    @foreach (var template in _plantillas)
+                    {
+                        <MudSelectItem Value="@template.Code">@template.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudCheckBox T="bool" @bind-Value="_fecha" Label="Imprimir la fecha" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PictureAsPdf" Disabled="_busy || _items.Count == 0" OnClick="DescargarAsync">Descargar PDF</MudButton>
+                @if (Session.Me?.PosTerminalId is not null)
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Print" Disabled="_busy || _items.Count == 0" OnClick="ImprimirTiqueteAsync">Imprimir en la impresora de tiquetes</MudButton>
+                }
+            </MudStack>
+            <MudText Typo="Typo.caption" Class="d-block mt-2">
+                Hojas A4: imprima al 100 % (sin "ajustar a la página") en papel adhesivo o normal y recorte por las líneas grises.
+                Adhesivos: el PDF ya viene al tamaño exacto del rollo; elija ese tamaño de papel en la impresora de etiquetas.
+            </MudText>
+        </MudPaper>
+    </ChildContent>
+</Pagina>
+
+@code {
+    private readonly List<LabelItemDto> _items = [];
+    private IReadOnlyList<ProductSummaryDto> _results = [];
+    private IReadOnlyList<CategoryDto> _categorias = [];
+    private IReadOnlyList<LabelTemplateDto> _plantillas = [];
+    private IReadOnlyList<Pos.Modules.Organization.Contracts.BranchDto> _sucursales = [];
+    private Guid? _sucursal;
+    private bool _necesitaSucursal;
+    private string? _avisoSucursal;
+    private IReadOnlyList<string> _avisos = [];
+    private string _source = LabelSources.Products, _plantilla = "Shelf3x8";
+    private string? _search, _compra, _error;
+    private Guid? _categoria;
+    private DateTime? _desde = DateTime.Today;
+    private bool _loading = true, _busy, _fecha = true;
+
+    [SupplyParameterFromQuery(Name = "compra")]
+    public string? Compra { get; set; }
+
+    private int SinCodigo => _items.Count(i => !i.HasBarcode);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _plantillas = await Api.GetAsync<List<LabelTemplateDto>>("api/v1/catalog/labels/templates");
+            _categorias = (await Api.GetAsync<List<CategoryDto>>("api/v1/catalog/categories")).OrderBy(c => c.Path, StringComparer.CurrentCulture).ToList();
+            _sucursal = Session.Me?.BranchId;
+            if (Session.Has("organization.branch.view"))
+            {
+                _sucursales = (await Api.GetAsync<List<Pos.Modules.Organization.Contracts.BranchDto>>("api/v1/organization/branches"))
+                    .Where(b => EnumText.Same(b.Status, "ACTIVE")).ToList();
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+
+        _loading = false;
+        if (!string.IsNullOrWhiteSpace(Compra))
+        {
+            _source = LabelSources.Purchase;
+            _compra = Compra;
+            await AgregarAsync(new { source = LabelSources.Purchase, purchaseNumber = Compra });
+        }
+    }
+
+    private async Task BuscarAsync(string _)
+    {
+        if (string.IsNullOrWhiteSpace(_search))
+        {
+            _results = [];
+            return;
+        }
+
+        try
+        {
+            _results = (await Api.GetAsync<PagedResult<ProductSummaryDto>>($"api/v1/catalog/products?pageSize=20&status=ACTIVE&search={Uri.EscapeDataString(_search)}")).Items;
+        }
+        catch (ApiException ex)
+        {
+            MostrarError(ex);
+        }
+    }
+
+    private Task AgregarProductoAsync(ProductSummaryDto product) =>
+        AgregarAsync(new { source = LabelSources.Products, productIds = new[] { product.Id }, branchId = _sucursal });
+
+    /// <summary>Pide la lista al servidor y la suma a la actual (si el producto ya estaba, se toma la cantidad nueva).</summary>
+    private async Task AgregarAsync(object request)
+    {
+        _busy = true;
+        try
+        {
+            var preview = await Api.PostAsync<LabelPreviewDto>("api/v1/catalog/labels/preview", ConSucursal(request));
+            Combinar(preview.Items);
+            _avisos = preview.Warnings;
+            if (preview.Items.Count > 0)
+            {
+                Snackbar.Add($"{preview.Items.Count} producto(s) agregados a la lista{(preview.Reference is { } r && preview.Source == LabelSources.Purchase ? $" (compra {r})" : "")}.", Severity.Success);
+            }
+        }
+        catch (ApiException ex)
+        {
+            MostrarError(ex);
+        }
+
+        _busy = false;
+    }
+
+    private void Combinar(IEnumerable<LabelItemDto> nuevos)
+    {
+        foreach (var item in nuevos)
+        {
+            var index = _items.FindIndex(i => i.ProductId == item.ProductId);
+            if (index >= 0)
+            {
+                _items[index] = item;
+            }
+            else
+            {
+                _items.Add(item);
+            }
+        }
+    }
+
+    private void CambiarCantidad(LabelItemDto item, int cantidad)
+    {
+        var index = _items.IndexOf(item);
+        if (index >= 0)
+        {
+            _items[index] = item with { Quantity = Math.Clamp(cantidad, 0, 500) };
+        }
+    }
+
+    private void Quitar(LabelItemDto item) => _items.Remove(item);
+
+    private void Vaciar()
+    {
+        _items.Clear();
+        _avisos = [];
+    }
+
+    /// <summary>Agrega la sucursal elegida a la petición (las fuentes se arman como objetos anónimos).</summary>
+    private Dictionary<string, object?> ConSucursal(object request)
+    {
+        var datos = JsonSerializer.SerializeToElement(request, ApiClient.Json).EnumerateObject()
+            .ToDictionary(p => p.Name, p => (object?)p.Value);
+        datos["branchId"] = _sucursal;
+        datos["template"] = _plantilla;
+        return datos;
+    }
+
+    /// <summary>
+    /// Muestra el error. Si el problema es la sucursal (no hay una asignada, no existe o no tiene permiso), deja elegirla; si el usuario no
+    /// puede ver las sucursales, explica a quién pedir ayuda.
+    /// </summary>
+    private void MostrarError(ApiException ex)
+    {
+        if (ex.Code is "CATALOG.LABELS_BRANCH_REQUIRED" or "CATALOG.LABELS_BRANCH_NOT_FOUND" or "CATALOG.LABELS_BRANCH_FORBIDDEN")
+        {
+            _necesitaSucursal = true;
+            _avisoSucursal = _sucursales.Count > 0
+                ? $"{ex.Texto} Elija la sucursal arriba y vuelva a intentar."
+                : $"{ex.Texto} Su usuario no puede ver las sucursales: pida a un administrador que le asigne una o que imprima las etiquetas.";
+        }
+
+        Snackbar.Add(ex.Texto, Severity.Error);
+    }
+
+    private object Lista() => _items.Where(i => i.Quantity > 0).Select(i => new LabelPrintItem(i.ProductId, i.Quantity)).ToList();
+
+    private async Task DescargarAsync()
+    {
+        _busy = true;
+        try
+        {
+            var (name, type, content) = await Api.DownloadPostAsync("api/v1/catalog/labels/pdf", new { template = _plantilla, items = Lista(), showDate = _fecha, branchId = _sucursal });
+            await Js.InvokeVoidAsync("pos.download", name, type, Convert.ToBase64String(content));
+        }
+        catch (ApiException ex)
+        {
+            MostrarError(ex);
+        }
+
+        _busy = false;
+    }
+
+    private async Task ImprimirTiqueteAsync()
+    {
+        if (Session.Me?.PosTerminalId is not { } terminal)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var ticket = await Api.PostAsync<JsonElement>("api/v1/catalog/labels/ticket", new { items = Lista(), branchId = _sucursal });
+            if (await Printer.PrintAsync(terminal, ticket) is { } problem)
+            {
+                Snackbar.Add(problem, Severity.Error);
+            }
+            else
+            {
+                Snackbar.Add("Etiquetas enviadas a la impresora de tiquetes.", Severity.Success);
+            }
+        }
+        catch (ApiException ex)
+        {
+            MostrarError(ex);
+        }
+
+        _busy = false;
+    }
+
+    private async Task GenerarCodigosAsync()
+    {
+        var sinCodigo = _items.Where(i => !i.HasBarcode).ToList();
+        if (!await Dialogs.ConfirmarAsync(
+                "Generar códigos internos",
+                $"Se creará un código de barras interno (empieza por 29) para {sinCodigo.Count} producto(s) que no tienen código. Queda guardado en el producto y en la auditoría. ¿Continuar?",
+                "Generar códigos"))
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var generados = await Api.PostAsync<List<GeneratedLabelCodeDto>>("api/v1/catalog/labels/internal-codes", new { productIds = sinCodigo.Select(i => i.ProductId).ToList() });
+            var cantidades = _items.ToDictionary(i => i.ProductId, i => i.Quantity);
+            var preview = await Api.PostAsync<LabelPreviewDto>("api/v1/catalog/labels/preview",
+                new { source = LabelSources.Products, productIds = sinCodigo.Select(i => i.ProductId).ToList(), branchId = _sucursal });
+            Combinar(preview.Items.Select(i => i with { Quantity = cantidades.GetValueOrDefault(i.ProductId, 1) }));
+            var nuevos = generados.Count(g => g.Generated);
+            var otros = generados.Where(g => !g.Generated).Select(g => $"{(g.Sku.Length > 0 ? g.Sku : "?")}: {g.Message}").ToList();
+            Snackbar.Add($"Se generaron {nuevos} código(s) interno(s).", Severity.Success);
+            if (otros.Count > 0)
+            {
+                _avisos = otros;
+            }
+        }
+        catch (ApiException ex)
+        {
+            MostrarError(ex);
+        }
+
+        _busy = false;
+    }
+}

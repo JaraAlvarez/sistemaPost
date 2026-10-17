@@ -95,7 +95,7 @@
                             </MudItem>
                         }
                         <MudItem xs="6" sm="4">
-                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
+                            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>
                         <MudItem xs="6" sm="4">
                             <MudSelect T="string" @bind-Value="_netUnit" Label="Unidad del contenido" Clearable="true" ReadOnly="@(!PuedeEditar)">
@@ -137,7 +137,7 @@
                                 <MudTextField @bind-Value="_barcode" Label="Código de barras" Immediate="true" HelperText="Vacío = se genera uno interno" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
+                                <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
                             </MudItem>
                         }
                     </MudGrid>
@@ -279,7 +279,7 @@
                                 </MudSelect>
                                 @if (ImpuestoNuevoEsFijo)
                                 {
-                                    <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
+                                    <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
                                 }
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _nuevoImpuesto is null)" OnClick="AgregarImpuestoAsync">Agregar</MudButton>
                             </MudStack>
@@ -362,10 +362,10 @@
                                                     <td>@fila.Bodega</td>
                                                     @if (PuedeMinimos)
                                                     {
-                                                        <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.Minimo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Mínimo en {fila.Bodega}")" /></td>
-                                                        <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.Punto" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Punto de pedido en {fila.Bodega}")" /></td>
-                                                        <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.Maximo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Máximo en {fila.Bodega}")" /></td>
-                                                        <td><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="fila.CantidadPedido" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Cantidad a pedir en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.Minimo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Mínimo en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.Punto" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Punto de pedido en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.Maximo" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Máximo en {fila.Bodega}")" /></td>
+                                                        <td><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal?" @bind-Value="fila.CantidadPedido" Min="0" HideSpinButtons="true" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width:120px" aria-label="@($"Cantidad a pedir en {fila.Bodega}")" /></td>
                                                         <td>
                                                             <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_busy || fila.Minimo is null)"
                                                                        OnClick="@(() => GuardarPoliticaAsync(fila))">Guardar</MudButton>
@@ -427,7 +427,7 @@
                     }
                 </MudSelect>
             }
-            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
             <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" MinDate="@DateTime.Today"
                            Clearable="true" HelperText="Vacío = rige desde ahora; con fecha queda programado" />
             <div class="acciones">
@@ -444,7 +444,7 @@
         <div class="panel" role="dialog" aria-modal="true" aria-labelledby="titulo-presentacion">
             <h2 id="titulo-presentacion">@(_presentacionId is null ? "Nueva presentación" : "Editar presentación")</h2>
             <MudTextField @bind-Value="_pNombre" Label="Nombre" Immediate="true" AutoFocus="true" MaxLength="60" HelperText="Ej.: Caja × 12, Paca × 6" />
-            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_pFactor" Label="@($"Unidades por empaque ({_unit})")" Min="0" />
+            <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="_pFactor" Label="@($"Unidades por empaque ({_unit})")" Min="0" />
             <MudCheckBox T="bool" @bind-Value="_pVende" Label="Se vende en la caja" />
             <MudCheckBox T="bool" @bind-Value="_pCompra" Label="Se compra a proveedores" />
             @if (_presentacionId is null)
@@ -452,7 +452,7 @@
                 <MudTextField @bind-Value="_pCodigo" Label="Código de barras del empaque (opcional)" Immediate="true" />
                 @if (Session.Has("catalog.price.manage"))
                 {
-                    <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_pPrecio" Label="Precio del empaque (opcional, IVA incluido)" Min="0"
+                    <MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="_pPrecio" Label="Precio del empaque (opcional, IVA incluido)" Min="0"
                                      HelperText="Se fija en la lista por defecto para todas las sucursales" />
                 }
             }

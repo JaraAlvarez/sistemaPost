@@ -47,11 +47,11 @@
                         }
                     </MudSelect>
                 </td>
-                <td style="min-width:100px"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="linea.Cantidad" Min="0" /></td>
-                <td style="min-width:130px"><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="linea.Costo" Min="0" Placeholder="Último costo" /></td>
+                <td style="min-width:100px"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoCantidad" T="decimal" @bind-Value="linea.Cantidad" Min="0" /></td>
+                <td style="min-width:130px"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal?" @bind-Value="linea.Costo" Min="0" Placeholder="Último costo" /></td>
                 @if (Compra)
                 {
-                    <td style="min-width:110px"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="linea.Descuento" Min="0" /></td>
+                    <td style="min-width:110px"><MudNumericField Culture="@Format.Colombia" Format="@Format.CampoDinero" T="decimal" @bind-Value="linea.Descuento" Min="0" /></td>
                     <td style="min-width:110px">
                         @if (linea.Lotes)
                         {

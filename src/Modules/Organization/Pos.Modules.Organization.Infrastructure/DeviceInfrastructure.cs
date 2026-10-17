@@ -213,6 +213,15 @@ internal sealed class WarehouseDirectory(NpgsqlDataSource dataSource, IInstallat
             cancellationToken: cancellationToken));
     }
 
+    public async Task<bool> IsActiveBranchAsync(Guid branchId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM org.branches WHERE id = @branchId AND company_id = @companyId AND status = 'ACTIVE' AND deleted_at IS NULL)",
+            new { branchId, companyId = installation.CompanyId },
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<short> GetLocalNodeNumberAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
