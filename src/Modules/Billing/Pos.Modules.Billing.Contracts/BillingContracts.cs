@@ -127,7 +127,10 @@ public sealed record FiscalDocumentDto(
     Guid BranchId,
     Guid? PosTerminalId);
 
-/// <summary>Configuración de la facturación electrónica. Las credenciales NUNCA se devuelven: solo si están configuradas.</summary>
+/// <summary>
+/// Configuración de la facturación electrónica. Las credenciales NUNCA se devuelven: solo si están configuradas y el usuario enmascarado
+/// (<c>CredentialHint</c>, p. ej. <c>ti***@correo.co</c>). La última verificación es de las credenciales y el ambiente vigentes.
+/// </summary>
 public sealed record BillingSettingsDto(
     string Provider,
     string ActiveAdapter,
@@ -136,7 +139,14 @@ public sealed record BillingSettingsDto(
     bool HasCredentials,
     DateTimeOffset? CredentialsUpdatedAt,
     DateTimeOffset? LastSyncAt,
-    string? LastSyncError);
+    string? LastSyncError,
+    string? CredentialHint = null,
+    DateTimeOffset? LastVerifiedAt = null,
+    bool? LastVerificationOk = null,
+    string? LastVerificationMessage = null);
+
+/// <summary>Resultado de "Verificar conexión" con el proveedor (credenciales y ambiente vigentes).</summary>
+public sealed record FiscalConnectionVerificationDto(bool Ok, string Message, string Environment, DateTimeOffset VerifiedAt);
 
 public sealed record FiscalRangeDto(
     Guid Id,

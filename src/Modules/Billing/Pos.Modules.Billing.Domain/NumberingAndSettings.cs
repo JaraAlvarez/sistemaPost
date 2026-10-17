@@ -159,7 +159,20 @@ public sealed class BillingProviderSettings : ICompanyOwned
 
     public string? LastSyncError { get; private set; }
 
+    /// <summary>Usuario enmascarado (p. ej. <c>ti***@correo.co</c>) para reconocer las credenciales sin mostrarlas.</summary>
+    public string? CredentialHint { get; private set; }
+
+    /// <summary>Última verificación contra el proveedor de las credenciales y el ambiente VIGENTES (se borra al cambiar cualquiera).</summary>
+    public DateTimeOffset? LastVerifiedAt { get; private set; }
+
+    public bool? LastVerificationOk { get; private set; }
+
+    public string? LastVerificationMessage { get; private set; }
+
     public bool HasCredentials => Credentials is { Length: > 0 };
+
+    /// <summary>Las credenciales y el ambiente vigentes ya se verificaron con éxito contra el proveedor.</summary>
+    public bool IsVerified => HasCredentials && LastVerificationOk == true;
 
     public static BillingProviderSettings Create(Guid companyId, string provider)
     {
@@ -167,7 +180,11 @@ public sealed class BillingProviderSettings : ICompanyOwned
         return new BillingProviderSettings(companyId, provider);
     }
 
-    /// <summary>Cambia el modo y el ambiente. Encender (modo distinto de OFF) exige credenciales.</summary>
+    /// <summary>
+    /// Cambia el modo y el ambiente. Encender (modo distinto de OFF) exige credenciales y, si estaba apagada o cambia el ambiente, una
+    /// verificación correcta contra el proveedor ("guardar desactivado → verificar → activar"). Cambiar el ambiente borra la verificación.
+    /// Pasar de ON_REQUEST a EVERY_SALE (o al revés) en el mismo ambiente no exige verificar de nuevo.
+    /// </summary>
     public Result Configure(BillingMode mode, FiscalEnvironment environment, string provider)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
@@ -176,21 +193,60 @@ public sealed class BillingProviderSettings : ICompanyOwned
             return BillingErrors.CredentialsRequired;
         }
 
+        var environmentChanged = environment != Environment;
+        if (mode != BillingMode.Off && (Mode == BillingMode.Off || environmentChanged) && (environmentChanged || !IsVerified))
+        {
+            return BillingErrors.VerificationRequired;
+        }
+
+        if (environmentChanged)
+        {
+            ClearVerification();
+        }
+
         Mode = mode;
         Environment = environment;
         Provider = provider;
         return Result.Success();
     }
 
-    /// <summary>Guarda las credenciales ya cifradas; sin credenciales, la facturación se apaga.</summary>
-    public void SetCredentials(byte[]? encrypted, DateTimeOffset now)
+    /// <summary>
+    /// Guarda las credenciales ya cifradas ("guardar desactivado"): la facturación electrónica queda APAGADA y sin verificación hasta que
+    /// se verifiquen contra el proveedor y se vuelva a encender. <paramref name="hint"/>: usuario enmascarado.
+    /// </summary>
+    public void SetCredentials(byte[]? encrypted, DateTimeOffset now, string? hint = null)
     {
         Credentials = encrypted is { Length: > 0 } ? encrypted : null;
         CredentialsUpdatedAt = Credentials is null ? null : now;
-        if (Credentials is null)
-        {
-            Mode = BillingMode.Off;
-        }
+        CredentialHint = Credentials is null ? null : hint is { Length: > 80 } ? hint[..80] : hint;
+        Mode = BillingMode.Off;
+        ClearVerification();
+    }
+
+    /// <summary>Resultado de verificar las credenciales y el ambiente vigentes contra el proveedor (el mensaje se recorta).</summary>
+    public void RecordVerification(DateTimeOffset now, bool ok, string? message)
+    {
+        LastVerifiedAt = now;
+        LastVerificationOk = ok;
+        LastVerificationMessage = message is { Length: > 500 } ? message[..500] : message;
+    }
+
+    /// <summary>Usuario enmascarado: las dos primeras letras y el dominio del correo (<c>ti***@correo.co</c>).</summary>
+    public static string MaskUsername(string username)
+    {
+        ArgumentNullException.ThrowIfNull(username);
+        var value = username.Trim();
+        var at = value.IndexOf('@', StringComparison.Ordinal);
+        var local = at >= 0 ? value[..at] : value;
+        var visible = local.Length <= 2 ? local[..Math.Min(1, local.Length)] : local[..2];
+        return visible + "***" + (at >= 0 ? value[at..] : string.Empty);
+    }
+
+    private void ClearVerification()
+    {
+        LastVerifiedAt = null;
+        LastVerificationOk = null;
+        LastVerificationMessage = null;
     }
 
     /// <summary>Resultado de la última sincronización de rangos (el error se recorta).</summary>

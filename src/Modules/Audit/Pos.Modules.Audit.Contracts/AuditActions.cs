@@ -30,6 +30,7 @@ public static class AuditActions
         new("RESTORE_TEST_FAILED", "backup", "Restauración de prueba fallida", "CRITICAL"),
         new("RESTORE_TEST_PASSED", "backup", "Restauración de prueba correcta", "INFO"),
         new("FISCAL_BUYER_CORRECTED", "billing", "Datos del adquirente corregidos en un documento electrónico", "WARNING"),
+        new("FISCAL_CONNECTION_VERIFIED", "billing", "Conexión con el proveedor de facturación electrónica verificada", "INFO"),
         new("FISCAL_CREDENTIALS_CHANGED", "billing", "Credenciales del proveedor de facturación electrónica cambiadas", "CRITICAL"),
         new("FISCAL_DOCUMENT_REJECTED", "billing", "Documento electrónico rechazado", "CRITICAL"),
         new("FISCAL_DOCUMENT_RETRIED", "billing", "Reintento manual de un documento electrónico", "INFO"),

@@ -40,3 +40,9 @@
 - ⚠️ **Costo por volumen**: cada venta consume un documento del paquete de Factus; hay que cotizar antes de activar `EVERY_SALE`.
 - ⚠️ Factura electrónica ≠ DEE POS: el tratamiento (consumidor final por venta) debe validarlo el contador.
 - ⚠️ La facturación queda **construida y apagada** hasta la prueba conjunta en el sandbox real de Factus con las credenciales del dueño.
+
+## Actualización (rama pantallas-admin, 2026-10)
+
+El punto 3 cambia: `FACTUS` es el adaptador por defecto y `NONE` queda para prohibir la facturación electrónica en una instalación. El
+encendido lo decide el modo de la empresa (OFF por defecto), que solo pasa a ON_REQUEST o EVERY_SALE después de verificar las credenciales
+y el ambiente contra Factus desde la pantalla (`POST /billing/settings/verify`). Ver `docs/fases/pantallas-faltantes-propuesta.md` §2.

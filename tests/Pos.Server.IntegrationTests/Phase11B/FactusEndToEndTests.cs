@@ -67,7 +67,7 @@ public class FactusEndToEndTests
             return new Harness { Factus = factus, Factory = factory, Shop = shop };
         }
 
-        /// <summary>Credenciales de Factus (las del simulado), modo EVERY_SALE en sandbox, rangos sincronizados y asignados a la sucursal.</summary>
+        /// <summary>Credenciales de Factus (las del simulado) verificadas, modo EVERY_SALE en sandbox, rangos sincronizados y asignados a la sucursal.</summary>
         public async Task<List<FiscalRangeDto>> EnableAsync()
         {
             var settings = await SendAsync<BillingSettingsDto>(Shop.Owner, HttpMethod.Put, "/api/v1/billing/settings/credentials", new
@@ -76,6 +76,7 @@ public class FactusEndToEndTests
                 clientId = FactusFakeServer.DefaultClientId, clientSecret = FactusFakeServer.DefaultClientSecret,
             });
             settings.ActiveAdapter.ShouldBe("FACTUS");
+            (await PostAsync<FiscalConnectionVerificationDto>(Shop.Owner, "/api/v1/billing/settings/verify")).Ok.ShouldBeTrue();
             await SendAsync<BillingSettingsDto>(Shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "EVERY_SALE", environment = "SANDBOX" });
             var ranges = await PostAsync<List<FiscalRangeDto>>(Shop.Owner, "/api/v1/billing/ranges/sync");
             var assigned = new List<FiscalRangeDto>();

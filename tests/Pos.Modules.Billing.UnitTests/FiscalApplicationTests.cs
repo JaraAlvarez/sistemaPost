@@ -78,6 +78,23 @@ public class FiscalApplicationTests
     }
 
     [Fact]
+    public async Task Verificar_la_conexion_con_el_proveedor_nulo_y_el_simulado()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        (await new NullFiscalProvider().VerifyAsync(Connection, ct)).Ok.ShouldBeFalse();
+
+        var fake = new FakeFiscalProvider();
+        (await fake.VerifyAsync(Connection, ct)).ShouldBe(new FiscalConnectionCheck(true, "Conexión correcta con el proveedor (simulado)."));
+        fake.LastConnection.ShouldBe(Connection);
+        fake.RejectCredentials = true;
+        (await fake.VerifyAsync(Connection, ct)).Ok.ShouldBeFalse();
+        fake.RejectCredentials = false;
+        fake.Offline = true;
+        (await fake.VerifyAsync(Connection, ct)).Message.ShouldContain("Sin conexión");
+        fake.Submissions.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task El_proveedor_simulado_numera_es_idempotente_rechaza_y_se_cae_a_voluntad()
     {
         var provider = new FakeFiscalProvider();

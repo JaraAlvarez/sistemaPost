@@ -200,7 +200,8 @@ Buscar compra → seleccionar líneas (≤ comprado − devuelto) → `POSTED`: 
   `ON_REQUEST` (factura solo si la venta está marcada "pide factura"; transición, no cumple la norma) y `EVERY_SALE` (factura en cada
   venta, consumidor final si no hay cliente). Factus **no emite DEE POS**: cada venta es una **factura electrónica de venta**
   (`INVOICE_ELECTRONIC`); `POS_ELECTRONIC` queda reservado para otro adaptador. Adaptador por configuración del servidor
-  (`Pos:Billing:Provider` = `NONE` | `FACTUS` | `FAKE`), ambiente `SANDBOX`/`PRODUCTION` y credenciales cifradas con DPAPI por empresa.
+  (`Pos:Billing:Provider` = `FACTUS` por defecto | `NONE` | `FAKE`; el encendido lo decide el modo tras verificar la conexión desde la
+  pantalla, ver `docs/fases/pantallas-faltantes-propuesta.md`), ambiente `SANDBOX`/`PRODUCTION` y credenciales cifradas con DPAPI por empresa.
 - **Interfaz neutra ampliada.** `IFiscalProvider` recibe **borradores del modelo fiscal neutro** (`FiscalModel.cs`) y la conexión (ambiente
   + credenciales descifradas solo para la llamada), y devuelve `FiscalProviderResult` (`Accepted`, `Rejected`, `Unavailable`, `Failed`,
   `NotConfigured`, `NotFound`, con `RetryAfter`). Métodos: factura, nota crédito, documento soporte, nota de ajuste, estado por

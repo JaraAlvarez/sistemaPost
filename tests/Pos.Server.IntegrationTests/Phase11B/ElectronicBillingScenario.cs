@@ -57,7 +57,7 @@ internal static class ElectronicBilling
         });
 
     /// <summary>
-    /// Credenciales, modo, sincronización de rangos y asignación de todos a la sucursal. La espera del tiquete (⚙️
+    /// Credenciales, verificación de la conexión (encender la exige), modo, sincronización de rangos y asignación de todos a la sucursal. La espera del tiquete (⚙️
     /// <c>billing.ticket_wait_seconds</c>) queda en 0 salvo que se pida otra: sin el proceso en segundo plano nadie enviaría el documento
     /// y cada cobro esperaría en vano.
     /// </summary>
@@ -65,6 +65,7 @@ internal static class ElectronicBilling
     {
         await TicketWaitAsync(shop, ticketWaitSeconds);
         await CredentialsAsync(shop.Owner);
+        (await PostAsync<FiscalConnectionVerificationDto>(shop.Owner, "/api/v1/billing/settings/verify")).Ok.ShouldBeTrue();
         (await SendAsync<BillingSettingsDto>(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode, environment = "SANDBOX" })).Mode.ShouldBe(mode);
         var ranges = await PostAsync<List<FiscalRangeDto>>(shop.Owner, "/api/v1/billing/ranges/sync");
         var assigned = new List<FiscalRangeDto>();

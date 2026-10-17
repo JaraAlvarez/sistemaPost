@@ -53,26 +53,25 @@ Factus activa la cuenta en ~1–3 días hábiles con:
 - Guárdalas en un lugar seguro (gestor de contraseñas). BusinessPost las guarda **cifradas** en el servidor de la tienda y **nunca las
   vuelve a mostrar**.
 
-## 4. Configurar BusinessPost para Factus (una vez por servidor)
+## 4. Factus ya viene habilitado
 
-El adaptador del proveedor lo fija la instalación (por defecto `NONE`: sin proveedor). En el **servidor de la tienda**:
+Desde la rama `pantallas-admin` Factus es el adaptador por defecto: **no hay que editar `server.json`**. Lo que enciende o apaga la
+facturación electrónica es el modo de la empresa (por defecto **Apagada**), que se cambia desde la pantalla. Solo si una instalación NO
+debe facturar electrónicamente, soporte pone `"Pos": { "Billing": { "Provider": "NONE" } }` en `{DataRoot}\config\server.json`.
 
-1. Abre `{DataRoot}\config\server.json` (por defecto bajo `C:\ProgramData\…\config\`) y agrega:
-   ```json
-   { "Pos": { "Billing": { "Provider": "FACTUS" } } }
-   ```
-   (si el archivo ya tiene una sección `Pos`, agrega solo `"Billing": { "Provider": "FACTUS" }` dentro de ella).
-2. Reinicia el servicio del servidor de BusinessPost.
-3. En **Administración → Facturación → Configuración** debe decir "adaptador activo: FACTUS".
+## 5. Conectar Factus (credenciales y ambiente SANDBOX)
 
-## 5. Credenciales y ambiente SANDBOX
+En **Administración → Facturación → Configuración**, tarjeta **Factus** (permiso *Configurar la facturación electrónica*: dueño y
+administrador):
 
-En **Administración → Facturación** (permiso *Configurar la facturación electrónica*: dueño y administrador):
-
-1. Pestaña **Configuración** → *Credenciales de Factus*: escribe usuario, contraseña, Client ID y Client secret → **Guardar credenciales**.
-   Para cambiarlas hay que escribir las cuatro de nuevo. Si restauras la base de datos en otro equipo, vuelve a escribirlas (el cifrado
-   es del equipo).
-2. *Modo de emisión y ambiente*: ambiente **Pruebas (sandbox)**. Deja el modo en **Apagada** hasta sincronizar los rangos.
+1. Escribe usuario, contraseña, Client ID y Client secret; elige el ambiente **Pruebas (sandbox)** y el modo con que quieres arrancar.
+2. Pulsa **Conectar**. BusinessPost guarda las llaves cifradas con la facturación **apagada**, prueba la conexión pidiendo un token a
+   Factus (no emite nada ni consume el paquete) y, **solo si Factus las acepta**, trae los rangos de numeración y enciende el modo elegido.
+   Si Factus las rechaza (o son del otro ambiente) o no hay Internet, la facturación sigue apagada y la pantalla dice qué revisar.
+3. Conectado verás el ambiente, el modo, tu usuario enmascarado (p. ej. `ti***@correo.co`) y la última prueba, con **Volver a probar**,
+   **Cambiar llaves** (repite el flujo: mientras tanto la facturación queda apagada) y **Desconectar** (apaga; las llaves quedan guardadas).
+4. Las llaves nunca se vuelven a mostrar. Si restauras la base de datos en otro equipo, vuelve a escribirlas (el cifrado es del equipo).
+5. Para pasar de pruebas a producción: **Desconectar**, cambiar llaves por las de producción, ambiente **Producción** y **Conectar**.
 
 ## 6. Sincronizar y asignar los rangos
 

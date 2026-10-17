@@ -71,6 +71,11 @@ public static class BackupErrors
     public static readonly Error LocalIsFixed = Error.BusinessRule("BACKUP.LOCAL_DESTINATION_FIXED", "El destino LOCAL ya existe: solo se cambian su retención y cuándo se usa.");
     public static readonly Error RecoveryCodeMismatch = Error.Validation("BACKUP.RECOVERY_CODE_MISMATCH", "El código escrito no corresponde al código de recuperación vigente.");
     public static readonly Error NoRecoveryCode = Error.BusinessRule("BACKUP.NO_RECOVERY_CODE", "Aún no se ha generado un código de recuperación.");
+    public static readonly Error NetworkPathRequired = Error.Validation(
+        "BACKUP.NETWORK_PATH_REQUIRED", "La carpeta de red se escribe como \\\\equipo\\carpeta: el servicio de BusinessPost no ve las unidades mapeadas (Z:).");
+
+    public static Error FolderInvalid(string message) => Error.BusinessRule("BACKUP.FOLDER_INVALID", message);
+
     public static readonly Error BackupToolsMissing = Error.BusinessRule(
         "BACKUP.NOT_CONFIGURED", "Los backups no están configurados en este equipo (falta la conexión de backup o las herramientas de PostgreSQL).");
 }
@@ -125,6 +130,12 @@ public interface IBackupStore
 public interface IBackupOperations
 {
     bool IsConfigured { get; }
+
+    /// <summary>Carpeta del destino LOCAL (fija): aquí se crea cada backup antes de copiarlo a los demás destinos.</summary>
+    string LocalDirectory { get; }
+
+    /// <summary>Comprueba una carpeta de destino (disco externo o red) sin dejar rastro: ruta, unidad, etiqueta, escritura y espacio.</summary>
+    Task<BackupFolderCheckDto> CheckFolderAsync(string? path, string? volumeLabel, CancellationToken cancellationToken);
 
     /// <summary>Pone en cola un backup manual (lo ejecuta el proceso en segundo plano).</summary>
     void EnqueueManual(Guid? requestedBy);
@@ -181,6 +192,42 @@ internal sealed class ListDestinationsHandler(IBackupStore store) : IQueryHandle
 {
     public async Task<Result<IReadOnlyList<BackupDestinationDto>>> Handle(ListDestinationsQuery request, CancellationToken cancellationToken) =>
         Result.Success(await store.ListDestinationsAsync(cancellationToken));
+}
+
+/// <summary>Resumen de la pantalla de destinos: carpeta LOCAL, si hay backups configurados, último backup y último correcto.</summary>
+public sealed record GetBackupOverviewQuery : IQuery<BackupOverviewDto>;
+
+internal sealed class GetBackupOverviewHandler(IBackupStore store, IBackupOperations operations) : IQueryHandler<GetBackupOverviewQuery, BackupOverviewDto>
+{
+    public async Task<Result<BackupOverviewDto>> Handle(GetBackupOverviewQuery request, CancellationToken cancellationToken)
+    {
+        var runs = await store.ListRunsAsync(50, cancellationToken);
+        return new BackupOverviewDto(operations.IsConfigured, operations.LocalDirectory, runs.Count > 0 ? runs[0] : null, runs.FirstOrDefault(r => r.Succeeded));
+    }
+}
+
+/// <summary>
+/// Comprueba una carpeta ANTES de guardarla como destino (disco externo o carpeta de red). La prueba corre en el servidor con la cuenta del
+/// servicio; no deja archivos ni carpetas.
+/// </summary>
+public sealed record CheckBackupFolderQuery(string Kind, string? Path, string? VolumeLabel) : IQuery<BackupFolderCheckDto>;
+
+internal sealed class CheckBackupFolderHandler(IBackupOperations operations) : IQueryHandler<CheckBackupFolderQuery, BackupFolderCheckDto>
+{
+    public async Task<Result<BackupFolderCheckDto>> Handle(CheckBackupFolderQuery request, CancellationToken cancellationToken)
+    {
+        if (request.Kind is not (DestinationKinds.External or DestinationKinds.Network))
+        {
+            return Error.Validation("BACKUP.FOLDER_KIND", "Solo se comprueban carpetas de disco externo (EXTERNAL) o de red (NETWORK).");
+        }
+
+        if (request.Kind == DestinationKinds.Network && !SaveDestinationValidator.IsUnc(request.Path))
+        {
+            return BackupErrors.NetworkPathRequired;
+        }
+
+        return await operations.CheckFolderAsync(request.Path, request.Kind == DestinationKinds.External ? request.VolumeLabel : null, cancellationToken);
+    }
 }
 
 public sealed record ListRestoreTestsQuery(int Limit = 20) : IQuery<IReadOnlyList<RestoreTestDto>>;
@@ -282,6 +329,11 @@ internal sealed class SaveDestinationValidator : AbstractValidator<SaveDestinati
         RuleFor(x => x.Input.Name).NotEmpty().MaximumLength(80);
         RuleFor(x => x.Input.Path).NotEmpty().MaximumLength(400).When(x => x.Input.Kind is DestinationKinds.External or DestinationKinds.Network)
             .WithMessage("Indique la carpeta (p. ej. E:\\Backups o \\\\NAS\\backups).");
+        RuleFor(x => x.Input.Path).Must(IsUnc).When(x => x.Input.Kind == DestinationKinds.Network && !string.IsNullOrWhiteSpace(x.Input.Path))
+            .WithErrorCode(BackupErrors.NetworkPathRequired.Code).WithMessage(BackupErrors.NetworkPathRequired.Message);
+        RuleFor(x => x.Input.Path).Must(p => System.IO.Path.IsPathFullyQualified(p!.Trim()))
+            .When(x => x.Input.Kind == DestinationKinds.External && !string.IsNullOrWhiteSpace(x.Input.Path))
+            .WithMessage("Escriba la ruta completa de la carpeta del disco (p. ej. E:\\Backups).");
         RuleFor(x => x.Input.Endpoint).NotEmpty().Must(e => Uri.TryCreate(e, UriKind.Absolute, out var u) && u.Scheme is "https" or "http")
             .When(x => x.Input.Kind == DestinationKinds.S3).WithMessage("Indique la URL del servicio S3 (p. ej. https://backups.midominio.com).");
         RuleFor(x => x.Input.Bucket).NotEmpty().MaximumLength(100).When(x => x.Input.Kind == DestinationKinds.S3);
@@ -290,6 +342,9 @@ internal sealed class SaveDestinationValidator : AbstractValidator<SaveDestinati
         RuleFor(x => x.Input.KeepWeekly).InclusiveBetween(0, 52);
         RuleFor(x => x.Input.KeepMonthly).InclusiveBetween(0, 120);
     }
+
+    public static bool IsUnc(string? path) =>
+        path is not null && (path.Trim().StartsWith(@"\\", StringComparison.Ordinal) || path.Trim().StartsWith("//", StringComparison.Ordinal));
 }
 
 internal sealed class SaveDestinationHandler(
@@ -323,6 +378,19 @@ internal sealed class SaveDestinationHandler(
             return BackupErrors.LocalIsFixed;
         }
 
+        // Carpeta nueva, cambiada o reactivada: se comprueba antes de guardar (existe o se puede crear, se puede escribir, no es la LOCAL).
+        // Un destino ya probado que solo cambia retención o cuándo se usa no se vuelve a probar (la USB puede estar retirada).
+        if (request.Input is { IsActive: true, Kind: DestinationKinds.External or DestinationKinds.Network }
+            && (current is null || !current.IsActive || !SamePath(current.Path, request.Input.Path) || !SamePath(current.VolumeLabel, request.Input.VolumeLabel)))
+        {
+            var check = await operations.CheckFolderAsync(
+                request.Input.Path, request.Input.Kind == DestinationKinds.External ? request.Input.VolumeLabel : null, cancellationToken);
+            if (!check.Ok)
+            {
+                return BackupErrors.FolderInvalid(check.Message);
+            }
+        }
+
         if (request.Input.Kind == DestinationKinds.S3 && string.IsNullOrWhiteSpace(request.Input.SecretKey) && current is not { HasSecret: true })
         {
             return Error.Validation("BACKUP.SECRET_REQUIRED", "Indique la clave secreta del almacenamiento S3.");
@@ -339,6 +407,8 @@ internal sealed class SaveDestinationHandler(
             cancellationToken);
         return (await store.ListDestinationsAsync(cancellationToken)).First(d => d.Id == destinationId);
     }
+
+    private static bool SamePath(string? a, string? b) => string.Equals(a?.Trim() ?? string.Empty, b?.Trim() ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Genera (o regenera) el código de recuperación (D11-04). Se muestra una sola vez.</summary>

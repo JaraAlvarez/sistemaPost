@@ -28,72 +28,17 @@
             @if (PuedeConfigurar)
             {
                 <MudTabPanel Text="Configuración">
+                    <FactusConexion Cambio="ConexionCambioAsync" />
                     @if (_settings is { } settings)
                     {
-                        <MudGrid Spacing="2">
-                            <MudItem xs="12" md="6">
-                                <MudText Typo="Typo.h6" Class="mb-2">Modo de emisión y ambiente</MudText>
-                                <MudSelect T="string" @bind-Value="_modo" Label="Modo de emisión">
-                                    <MudSelectItem T="string" Value="@("OFF")">Apagada: comprobante interno (como hoy)</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("ON_REQUEST")">Solo cuando el cliente pide factura (transición)</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("EVERY_SALE")">Factura electrónica en cada venta</MudSelectItem>
-                                </MudSelect>
-                                <MudSelect T="string" @bind-Value="_ambiente" Label="Ambiente del proveedor" Class="mt-2">
-                                    <MudSelectItem T="string" Value="@("SANDBOX")">Pruebas (sandbox)</MudSelectItem>
-                                    <MudSelectItem T="string" Value="@("PRODUCTION")">Producción (documentos reales ante la DIAN)</MudSelectItem>
-                                </MudSelect>
-                                @if (_modo == "EVERY_SALE")
-                                {
-                                    <MudAlert Severity="Severity.Warning" Class="mt-3">
-                                        <b>Factura en cada venta:</b> se emite una factura electrónica por CADA venta (una tienda con 2.000 ventas diarias emite
-                                        unas 60.000 al mes) y Factus cobra por paquete de documentos. Antes de activarlo pida a Factus la <b>cotización por
-                                        volumen</b> y obtenga el <b>visto bueno de su contador</b> (modo, impuestos y contingencia).
-                                    </MudAlert>
-                                    <MudCheckBox T="bool" @bind-Value="_confirmado" Color="Color.Warning"
-                                                 Label="Tengo la cotización de Factus por volumen y el visto bueno de mi contador" />
-                                }
-                                else if (_modo == "ON_REQUEST")
-                                {
-                                    <MudAlert Severity="Severity.Info" Class="mt-3">
-                                        Solo para la transición: las ventas sin factura siguen con comprobante interno, que NO cumple la obligación del POS
-                                        electrónico. Confírmelo con su contador.
-                                    </MudAlert>
-                                }
-                                @if (_ambiente == "PRODUCTION" && _modo != "OFF")
-                                {
-                                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">En producción cada documento es real ante la DIAN y consume su paquete de Factus.</MudAlert>
-                                }
-                                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || (_modo == "EVERY_SALE" && !_confirmado && !EnumText.Same(settings.Mode, "EVERY_SALE")))"
-                                           OnClick="GuardarModoAsync">Guardar modo y ambiente</MudButton>
-                                <MudText Typo="Typo.caption" Class="d-block mt-2">
-                                    Proveedor: @settings.Provider · adaptador activo: @settings.ActiveAdapter · última sincronización de rangos:
-                                    @Format.Date(settings.LastSyncAt)
-                                </MudText>
-                                @if (settings.LastSyncError is { Length: > 0 } syncError)
-                                {
-                                    <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">Última sincronización: @syncError</MudAlert>
-                                }
-                            </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudText Typo="Typo.h6" Class="mb-2">Credenciales de Factus</MudText>
-                                @if (settings.HasCredentials)
-                                {
-                                    <MudAlert Severity="Severity.Success" Dense="true" Class="mb-2">
-                                        Configuradas el @Format.Date(settings.CredentialsUpdatedAt). Por seguridad nunca se muestran; escriba todas de nuevo para cambiarlas.
-                                    </MudAlert>
-                                }
-                                else
-                                {
-                                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">Sin credenciales: la facturación electrónica no se puede encender.</MudAlert>
-                                }
-                                <MudTextField @bind-Value="_usuario" Label="Usuario (correo de Factus)" Immediate="true" />
-                                <MudTextField @bind-Value="_clave" Label="Contraseña" InputType="InputType.Password" Immediate="true" />
-                                <MudTextField @bind-Value="_clientId" Label="Client ID" Immediate="true" />
-                                <MudTextField @bind-Value="_clientSecret" Label="Client secret" InputType="InputType.Password" Immediate="true" />
-                                <MudText Typo="Typo.caption" Class="d-block mt-1">Se guardan cifradas en el servidor de la tienda; no se devuelven ni quedan en la auditoría.</MudText>
-                                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarCredencialesAsync">Guardar credenciales</MudButton>
-                            </MudItem>
-                        </MudGrid>
+                        <MudText Typo="Typo.caption" Class="d-block mt-2">
+                            Proveedor: @settings.Provider · adaptador activo: @settings.ActiveAdapter · última sincronización de rangos:
+                            @Format.Date(settings.LastSyncAt)
+                        </MudText>
+                        @if (settings.LastSyncError is { Length: > 0 } syncError)
+                        {
+                            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">Última sincronización: @syncError</MudAlert>
+                        }
                     }
                 </MudTabPanel>
             }
@@ -411,9 +356,9 @@
     private FiscalAlertsDto? _alerts;
     private FiscalRangeDto? _asignar;
     private FiscalDocumentDto? _detalle;
-    private bool _loading = true, _busy, _confirmado, _corregir;
+    private bool _loading = true, _busy, _corregir;
     private int _tab;
-    private string? _error, _modo, _ambiente, _usuario, _clave, _clientId, _clientSecret, _fEstado, _fTipo, _fOrigen, _fTexto;
+    private string? _error, _fEstado, _fTipo, _fOrigen, _fTexto;
     private string? _bNombre, _bPersona, _bTipoId, _bNumero, _bDv, _bCorreo, _bRegimen, _bResponsabilidades, _bMunicipio, _bDireccion, _bTelefono;
     private DateTime? _desde = DateTime.Today.AddDays(-6), _hasta = DateTime.Today, _cDesde = DateTime.Today.AddDays(-6), _cHasta = DateTime.Today;
     private Guid? _aSucursal, _aCaja;
@@ -562,27 +507,14 @@
         _loading = false;
     }
 
-    private async Task CargarConfiguracionAsync()
-    {
-        _settings = await Api.GetAsync<BillingSettingsDto>("api/v1/billing/settings");
-        _modo = EnumText.Normalize(_settings.Mode);
-        _ambiente = EnumText.Normalize(_settings.Environment);
-        _confirmado = _modo == "EVERY_SALE";
-    }
+    private async Task CargarConfiguracionAsync() => _settings = await Api.GetAsync<BillingSettingsDto>("api/v1/billing/settings");
 
-    private async Task CargarRangosAsync()
+    /// <summary>La tarjeta de Factus conectó, desconectó o cambió el modo: se recargan la configuración, los rangos y las alertas.</summary>
+    private async Task ConexionCambioAsync()
     {
-        _ranges = await Api.GetAsync<IReadOnlyList<FiscalRangeDto>>("api/v1/billing/ranges");
-        _alerts = await Api.GetAsync<FiscalAlertsDto>("api/v1/billing/alerts");
-    }
-
-    private async Task GuardarModoAsync()
-    {
-        _busy = true;
         try
         {
-            _settings = await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings", new { mode = _modo, environment = _ambiente });
-            Snackbar.Add($"Facturación electrónica: {NombreModo(_settings.Mode)} ({(EnumText.Same(_settings.Environment, "PRODUCTION") ? "producción" : "pruebas")}).", Severity.Success);
+            await CargarConfiguracionAsync();
             if (PuedeVer)
             {
                 await CargarRangosAsync();
@@ -592,34 +524,12 @@
         {
             Snackbar.Add(ex.Texto, Severity.Error);
         }
-
-        _busy = false;
     }
 
-    private async Task GuardarCredencialesAsync()
+    private async Task CargarRangosAsync()
     {
-        if (string.IsNullOrWhiteSpace(_usuario) || string.IsNullOrWhiteSpace(_clave) || string.IsNullOrWhiteSpace(_clientId) || string.IsNullOrWhiteSpace(_clientSecret))
-        {
-            Snackbar.Add("Escriba el usuario, la contraseña, el client ID y el client secret.", Severity.Warning);
-            return;
-        }
-
-        _busy = true;
-        try
-        {
-            _settings = await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings/credentials", new
-            {
-                username = _usuario.Trim(), password = _clave, clientId = _clientId.Trim(), clientSecret = _clientSecret,
-            });
-            _usuario = _clave = _clientId = _clientSecret = null;
-            Snackbar.Add("Credenciales guardadas y cifradas.", Severity.Success);
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Texto, Severity.Error);
-        }
-
-        _busy = false;
+        _ranges = await Api.GetAsync<IReadOnlyList<FiscalRangeDto>>("api/v1/billing/ranges");
+        _alerts = await Api.GetAsync<FiscalAlertsDto>("api/v1/billing/alerts");
     }
 
     private async Task SincronizarAsync()

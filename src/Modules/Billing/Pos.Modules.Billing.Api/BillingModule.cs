@@ -81,11 +81,14 @@ public sealed class BillingModule : IModule
         billing.MapPut("/settings", async (UpdateBillingSettingsCommand command, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(command, ct)).ToHttpResult())
             .RequirePermission(BillingPermissions.SettingsManage)
-            .WithSummary("Cambia el modo (OFF, ON_REQUEST, EVERY_SALE) y el ambiente (SANDBOX, PRODUCTION); encender exige credenciales");
+            .WithSummary("Cambia el modo (OFF, ON_REQUEST, EVERY_SALE) y el ambiente (SANDBOX, PRODUCTION); encender exige credenciales verificadas");
         billing.MapPut("/settings/credentials", async (SetProviderCredentialsCommand command, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(command, ct)).ToHttpResult())
             .RequirePermission(BillingPermissions.SettingsManage)
-            .WithSummary("Guarda las credenciales del proveedor cifradas con DPAPI (no se devuelven ni se registran)");
+            .WithSummary("Guarda las credenciales del proveedor cifradas con DPAPI (no se devuelven ni se registran); la facturación queda apagada hasta verificarlas");
+        billing.MapPost("/settings/verify", async (IDispatcher d, CancellationToken ct) => (await d.Send(new VerifyBillingConnectionCommand(), ct)).ToHttpResult())
+            .RequirePermission(BillingPermissions.SettingsManage)
+            .WithSummary("Verifica las credenciales y el ambiente vigentes contra el proveedor (Factus: pide un token; no emite nada)");
 
         billing.MapGet("/ranges", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListFiscalRangesQuery(), ct)).ToHttpResult())
             .RequirePermission(BillingPermissions.DocumentView)

@@ -770,6 +770,14 @@ internal sealed class BackupOperations(BackupRunner runner, BackupWorker worker,
 {
     public bool IsConfigured => runner.IsConfigured;
 
+    public string LocalDirectory => environment.LocalDirectory;
+
+    public async Task<BackupFolderCheckDto> CheckFolderAsync(string? path, string? volumeLabel, CancellationToken cancellationToken)
+    {
+        var result = await BackupFolderProbe.CheckAsync(path, volumeLabel, environment.LocalDirectory, cancellationToken);
+        return new BackupFolderCheckDto(result.Ok, result.Message, result.FullPath, result.VolumeLabel, result.FreeBytes);
+    }
+
     public void EnqueueManual(Guid? requestedBy) => worker.Enqueue(requestedBy);
 
     public async Task<BackupVerificationDto> VerifyAsync(Guid runId, CancellationToken cancellationToken)

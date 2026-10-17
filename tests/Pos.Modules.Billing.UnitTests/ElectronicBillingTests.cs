@@ -339,6 +339,8 @@ public class NumberingAndSettingsTests
 
         settings.SetCredentials([1, 2, 3], Now);
         (settings.HasCredentials, settings.CredentialsUpdatedAt).ShouldBe((true, (DateTimeOffset?)Now));
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Sandbox, "FAKE").IsSuccess.ShouldBeTrue();
+        settings.RecordVerification(Now, ok: true, "Conexión correcta.");
         settings.Configure(BillingMode.EverySale, FiscalEnvironment.Sandbox, "FAKE").IsSuccess.ShouldBeTrue();
         (settings.Mode, settings.Provider).ShouldBe((BillingMode.EverySale, "FAKE"));
         Should.Throw<ArgumentException>(() => settings.Configure(BillingMode.Off, FiscalEnvironment.Sandbox, " "));
@@ -351,6 +353,47 @@ public class NumberingAndSettingsTests
         settings.RecordSync(Now, null);
         settings.LastSyncError.ShouldBeNull();
     }
+
+    [Fact]
+    public void Encender_exige_verificar_y_las_llaves_nuevas_o_el_cambio_de_ambiente_apagan_o_borran_la_verificacion()
+    {
+        var settings = BillingProviderSettings.Create(Company, "FACTUS");
+        settings.SetCredentials([1, 2, 3], Now, BillingProviderSettings.MaskUsername("tienda@correo.co"));
+        (settings.CredentialHint, settings.IsVerified, settings.Mode).ShouldBe(("ti***@correo.co", false, BillingMode.Off));
+
+        // Guardado desactivado: sin verificación no se enciende; una verificación fallida tampoco sirve.
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").Error.ShouldBe(BillingErrors.VerificationRequired);
+        settings.RecordVerification(Now, ok: false, "Factus rechazó las credenciales.");
+        (settings.LastVerifiedAt, settings.LastVerificationOk, settings.IsVerified).ShouldBe(((DateTimeOffset?)Now, (bool?)false, false));
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").Error.ShouldBe(BillingErrors.VerificationRequired);
+
+        // Verificó: enciende; pasar de ON_REQUEST a EVERY_SALE en el mismo ambiente no pide verificar otra vez.
+        settings.RecordVerification(Now, ok: true, new string('m', 600));
+        settings.LastVerificationMessage!.Length.ShouldBe(500);
+        settings.Configure(BillingMode.OnRequest, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Sandbox, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        // Cambiar de ambiente encendida exige verificar en el nuevo; apagar y cambiar el ambiente borra la verificación.
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Production, "FACTUS").Error.ShouldBe(BillingErrors.VerificationRequired);
+        settings.Mode.ShouldBe(BillingMode.EverySale);
+        settings.Configure(BillingMode.Off, FiscalEnvironment.Production, "FACTUS").IsSuccess.ShouldBeTrue();
+        (settings.LastVerifiedAt, settings.LastVerificationOk).ShouldBe(((DateTimeOffset?)null, (bool?)null));
+        settings.RecordVerification(Now, ok: true, "ok");
+        settings.Configure(BillingMode.EverySale, FiscalEnvironment.Production, "FACTUS").IsSuccess.ShouldBeTrue();
+
+        // Llaves nuevas: se apaga y se borra la verificación ("guardar desactivado").
+        settings.SetCredentials([4, 5, 6], Now, "ot***@correo.co");
+        (settings.Mode, settings.IsVerified, settings.LastVerifiedAt, settings.CredentialHint).ShouldBe((BillingMode.Off, false, (DateTimeOffset?)null, "ot***@correo.co"));
+        settings.SetCredentials(null, Now, "x");
+        settings.CredentialHint.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("tienda@correo.co", "ti***@correo.co")]
+    [InlineData("  ab@x.co ", "a***@x.co")]
+    [InlineData("usuario", "us***")]
+    [InlineData("@dominio.co", "***@dominio.co")]
+    public void El_usuario_se_enmascara(string username, string expected) => BillingProviderSettings.MaskUsername(username).ShouldBe(expected);
 
     [Theory]
     [InlineData(BillingMode.Off, false, false)]

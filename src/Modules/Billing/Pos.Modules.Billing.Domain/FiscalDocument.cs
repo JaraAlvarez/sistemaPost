@@ -88,6 +88,10 @@ public static class BillingErrors
     public static readonly Error CredentialsRequired = Error.BusinessRule(
         "BILLING.CREDENTIALS_REQUIRED", "Configure las credenciales del proveedor antes de encender la facturación electrónica.");
 
+    public static readonly Error VerificationRequired = Error.BusinessRule(
+        "BILLING.VERIFICATION_REQUIRED",
+        "Verifique primero la conexión con el proveedor (credenciales y ambiente actuales) antes de encender la facturación electrónica.");
+
     public static readonly Error InvalidCredentials = Error.Validation(
         "BILLING.INVALID_CREDENTIALS", "Las credenciales del proveedor están incompletas: usuario, contraseña, client id y client secret.");
 }

@@ -72,6 +72,15 @@ public sealed class BackupModule : IModule
             .RequirePermission(BackupPermissions.View)
             .WithSummary("Alertas: último backup viejo, destinos fallando, prueba fallida, código sin confirmar");
 
+        group.MapGet("/overview", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetBackupOverviewQuery(), ct)).ToHttpResult())
+            .RequirePermission(BackupPermissions.View)
+            .WithSummary("Carpeta LOCAL, si los backups están configurados en este equipo, último backup y último correcto");
+
+        group.MapPost("/destinations/check-folder", async (CheckFolderRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new CheckBackupFolderQuery(r.Kind, r.Path, r.VolumeLabel), ct)).ToHttpResult())
+            .RequirePermission(BackupPermissions.DestinationConfigure)
+            .WithSummary("Comprueba una carpeta antes de guardarla: ruta completa, unidad conectada, etiqueta, escritura y espacio (no deja rastro)");
+
         group.MapGet("/destinations", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListDestinationsQuery(), ct)).ToHttpResult())
             .RequirePermission(BackupPermissions.View)
             .WithSummary("Destinos configurados (la clave secreta de S3 nunca se devuelve)");
@@ -103,3 +112,6 @@ public sealed class BackupModule : IModule
 }
 
 public sealed record ConfirmCodeRequest(string Code);
+
+/// <summary>Carpeta a comprobar: <c>Kind</c> EXTERNAL (disco con letra y etiqueta opcional) o NETWORK (ruta UNC).</summary>
+public sealed record CheckFolderRequest(string Kind, string? Path, string? VolumeLabel);

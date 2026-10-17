@@ -39,7 +39,16 @@ public interface IFiscalProvider
 
     /// <summary>Rangos de numeración autorizados de la empresa en el proveedor.</summary>
     Task<FiscalRangeSyncResult> GetNumberingRangesAsync(FiscalConnection connection, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// "Verificar conexión": prueba las credenciales en el ambiente con la consulta más liviana del proveedor (Factus: pedir un token). No
+    /// emite nada ni lanza; el mensaje es legible para la pantalla y nunca incluye las credenciales.
+    /// </summary>
+    Task<FiscalConnectionCheck> VerifyAsync(FiscalConnection connection, CancellationToken cancellationToken);
 }
+
+/// <summary>Resultado de verificar la conexión con el proveedor.</summary>
+public sealed record FiscalConnectionCheck(bool Ok, string Message);
 
 /// <summary>Sin proveedor configurado: el documento sigue pendiente y se registra el intento.</summary>
 public sealed class NullFiscalProvider : IFiscalProvider
@@ -67,6 +76,9 @@ public sealed class NullFiscalProvider : IFiscalProvider
     public Task<FiscalRangeSyncResult> GetNumberingRangesAsync(FiscalConnection connection, CancellationToken cancellationToken) =>
         Task.FromResult(new FiscalRangeSyncResult(FiscalOutcome.NotConfigured, [], NotConfiguredMessage));
 
+    public Task<FiscalConnectionCheck> VerifyAsync(FiscalConnection connection, CancellationToken cancellationToken) =>
+        Task.FromResult(new FiscalConnectionCheck(false, "Esta instalación tiene la facturación electrónica deshabilitada (Pos:Billing:Provider = NONE)."));
+
     private static Task<FiscalProviderResult> NotConfigured() => Task.FromResult(FiscalProviderResult.NotConfigured(NotConfiguredMessage));
 }
 
@@ -89,6 +101,9 @@ public sealed class FakeFiscalProvider : IFiscalProvider
 
     /// <summary>Identificaciones del adquirente que la "DIAN" rechaza (regla FAK24 simulada).</summary>
     public ConcurrentBag<string> RejectedIdentifications { get; } = [];
+
+    /// <summary>Simula credenciales rechazadas al verificar la conexión.</summary>
+    public bool RejectCredentials { get; set; }
 
     /// <summary>Rangos que informa el proveedor.</summary>
     public List<FiscalProviderRange> Ranges { get; } =
@@ -159,6 +174,15 @@ public sealed class FakeFiscalProvider : IFiscalProvider
                 ? new FiscalRangeSyncResult(FiscalOutcome.Unavailable, [], "Sin conexión con el proveedor (simulado).")
                 : new FiscalRangeSyncResult(FiscalOutcome.Accepted, [.. Ranges.Select(r => r with { Current = Math.Max(r.Current, _consecutives.GetValueOrDefault(r.ProviderRangeId)) })]));
         }
+    }
+
+    public Task<FiscalConnectionCheck> VerifyAsync(FiscalConnection connection, CancellationToken cancellationToken)
+    {
+        LastConnection = connection;
+        return Task.FromResult(
+            Offline ? new FiscalConnectionCheck(false, "Sin conexión con el proveedor (simulado).")
+            : RejectCredentials ? new FiscalConnectionCheck(false, "El proveedor rechazó las credenciales (simulado).")
+            : new FiscalConnectionCheck(true, "Conexión correcta con el proveedor (simulado)."));
     }
 
     private Task<FiscalProviderResult> Submit(FiscalConnection connection, object draft, FiscalHeader header, string buyerIdentification)

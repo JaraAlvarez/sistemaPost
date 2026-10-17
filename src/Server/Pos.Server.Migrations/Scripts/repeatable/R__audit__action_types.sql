@@ -19,6 +19,7 @@ INSERT INTO audit.action_types (code, module, name, default_severity) VALUES
     ('RESTORE_TEST_FAILED', 'backup', 'Restauración de prueba fallida', 'CRITICAL'),
     ('RESTORE_TEST_PASSED', 'backup', 'Restauración de prueba correcta', 'INFO'),
     ('FISCAL_BUYER_CORRECTED', 'billing', 'Datos del adquirente corregidos en un documento electrónico', 'WARNING'),
+    ('FISCAL_CONNECTION_VERIFIED', 'billing', 'Conexión con el proveedor de facturación electrónica verificada', 'INFO'),
     ('FISCAL_CREDENTIALS_CHANGED', 'billing', 'Credenciales del proveedor de facturación electrónica cambiadas', 'CRITICAL'),
     ('FISCAL_DOCUMENT_REJECTED', 'billing', 'Documento electrónico rechazado', 'CRITICAL'),
     ('FISCAL_DOCUMENT_RETRIED', 'billing', 'Reintento manual de un documento electrónico', 'INFO'),

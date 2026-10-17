@@ -72,6 +72,7 @@ internal sealed class BillingModelContributor : IModelContributor
             b.Property(x => x.Environment).HasUpperSnakeConversion();
             b.Property(x => x.Mode).HasUpperSnakeConversion();
             b.Ignore(x => x.HasCredentials);
+            b.Ignore(x => x.IsVerified);
             b.HasControlColumns();
             b.HasXminConcurrency();
         });
@@ -584,8 +585,12 @@ internal sealed class FiscalDocumentPendingHandler(FiscalQueueSignal signal) : I
 /// <summary>Configuración <c>Pos:Billing</c>.</summary>
 public sealed class BillingOptions
 {
-    /// <summary>Adaptador: NONE (por defecto: facturación electrónica apagada), FAKE (solo fuera de producción) o FACTUS (Factus API v2).</summary>
-    public string Provider { get; set; } = "NONE";
+    /// <summary>
+    /// Adaptador: FACTUS (por defecto, Factus API v2), NONE (prohíbe la facturación electrónica en esta instalación) o FAKE (solo fuera de
+    /// producción). Lo que la enciende o la apaga es el modo de la empresa (OFF por defecto), que se cambia desde la pantalla tras verificar
+    /// la conexión (docs/fases/pantallas-faltantes-propuesta.md §2).
+    /// </summary>
+    public string Provider { get; set; } = "FACTUS";
 
     /// <summary>Si el proceso en segundo plano envía la cola (las pruebas lo apagan para dirigirla a mano).</summary>
     public bool Worker { get; set; } = true;
@@ -777,7 +782,8 @@ public static class BillingInfrastructureRegistration
         services.AddScoped<FiscalDocumentProcessor>();
         services.AddScoped<FiscalRangeService>();
 
-        // Adaptador del proveedor: el nulo por defecto (fase apagada); el simulado solo fuera de producción; Factus con Provider = FACTUS.
+        // Adaptador del proveedor: Factus por defecto (con el modo OFF no se le llama nunca); el nulo con Provider = NONE; el simulado solo
+        // fuera de producción.
         services.AddSingleton<NullFiscalProvider>();
         services.AddSingleton<FakeFiscalProvider>();
         services.AddFactusApi();
@@ -811,7 +817,7 @@ public static class BillingInfrastructureRegistration
         var section = configuration.GetSection("Pos:Billing");
         return new BillingOptions
         {
-            Provider = section["Provider"] is { Length: > 0 } provider ? provider.Trim().ToUpperInvariant() : "NONE",
+            Provider = section["Provider"] is { Length: > 0 } provider ? provider.Trim().ToUpperInvariant() : FactusFiscalProvider.ProviderName,
             Worker = !bool.TryParse(section["Worker"], out var worker) || worker,
             QueueIntervalSeconds = int.TryParse(section["QueueIntervalSeconds"], out var interval) ? interval : 5,
             RangeSyncHours = int.TryParse(section["RangeSyncHours"], out var hours) ? hours : 24,

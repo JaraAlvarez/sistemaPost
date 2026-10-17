@@ -143,6 +143,27 @@ public class BillingElectronicSchemaTests(PostgresFixture postgres)
     }
 
     [Fact]
+    public async Task La_verificacion_de_la_conexion_guarda_fecha_y_resultado_juntos_V060()
+    {
+        await using var harness = await InfrastructureHarness.CreateAsync(postgres);
+        var app = harness.Database.AppConnectionString;
+        await harness.Database.ExecuteAsync(
+            $"""
+            INSERT INTO billing.provider_settings (company_id, provider, environment, mode, credentials, credentials_updated_at, credential_hint, created_at, created_by)
+            VALUES ('{Company}', 'FACTUS', 'SANDBOX', 'OFF', '\x0102'::bytea, now(), 'ti***@correo.co', now(), '{User}')
+            """, app);
+
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                "UPDATE billing.provider_settings SET last_verified_at = now()", app)))
+            .ConstraintName.ShouldBe("ck_provider_settings__verification");
+        (await Should.ThrowAsync<PostgresException>(() => harness.Database.ExecuteAsync(
+                "UPDATE billing.provider_settings SET last_verification_ok = true", app)))
+            .ConstraintName.ShouldBe("ck_provider_settings__verification");
+        await harness.Database.ExecuteAsync(
+            "UPDATE billing.provider_settings SET last_verified_at = now(), last_verification_ok = true, last_verification_message = 'ok'", app);
+    }
+
+    [Fact]
     public async Task La_cola_tiene_su_indice_y_el_permiso_de_configuracion_es_sensible()
     {
         var db = await postgres.CreateDatabaseAsync(migrate: true);

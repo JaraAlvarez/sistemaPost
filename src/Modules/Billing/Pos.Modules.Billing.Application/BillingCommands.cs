@@ -164,11 +164,15 @@ internal sealed class GetBillingSettingsHandler(
         var mode = await BillingService.ModeAsync(store, settings, companyId, installation.BranchId, cancellationToken);
         return new BillingSettingsDto(
             configured?.Provider ?? provider.Name, provider.Name, mode.Db(), (configured?.Environment ?? FiscalEnvironment.Sandbox).Db(), configured?.HasCredentials ?? false,
-            configured?.CredentialsUpdatedAt, configured?.LastSyncAt, configured?.LastSyncError);
+            configured?.CredentialsUpdatedAt, configured?.LastSyncAt, configured?.LastSyncError, configured?.CredentialHint, configured?.LastVerifiedAt,
+            configured?.LastVerificationOk, configured?.LastVerificationMessage);
     }
 }
 
-/// <summary>Modo de emisión (OFF, ON_REQUEST, EVERY_SALE) y ambiente (SANDBOX, PRODUCTION). Encender exige credenciales.</summary>
+/// <summary>
+/// Modo de emisión (OFF, ON_REQUEST, EVERY_SALE) y ambiente (SANDBOX, PRODUCTION). Encender exige credenciales verificadas contra el
+/// proveedor en ese ambiente (<see cref="VerifyBillingConnectionCommand"/>); OFF es "Desconectar" (las credenciales se conservan).
+/// </summary>
 public sealed record UpdateBillingSettingsCommand(string Mode, string Environment) : ICommand<BillingSettingsDto>;
 
 internal sealed class UpdateBillingSettingsHandler(
@@ -212,7 +216,10 @@ internal sealed class UpdateBillingSettingsHandler(
     }
 }
 
-/// <summary>Credenciales del proveedor (D11B-08): se cifran con DPAPI al recibirlas y nunca se devuelven ni se registran.</summary>
+/// <summary>
+/// Credenciales del proveedor (D11B-08): se cifran con DPAPI al recibirlas y nunca se devuelven ni se registran. Guardarlas APAGA la
+/// facturación electrónica y borra la verificación ("guardar desactivado → verificar → activar").
+/// </summary>
 public sealed record SetProviderCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret) : ICommand<BillingSettingsDto>
 {
     public override string ToString() => "SetProviderCredentialsCommand { *** }";
@@ -244,13 +251,54 @@ internal sealed class SetProviderCredentialsHandler(
             store.Add(configured);
         }
 
+        var modeBefore = configured.Mode;
         configured.SetCredentials(
-            protector.Protect(new FiscalCredentials(request.Username.Trim(), request.Password, request.ClientId.Trim(), request.ClientSecret.Trim())), clock.UtcNow);
+            protector.Protect(new FiscalCredentials(request.Username.Trim(), request.Password, request.ClientId.Trim(), request.ClientSecret.Trim())), clock.UtcNow,
+            BillingProviderSettings.MaskUsername(request.Username));
         await audit.WriteAsync(
             new AuditEntry("billing", "FISCAL_CREDENTIALS_CHANGED", "BillingProviderSettings", null, $"Facturación electrónica ({provider.Name})",
-                $"Credenciales del proveedor {provider.Name} actualizadas (cifradas; no se registran).", Severity: AuditSeverity.Critical),
+                $"Credenciales del proveedor {provider.Name} actualizadas (cifradas; no se registran)."
+                + (modeBefore == BillingMode.Off ? string.Empty : $" La facturación electrónica se apagó (modo {modeBefore.Db()} → OFF) hasta verificarlas."),
+                Severity: AuditSeverity.Critical),
             cancellationToken);
         return await new GetBillingSettingsHandler(store, provider, settings, installation).Handle(new GetBillingSettingsQuery(), cancellationToken);
+    }
+}
+
+/// <summary>
+/// "Verificar conexión" con el proveedor: prueba las credenciales guardadas en el ambiente vigente (Factus: pedir un token, sin emitir
+/// nada), guarda el resultado y lo audita. Un resultado negativo no es error HTTP: la pantalla muestra el mensaje.
+/// </summary>
+public sealed record VerifyBillingConnectionCommand : ICommand<FiscalConnectionVerificationDto>;
+
+internal sealed class VerifyBillingConnectionHandler(
+    IBillingSettingsStore store, IFiscalProvider provider, IFiscalCredentialProtector protector, IInstallationContext installation, IAuditWriter audit, IClock clock)
+    : ICommandHandler<VerifyBillingConnectionCommand, FiscalConnectionVerificationDto>
+{
+    public async Task<Result<FiscalConnectionVerificationDto>> Handle(VerifyBillingConnectionCommand request, CancellationToken cancellationToken)
+    {
+        if (installation.CompanyId is not { } companyId)
+        {
+            return BillingGuards.SetupRequired;
+        }
+
+        if (await store.GetAsync(companyId, cancellationToken) is not { HasCredentials: true } settings)
+        {
+            return BillingErrors.CredentialsRequired;
+        }
+
+        var check = protector.Unprotect(settings.Credentials!) is { } credentials
+            ? await provider.VerifyAsync(new FiscalConnection(settings.Environment, credentials), cancellationToken)
+            : new FiscalConnectionCheck(false, "No se pudieron leer las credenciales guardadas (¿se restauró la base de datos en otro equipo?): escríbalas de nuevo.");
+        var now = clock.UtcNow;
+        settings.RecordVerification(now, check.Ok, check.Message);
+        await audit.WriteAsync(
+            new AuditEntry("billing", "FISCAL_CONNECTION_VERIFIED", "BillingProviderSettings", null, $"Facturación electrónica ({provider.Name})",
+                $"Verificación de {provider.Name} en {settings.Environment.Db()}: {(check.Ok ? "correcta" : "con problema")}. {check.Message}",
+                NewValues: new Dictionary<string, object?> { ["Ambiente"] = settings.Environment.Db(), ["Correcta"] = check.Ok },
+                Severity: check.Ok ? AuditSeverity.Info : AuditSeverity.Warning),
+            cancellationToken);
+        return new FiscalConnectionVerificationDto(check.Ok, check.Message, settings.Environment.Db(), now);
     }
 }
 
