@@ -6,6 +6,8 @@
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Inventory.Contracts
 
 <PageTitle>@Titulo · BusinessPost</PageTitle>
 
@@ -16,7 +18,7 @@
             <MudButton Variant="Variant.Outlined" Href="/admin/conteos">Cancelar</MudButton>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CrearAsync">Crear</MudButton>
         }
-        else if (_conteo.ValueKind == JsonValueKind.Object)
+        else if (_conteo is not null)
         {
             @if (Status is "DRAFT" or "IN_PROGRESS" or "IN_REVIEW" && Session.Has("inventory.count.manage"))
             {
@@ -82,8 +84,8 @@
                                         @foreach (var product in _resultados)
                                         {
                                             <tr>
-                                                <td>@product.Str("sku")</td>
-                                                <td>@product.Str("name")</td>
+                                                <td>@product.Sku</td>
+                                                <td>@product.Name</td>
                                                 <td><MudButton Size="Size.Small" OnClick="@(() => AgregarProducto(product))">Agregar</MudButton></td>
                                             </tr>
                                         }
@@ -111,7 +113,7 @@
                 </MudGrid>
             </MudPaper>
         }
-        else if (_conteo.ValueKind == JsonValueKind.Object)
+        else if (_conteo is not null)
         {
             @if (Status == "DRAFT")
             {
@@ -147,18 +149,18 @@
                     <MudTh Class="num">Contado</MudTh><MudTh Class="num">Diferencia</MudTh><MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.Str("sku")</MudTd>
-                    <MudTd>@context.Str("productName")</MudTd>
-                    <MudTd Class="num">@Cantidad(context, "systemQuantity")</MudTd>
-                    <MudTd Class="num">@Cantidad(context, "expectedQuantity")</MudTd>
-                    <MudTd Class="num">@Cantidad(context, "countedQuantity")</MudTd>
+                    <MudTd>@context.Sku</MudTd>
+                    <MudTd>@context.ProductName</MudTd>
+                    <MudTd Class="num">@Cantidad(context.SystemQuantity)</MudTd>
+                    <MudTd Class="num">@Cantidad(context.ExpectedQuantity)</MudTd>
+                    <MudTd Class="num">@Cantidad(context.CountedQuantity)</MudTd>
                     <MudTd Class="num">
-                        <MudText Typo="Typo.body2" Color="@(context.Dec("difference") < 0 ? Color.Error : context.Dec("difference") > 0 ? Color.Success : Color.Default)">
-                            @Cantidad(context, "difference")
+                        <MudText Typo="Typo.body2" Color="@(context.Difference < 0 ? Color.Error : context.Difference > 0 ? Color.Success : Color.Default)">
+                            @Cantidad(context.Difference)
                         </MudText>
                     </MudTd>
                     <MudTd>
-                        @if (context.Bool("needsRecount"))
+                        @if (context.NeedsRecount)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Warning">Recontar</MudChip>
                         }
@@ -179,11 +181,11 @@
 
 @code {
     private List<JsonElement> _categorias = [];
-    private List<JsonElement> _resultados = [];
+    private IReadOnlyList<ProductSummaryDto> _resultados = [];
     private readonly Dictionary<Guid, string> _alcanceCategorias = [];
     private readonly Dictionary<Guid, string> _alcanceProductos = [];
     private MudTextField<string>? _escaner;
-    private JsonElement _conteo;
+    private CountDto? _conteo;
     private string _tipo = "Full", _filtro = "";
     private string? _error, _notas, _buscar, _codigo, _ubicacion, _ultimo, _cargado;
     private Guid? _bodega, _categoria;
@@ -194,35 +196,35 @@
     [Parameter]
     public Guid? Id { get; set; }
 
-    private string Status => _conteo.Str("status");
+    private string Status => EnumText.Normalize(_conteo?.Status);
 
-    private string Titulo => Id is null ? "Nuevo conteo" : _conteo.ValueKind == JsonValueKind.Object ? $"Conteo {_conteo.Str("number")}" : "Conteo";
+    private string Titulo => Id is null ? "Nuevo conteo" : _conteo is { } conteo ? $"Conteo {conteo.Number}" : "Conteo";
 
     private string? Resumen
     {
         get
         {
-            if (Id is null || _conteo.ValueKind != JsonValueKind.Object)
+            if (Id is null || _conteo is not { } conteo)
             {
                 return null;
             }
 
-            var texto = $"{Estado(Status)} · Bodega {Bodegas.Nombre(_conteo.Str("warehouseId"))} · {(_conteo.Str("countType") == "FULL" ? "Completo" : "Parcial")} · "
-                + $"{(_conteo.Bool("isBlind") ? "Ciego" : "Con teórico visible")} · Contados {_conteo.Dec("countedProducts")} de {_conteo.Dec("productCount")} producto(s)";
-            return _conteo.Date("startedAt") is { } started ? $"{texto} · Iniciado {Format.Date(started)}" : texto;
+            var texto = $"{Estado(Status)} · Bodega {Bodegas.Nombre(conteo.WarehouseId)} · {(EnumText.Same(conteo.CountType, "FULL") ? "Completo" : "Parcial")} · "
+                + $"{(conteo.IsBlind ? "Ciego" : "Con teórico visible")} · Contados {conteo.CountedProducts} de {conteo.ProductCount} producto(s)";
+            return conteo.StartedAt is { } started ? $"{texto} · Iniciado {Format.Date(started)}" : texto;
         }
     }
 
-    private IEnumerable<JsonElement> LineasFiltradas
+    private IEnumerable<CountLineDto> LineasFiltradas
     {
         get
         {
-            var lines = _conteo.Prop("lines").Items();
+            var lines = _conteo?.Lines ?? [];
             return _filtro switch
             {
-                "PENDIENTES" => lines.Where(l => !l.Bool("counted")),
-                "DIFERENCIAS" => lines.Where(l => l.Dec("difference") != 0m),
-                "RECONTAR" => lines.Where(l => l.Bool("needsRecount")),
+                "PENDIENTES" => lines.Where(l => !l.Counted),
+                "DIFERENCIAS" => lines.Where(l => (l.Difference ?? 0m) != 0m),
+                "RECONTAR" => lines.Where(l => l.NeedsRecount),
                 _ => lines,
             };
         }
@@ -253,7 +255,7 @@
         }
     }
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "IN_PROGRESS" => "En curso",
@@ -263,8 +265,7 @@
         _ => status,
     };
 
-    private static string Cantidad(JsonElement line, string name) =>
-        line.Prop(name).ValueKind == JsonValueKind.Number ? Format.Quantity(line.Dec(name)) : "—";
+    private static string Cantidad(decimal? value) => value is { } v ? Format.Quantity(v) : "—";
 
     private async Task NuevoAsync()
     {
@@ -319,7 +320,7 @@
 
         try
         {
-            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+            _resultados = (await Api.GetAsync<PagedResult<ProductSummaryDto>>($"api/v1/catalog/products?pageSize=20&search={Uri.EscapeDataString(_buscar.Trim())}")).Items;
             if (_resultados.Count == 0)
             {
                 Snackbar.Add("No hay productos que coincidan.", Severity.Info);
@@ -331,9 +332,9 @@
         }
     }
 
-    private void AgregarProducto(JsonElement product)
+    private void AgregarProducto(ProductSummaryDto product)
     {
-        _alcanceProductos[product.GetProperty("id").GetGuid()] = $"{product.Str("sku")} · {product.Str("name")}";
+        _alcanceProductos[product.Id] = $"{product.Sku} · {product.Name}";
         _resultados = [];
         _buscar = null;
     }
@@ -344,7 +345,7 @@
         try
         {
             var parcial = _tipo == "Partial";
-            var created = await Api.PostAsync<JsonElement>("api/v1/inventory/counts", new
+            var created = await Api.PostAsync<CountDto>("api/v1/inventory/counts", new
             {
                 warehouseId = _bodega,
                 type = _tipo,
@@ -354,7 +355,7 @@
                 notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
             });
             Snackbar.Add("Conteo creado. Inícielo cuando vaya a empezar a contar.", Severity.Success);
-            Navigation.NavigateTo($"/admin/conteos/{created.GetProperty("id").GetGuid()}", replace: true);
+            Navigation.NavigateTo($"/admin/conteos/{created.Id}", replace: true);
         }
         catch (ApiException ex)
         {
@@ -369,7 +370,7 @@
         _loading = true;
         try
         {
-            _conteo = await Api.GetAsync<JsonElement>($"api/v1/inventory/counts/{id}");
+            _conteo = await Api.GetAsync<CountDto>($"api/v1/inventory/counts/{id}");
             _filtro = "";
             _codigo = _ultimo = null;
             _cantidad = 1;
@@ -394,7 +395,7 @@
     private async Task RegistrarAsync()
     {
         var texto = (_codigo ?? "").Trim();
-        if (texto.Length == 0 || _busy)
+        if (texto.Length == 0 || _busy || _conteo is not { } conteo)
         {
             return;
         }
@@ -411,13 +412,12 @@
         _busy = true;
         try
         {
-            var id = _conteo.GetProperty("id").GetGuid();
-            _conteo = await Api.PostAsync<JsonElement>($"api/v1/inventory/counts/{id}/entries", new[]
+            _conteo = await Api.PostAsync<CountDto>($"api/v1/inventory/counts/{conteo.Id}/entries", new[]
             {
                 new { productId = (Guid?)null, code = codigo, quantity = cantidad, location = string.IsNullOrWhiteSpace(_ubicacion) ? null : _ubicacion.Trim() },
             });
-            var line = _conteo.Prop("lines").Items().FirstOrDefault(l => l.Str("sku") == codigo);
-            _ultimo = $"Registrado: {Format.Quantity(cantidad)} de {(line.ValueKind == JsonValueKind.Object ? line.Str("productName") : codigo)}.";
+            var line = _conteo.Lines.FirstOrDefault(l => l.Sku == codigo);
+            _ultimo = $"Registrado: {Format.Quantity(cantidad)} de {line?.ProductName ?? codigo}.";
             _codigo = null;
             _cantidad = 1;
         }
@@ -441,8 +441,13 @@
             return;
         }
 
+        if (_conteo is not { } conteo)
+        {
+            return;
+        }
+
         _busy = true;
-        var id = _conteo.GetProperty("id").GetGuid();
+        var id = conteo.Id;
         try
         {
             await Api.PostAsync($"api/v1/inventory/counts/{id}/{action}");

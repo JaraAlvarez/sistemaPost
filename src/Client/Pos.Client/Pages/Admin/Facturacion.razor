@@ -1,4 +1,6 @@
 @page "/admin/facturacion"
+@using Pos.Modules.Billing.Contracts
+@using Pos.Modules.Organization.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -10,23 +12,23 @@
    comprador), alertas y conciliación. Los permisos los aplica también el servidor: aquí solo se ocultan las acciones no permitidas. *@
 <Pagina Titulo="Facturación electrónica" Cargando="_loading" Error="@_error">
     <Acciones>
-        @if (_alerts.ValueKind == JsonValueKind.Object)
+        @if (_alerts is { } modo)
         {
-            <MudChip T="string" Size="Size.Small" Color="@ColorModo(_alerts.Str("mode"))">Modo: @NombreModo(_alerts.Str("mode"))</MudChip>
+            <MudChip T="string" Size="Size.Small" Color="@ColorModo(modo.Mode)">Modo: @NombreModo(modo.Mode)</MudChip>
         }
     </Acciones>
     <ChildContent>
-        @if (_alerts.ValueKind == JsonValueKind.Object && _alerts.Dec("count") > 0)
+        @if (_alerts is { Count: > 0 } aviso)
         {
-            <MudAlert Severity="@(_alerts.Dec("rejected") > 0 || _alerts.Dec("withoutRange") > 0 ? Severity.Error : Severity.Warning)" Dense="true" Class="mb-3">
-                Hay @_alerts.Dec("count").ToString("0") alerta(s) de facturación electrónica. Revise la pestaña «Alertas y conciliación».
+            <MudAlert Severity="@(aviso.Rejected > 0 || aviso.WithoutRange > 0 ? Severity.Error : Severity.Warning)" Dense="true" Class="mb-3">
+                Hay @aviso.Count.ToString("0") alerta(s) de facturación electrónica. Revise la pestaña «Alertas y conciliación».
             </MudAlert>
         }
         <MudTabs ActivePanelIndex="_tab" ActivePanelIndexChanged="CambiarPestana" Elevation="0" Outlined="true" TabPanelsClass="pa-3">
             @if (PuedeConfigurar)
             {
                 <MudTabPanel Text="Configuración">
-                    @if (_settings.ValueKind == JsonValueKind.Object)
+                    @if (_settings is { } settings)
                     {
                         <MudGrid Spacing="2">
                             <MudItem xs="12" md="6">
@@ -61,23 +63,23 @@
                                 {
                                     <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">En producción cada documento es real ante la DIAN y consume su paquete de Factus.</MudAlert>
                                 }
-                                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || (_modo == "EVERY_SALE" && !_confirmado && _settings.Str("mode") != "EVERY_SALE"))"
+                                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || (_modo == "EVERY_SALE" && !_confirmado && !EnumText.Same(settings.Mode, "EVERY_SALE")))"
                                            OnClick="GuardarModoAsync">Guardar modo y ambiente</MudButton>
                                 <MudText Typo="Typo.caption" Class="d-block mt-2">
-                                    Proveedor: @_settings.Str("provider") · adaptador activo: @_settings.Str("activeAdapter") · última sincronización de rangos:
-                                    @Format.Date(_settings.Date("lastSyncAt"))
+                                    Proveedor: @settings.Provider · adaptador activo: @settings.ActiveAdapter · última sincronización de rangos:
+                                    @Format.Date(settings.LastSyncAt)
                                 </MudText>
-                                @if (_settings.Str("lastSyncError").Length > 0)
+                                @if (settings.LastSyncError is { Length: > 0 } syncError)
                                 {
-                                    <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">Última sincronización: @_settings.Str("lastSyncError")</MudAlert>
+                                    <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2">Última sincronización: @syncError</MudAlert>
                                 }
                             </MudItem>
                             <MudItem xs="12" md="6">
                                 <MudText Typo="Typo.h6" Class="mb-2">Credenciales de Factus</MudText>
-                                @if (_settings.Bool("hasCredentials"))
+                                @if (settings.HasCredentials)
                                 {
                                     <MudAlert Severity="Severity.Success" Dense="true" Class="mb-2">
-                                        Configuradas el @Format.Date(_settings.Date("credentialsUpdatedAt")). Por seguridad nunca se muestran; escriba todas de nuevo para cambiarlas.
+                                        Configuradas el @Format.Date(settings.CredentialsUpdatedAt). Por seguridad nunca se muestran; escriba todas de nuevo para cambiarlas.
                                     </MudAlert>
                                 }
                                 else
@@ -105,9 +107,9 @@
                         }
                         <MudText Typo="Typo.caption">Asigne a cada sucursal (y si quiere a cada caja) un rango vigente por tipo de documento; sin rango el documento queda pendiente.</MudText>
                     </MudStack>
-                    @foreach (var alert in _alerts.Prop("ranges").Items())
+                    @foreach (var alert in _alerts?.Ranges ?? Array.Empty<FiscalRangeAlertDto>())
                     {
-                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@alert.Str("prefix") (@NombreTipo(alert.Str("documentType"))): @alert.Str("message")</MudAlert>
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@alert.Prefix (@NombreTipo(alert.DocumentType)): @alert.Message</MudAlert>
                     }
                     <MudTable RowsPerPage="25" Items="_ranges" Dense="true" Hover="true" Striped="true">
                         <HeaderContent>
@@ -116,26 +118,26 @@
                             <MudTh>Estado</MudTh><MudTh></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd>@context.Str("prefix")</MudTd>
-                            <MudTd>@NombreTipo(context.Str("documentType"))</MudTd>
-                            <MudTd Class="num">@context.Str("from")</MudTd>
-                            <MudTd Class="num">@context.Str("to")</MudTd>
-                            <MudTd Class="num">@context.Str("current")</MudTd>
-                            <MudTd Class="num">@Format.Quantity(context.Dec("remaining"))</MudTd>
-                            <MudTd Class="num">@context.Dec("usagePercent").ToString("0.#", Format.Colombia) %</MudTd>
-                            <MudTd>@context.Str("resolutionNumber")</MudTd>
-                            <MudTd>@Fecha(context.Str("validFrom")) – @Fecha(context.Str("validTo"))</MudTd>
+                            <MudTd>@context.Prefix</MudTd>
+                            <MudTd>@NombreTipo(context.DocumentType)</MudTd>
+                            <MudTd Class="num">@context.From</MudTd>
+                            <MudTd Class="num">@context.To</MudTd>
+                            <MudTd Class="num">@context.Current</MudTd>
+                            <MudTd Class="num">@Format.Quantity(context.Remaining)</MudTd>
+                            <MudTd Class="num">@context.UsagePercent.ToString("0.#", Format.Colombia) %</MudTd>
+                            <MudTd>@context.ResolutionNumber</MudTd>
+                            <MudTd>@Fecha(context.ValidFrom) – @Fecha(context.ValidTo)</MudTd>
                             <MudTd>@Asignacion(context)</MudTd>
                             <MudTd>
-                                @if (!context.Bool("isActive"))
+                                @if (!context.IsActive)
                                 {
                                     <MudChip T="string" Size="Size.Small">Inactivo</MudChip>
                                 }
-                                else if (!context.Bool("isUsable"))
+                                else if (!context.IsUsable)
                                 {
                                     <MudChip T="string" Size="Size.Small" Color="Color.Error">No utilizable</MudChip>
                                 }
-                                else if (context.Bool("needsAlert"))
+                                else if (context.NeedsAlert)
                                 {
                                     <MudChip T="string" Size="Size.Small" Color="Color.Warning">Por agotarse o vencer</MudChip>
                                 }
@@ -186,15 +188,15 @@
                             <MudTh>Adquirente</MudTh><MudTh Class="num">Total</MudTh><MudTh Class="num">Intentos</MudTh><MudTh></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd>@Fecha(context.Str("businessDate"))</MudTd>
-                            <MudTd>@NombreOrigen(context.Str("source"))</MudTd>
-                            <MudTd>@context.Str("sourceNumber")</MudTd>
-                            <MudTd>@NombreTipo(context.Str("documentType"))</MudTd>
-                            <MudTd><MudChip T="string" Size="Size.Small" Color="@ColorEstado(context.Str("status"))">@NombreEstado(context.Str("status"))</MudChip></MudTd>
-                            <MudTd>@context.Str("fiscalNumber")</MudTd>
-                            <MudTd>@context.Str("buyerName") · @context.Str("buyerIdentification")</MudTd>
-                            <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
-                            <MudTd Class="num">@context.Dec("attempts").ToString("0")</MudTd>
+                            <MudTd>@Fecha(context.BusinessDate)</MudTd>
+                            <MudTd>@NombreOrigen(context.Source)</MudTd>
+                            <MudTd>@context.SourceNumber</MudTd>
+                            <MudTd>@NombreTipo(context.DocumentType)</MudTd>
+                            <MudTd><MudChip T="string" Size="Size.Small" Color="@ColorEstado(context.Status)">@NombreEstado(context.Status)</MudChip></MudTd>
+                            <MudTd>@context.FiscalNumber</MudTd>
+                            <MudTd>@context.BuyerName · @context.BuyerIdentification</MudTd>
+                            <MudTd Class="num">@Format.Money(context.Total)</MudTd>
+                            <MudTd Class="num">@context.Attempts.ToString("0")</MudTd>
                             <MudTd><MudButton Size="Size.Small" OnClick="@(() => VerAsync(context))">Ver</MudButton></MudTd>
                         </RowTemplate>
                         <NoRecordsContent><EstadoVacio Mensaje="No hay documentos con esos filtros." /></NoRecordsContent>
@@ -203,13 +205,13 @@
                     <MudText Typo="Typo.caption" Class="mt-2 d-block">@_documents.Count documento(s) · se muestran hasta 300.</MudText>
                 </MudTabPanel>
                 <MudTabPanel Text="Alertas y conciliación">
-                    @if (_alerts.ValueKind == JsonValueKind.Object)
+                    @if (_alerts is { } alerts)
                     {
                         <MudGrid Class="mb-4">
-                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Pendientes antiguos" Valor="@_alerts.Dec("pendingOverdue").ToString("0")" Detalle="@($"El más antiguo: {Format.Date(_alerts.Date("oldestPendingAt"))}")" /></MudItem>
-                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Rechazados sin atender" Valor="@_alerts.Dec("rejected").ToString("0")" Detalle="Corrija el adquirente o reintente" /></MudItem>
-                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Sin rango de numeración" Valor="@_alerts.Dec("withoutRange").ToString("0")" Detalle="Asigne un rango a la sucursal" /></MudItem>
-                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Rangos por agotarse o vencer" Valor="@_alerts.Prop("ranges").Items().Count.ToString(Format.Colombia)" /></MudItem>
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Pendientes antiguos" Valor="@alerts.PendingOverdue.ToString("0")" Detalle="@($"El más antiguo: {Format.Date(alerts.OldestPendingAt)}")" /></MudItem>
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Rechazados sin atender" Valor="@alerts.Rejected.ToString("0")" Detalle="Corrija el adquirente o reintente" /></MudItem>
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Sin rango de numeración" Valor="@alerts.WithoutRange.ToString("0")" Detalle="Asigne un rango a la sucursal" /></MudItem>
+                            <MudItem xs="12" sm="6" md="3"><Tarjeta Titulo="Rangos por agotarse o vencer" Valor="@alerts.Ranges.Count.ToString(Format.Colombia)" /></MudItem>
                         </MudGrid>
                     }
                     <MudText Typo="Typo.h6" Class="mb-2">Conciliación diaria</MudText>
@@ -235,20 +237,20 @@
                                 @foreach (var day in _days)
                                 {
                                     <tr>
-                                        <td>@Fecha(day.Str("businessDate"))</td>
-                                        <td class="num">@day.Dec("salesCompleted").ToString("0")</td>
-                                        <td class="num">@day.Dec("salesVoided").ToString("0")</td>
-                                        <td class="num">@Format.Money(day.Dec("salesTotal"))</td>
-                                        <td class="num">@day.Dec("internalReceipts").ToString("0")</td>
-                                        <td class="num">@day.Dec("accepted").ToString("0")</td>
-                                        <td class="num">@Format.Money(day.Dec("acceptedTotal"))</td>
-                                        <td class="num">@day.Dec("pending").ToString("0")</td>
-                                        <td class="num">@day.Dec("contingency").ToString("0")</td>
-                                        <td class="num">@day.Dec("rejected").ToString("0")</td>
-                                        <td class="num">@day.Dec("error").ToString("0")</td>
-                                        <td class="num">@day.Dec("cancelled").ToString("0")</td>
-                                        <td class="num">@day.Dec("creditNotes").ToString("0")</td>
-                                        <td class="num">@day.Dec("salesWithoutDocument").ToString("0")</td>
+                                        <td>@Fecha(day.BusinessDate)</td>
+                                        <td class="num">@day.SalesCompleted.ToString("0")</td>
+                                        <td class="num">@day.SalesVoided.ToString("0")</td>
+                                        <td class="num">@Format.Money(day.SalesTotal)</td>
+                                        <td class="num">@day.InternalReceipts.ToString("0")</td>
+                                        <td class="num">@day.Accepted.ToString("0")</td>
+                                        <td class="num">@Format.Money(day.AcceptedTotal)</td>
+                                        <td class="num">@day.Pending.ToString("0")</td>
+                                        <td class="num">@day.Contingency.ToString("0")</td>
+                                        <td class="num">@day.Rejected.ToString("0")</td>
+                                        <td class="num">@day.Error.ToString("0")</td>
+                                        <td class="num">@day.Cancelled.ToString("0")</td>
+                                        <td class="num">@day.CreditNotes.ToString("0")</td>
+                                        <td class="num">@day.SalesWithoutDocument.ToString("0")</td>
                                     </tr>
                                 }
                             </tbody>
@@ -261,73 +263,73 @@
     </ChildContent>
 </Pagina>
 
-@if (_asignar.ValueKind == JsonValueKind.Object)
+@if (_asignar is { } asignar)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Asignar el rango @_asignar.Str("prefix") (@NombreTipo(_asignar.Str("documentType")))</h2>
+            <h2>Asignar el rango @asignar.Prefix (@NombreTipo(asignar.DocumentType))</h2>
             <MudSelect T="Guid?" @bind-Value="_aSucursal" Label="Sucursal">
                 <MudSelectItem T="Guid?" Value="@((Guid?)null)">Sin asignar (desasignar)</MudSelectItem>
                 @foreach (var branch in _branches)
                 {
-                    <MudSelectItem T="Guid?" Value="@branch.GetProperty("id").GetGuid()">@branch.Str("name")</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@branch.Id">@branch.Name</MudSelectItem>
                 }
             </MudSelect>
             @if (_aSucursal is { } sucursal)
             {
                 <MudSelect T="Guid?" @bind-Value="_aCaja" Label="Caja (opcional)" Class="mt-2">
                     <MudSelectItem T="Guid?" Value="@((Guid?)null)">Toda la sucursal</MudSelectItem>
-                    @foreach (var terminal in _terminals.Where(t => t.Str("branchId") == sucursal.ToString()))
+                    @foreach (var terminal in _terminals.Where(t => t.BranchId == sucursal))
                     {
-                        <MudSelectItem T="Guid?" Value="@terminal.GetProperty("id").GetGuid()">@terminal.Str("code") · @terminal.Str("name")</MudSelectItem>
+                        <MudSelectItem T="Guid?" Value="@terminal.Id">@terminal.Code · @terminal.Name</MudSelectItem>
                     }
                 </MudSelect>
             }
             <MudText Typo="Typo.caption" Class="d-block mt-2">Solo puede haber un rango vigente por sucursal (o caja) y tipo de documento.</MudText>
             <div class="acciones">
-                <MudButton OnClick="@(() => _asignar = default)">Cancelar</MudButton>
+                <MudButton OnClick="@(() => _asignar = null)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="AsignarAsync">Guardar</MudButton>
             </div>
         </div>
     </div>
 }
 
-@if (_detalle.ValueKind == JsonValueKind.Object)
+@if (_detalle is { } detalle)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true" style="width: min(760px, 96vw);">
-            <h2>@NombreTipo(_detalle.Str("documentType")) · @_detalle.Str("sourceNumber")</h2>
+            <h2>@NombreTipo(detalle.DocumentType) · @detalle.SourceNumber</h2>
             <MudSimpleTable Dense="true" Outlined="true" Class="mb-3">
                 <tbody>
-                    <tr><td>Estado</td><td><MudChip T="string" Size="Size.Small" Color="@ColorEstado(_detalle.Str("status"))">@NombreEstado(_detalle.Str("status"))</MudChip> @_detalle.Str("providerStatus")</td></tr>
-                    <tr><td>Origen</td><td>@NombreOrigen(_detalle.Str("source")) @_detalle.Str("sourceNumber") · fecha @Fecha(_detalle.Str("businessDate"))</td></tr>
-                    <tr><td>Número fiscal</td><td>@(_detalle.Str("fiscalNumber").Length > 0 ? _detalle.Str("fiscalNumber") : "—")</td></tr>
-                    <tr><td>CUFE / CUDE</td><td style="white-space: normal; word-break: break-all;">@(_detalle.Str("cufe").Length > 0 ? _detalle.Str("cufe") : "—")</td></tr>
-                    <tr><td>Adquirente</td><td>@_detalle.Str("buyerName") · @_detalle.Str("buyerIdentificationType") @_detalle.Str("buyerIdentification") @_detalle.Str("buyerEmail")</td></tr>
-                    <tr><td>Valores</td><td>Base @Format.Money(_detalle.Dec("subtotal")) · impuestos @Format.Money(_detalle.Dec("taxTotal")) · total <b>@Format.Money(_detalle.Dec("total"))</b></td></tr>
-                    <tr><td>Envíos</td><td>@_detalle.Dec("attempts").ToString("0") intento(s) · próximo @Format.Date(_detalle.Date("nextAttemptAt")) · validado @Format.Date(_detalle.Date("validatedAt"))</td></tr>
-                    <tr><td>Proveedor</td><td>@_detalle.Str("provider") @_detalle.Str("providerDocumentId") · referencia @_detalle.Str("referenceCode")</td></tr>
-                    @if (_detalle.Str("pdfUrl").Length > 0)
+                    <tr><td>Estado</td><td><MudChip T="string" Size="Size.Small" Color="@ColorEstado(detalle.Status)">@NombreEstado(detalle.Status)</MudChip> @detalle.ProviderStatus</td></tr>
+                    <tr><td>Origen</td><td>@NombreOrigen(detalle.Source) @detalle.SourceNumber · fecha @Fecha(detalle.BusinessDate)</td></tr>
+                    <tr><td>Número fiscal</td><td>@(detalle.FiscalNumber is { Length: > 0 } fiscalNumber ? fiscalNumber : "—")</td></tr>
+                    <tr><td>CUFE / CUDE</td><td style="white-space: normal; word-break: break-all;">@(detalle.Cufe is { Length: > 0 } cufe ? cufe : "—")</td></tr>
+                    <tr><td>Adquirente</td><td>@detalle.BuyerName · @detalle.BuyerIdentificationType @detalle.BuyerIdentification @detalle.BuyerEmail</td></tr>
+                    <tr><td>Valores</td><td>Base @Format.Money(detalle.Subtotal) · impuestos @Format.Money(detalle.TaxTotal) · total <b>@Format.Money(detalle.Total)</b></td></tr>
+                    <tr><td>Envíos</td><td>@detalle.Attempts.ToString("0") intento(s) · próximo @Format.Date(detalle.NextAttemptAt) · validado @Format.Date(detalle.ValidatedAt)</td></tr>
+                    <tr><td>Proveedor</td><td>@detalle.Provider @detalle.ProviderDocumentId · referencia @detalle.ReferenceCode</td></tr>
+                    @if (detalle.PdfUrl is { Length: > 0 } pdfUrl)
                     {
-                        <tr><td>Representación gráfica</td><td><MudLink Href="@_detalle.Str("pdfUrl")" Target="_blank">Abrir el PDF</MudLink></td></tr>
+                        <tr><td>Representación gráfica</td><td><MudLink Href="@pdfUrl" Target="_blank">Abrir el PDF</MudLink></td></tr>
                     }
-                    @if (_detalle.Str("qrData").StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    @if (detalle.QrData is { } qrData && qrData.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                     {
-                        <tr><td>Consulta DIAN</td><td><MudLink Href="@_detalle.Str("qrData")" Target="_blank">Ver en la DIAN</MudLink></td></tr>
+                        <tr><td>Consulta DIAN</td><td><MudLink Href="@qrData" Target="_blank">Ver en la DIAN</MudLink></td></tr>
                     }
                 </tbody>
             </MudSimpleTable>
-            @if (_detalle.Str("rejectionMessage").Length > 0)
+            @if (detalle.RejectionMessage is { Length: > 0 } rejection)
             {
-                <MudAlert Severity="Severity.Error" Class="mb-3">Rechazo: @_detalle.Str("rejectionMessage")</MudAlert>
+                <MudAlert Severity="Severity.Error" Class="mb-3">Rechazo: @rejection</MudAlert>
             }
             <MudText Typo="Typo.subtitle2" Class="mb-1">Eventos</MudText>
             <MudSimpleTable Dense="true" Outlined="true" Striped="true">
                 <thead><tr><th>Fecha</th><th>Evento</th><th>Código</th><th>Detalle</th></tr></thead>
                 <tbody>
-                    @foreach (var ev in _detalle.Prop("events").Items())
+                    @foreach (var ev in detalle.Events)
                     {
-                        <tr><td>@Format.Date(ev.Date("occurredAt"))</td><td>@ev.Str("eventType")</td><td>@ev.Str("providerCode")</td><td style="white-space: normal;">@ev.Str("detail")</td></tr>
+                        <tr><td>@Format.Date(ev.OccurredAt)</td><td>@ev.EventType</td><td>@ev.ProviderCode</td><td style="white-space: normal;">@ev.Detail</td></tr>
                     }
                 </tbody>
             </MudSimpleTable>
@@ -362,7 +364,7 @@
             }
             <div class="acciones">
                 <MudButton OnClick="Cerrar">Cerrar</MudButton>
-                @if (PuedeGestionar && Reintentable(_detalle))
+                @if (PuedeGestionar && Reintentable(detalle))
                 {
                     @if (_corregir)
                     {
@@ -370,7 +372,7 @@
                     }
                     else
                     {
-                        @if (_detalle.Str("status") != "SUBMITTING")
+                        @if (!EnumText.Same(detalle.Status, "SUBMITTING"))
                         {
                             <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="AbrirCorreccion">Corregir comprador</MudButton>
                         }
@@ -400,12 +402,15 @@
         ("SALE", "Venta"), ("SALE_VOID", "Anulación"), ("CUSTOMER_RETURN", "Cambio o garantía"), ("PURCHASE", "Compra"),
     ];
 
-    private List<JsonElement> _ranges = [];
-    private List<JsonElement> _documents = [];
-    private List<JsonElement> _days = [];
-    private List<JsonElement> _branches = [];
-    private List<JsonElement> _terminals = [];
-    private JsonElement _settings, _alerts, _asignar, _detalle;
+    private IReadOnlyList<FiscalRangeDto> _ranges = [];
+    private IReadOnlyList<FiscalDocumentDto> _documents = [];
+    private IReadOnlyList<FiscalReconciliationDayDto> _days = [];
+    private IReadOnlyList<BranchDto> _branches = [];
+    private IReadOnlyList<TerminalDto> _terminals = [];
+    private BillingSettingsDto? _settings;
+    private FiscalAlertsDto? _alerts;
+    private FiscalRangeDto? _asignar;
+    private FiscalDocumentDto? _detalle;
     private bool _loading = true, _busy, _confirmado, _corregir;
     private int _tab;
     private string? _error, _modo, _ambiente, _usuario, _clave, _clientId, _clientSecret, _fEstado, _fTipo, _fOrigen, _fTexto;
@@ -533,8 +538,8 @@
                 await CargarConfiguracionAsync();
                 try
                 {
-                    _branches = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
-                    _terminals = (await Api.GetAsync<JsonElement>("api/v1/organization/terminals")).Items();
+                    _branches = await Api.GetAsync<IReadOnlyList<BranchDto>>("api/v1/organization/branches");
+                    _terminals = await Api.GetAsync<IReadOnlyList<TerminalDto>>("api/v1/organization/terminals");
                 }
                 catch (ApiException)
                 {
@@ -559,16 +564,16 @@
 
     private async Task CargarConfiguracionAsync()
     {
-        _settings = await Api.GetAsync<JsonElement>("api/v1/billing/settings");
-        _modo = _settings.Str("mode");
-        _ambiente = _settings.Str("environment");
+        _settings = await Api.GetAsync<BillingSettingsDto>("api/v1/billing/settings");
+        _modo = EnumText.Normalize(_settings.Mode);
+        _ambiente = EnumText.Normalize(_settings.Environment);
         _confirmado = _modo == "EVERY_SALE";
     }
 
     private async Task CargarRangosAsync()
     {
-        _ranges = (await Api.GetAsync<JsonElement>("api/v1/billing/ranges")).Items();
-        _alerts = await Api.GetAsync<JsonElement>("api/v1/billing/alerts");
+        _ranges = await Api.GetAsync<IReadOnlyList<FiscalRangeDto>>("api/v1/billing/ranges");
+        _alerts = await Api.GetAsync<FiscalAlertsDto>("api/v1/billing/alerts");
     }
 
     private async Task GuardarModoAsync()
@@ -576,8 +581,8 @@
         _busy = true;
         try
         {
-            _settings = await Api.PutAsync<JsonElement>("api/v1/billing/settings", new { mode = _modo, environment = _ambiente });
-            Snackbar.Add($"Facturación electrónica: {NombreModo(_settings.Str("mode"))} ({(_settings.Str("environment") == "PRODUCTION" ? "producción" : "pruebas")}).", Severity.Success);
+            _settings = await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings", new { mode = _modo, environment = _ambiente });
+            Snackbar.Add($"Facturación electrónica: {NombreModo(_settings.Mode)} ({(EnumText.Same(_settings.Environment, "PRODUCTION") ? "producción" : "pruebas")}).", Severity.Success);
             if (PuedeVer)
             {
                 await CargarRangosAsync();
@@ -602,7 +607,7 @@
         _busy = true;
         try
         {
-            _settings = await Api.PutAsync<JsonElement>("api/v1/billing/settings/credentials", new
+            _settings = await Api.PutAsync<BillingSettingsDto>("api/v1/billing/settings/credentials", new
             {
                 username = _usuario.Trim(), password = _clave, clientId = _clientId.Trim(), clientSecret = _clientSecret,
             });
@@ -622,7 +627,7 @@
         _busy = true;
         try
         {
-            var ranges = (await Api.PostAsync<JsonElement>("api/v1/billing/ranges/sync")).Items();
+            var ranges = await Api.PostAsync<IReadOnlyList<FiscalRangeDto>>("api/v1/billing/ranges/sync");
             Snackbar.Add($"{ranges.Count} rango(s) sincronizado(s) desde el proveedor.", Severity.Success);
             await CargarRangosAsync();
             await CargarConfiguracionAsync();
@@ -635,22 +640,27 @@
         _busy = false;
     }
 
-    private void Asignar(JsonElement range)
+    private void Asignar(FiscalRangeDto range)
     {
         _asignar = range;
-        _aSucursal = Guid.TryParse(range.Str("branchId"), out var branch) ? branch : null;
-        _aCaja = Guid.TryParse(range.Str("posTerminalId"), out var terminal) ? terminal : null;
+        _aSucursal = range.BranchId;
+        _aCaja = range.PosTerminalId;
     }
 
     private async Task AsignarAsync()
     {
+        if (_asignar is not { } range)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            await Api.PutAsync<JsonElement>($"api/v1/billing/ranges/{_asignar.GetProperty("id").GetGuid()}/assignment",
+            await Api.PutAsync<FiscalRangeDto>($"api/v1/billing/ranges/{range.Id}/assignment",
                 new { branchId = _aSucursal, posTerminalId = _aSucursal is null ? null : _aCaja });
             Snackbar.Add(_aSucursal is null ? "Rango desasignado." : "Rango asignado.", Severity.Success);
-            _asignar = default;
+            _asignar = null;
             await CargarRangosAsync();
         }
         catch (ApiException ex)
@@ -696,7 +706,7 @@
                 query.Add("search=" + Uri.EscapeDataString(_fTexto.Trim()));
             }
 
-            _documents = (await Api.GetAsync<JsonElement>($"api/v1/billing/documents?{string.Join("&", query)}")).Items();
+            _documents = await Api.GetAsync<IReadOnlyList<FiscalDocumentDto>>($"api/v1/billing/documents?{string.Join("&", query)}");
             _error = null;
         }
         catch (ApiException ex)
@@ -711,7 +721,7 @@
         {
             var from = (_cDesde ?? DateTime.Today.AddDays(-6)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var to = (_cHasta ?? DateTime.Today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            _days = (await Api.GetAsync<JsonElement>($"api/v1/billing/reconciliation?from={from}&to={to}")).Items();
+            _days = await Api.GetAsync<IReadOnlyList<FiscalReconciliationDayDto>>($"api/v1/billing/reconciliation?from={from}&to={to}");
         }
         catch (ApiException ex)
         {
@@ -719,11 +729,11 @@
         }
     }
 
-    private async Task VerAsync(JsonElement document)
+    private async Task VerAsync(FiscalDocumentDto document)
     {
         try
         {
-            _detalle = await Api.GetAsync<JsonElement>($"api/v1/billing/documents/{document.GetProperty("id").GetGuid()}");
+            _detalle = await Api.GetAsync<FiscalDocumentDto>($"api/v1/billing/documents/{document.Id}");
             _corregir = false;
         }
         catch (ApiException ex)
@@ -734,16 +744,21 @@
 
     private void Cerrar()
     {
-        _detalle = default;
+        _detalle = null;
         _corregir = false;
     }
 
     private async Task ReintentarAsync()
     {
+        if (_detalle is not { } documento)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            _detalle = await Api.PostAsync<JsonElement>($"api/v1/billing/documents/{_detalle.GetProperty("id").GetGuid()}/retry");
+            _detalle = await Api.PostAsync<FiscalDocumentDto>($"api/v1/billing/documents/{documento.Id}/retry");
             Snackbar.Add("El documento se volverá a enviar en segundo plano.", Severity.Success);
             await BuscarAsync();
         }
@@ -757,13 +772,18 @@
 
     private void AbrirCorreccion()
     {
-        var identification = _detalle.Str("buyerIdentification");
+        if (_detalle is not { } documento)
+        {
+            return;
+        }
+
+        var identification = documento.BuyerIdentification;
         var dash = identification.IndexOf('-', StringComparison.Ordinal);
-        _bNombre = _detalle.Str("buyerName");
-        _bTipoId = _detalle.Str("buyerIdentificationType");
+        _bNombre = documento.BuyerName;
+        _bTipoId = documento.BuyerIdentificationType;
         _bNumero = dash > 0 ? identification[..dash] : identification;
         _bDv = dash > 0 ? identification[(dash + 1)..] : null;
-        _bCorreo = _detalle.Str("buyerEmail");
+        _bCorreo = documento.BuyerEmail ?? "";
         _bPersona = _bTipoId == "NIT" ? "LEGAL" : "NATURAL";
         _bRegimen = _bResponsabilidades = _bMunicipio = _bDireccion = _bTelefono = null;
         _corregir = true;
@@ -771,10 +791,15 @@
 
     private async Task CorregirAsync()
     {
+        if (_detalle is not { } documento)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            _detalle = await Api.PutAsync<JsonElement>($"api/v1/billing/documents/{_detalle.GetProperty("id").GetGuid()}/buyer", new
+            _detalle = await Api.PutAsync<FiscalDocumentDto>($"api/v1/billing/documents/{documento.Id}/buyer", new
             {
                 name = _bNombre?.Trim(),
                 identificationType = _bTipoId,
@@ -800,49 +825,48 @@
         _busy = false;
     }
 
-    private string Asignacion(JsonElement range)
+    private string Asignacion(FiscalRangeDto range)
     {
-        var branchId = range.Str("branchId");
-        if (branchId.Length == 0)
+        if (range.BranchId is not { } branchId)
         {
             return "Sin asignar";
         }
 
-        var branch = _branches.FirstOrDefault(b => b.Str("id") == branchId).Str("name");
-        var terminalId = range.Str("posTerminalId");
-        var terminal = terminalId.Length == 0 ? "" : " · caja " + (_terminals.FirstOrDefault(t => t.Str("id") == terminalId).Str("code") is { Length: > 0 } code ? code : terminalId);
-        return (branch.Length > 0 ? branch : branchId) + terminal;
+        var branch = _branches.FirstOrDefault(b => b.Id == branchId)?.Name ?? "";
+        var terminal = range.PosTerminalId is not { } terminalId
+            ? ""
+            : " · caja " + (_terminals.FirstOrDefault(t => t.Id == terminalId)?.Code is { Length: > 0 } code ? code : terminalId.ToString());
+        return (branch.Length > 0 ? branch : branchId.ToString()) + terminal;
     }
 
-    private static bool Reintentable(JsonElement document) =>
-        document.Str("documentType") != "INTERNAL_RECEIPT" && document.Str("status") is "PENDING" or "ERROR" or "CONTINGENCY" or "REJECTED";
+    private static bool Reintentable(FiscalDocumentDto document) =>
+        !EnumText.Same(document.DocumentType, "INTERNAL_RECEIPT") && EnumText.Normalize(document.Status) is "PENDING" or "ERROR" or "CONTINGENCY" or "REJECTED";
 
     private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static string Fecha(string value) =>
-        DateOnly.TryParse(value, CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : value;
+    private static string Fecha(DateOnly? date) => date?.ToString("dd/MM/yyyy", Format.Colombia) ?? "";
 
-    private static string NombreEstado(string code) => Estados.FirstOrDefault(e => e.Code == code).Name ?? code;
+    private static string NombreEstado(string code) => Estados.FirstOrDefault(e => e.Code == EnumText.Normalize(code)).Name ?? code;
 
-    private static string NombreTipo(string code) => Tipos.FirstOrDefault(e => e.Code == code).Name ?? code;
+    private static string NombreTipo(string code) => Tipos.FirstOrDefault(e => e.Code == EnumText.Normalize(code)).Name ?? code;
 
-    private static string NombreOrigen(string code) => Origenes.FirstOrDefault(e => e.Code == code).Name ?? code;
+    private static string NombreOrigen(string code) => Origenes.FirstOrDefault(e => e.Code == EnumText.Normalize(code)).Name ?? code;
 
-    private static string NombreModo(string mode) => mode switch
+    private static string NombreModo(string mode) => EnumText.Normalize(mode) switch
     {
         "EVERY_SALE" => "factura en cada venta",
         "ON_REQUEST" => "solo a pedido del cliente",
         _ => "apagada",
     };
 
-    private static Color ColorModo(string mode) => mode switch
+    private static Color ColorModo(string mode) => EnumText.Normalize(mode) switch
     {
         "EVERY_SALE" => Color.Success,
         "ON_REQUEST" => Color.Info,
         _ => Color.Default,
     };
 
-    private static Color ColorEstado(string status) => status switch
+    private static Color ColorEstado(string status) => EnumText.Normalize(status) switch
     {
         "ACCEPTED" => Color.Success,
         "REJECTED" or "ERROR" => Color.Error,

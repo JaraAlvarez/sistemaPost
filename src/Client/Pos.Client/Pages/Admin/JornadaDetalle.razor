@@ -1,4 +1,5 @@
 @page "/admin/jornadas/{Id:guid}"
+@using Pos.Modules.Cash.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject IJSRuntime Js
@@ -9,7 +10,7 @@
 
 <Pagina Titulo="@Titulo" Subtitulo="@Subtitulo" Cargando="_loading" Error="@_error">
     <Acciones>
-        @if (_detalle.ValueKind == JsonValueKind.Object)
+        @if (_detalle is not null)
         {
             if (PuedeRevisar)
             {
@@ -22,7 +23,7 @@
         }
     </Acciones>
     <ChildContent>
-        @if (_detalle.ValueKind == JsonValueKind.Object)
+        @if (_detalle is { } detalle)
         {
             if (_cerrar)
             {
@@ -56,40 +57,40 @@
             <MudPaper Outlined="true" Class="pa-4 mb-4">
                 <MudSimpleTable Dense="true">
                     <tbody>
-                        <tr><td>Cajero</td><td>@_detalle.Str("cashierName")</td><td>Estado</td><td>@Estado(_detalle.Str("status"))</td></tr>
-                        <tr><td>Día</td><td>@_detalle.Str("businessDate")</td><td>Base inicial</td><td class="num">@Format.Money(_detalle.Dec("openingFloat"))</td></tr>
-                        <tr><td>Abierta</td><td>@Format.Date(_detalle.Date("openedAt"))</td><td>Cerrada</td><td>@Format.Date(_detalle.Date("closedAt"))</td></tr>
-                        @if (!_detalle.Bool("expectedHidden"))
+                        <tr><td>Cajero</td><td>@detalle.CashierName</td><td>Estado</td><td>@Estado(detalle.Status)</td></tr>
+                        <tr><td>Día</td><td>@detalle.BusinessDate.ToString("dd/MM/yyyy", Format.Colombia)</td><td>Base inicial</td><td class="num">@Format.Money(detalle.OpeningFloat)</td></tr>
+                        <tr><td>Abierta</td><td>@Format.Date(detalle.OpenedAt)</td><td>Cerrada</td><td>@Format.Date(detalle.ClosedAt)</td></tr>
+                        @if (!detalle.ExpectedHidden)
                         {
                             <tr>
-                                <td>Esperado</td><td class="num">@Format.Money(Opcional(_detalle, "expectedTotal"))</td>
-                                <td>Contado</td><td class="num">@Format.Money(Opcional(_detalle, "countedTotal"))</td>
+                                <td>Esperado</td><td class="num">@Format.Money(detalle.ExpectedTotal)</td>
+                                <td>Contado</td><td class="num">@Format.Money(detalle.CountedTotal)</td>
                             </tr>
-                            <tr><td>Diferencia</td><td class="num"><b>@Format.Money(Opcional(_detalle, "difference"))</b></td><td></td><td></td></tr>
+                            <tr><td>Diferencia</td><td class="num"><b>@Format.Money(detalle.Difference)</b></td><td></td><td></td></tr>
                         }
                     </tbody>
                 </MudSimpleTable>
-                @if (_detalle.Bool("expectedHidden"))
+                @if (detalle.ExpectedHidden)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">El valor esperado no se muestra mientras el turno esté abierto: así el conteo no se ajusta a lo que dice el sistema.</MudAlert>
                 }
-                @if (_detalle.Bool("closedBySupervisor"))
+                @if (detalle.ClosedBySupervisor)
                 {
-                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">Cerrada por supervisor. Motivo: @_detalle.Str("closeReason")</MudAlert>
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">Cerrada por supervisor. Motivo: @detalle.CloseReason</MudAlert>
                 }
-                @if (_detalle.Str("differenceNote").Length > 0)
+                @if (!string.IsNullOrEmpty(detalle.DifferenceNote))
                 {
-                    <MudText Typo="Typo.body2" Class="mt-2">Nota del cajero: @_detalle.Str("differenceNote")</MudText>
+                    <MudText Typo="Typo.body2" Class="mt-2">Nota del cajero: @detalle.DifferenceNote</MudText>
                 }
-                @if (_detalle.Bool("reviewRequired"))
+                @if (detalle.ReviewRequired)
                 {
                     <MudText Typo="Typo.body2" Class="mt-2">
-                        @(_detalle.Date("reviewedAt") is null ? "Pendiente de revisión." : $"Revisada el {Format.Date(_detalle.Date("reviewedAt"))}: {_detalle.Str("reviewNote")}")
+                        @(detalle.ReviewedAt is null ? "Pendiente de revisión." : $"Revisada el {Format.Date(detalle.ReviewedAt)}: {detalle.ReviewNote}")
                     </MudText>
                 }
-                @if (_detalle.Str("zSealCode").Length > 0)
+                @if (!string.IsNullOrEmpty(detalle.ZSealCode))
                 {
-                    <MudText Typo="Typo.caption">Código de control del cierre: n.º @_detalle.Str("zSealNo") · @_detalle.Str("zSealCode") (prueba que el reporte no se alteró)</MudText>
+                    <MudText Typo="Typo.caption">Código de control del cierre: n.º @detalle.ZSealNo · @detalle.ZSealCode (prueba que el reporte no se alteró)</MudText>
                 }
             </MudPaper>
 
@@ -98,35 +99,35 @@
                     <MudSimpleTable Dense="true" Striped="true">
                         <thead><tr><th>Medio</th><th class="num">Esperado</th><th class="num">Contado</th><th class="num">Diferencia</th><th class="num">Transacciones</th></tr></thead>
                         <tbody>
-                            @foreach (var total in _detalle.Prop("totals").Items())
+                            @foreach (var total in detalle.Totals)
                             {
                                 <tr>
-                                    <td>@total.Str("name")</td>
-                                    <td class="num">@Format.Money(Opcional(total, "expected"))</td>
-                                    <td class="num">@Format.Money(Opcional(total, "counted"))</td>
-                                    <td class="num">@Format.Money(Opcional(total, "difference"))</td>
-                                    <td class="num">@total.Str("transactions")</td>
+                                    <td>@total.Name</td>
+                                    <td class="num">@Format.Money(total.Expected)</td>
+                                    <td class="num">@Format.Money(total.Counted)</td>
+                                    <td class="num">@Format.Money(total.Difference)</td>
+                                    <td class="num">@total.Transactions</td>
                                 </tr>
                             }
                         </tbody>
                     </MudSimpleTable>
                 </MudTabPanel>
-                <MudTabPanel Text="@($"Movimientos ({_detalle.Prop("movements").Items().Count})")">
+                <MudTabPanel Text="@($"Movimientos ({detalle.Movements.Count})")">
                     <div style="overflow-x: auto">
                         <MudSimpleTable Dense="true" Striped="true">
                             <thead><tr><th>#</th><th>Hora</th><th>Tipo</th><th>Medio</th><th class="num">Valor</th><th>Documento o motivo</th><th>Usuario</th><th>Autorizó</th></tr></thead>
                             <tbody>
-                                @foreach (var movement in _detalle.Prop("movements").Items())
+                                @foreach (var movement in detalle.Movements)
                                 {
                                     <tr>
-                                        <td>@movement.Str("lineNo")</td>
-                                        <td>@Format.Date(movement.Date("occurredAt"))</td>
-                                        <td>@TipoMovimiento(movement.Str("movementType"))</td>
-                                        <td>@movement.Str("paymentMethodName")</td>
-                                        <td class="num">@(movement.Dec("direction") < 0 ? "−" : "")@Format.Money(movement.Dec("amount"))</td>
-                                        <td>@(movement.Str("sourceNumber").Length > 0 ? movement.Str("sourceNumber") : movement.Str("reason"))</td>
-                                        <td>@movement.Str("userName")</td>
-                                        <td>@movement.Str("authorizedByName")</td>
+                                        <td>@movement.LineNo</td>
+                                        <td>@Format.Date(movement.OccurredAt)</td>
+                                        <td>@TipoMovimiento(movement.MovementType)</td>
+                                        <td>@movement.PaymentMethodName</td>
+                                        <td class="num">@(movement.Direction < 0 ? "−" : "")@Format.Money(movement.Amount)</td>
+                                        <td>@(!string.IsNullOrEmpty(movement.SourceNumber) ? movement.SourceNumber : movement.Reason)</td>
+                                        <td>@movement.UserName</td>
+                                        <td>@movement.AuthorizedByName</td>
                                     </tr>
                                 }
                             </tbody>
@@ -157,8 +158,8 @@
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Revisar el turno @_detalle.Str("number")</h2>
-            <MudText Typo="Typo.body2" Class="mb-2">Diferencia: @Format.Money(Opcional(_detalle, "difference")). Anote lo que se decidió (p. ej. se descuenta al cajero o se corrige en el turno siguiente).</MudText>
+            <h2>Revisar el turno @_detalle?.Number</h2>
+            <MudText Typo="Typo.body2" Class="mb-2">Diferencia: @Format.Money(_detalle?.Difference). Anote lo que se decidió (p. ej. se descuenta al cajero o se corrige en el turno siguiente).</MudText>
             <MudTextField @bind-Value="_nota" Label="Nota de la revisión" Lines="3" Immediate="true" AutoFocus="true" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _revisar = false)">Cancelar</MudButton>
@@ -171,7 +172,7 @@
 @code {
     private static readonly string[] ReservedKinds = ["EXCHANGE_CREDIT", "CUSTOMER_CREDIT", "LOYALTY_POINTS"];
 
-    private JsonElement _detalle;
+    private CashSessionDto? _detalle;
     private bool _loading = true, _busy, _revisar, _cerrar, _iniciado;
     private string? _error, _reporte, _reporteError, _nota, _motivo;
     private bool _imprimiendo;
@@ -184,16 +185,16 @@
     [Parameter]
     public Guid Id { get; set; }
 
-    private string Titulo => _detalle.Str("number") is { Length: > 0 } number ? $"Turno {number}" : "Turno";
+    private string Titulo => _detalle?.Number is { Length: > 0 } number ? $"Turno {number}" : "Turno";
 
-    private string? Subtitulo => _detalle.ValueKind == JsonValueKind.Object
-        ? $"Caja {_detalle.Str("terminalCode")} · {_detalle.Str("cashierName")} · {Estado(_detalle.Str("status"))}"
+    private string? Subtitulo => _detalle is { } detalle
+        ? $"Caja {detalle.TerminalCode} · {detalle.CashierName} · {Estado(detalle.Status)}"
         : null;
 
-    private bool Cerrada => string.Equals(_detalle.Str("status"), "CLOSED", StringComparison.OrdinalIgnoreCase);
+    private bool Cerrada => _detalle is not null && EnumText.Same(_detalle.Status, "CLOSED");
 
     private bool PuedeRevisar =>
-        Session.Has("cash.session.review") && Cerrada && _detalle.Bool("reviewRequired") && _detalle.Date("reviewedAt") is null;
+        Session.Has("cash.session.review") && Cerrada && _detalle is { ReviewRequired: true, ReviewedAt: null };
 
     private bool PuedeCerrarSupervisor => Session.Has("cash.session.close_any") && !Cerrada;
 
@@ -215,7 +216,7 @@
         }
         catch (ApiException ex)
         {
-            _detalle = default;
+            _detalle = null;
             _error = ex.Texto;
         }
 
@@ -224,13 +225,13 @@
 
     private async Task CargarDetalleAsync(Guid id)
     {
-        _detalle = await Api.GetAsync<JsonElement>($"api/v1/cash/sessions/{id}");
+        _detalle = await Api.GetAsync<CashSessionDto>($"api/v1/cash/sessions/{id}");
         _reporte = null;
         _reporteError = null;
         try
         {
-            var report = await Api.GetAsync<JsonElement>($"api/v1/cash/sessions/{id}/{(Cerrada ? "report-z" : "report-x")}");
-            _reporte = report.Str("text");
+            var report = await Api.GetAsync<CashReportDto>($"api/v1/cash/sessions/{id}/{(Cerrada ? "report-z" : "report-x")}");
+            _reporte = report.Text;
         }
         catch (ApiException ex)
         {
@@ -316,29 +317,26 @@
     /// <summary>Reimpresión del reporte X/Z en la impresora de la caja de la jornada (por el agente de impresión de este equipo).</summary>
     private async Task ImprimirAsync()
     {
-        if (_reporte is null || !Guid.TryParse(_detalle.Str("posTerminalId"), out var caja))
+        if (_reporte is null || _detalle is null)
         {
             return;
         }
 
         _imprimiendo = true;
-        var titulo = $"{(Cerrada ? "Reporte Z" : "Reporte X")} {_detalle.Str("number")}";
-        var problema = await Printer.PrintTextAsync(caja, titulo, _reporte);
+        var titulo = $"{(Cerrada ? "Reporte Z" : "Reporte X")} {_detalle.Number}";
+        var problema = await Printer.PrintTextAsync(_detalle.PosTerminalId, titulo, _reporte);
         Snackbar.Add(problema ?? $"{titulo} enviado a la impresora.", problema is null ? Severity.Success : Severity.Warning);
         _imprimiendo = false;
     }
 
     private async Task DescargarAsync()
     {
-        var name = $"reporte-{(Cerrada ? "z" : "x")}-{_detalle.Str("number")}.txt";
+        var name = $"reporte-{(Cerrada ? "z" : "x")}-{_detalle?.Number}.txt";
         var content = System.Text.Encoding.UTF8.GetBytes(_reporte ?? "");
         await Js.InvokeVoidAsync("pos.download", name, "text/plain", Convert.ToBase64String(content));
     }
 
-    private static decimal? Opcional(JsonElement element, string name) =>
-        element.Prop(name).ValueKind == JsonValueKind.Number ? element.Dec(name) : null;
-
-    internal static string Estado(string status) => status.ToUpperInvariant() switch
+    internal static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "OPEN" => "Abierta",
         "CLOSING" => "En cierre",
@@ -346,7 +344,7 @@
         _ => status,
     };
 
-    private static string TipoMovimiento(string type) => type.ToUpperInvariant() switch
+    private static string TipoMovimiento(string type) => EnumText.Normalize(type) switch
     {
         "OPENING_FLOAT" => "Base inicial",
         "SALE" => "Venta",

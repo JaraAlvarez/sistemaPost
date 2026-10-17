@@ -1,4 +1,5 @@
 @page "/admin/licencia"
+@using Pos.Modules.Licensing.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -7,24 +8,24 @@
 <PageTitle>Licencia · BusinessPost</PageTitle>
 
 <Pagina Titulo="Licencia" Cargando="_loading" Error="@_error">
-    @if (_status.ValueKind == JsonValueKind.Object)
+    @if (_status is { } status)
     {
-        <MudAlert Severity="@(_status.Bool("isRestricted") ? Severity.Error : _status.Str("state") is "VALID" or "VALID_OFFLINE" ? Severity.Success : Severity.Warning)" Class="mb-4">
-            <b>@Estado(_status.Str("state"))</b> · @_status.Str("reason")
-            @if (_status.Str("daysLeft") != "")
+        <MudAlert Severity="@(status.IsRestricted ? Severity.Error : EnumText.Normalize(status.State) is "VALID" or "VALID_OFFLINE" ? Severity.Success : Severity.Warning)" Class="mb-4">
+            <b>@Estado(status.State)</b> · @status.Reason
+            @if (status.DaysLeft is { } daysLeft)
             {
-                <span> Quedan @_status.Str("daysLeft") día(s).</span>
+                <span> Quedan @daysLeft día(s).</span>
             }
         </MudAlert>
         <MudGrid>
             <MudItem xs="12" md="6">
                 <MudSimpleTable Dense="true">
                     <tbody>
-                        <tr><td>Empresa</td><td>@_status.Str("organizationName") @_status.Str("organizationNit")</td></tr>
-                        <tr><td>Edición</td><td>@(_status.Str("edition") == "MULTI" ? "Multicaja" : _status.Str("edition") == "SINGLE" ? "Caja Única" : "—")</td></tr>
-                        <tr><td>Clave</td><td>@(_status.Str("licenseKeyPrefix") is { Length: > 0 } prefix ? prefix + "…" : "Sin activar")</td></tr>
-                        <tr><td>Vigente hasta</td><td>@Format.Date(_status.Date("validUntil"))</td></tr>
-                        <tr><td>Última verificación</td><td>@Format.Date(_status.Date("lastCheckinAt")) @_status.Str("lastCheckinError")</td></tr>
+                        <tr><td>Empresa</td><td>@status.OrganizationName @status.OrganizationNit</td></tr>
+                        <tr><td>Edición</td><td>@(EnumText.Same(status.Edition, "MULTI") ? "Multicaja" : EnumText.Same(status.Edition, "SINGLE") ? "Caja Única" : "—")</td></tr>
+                        <tr><td>Clave</td><td>@(status.LicenseKeyPrefix is { Length: > 0 } prefix ? prefix + "…" : "Sin activar")</td></tr>
+                        <tr><td>Vigente hasta</td><td>@Format.Date(status.ValidUntil)</td></tr>
+                        <tr><td>Última verificación</td><td>@Format.Date(status.LastCheckinAt) @status.LastCheckinError</td></tr>
                     </tbody>
                 </MudSimpleTable>
             </MudItem>
@@ -34,11 +35,11 @@
                     <MudTextField @bind-Value="_key" Label="Clave de licencia (POS-XXXXX-XXXXX-XXXXX-XXXXX)" Immediate="true" />
                     <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="ActivarAsync">Activar</MudButton>
                 }
-                @if (Session.Has("licensing.license.check") && _status.Str("licenseKeyPrefix") != "")
+                @if (Session.Has("licensing.license.check") && !string.IsNullOrEmpty(status.LicenseKeyPrefix))
                 {
                     <MudButton Class="mt-2 ml-2" Variant="Variant.Outlined" Disabled="_busy" OnClick="VerificarAsync">Verificar ahora</MudButton>
                 }
-                @if (Session.Has("licensing.license.manage") && _status.Str("licenseKeyPrefix") != "")
+                @if (Session.Has("licensing.license.manage") && !string.IsNullOrEmpty(status.LicenseKeyPrefix))
                 {
                     <MudButton Class="mt-2 ml-2" Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Liberar este equipo", "La licencia deja de estar activada en este equipo para que pueda activarla en otro.", "Liberar", true)) { await LiberarAsync(); } })">Liberar este equipo</MudButton>
                 }
@@ -48,17 +49,17 @@
 </Pagina>
 
 @code {
-    private JsonElement _status;
+    private LicenseStatusDto? _status;
     private bool _loading = true, _busy;
     private string? _error, _key;
 
     protected override async Task OnInitializedAsync()
     {
-        await Ejecutar(() => Api.GetAsync<JsonElement>("api/v1/license"), null);
+        await Ejecutar(() => Api.GetAsync<LicenseStatusDto>("api/v1/license"), null);
         _loading = false;
     }
 
-    private static string Estado(string state) => state switch
+    private static string Estado(string state) => EnumText.Normalize(state) switch
     {
         "DEMO" => "Demostración",
         "VALID" => "Vigente",
@@ -69,13 +70,13 @@
         _ => state,
     };
 
-    private Task ActivarAsync() => Ejecutar(() => Api.PostAsync<JsonElement>("api/v1/license/activate", new { licenseKey = _key }), "Licencia activada.");
+    private Task ActivarAsync() => Ejecutar(() => Api.PostAsync<LicenseStatusDto>("api/v1/license/activate", new { licenseKey = _key }), "Licencia activada.");
 
-    private Task VerificarAsync() => Ejecutar(() => Api.PostAsync<JsonElement>("api/v1/license/check"), "Verificación terminada.");
+    private Task VerificarAsync() => Ejecutar(() => Api.PostAsync<LicenseStatusDto>("api/v1/license/check"), "Verificación terminada.");
 
-    private Task LiberarAsync() => Ejecutar(() => Api.PostAsync<JsonElement>("api/v1/license/deactivate", new { reason = "Liberado desde la administración" }), "Equipo liberado.");
+    private Task LiberarAsync() => Ejecutar(() => Api.PostAsync<LicenseStatusDto>("api/v1/license/deactivate", new { reason = "Liberado desde la administración" }), "Equipo liberado.");
 
-    private async Task Ejecutar(Func<Task<JsonElement>> action, string? message)
+    private async Task Ejecutar(Func<Task<LicenseStatusDto>> action, string? message)
     {
         _busy = true;
         try

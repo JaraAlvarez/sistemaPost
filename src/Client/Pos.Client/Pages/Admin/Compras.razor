@@ -4,6 +4,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
+@using Pos.Modules.Purchasing.Contracts
 
 <PageTitle>Compras · BusinessPost</PageTitle>
 
@@ -28,23 +29,23 @@
                     <MudSelectItem T="string" Value="@("VOIDED")">Anulada</MudSelectItem>
                 </MudSelect>
                 <MudTable RowsPerPage="25" Items="_compras" Dense="true" Hover="true" Striped="true" Class="fila-clic"
-                          OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => VerCompra(e.Item))">
+                          OnRowClick="@((TableRowClickEventArgs<PurchasingDocumentDto> e) => VerCompra(e.Item!))">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Factura del proveedor</MudTh><MudTh>Fecha</MudTh><MudTh Class="num">Total</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("number")</MudTd>
-                        <MudTd>@context.Str("supplierName")</MudTd>
-                        <MudTd>@context.Str("reference")</MudTd>
-                        <MudTd>@Dia(context, "date")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
-                        <MudTd>@EstadoCompra(context.Str("status"))</MudTd>
+                        <MudTd>@context.Number</MudTd>
+                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd>@context.Reference</MudTd>
+                        <MudTd>@Dia(context.Date)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Total)</MudTd>
+                        <MudTd>@EstadoCompra(context.Status)</MudTd>
                         <MudTd>
                             <div @onclick:stopPropagation="true">
-                                <MudButton Size="Size.Small" Href="@($"/admin/compras/{context.GetProperty("id").GetGuid()}")">Ver</MudButton>
-                                @if (context.Str("status") == "DRAFT" && Session.Has("purchasing.purchase.post"))
+                                <MudButton Size="Size.Small" Href="@($"/admin/compras/{context.Id}")">Ver</MudButton>
+                                @if (EnumText.Same(context.Status, "DRAFT") && Session.Has("purchasing.purchase.post"))
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_busy" OnClick="@(() => ContabilizarAsync(context.GetProperty("id").GetGuid()))">Confirmar compra</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_busy" OnClick="@(() => ContabilizarAsync(context.Id))">Confirmar compra</MudButton>
                                 }
                             </div>
                         </MudTd>
@@ -65,38 +66,38 @@
                     <MudSelectItem T="string" Value="@("CANCELLED")">Cancelada</MudSelectItem>
                 </MudSelect>
                 <MudTable RowsPerPage="25" Items="_ordenes" Dense="true" Hover="true" Striped="true" Class="fila-clic"
-                          OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => VerOrden(e.Item))">
+                          OnRowClick="@((TableRowClickEventArgs<PurchasingDocumentDto> e) => VerOrden(e.Item!))">
                     <HeaderContent>
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Fecha</MudTh><MudTh Class="num">Total</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("number")</MudTd>
-                        <MudTd>@context.Str("supplierName")</MudTd>
-                        <MudTd>@Dia(context, "date")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
-                        <MudTd>@EstadoOrden(context.Str("status"))</MudTd>
+                        <MudTd>@context.Number</MudTd>
+                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd>@Dia(context.Date)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Total)</MudTd>
+                        <MudTd>@EstadoOrden(context.Status)</MudTd>
                         <MudTd>
                             <div @onclick:stopPropagation="true">
-                                <MudButton Size="Size.Small" Href="@($"/admin/compras/ordenes/{context.GetProperty("id").GetGuid()}")">Ver</MudButton>
-                                @if (context.Str("status") == "DRAFT" && Session.Has("purchasing.order.approve"))
+                                <MudButton Size="Size.Small" Href="@($"/admin/compras/ordenes/{context.Id}")">Ver</MudButton>
+                                @if (EnumText.Same(context.Status, "DRAFT") && Session.Has("purchasing.order.approve"))
                                 {
                                     <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => OrdenAsync(context, "approve", "Orden aprobada."))">Aprobar</MudButton>
                                 }
-                                @if (context.Str("status") == "APPROVED" && Session.Has("purchasing.order.manage"))
+                                @if (EnumText.Same(context.Status, "APPROVED") && Session.Has("purchasing.order.manage"))
                                 {
                                     <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => OrdenAsync(context, "send", "Orden marcada como enviada al proveedor."))">Enviar</MudButton>
                                 }
-                                @if (context.Str("status") is "SENT" or "PARTIALLY_RECEIVED" && Session.Has("purchasing.purchase.manage"))
+                                @if (EnumText.Normalize(context.Status) is "SENT" or "PARTIALLY_RECEIVED" && Session.Has("purchasing.purchase.manage"))
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/admin/compras/nueva?orden={context.GetProperty("id").GetGuid()}")">Registrar factura</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/admin/compras/nueva?orden={context.Id}")">Registrar factura</MudButton>
                                 }
-                                @if (context.Str("status") is "SENT" or "PARTIALLY_RECEIVED" && Session.Has("purchasing.order.manage"))
+                                @if (EnumText.Normalize(context.Status) is "SENT" or "PARTIALLY_RECEIVED" && Session.Has("purchasing.order.manage"))
                                 {
                                     <MudButton Size="Size.Small" OnClick="@(() => OrdenAsync(context, "close", "Orden cerrada: no admite más recepciones."))">Cerrar</MudButton>
                                 }
-                                @if (context.Str("status") is "DRAFT" or "APPROVED" or "SENT" && Session.Has("purchasing.order.manage"))
+                                @if (EnumText.Normalize(context.Status) is "DRAFT" or "APPROVED" or "SENT" && Session.Has("purchasing.order.manage"))
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Cancelar orden de compra", $"La orden {context.Str("number")} de {context.Str("supplierName")} quedará cancelada y no admitirá recepciones.", "Cancelar orden", true)) { await OrdenAsync(context, "cancel", "Orden cancelada."); } })">Cancelar</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Cancelar orden de compra", $"La orden {context.Number} de {context.SupplierName} quedará cancelada y no admitirá recepciones.", "Cancelar orden", true)) { await OrdenAsync(context, "cancel", "Orden cancelada."); } })">Cancelar</MudButton>
                                 }
                             </div>
                         </MudTd>
@@ -110,8 +111,8 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _compras = [];
-    private List<JsonElement> _ordenes = [];
+    private List<PurchasingDocumentDto> _compras = [];
+    private List<PurchasingDocumentDto> _ordenes = [];
     private int _tab;
     private string _estadoCompras = "", _estadoOrdenes = "";
     private string? _error;
@@ -158,7 +159,7 @@
         _loading = false;
     }
 
-    internal static string EstadoCompra(string status) => status switch
+    internal static string EstadoCompra(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "POSTED" => "Confirmada",
@@ -166,7 +167,7 @@
         _ => status,
     };
 
-    internal static string EstadoOrden(string status) => status switch
+    internal static string EstadoOrden(string status) => EnumText.Normalize(status) switch
     {
         "DRAFT" => "Borrador",
         "APPROVED" => "Aprobada",
@@ -178,13 +179,12 @@
         _ => status,
     };
 
-    /// <summary>Fecha sin hora (DateOnly del servidor, "yyyy-MM-dd").</summary>
-    internal static string Dia(JsonElement element, string name) =>
-        DateOnly.TryParse(element.Str(name), CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "—";
+    /// <summary>Fecha sin hora (DateOnly del servidor) como día/mes/año.</summary>
+    internal static string Dia(DateOnly? date) => date is { } value ? value.ToString("dd/MM/yyyy", Format.Colombia) : "—";
 
-    private void VerCompra(JsonElement purchase) => Navigation.NavigateTo($"/admin/compras/{purchase.GetProperty("id").GetGuid()}");
+    private void VerCompra(PurchasingDocumentDto purchase) => Navigation.NavigateTo($"/admin/compras/{purchase.Id}");
 
-    private void VerOrden(JsonElement order) => Navigation.NavigateTo($"/admin/compras/ordenes/{order.GetProperty("id").GetGuid()}");
+    private void VerOrden(PurchasingDocumentDto order) => Navigation.NavigateTo($"/admin/compras/ordenes/{order.Id}");
 
     private void ActualizarFiltros() => Filtros.Actualizar(Navigation, new Dictionary<string, object?>
     {
@@ -226,10 +226,10 @@
     }
 
     private async Task CargarComprasAsync() =>
-        _compras = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/purchases{(string.IsNullOrEmpty(_estadoCompras) ? "" : "?status=" + Uri.EscapeDataString(_estadoCompras))}")).Items();
+        _compras = [.. await Api.GetAsync<List<PurchasingDocumentDto>>($"api/v1/purchasing/purchases{(string.IsNullOrEmpty(_estadoCompras) ? "" : "?status=" + Uri.EscapeDataString(_estadoCompras))}")];
 
     private async Task CargarOrdenesAsync() =>
-        _ordenes = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/orders{(string.IsNullOrEmpty(_estadoOrdenes) ? "" : "?status=" + Uri.EscapeDataString(_estadoOrdenes))}")).Items();
+        _ordenes = [.. await Api.GetAsync<List<PurchasingDocumentDto>>($"api/v1/purchasing/orders{(string.IsNullOrEmpty(_estadoOrdenes) ? "" : "?status=" + Uri.EscapeDataString(_estadoOrdenes))}")];
 
     /// <summary>
     /// Contabiliza desde la lista. Las alertas de costo solo llegan en la respuesta de contabilizar (no al volver a leer la compra), así
@@ -240,11 +240,11 @@
         _busy = true;
         try
         {
-            var posted = await Api.PostAsync<JsonElement>($"api/v1/purchasing/purchases/{purchaseId}/post", new { cashSessionId = (Guid?)null });
-            Snackbar.Add($"Compra {posted.Str("number")} confirmada: entró al inventario y a cuentas por pagar.", Severity.Success);
-            foreach (var alert in posted.Prop("alerts").Items())
+            var posted = await Api.PostAsync<PurchaseDto>($"api/v1/purchasing/purchases/{purchaseId}/post", new { cashSessionId = (Guid?)null });
+            Snackbar.Add($"Compra {posted.Number} confirmada: entró al inventario y a cuentas por pagar.", Severity.Success);
+            foreach (var alert in posted.Alerts)
             {
-                Snackbar.Add($"{alert.Str("sku")} {alert.Str("productName")}: {alert.Str("message")}", Severity.Warning);
+                Snackbar.Add($"{alert.Sku} {alert.ProductName}: {alert.Message}", Severity.Warning);
             }
 
             await CargarComprasAsync();
@@ -257,11 +257,11 @@
         _busy = false;
     }
 
-    private async Task OrdenAsync(JsonElement order, string action, string message)
+    private async Task OrdenAsync(PurchasingDocumentDto order, string action, string message)
     {
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/purchasing/orders/{order.GetProperty("id").GetGuid()}/{action}");
+            await Api.PostAsync<PurchaseOrderDto>($"api/v1/purchasing/orders/{order.Id}/{action}");
             Snackbar.Add(message, Severity.Success);
             await CargarOrdenesAsync();
         }

@@ -1,4 +1,5 @@
 @page "/admin/cajas"
+@using Pos.Modules.Organization.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -25,28 +26,28 @@
                 <MudTh>Sucursal</MudTh><MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Bodega</MudTh><MudTh>Equipo</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd>@NombreSucursal(context.Str("branchId"))</MudTd>
-                <MudTd>@context.Str("code")</MudTd>
-                <MudTd>@context.Str("name")</MudTd>
+                <MudTd>@NombreSucursal(context.BranchId)</MudTd>
+                <MudTd>@context.Code</MudTd>
+                <MudTd>@context.Name</MudTd>
                 <MudTd>@NombreBodega(context)</MudTd>
                 <MudTd>@EquipoDe(context)</MudTd>
-                <MudTd>@Estado(context.Str("status"))</MudTd>
+                <MudTd>@Estado(context.Status)</MudTd>
                 <MudTd>
                     @if (Session.Has("organization.terminal.manage"))
                     {
                         <MudButton Size="Size.Small" OnClick="@(() => EditarCaja(context))">Editar</MudButton>
                         <MudButton Size="Size.Small" OnClick="@(() => AbrirImpresoraAsync(context))">Impresora</MudButton>
-                        @if (Activa(context))
+                        @if (Activa(context.Status))
                         {
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar caja", $"La caja {context.Str("code")} dejará de poder abrir jornadas hasta que la active de nuevo.", "Inactivar", true)) { await CambiarEstadoAsync(context, "Inactive"); } })">Inactivar</MudButton>
-                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Bloquear caja", $"La caja {context.Str("code")} quedará bloqueada: no podrá vender hasta que la desbloquee.", "Bloquear", true)) { await CambiarEstadoAsync(context, "Blocked"); } })">Bloquear</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar caja", $"La caja {context.Code} dejará de poder abrir jornadas hasta que la active de nuevo.", "Inactivar", true)) { await CambiarEstadoAsync(context, "Inactive"); } })">Inactivar</MudButton>
+                            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Bloquear caja", $"La caja {context.Code} quedará bloqueada: no podrá vender hasta que la desbloquee.", "Bloquear", true)) { await CambiarEstadoAsync(context, "Blocked"); } })">Bloquear</MudButton>
                         }
                         else
                         {
                             <MudButton Size="Size.Small" OnClick="@(() => CambiarEstadoAsync(context, "Active"))">Activar</MudButton>
                         }
                     }
-                    @if (PuedeEmparejar && Activa(context))
+                    @if (PuedeEmparejar && Activa(context.Status))
                     {
                         <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_busy" OnClick="@(() => GenerarCodigoAsync(context))">Emparejar equipo</MudButton>
                     }
@@ -68,15 +69,15 @@
                     <MudTh>Equipo</MudTh><MudTh>Tipo</MudTh><MudTh>Caja</MudTh><MudTh>Estado</MudTh><MudTh>Emparejado</MudTh><MudTh>Último contacto</MudTh><MudTh>Versión</MudTh><MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.Str("hostname")</MudTd>
-                    <MudTd>@TipoEquipo(context.Str("kind"))</MudTd>
-                    <MudTd>@CodigoCaja(context.Str("posTerminalId"))</MudTd>
-                    <MudTd>@(EnumText.Same(context.Str("status"), "REVOKED") ? "Revocado" : "Activo")</MudTd>
-                    <MudTd>@Format.Date(context.Date("pairedAt"))</MudTd>
-                    <MudTd>@Format.Date(context.Date("lastSeenAt"))</MudTd>
-                    <MudTd>@context.Str("appVersion")</MudTd>
+                    <MudTd>@context.Hostname</MudTd>
+                    <MudTd>@TipoEquipo(context.Kind)</MudTd>
+                    <MudTd>@CodigoCaja(context.PosTerminalId)</MudTd>
+                    <MudTd>@(EnumText.Same(context.Status, "REVOKED") ? "Revocado" : "Activo")</MudTd>
+                    <MudTd>@Format.Date(context.PairedAt)</MudTd>
+                    <MudTd>@Format.Date(context.LastSeenAt)</MudTd>
+                    <MudTd>@context.AppVersion</MudTd>
                     <MudTd>
-                        @if (!EnumText.Same(context.Str("status"), "REVOKED"))
+                        @if (!EnumText.Same(context.Status, "REVOKED"))
                         {
                             <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => _revocar = context)">Revocar</MudButton>
                         }
@@ -97,9 +98,9 @@
             @if (_cajaId is null)
             {
                 <MudSelect T="Guid?" Value="_tSucursal" ValueChanged="CambiarSucursal" Label="Sucursal">
-                    @foreach (var branch in _sucursales.Where(Activa))
+                    @foreach (var branch in _sucursales.Where(b => Activa(b.Status)))
                     {
-                        <MudSelectItem T="Guid?" Value="@branch.GetProperty("id").GetGuid()">@branch.Str("code") · @branch.Str("name")</MudSelectItem>
+                        <MudSelectItem T="Guid?" Value="@branch.Id">@branch.Code · @branch.Name</MudSelectItem>
                     }
                 </MudSelect>
                 <MudTextField @bind-Value="_tCodigo" Label="Código (p. ej. C02)" Immediate="true" />
@@ -108,7 +109,7 @@
             <MudSelect T="Guid?" @bind-Value="_tBodega" Label="@(_cajaId is null ? "Bodega de la que vende (vacío = piso de venta de la sucursal)" : "Bodega de la que vende")" Clearable="@(_cajaId is null)">
                 @foreach (var warehouse in BodegasDeVenta(_tSucursal))
                 {
-                    <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@warehouse.Id">@warehouse.Code · @warehouse.Name</MudSelectItem>
                 }
             </MudSelect>
             <div class="acciones">
@@ -119,11 +120,11 @@
     </div>
 }
 
-@if (_impresoraDe.ValueKind == JsonValueKind.Object)
+@if (_impresoraDe is not null)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Impresora de tiquetes · caja @_impresoraDe.Str("code")</h2>
+            <h2>Impresora de tiquetes · caja @_impresoraDe.Code</h2>
             @if (!_impresoraConfigurada)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">La caja aún no tiene impresora configurada: se muestran los valores por defecto.</MudAlert>
@@ -153,24 +154,24 @@
                 </MudSelect>
             }
             <div class="acciones">
-                <MudButton OnClick="@(() => _impresoraDe = default)">Cancelar</MudButton>
+                <MudButton OnClick="@(() => _impresoraDe = null)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarImpresoraAsync">Guardar</MudButton>
             </div>
         </div>
     </div>
 }
 
-@if (_codigo.ValueKind == JsonValueKind.Object)
+@if (_codigo is not null)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
             <h2>Código de emparejamiento @(_codigoCaja is null ? "· PC administrativo" : $"· caja {_codigoCaja}")</h2>
-            <div class="cifra my-3" style="font-size: 56px; letter-spacing: 10px; text-align: center;">@_codigo.Str("code")</div>
-            <MudText Typo="Typo.body2" Class="mb-2">Vence: @Format.Date(_codigo.Date("expiresAt")). Sirve una sola vez.</MudText>
+            <div class="cifra my-3" style="font-size: 56px; letter-spacing: 10px; text-align: center;">@_codigo.Code</div>
+            <MudText Typo="Typo.body2" Class="mb-2">Vence: @Format.Date(_codigo.ExpiresAt). Sirve una sola vez.</MudText>
             <MudText Typo="Typo.body2">En el equipo nuevo abra BusinessPost, elija «Emparejar este equipo» y escriba este código.</MudText>
-            @if (_codigo.Str("certificateFingerprint").Length > 0)
+            @if (!string.IsNullOrEmpty(_codigo.CertificateFingerprint))
             {
-                <MudText Typo="Typo.caption" Class="d-block mt-2">Código de seguridad del servidor (compárelo en el equipo nuevo): @_codigo.Str("certificateFingerprint")</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mt-2">Código de seguridad del servidor (compárelo en el equipo nuevo): @_codigo.CertificateFingerprint</MudText>
             }
             <div class="acciones">
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CerrarCodigoAsync">Listo</MudButton>
@@ -179,16 +180,16 @@
     </div>
 }
 
-@if (_revocar.ValueKind == JsonValueKind.Object)
+@if (_revocar is not null)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Revocar el equipo @_revocar.Str("hostname")</h2>
+            <h2>Revocar el equipo @_revocar.Hostname</h2>
             <MudText Typo="Typo.body2">
                 El equipo queda desconectado de inmediato. Para volver a usarlo hay que emparejarlo de nuevo con un código.
             </MudText>
             <div class="acciones">
-                <MudButton OnClick="@(() => _revocar = default)">Cancelar</MudButton>
+                <MudButton OnClick="@(() => _revocar = null)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="RevocarAsync">Revocar</MudButton>
             </div>
         </div>
@@ -196,14 +197,16 @@
 }
 
 @code {
-    private List<JsonElement> _cajas = [];
-    private List<JsonElement> _sucursales = [];
-    private List<JsonElement> _equipos = [];
-    private readonly Dictionary<Guid, List<JsonElement>> _bodegas = [];
+    private List<TerminalDto> _cajas = [];
+    private List<BranchDto> _sucursales = [];
+    private List<DeviceDto> _equipos = [];
+    private readonly Dictionary<Guid, IReadOnlyList<WarehouseDto>> _bodegas = [];
     private bool _loading = true, _busy, _panelCaja, _impresoraConfigurada, _iCorte, _iCajon;
     private string? _error, _tCodigo, _tNombre, _iDireccion, _codigoCaja;
     private Guid? _cajaId, _tSucursal, _tBodega;
-    private JsonElement _impresoraDe, _codigo, _revocar;
+    private TerminalDto? _impresoraDe;
+    private PairingCodeDto? _codigo;
+    private DeviceDto? _revocar;
     private string _iConexion = "File", _iPagina = "Pc850", _iPin = "Pin2";
     private int _iPapel = 80;
 
@@ -224,18 +227,17 @@
         _loading = true;
         try
         {
-            _sucursales = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
-            _cajas = (await Api.GetAsync<JsonElement>("api/v1/organization/terminals")).Items();
+            _sucursales = await Api.GetAsync<List<BranchDto>>("api/v1/organization/branches");
+            _cajas = await Api.GetAsync<List<TerminalDto>>("api/v1/organization/terminals");
             _bodegas.Clear();
             foreach (var branch in _sucursales)
             {
-                var id = branch.GetProperty("id").GetGuid();
-                _bodegas[id] = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{id}")).Prop("warehouses").Items();
+                _bodegas[branch.Id] = (await Api.GetAsync<BranchDetailDto>($"api/v1/organization/branches/{branch.Id}")).Warehouses;
             }
 
             if (Session.Has("organization.device.manage"))
             {
-                _equipos = (await Api.GetAsync<JsonElement>("api/v1/devices")).Items();
+                _equipos = await Api.GetAsync<List<DeviceDto>>("api/v1/devices");
             }
 
             _error = null;
@@ -248,32 +250,32 @@
         _loading = false;
     }
 
-    private string NombreSucursal(string branchId) =>
-        _sucursales.FirstOrDefault(b => b.Str("id") == branchId).Str("name") is { Length: > 0 } name ? name : branchId;
+    private string NombreSucursal(Guid branchId) =>
+        _sucursales.FirstOrDefault(b => b.Id == branchId)?.Name is { Length: > 0 } name ? name : branchId.ToString();
 
-    private string NombreBodega(JsonElement terminal) =>
-        _bodegas.Values.SelectMany(w => w).FirstOrDefault(w => w.Str("id") == terminal.Str("warehouseId")).Str("name");
+    private string NombreBodega(TerminalDto terminal) =>
+        _bodegas.Values.SelectMany(w => w).FirstOrDefault(w => w.Id == terminal.WarehouseId)?.Name ?? "";
 
-    private string CodigoCaja(string terminalId) =>
-        terminalId.Length == 0 ? "" : _cajas.FirstOrDefault(t => t.Str("id") == terminalId).Str("code");
+    private string CodigoCaja(Guid? terminalId) =>
+        terminalId is { } id ? _cajas.FirstOrDefault(t => t.Id == id)?.Code ?? "" : "";
 
-    private string EquipoDe(JsonElement terminal)
+    private string EquipoDe(TerminalDto terminal)
     {
-        var device = _equipos.FirstOrDefault(d => d.Str("posTerminalId") == terminal.Str("id") && !EnumText.Same(d.Str("status"), "REVOKED"));
-        return device.ValueKind == JsonValueKind.Object ? device.Str("hostname")
-            : terminal.Str("deviceId").Length > 0 ? "Emparejada"
+        var device = _equipos.FirstOrDefault(d => d.PosTerminalId == terminal.Id && !EnumText.Same(d.Status, "REVOKED"));
+        return device is not null ? device.Hostname
+            : terminal.DeviceId is not null ? "Emparejada"
             : "Sin equipo";
     }
 
-    private IEnumerable<JsonElement> BodegasDeVenta(Guid? branchId) =>
-        branchId is { } id && _bodegas.TryGetValue(id, out var warehouses) ? warehouses.Where(w => Activa(w) && w.Bool("allowsSales")) : [];
+    private IEnumerable<WarehouseDto> BodegasDeVenta(Guid? branchId) =>
+        branchId is { } id && _bodegas.TryGetValue(id, out var warehouses) ? warehouses.Where(w => Activa(w.Status) && w.AllowsSales) : [];
 
     // ------------------------------------------------------------------------------------------ Cajas
 
     private void NuevaCaja()
     {
         _cajaId = null;
-        _tSucursal = _sucursales.Count == 1 ? _sucursales[0].GetProperty("id").GetGuid() : null;
+        _tSucursal = _sucursales.Count == 1 ? _sucursales[0].Id : null;
         _tCodigo = _tNombre = null;
         _tBodega = null;
         _panelCaja = true;
@@ -285,12 +287,12 @@
         _tBodega = null;
     }
 
-    private void EditarCaja(JsonElement terminal)
+    private void EditarCaja(TerminalDto terminal)
     {
-        _cajaId = terminal.GetProperty("id").GetGuid();
-        _tSucursal = terminal.GetProperty("branchId").GetGuid();
-        _tNombre = terminal.Str("name");
-        _tBodega = terminal.GetProperty("warehouseId").GetGuid();
+        _cajaId = terminal.Id;
+        _tSucursal = terminal.BranchId;
+        _tNombre = terminal.Name;
+        _tBodega = terminal.WarehouseId;
         _panelCaja = true;
     }
 
@@ -327,11 +329,11 @@
         _busy = false;
     }
 
-    private async Task CambiarEstadoAsync(JsonElement terminal, string status)
+    private async Task CambiarEstadoAsync(TerminalDto terminal, string status)
     {
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/organization/terminals/{terminal.GetProperty("id").GetGuid()}/status", new { status });
+            await Api.PostAsync<JsonElement>($"api/v1/organization/terminals/{terminal.Id}/status", new { status });
             Snackbar.Add(status switch { "Active" => "Caja activada.", "Blocked" => "Caja bloqueada.", _ => "Caja inactivada." }, Severity.Success);
             await CargarAsync();
         }
@@ -343,25 +345,25 @@
 
     // ------------------------------------------------------------------------------------------ Impresora
 
-    private async Task AbrirImpresoraAsync(JsonElement terminal)
+    private async Task AbrirImpresoraAsync(TerminalDto terminal)
     {
         try
         {
-            var printer = await Api.GetAsync<JsonElement>($"api/v1/organization/terminals/{terminal.GetProperty("id").GetGuid()}/receipt-printer");
-            _impresoraConfigurada = printer.Bool("configured");
-            _iConexion = printer.Str("connection") switch
+            var printer = await Api.GetAsync<ReceiptPrinterDto>($"api/v1/organization/terminals/{terminal.Id}/receipt-printer");
+            _impresoraConfigurada = printer.Configured;
+            _iConexion = EnumText.Normalize(printer.Connection) switch
             {
                 "NETWORK" => "Network",
                 "WINDOWS_SPOOLER" => "WindowsSpooler",
                 "SERIAL" => "Serial",
                 _ => "File",
             };
-            _iDireccion = printer.Str("address");
-            _iPapel = printer.Dec("paperWidthMm") == 58 ? 58 : 80;
-            _iPagina = printer.Str("codePage") == "ASCII" ? "Ascii" : "Pc850";
-            _iCorte = printer.Bool("autoCut");
-            _iCajon = printer.Bool("drawerConnected");
-            _iPin = printer.Str("drawerPin") == "PIN5" ? "Pin5" : "Pin2";
+            _iDireccion = printer.Address;
+            _iPapel = printer.PaperWidthMm == 58 ? 58 : 80;
+            _iPagina = EnumText.Same(printer.CodePage, "ASCII") ? "Ascii" : "Pc850";
+            _iCorte = printer.AutoCut;
+            _iCajon = printer.DrawerConnected;
+            _iPin = EnumText.Same(printer.DrawerPin, "PIN5") ? "Pin5" : "Pin2";
             _impresoraDe = terminal;
         }
         catch (ApiException ex)
@@ -372,10 +374,15 @@
 
     private async Task GuardarImpresoraAsync()
     {
+        if (_impresoraDe is null)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            await Api.PutAsync<JsonElement>($"api/v1/organization/terminals/{_impresoraDe.GetProperty("id").GetGuid()}/receipt-printer", new
+            await Api.PutAsync<JsonElement>($"api/v1/organization/terminals/{_impresoraDe.Id}/receipt-printer", new
             {
                 connection = _iConexion,
                 address = string.IsNullOrWhiteSpace(_iDireccion) ? null : _iDireccion.Trim(),
@@ -386,7 +393,7 @@
                 drawerPin = _iPin,
             });
             Snackbar.Add("Impresora guardada. La caja la usa desde el próximo tiquete.", Severity.Success);
-            _impresoraDe = default;
+            _impresoraDe = null;
         }
         catch (ApiException ex)
         {
@@ -398,16 +405,16 @@
 
     // ------------------------------------------------------------------------------------------ Equipos
 
-    private async Task GenerarCodigoAsync(JsonElement? terminal)
+    private async Task GenerarCodigoAsync(TerminalDto? terminal)
     {
         _busy = true;
         try
         {
             object body = terminal is { } t
-                ? new { kind = "Terminal", posTerminalId = (Guid?)t.GetProperty("id").GetGuid() }
+                ? new { kind = "Terminal", posTerminalId = (Guid?)t.Id }
                 : new { kind = "AdminWorkstation", posTerminalId = (Guid?)null };
-            _codigo = await Api.PostAsync<JsonElement>("api/v1/devices/pairing-codes", body);
-            _codigoCaja = terminal?.Str("code");
+            _codigo = await Api.PostAsync<PairingCodeDto>("api/v1/devices/pairing-codes", body);
+            _codigoCaja = terminal?.Code;
         }
         catch (ApiException ex)
         {
@@ -419,19 +426,24 @@
 
     private async Task CerrarCodigoAsync()
     {
-        _codigo = default;
+        _codigo = null;
         _codigoCaja = null;
         await CargarAsync();
     }
 
     private async Task RevocarAsync()
     {
+        if (_revocar is null)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            await Api.PostAsync($"api/v1/devices/{_revocar.GetProperty("id").GetGuid()}/revoke");
+            await Api.PostAsync($"api/v1/devices/{_revocar.Id}/revoke");
             Snackbar.Add("Equipo revocado.", Severity.Success);
-            _revocar = default;
+            _revocar = null;
             await CargarAsync();
         }
         catch (ApiException ex)
@@ -444,7 +456,7 @@
 
     // ------------------------------------------------------------------------------------------ Comunes
 
-    private static bool Activa(JsonElement element) => EnumText.Same(element.Str("status"), "ACTIVE");
+    private static bool Activa(string status) => EnumText.Same(status, "ACTIVE");
 
     private static string Estado(string status) => EnumText.Normalize(status) switch
     {

@@ -1,4 +1,5 @@
 @page "/admin"
+@using Pos.Modules.Reporting.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 
@@ -16,10 +17,10 @@
         }
     </Acciones>
     <ChildContent>
-        @if (_data.ValueKind == JsonValueKind.Object)
+        @if (_data is { } data)
         {
-            var today = _data.Prop("today");
-            var last = _data.Prop("sameDayLastWeek");
+            var today = data.Today;
+            var last = data.SameDayLastWeek;
             var alertas = Alertas().ToList();
 
             <section aria-labelledby="t-atencion" class="mb-6">
@@ -49,20 +50,20 @@
             <section aria-labelledby="t-ventas" class="mb-6">
                 <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3" id="t-ventas">Ventas de hoy</MudText>
                 <div class="tablero-indicadores">
-                    <Tarjeta Titulo="Ventas netas" Valor="@Format.Money(today.Dec("netSales"))" Icono="@Icons.Material.Outlined.Payments" Tono="primario"
-                             Variacion="@Variacion(today.Dec("netSales"), last.Dec("netSales"))" Detalle="@($"vs. {Format.Money(last.Dec("netSales"))} hace una semana")" />
-                    <Tarjeta Titulo="Tiquetes" Valor="@today.Dec("tickets").ToString("#,##0", Format.Colombia)" Icono="@Icons.Material.Outlined.ReceiptLong" Tono="secundario"
-                             Variacion="@Variacion(today.Dec("tickets"), last.Dec("tickets"))" Detalle="@($"vs. {last.Dec("tickets"):#,##0} hace una semana")" />
-                    <Tarjeta Titulo="Ticket promedio" Valor="@Format.Money(today.Dec("averageTicket"))" Icono="@Icons.Material.Outlined.ShoppingBasket" Tono="info"
-                             Variacion="@Variacion(today.Dec("averageTicket"), last.Dec("averageTicket"))" Detalle="@($"vs. {Format.Money(last.Dec("averageTicket"))}")" />
-                    @if (_data.Str("grossProfitToday").Length > 0)
+                    <Tarjeta Titulo="Ventas netas" Valor="@Format.Money(today.NetSales)" Icono="@Icons.Material.Outlined.Payments" Tono="primario"
+                             Variacion="@Variacion(today.NetSales, last.NetSales)" Detalle="@($"vs. {Format.Money(last.NetSales)} hace una semana")" />
+                    <Tarjeta Titulo="Tiquetes" Valor="@today.Tickets.ToString("#,##0", Format.Colombia)" Icono="@Icons.Material.Outlined.ReceiptLong" Tono="secundario"
+                             Variacion="@Variacion(today.Tickets, last.Tickets)" Detalle="@($"vs. {last.Tickets:#,##0} hace una semana")" />
+                    <Tarjeta Titulo="Ticket promedio" Valor="@Format.Money(today.AverageTicket)" Icono="@Icons.Material.Outlined.ShoppingBasket" Tono="info"
+                             Variacion="@Variacion(today.AverageTicket, last.AverageTicket)" Detalle="@($"vs. {Format.Money(last.AverageTicket)}")" />
+                    @if (data.GrossProfitToday is { } utilidad)
                     {
-                        <Tarjeta Titulo="Utilidad bruta" Valor="@Format.Money(_data.Dec("grossProfitToday"))" Icono="@Icons.Material.Outlined.TrendingUp" Tono="exito"
-                                 Detalle="@Margen(_data.Dec("grossProfitToday"), today.Dec("netSales"))" />
+                        <Tarjeta Titulo="Utilidad bruta" Valor="@Format.Money(utilidad)" Icono="@Icons.Material.Outlined.TrendingUp" Tono="exito"
+                                 Detalle="@Margen(utilidad, today.NetSales)" />
                     }
                     else
                     {
-                        <Tarjeta Titulo="Turnos abiertos" Valor="@_data.Dec("openCashSessions").ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
+                        <Tarjeta Titulo="Turnos abiertos" Valor="@data.OpenCashSessions.ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
                                  Href="@(Session.Has("cash.report.view") ? "/admin/jornadas" : null)" Detalle="cajas vendiendo ahora" />
                     }
                 </div>
@@ -72,11 +73,11 @@
                 <section class="bp-tarjeta" aria-labelledby="t-horas">
                     <div class="tablero-seccion-cabeza">
                         <MudText Typo="Typo.h6" HtmlTag="h2" id="t-horas">Ventas por hora</MudText>
-                        <span class="texto-secundario">@Format.Money(today.Dec("netSales")) en total</span>
+                        <span class="texto-secundario">@Format.Money(today.NetSales) en total</span>
                     </div>
                     @{
-                        var horas = _data.Prop("salesByHour").Items().Where(h => h.Dec("tickets") > 0 || h.Dec("sales") != 0).ToList();
-                        var maximo = horas.Count == 0 ? 0 : horas.Max(h => h.Dec("sales"));
+                        var horas = data.SalesByHour.Where(h => h.Tickets > 0 || h.Sales != 0).ToList();
+                        var maximo = horas.Count == 0 ? 0 : horas.Max(h => h.Sales);
                     }
                     @if (horas.Count == 0)
                     {
@@ -87,11 +88,11 @@
                         <div class="grafico-horas" role="img" aria-label="@DescribirHoras(horas)">
                             @foreach (var hora in horas)
                             {
-                                var alto = maximo <= 0 ? 0 : Math.Max(4, (double)(hora.Dec("sales") / maximo) * 100);
-                                <div class="grafico-barra" title="@($"{hora.Dec("hour"):00}:00 · {Format.Money(hora.Dec("sales"))} · {hora.Dec("tickets"):0} tiquetes")">
-                                    <span class="grafico-valor">@Compacto(hora.Dec("sales"))</span>
+                                var alto = maximo <= 0 ? 0 : Math.Max(4, (double)(hora.Sales / maximo) * 100);
+                                <div class="grafico-barra" title="@($"{hora.Hour:00}:00 · {Format.Money(hora.Sales)} · {hora.Tickets:0} tiquetes")">
+                                    <span class="grafico-valor">@Compacto(hora.Sales)</span>
                                     <span class="grafico-columna" style="height:@(alto.ToString("0.#", CultureInfo.InvariantCulture))%"></span>
-                                    <span class="grafico-etiqueta">@hora.Dec("hour").ToString("00")h</span>
+                                    <span class="grafico-etiqueta">@hora.Hour.ToString("00")h</span>
                                 </div>
                             }
                         </div>
@@ -107,8 +108,8 @@
                         }
                     </div>
                     @{
-                        var top = _data.Prop("topProducts").Items();
-                        var mayor = top.Count == 0 ? 0 : top.Max(p => p.Dec("sales"));
+                        var top = data.TopProducts;
+                        var mayor = top.Count == 0 ? 0 : top.Max(p => p.Sales);
                     }
                     @if (top.Count == 0)
                     {
@@ -121,10 +122,10 @@
                             {
                                 <li>
                                     <div class="tablero-top-fila">
-                                        <span class="tablero-top-nombre"><b>@product.Str("name")</b><small>@product.Str("sku") · @Format.Quantity(product.Dec("quantity")) und.</small></span>
-                                        <span class="num"><b>@Format.Money(product.Dec("sales"))</b></span>
+                                        <span class="tablero-top-nombre"><b>@product.Name</b><small>@product.Sku · @Format.Quantity(product.Quantity) und.</small></span>
+                                        <span class="num"><b>@Format.Money(product.Sales)</b></span>
                                     </div>
-                                    <span class="tablero-top-barra" style="width:@((mayor <= 0 ? 0 : (double)(product.Dec("sales") / mayor) * 100).ToString("0.#", CultureInfo.InvariantCulture))%"></span>
+                                    <span class="tablero-top-barra" style="width:@((mayor <= 0 ? 0 : (double)(product.Sales / mayor) * 100).ToString("0.#", CultureInfo.InvariantCulture))%"></span>
                                 </li>
                             }
                         </ol>
@@ -135,16 +136,16 @@
             <section aria-labelledby="t-operacion">
                 <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-3" id="t-operacion">Operación</MudText>
                 <div class="tablero-indicadores">
-                    <Tarjeta Titulo="Productos bajo el mínimo" Valor="@_data.Dec("productsBelowMinimum").ToString("0")" Icono="@Icons.Material.Outlined.Inventory2"
-                             Tono="@(_data.Dec("productsBelowMinimum") > 0 ? "advertencia" : "neutro")" Href="@(Session.Has("inventory.stock.view") ? "/admin/existencias" : null)" Detalle="por agotarse: pedir al proveedor" />
-                    <Tarjeta Titulo="Lotes por vencer" Valor="@_data.Dec("lotsExpiringSoon").ToString("0")" Icono="@Icons.Material.Outlined.EventBusy"
-                             Tono="@(_data.Dec("lotsExpiringSoon") > 0 ? "advertencia" : "neutro")" Detalle="en los próximos días" />
-                    <Tarjeta Titulo="Anulados hoy" Valor="@today.Dec("voidedTickets").ToString("0")" Icono="@Icons.Material.Outlined.Block"
-                             Tono="@(today.Dec("voidedTickets") > 0 ? "error" : "neutro")" Detalle="@($"hace una semana: {last.Dec("voidedTickets"):0}")" />
-                    <Tarjeta Titulo="Turnos abiertos" Valor="@_data.Dec("openCashSessions").ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
-                             Href="@(Session.Has("cash.report.view") ? "/admin/jornadas" : null)" Detalle="@($"{_data.Dec("closingsWithUnreviewedDifference"):0} cierre(s) con diferencia sin revisar")" />
+                    <Tarjeta Titulo="Productos bajo el mínimo" Valor="@data.ProductsBelowMinimum.ToString("0")" Icono="@Icons.Material.Outlined.Inventory2"
+                             Tono="@(data.ProductsBelowMinimum > 0 ? "advertencia" : "neutro")" Href="@(Session.Has("inventory.stock.view") ? "/admin/existencias" : null)" Detalle="por agotarse: pedir al proveedor" />
+                    <Tarjeta Titulo="Lotes por vencer" Valor="@data.LotsExpiringSoon.ToString("0")" Icono="@Icons.Material.Outlined.EventBusy"
+                             Tono="@(data.LotsExpiringSoon > 0 ? "advertencia" : "neutro")" Detalle="en los próximos días" />
+                    <Tarjeta Titulo="Anulados hoy" Valor="@today.VoidedTickets.ToString("0")" Icono="@Icons.Material.Outlined.Block"
+                             Tono="@(today.VoidedTickets > 0 ? "error" : "neutro")" Detalle="@($"hace una semana: {last.VoidedTickets:0}")" />
+                    <Tarjeta Titulo="Turnos abiertos" Valor="@data.OpenCashSessions.ToString("0")" Icono="@Icons.Material.Outlined.PointOfSale" Tono="neutro"
+                             Href="@(Session.Has("cash.report.view") ? "/admin/jornadas" : null)" Detalle="@($"{data.ClosingsWithUnreviewedDifference:0} cierre(s) con diferencia sin revisar")" />
                 </div>
-                <MudText Typo="Typo.caption" Class="d-block mt-3 texto-secundario">Datos generados a las @Format.Date(_data.Date("generatedAt")).</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mt-3 texto-secundario">Datos generados a las @Format.Date(data.GeneratedAt).</MudText>
             </section>
         }
         else if (!_puedeVer)
@@ -169,7 +170,7 @@
 @code {
     private sealed record Alerta(int Cantidad, string Texto, string Href, string Icono, string Tono);
 
-    private JsonElement _data;
+    private DashboardDto? _data;
     private bool _loading = true;
     private bool _puedeVer;
     private string? _error;
@@ -187,7 +188,7 @@
         {
             if (_puedeVer)
             {
-                _data = await Api.GetAsync<JsonElement>("api/v1/reports/dashboard");
+                _data = await Api.GetAsync<DashboardDto>("api/v1/reports/dashboard");
             }
 
             Session.Refresh(await Api.GetAsync<MeInfo>("api/v1/auth/me"));
@@ -223,31 +224,36 @@
     private IEnumerable<Alerta> Alertas()
     {
         var me = Session.Me!;
-        var diferencias = (int)_data.Dec("closingsWithUnreviewedDifference");
+        if (_data is not { } data)
+        {
+            yield break;
+        }
+
+        var diferencias = data.ClosingsWithUnreviewedDifference;
         if (diferencias > 0 && Session.Has("cash.report.view"))
         {
             yield return new(diferencias, diferencias == 1 ? "cierre de caja con diferencia por revisar" : "cierres de caja con diferencia por revisar", "/admin/jornadas", Icons.Material.Outlined.PointOfSale, "advertencia");
         }
 
-        var bajos = (int)_data.Dec("productsBelowMinimum");
+        var bajos = data.ProductsBelowMinimum;
         if (bajos > 0 && Session.Has("inventory.stock.view"))
         {
             yield return new(bajos, bajos == 1 ? "producto bajo el mínimo" : "productos bajo el mínimo", "/admin/existencias", Icons.Material.Outlined.Inventory2, "advertencia");
         }
 
-        var incidentes = Math.Max((int)_data.Dec("openIntegrityIncidents"), me.OpenIntegrityIncidents);
+        var incidentes = Math.Max(data.OpenIntegrityIncidents, me.OpenIntegrityIncidents);
         if (incidentes > 0 && Session.Has("audit.log.view"))
         {
             yield return new(incidentes, "incidente(s) de integridad de la auditoría", "/admin/auditoria", Icons.Material.Outlined.Policy, "error");
         }
 
-        var backups = Math.Max((int)_data.Dec("backupAlerts"), me.BackupAlerts);
+        var backups = Math.Max(data.BackupAlerts, me.BackupAlerts);
         if (backups > 0 && Session.Has("backup.backup.view"))
         {
             yield return new(backups, "alerta(s) de backups", "/admin/backups", Icons.Material.Outlined.Backup, "error");
         }
 
-        var solicitudes = (int)_data.Dec("dataRequestsDueSoon");
+        var solicitudes = data.DataRequestsDueSoon;
         if (solicitudes > 0 && Session.Has("customers.customer.view"))
         {
             yield return new(solicitudes, "solicitud(es) de datos personales por vencer", "/admin/clientes", Icons.Material.Outlined.PrivacyTip, "info");
@@ -267,6 +273,6 @@
         _ => valor.ToString("0", Format.Colombia),
     };
 
-    private static string DescribirHoras(List<JsonElement> horas) =>
-        "Ventas por hora: " + string.Join("; ", horas.Select(h => $"{h.Dec("hour"):00} horas, {Format.Money(h.Dec("sales"))}"));
+    private static string DescribirHoras(List<DashboardHourDto> horas) =>
+        "Ventas por hora: " + string.Join("; ", horas.Select(h => $"{h.Hour:00} horas, {Format.Money(h.Sales)}"));
 }

@@ -3,6 +3,7 @@
 @inject SessionState Session
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@using Pos.Modules.Catalog.Contracts
 
 <PageTitle>Productos · BusinessPost</PageTitle>
 
@@ -17,17 +18,17 @@
         <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
                       Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => FiltrarAsync())" Class="mb-3" />
         <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
-                  OnRowClick="@((TableRowClickEventArgs<JsonElement> fila) => Abrir(fila.Item))">
+                  OnRowClick="@((TableRowClickEventArgs<ProductSummaryDto> fila) => Abrir(fila.Item!))">
             <HeaderContent>
                 <MudTh>SKU</MudTh><MudTh>Nombre</MudTh><MudTh>Categoría</MudTh><MudTh>Código de barras</MudTh><MudTh Class="num">Precio</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd>@context.Str("sku")</MudTd>
-                <MudTd><a href="/admin/productos/@context.Str("id")" @onclick:stopPropagation="true">@context.Str("name")</a></MudTd>
-                <MudTd>@context.Str("categoryName")</MudTd>
-                <MudTd>@context.Str("primaryBarcode")</MudTd>
-                <MudTd Class="num">@Format.Money(context.Dec("price"))</MudTd>
-                <MudTd>@Estado(context.Str("status"))</MudTd>
+                <MudTd>@context.Sku</MudTd>
+                <MudTd><a href="/admin/productos/@context.Id" @onclick:stopPropagation="true">@context.Name</a></MudTd>
+                <MudTd>@context.CategoryName</MudTd>
+                <MudTd>@context.PrimaryBarcode</MudTd>
+                <MudTd Class="num">@Format.Money(context.Price ?? 0m)</MudTd>
+                <MudTd>@Estado(context.Status)</MudTd>
                 <MudTd>
                     @if (Session.Has("catalog.price.manage"))
                     {
@@ -45,16 +46,16 @@
     </ChildContent>
 </Pagina>
 
-@if (_precioDe.ValueKind == JsonValueKind.Object)
+@if (_precioDe is { } precioDe)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Precio de @_precioDe.Str("name")</h2>
-            <MudText Typo="Typo.body2">Precio actual: @Format.Money(_precioDe.Dec("price")). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
+            <h2>Precio de @precioDe.Name</h2>
+            <MudText Typo="Typo.body2">Precio actual: @Format.Money(precioDe.Price ?? 0m). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
             <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
             <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" />
             <div class="acciones">
-                <MudButton OnClick="@(() => _precioDe = default)">Cancelar</MudButton>
+                <MudButton OnClick="@(() => _precioDe = null)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarPrecioAsync">Guardar</MudButton>
             </div>
         </div>
@@ -62,13 +63,13 @@
 }
 
 @code {
-    private List<JsonElement> _items = [];
+    private IReadOnlyList<ProductSummaryDto> _items = [];
     private int _total;
     private string? _search, _error;
     private decimal _nuevoPrecio;
     private DateTime? _desde;
     private bool _loading = true, _busy;
-    private JsonElement _precioDe;
+    private ProductSummaryDto? _precioDe;
 
     [SupplyParameterFromQuery(Name = "q")]
     public string? Q { get; set; }
@@ -90,9 +91,9 @@
         _loading = true;
         try
         {
-            var page = await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=100&search={Uri.EscapeDataString(_search ?? "")}");
-            _items = page.Items();
-            _total = (int)page.Dec("totalCount");
+            var page = await Api.GetAsync<PagedResult<ProductSummaryDto>>($"api/v1/catalog/products?pageSize=100&search={Uri.EscapeDataString(_search ?? "")}");
+            _items = page.Items;
+            _total = page.TotalCount;
             _error = null;
         }
         catch (ApiException ex)
@@ -103,9 +104,9 @@
         _loading = false;
     }
 
-    private void Abrir(JsonElement product) => Navigation.NavigateTo($"/admin/productos/{product.GetProperty("id").GetGuid()}");
+    private void Abrir(ProductSummaryDto product) => Navigation.NavigateTo($"/admin/productos/{product.Id}");
 
-    private static string Estado(string status) => status switch
+    private static string Estado(string status) => EnumText.Normalize(status) switch
     {
         "ACTIVE" => "Activo",
         "INACTIVE" => "Inactivo",
@@ -113,25 +114,30 @@
         _ => status,
     };
 
-    private void CambiarPrecio(JsonElement product)
+    private void CambiarPrecio(ProductSummaryDto product)
     {
         _precioDe = product;
-        _nuevoPrecio = product.Dec("price");
+        _nuevoPrecio = product.Price ?? 0m;
         _desde = null;
     }
 
     private async Task GuardarPrecioAsync()
     {
+        if (_precioDe is not { } producto)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/catalog/products/{_precioDe.GetProperty("id").GetGuid()}/prices", new
+            await Api.PostAsync<SetPriceResultDto>($"api/v1/catalog/products/{producto.Id}/prices", new
             {
                 price = _nuevoPrecio, priceListId = (Guid?)null, packagingId = (Guid?)null, branchId = (Guid?)null,
                 validFrom = _desde is { } d ? new DateTimeOffset(d.Date) : (DateTimeOffset?)null,
             });
             Snackbar.Add(_desde is null ? "Precio actualizado." : "Precio programado.", Severity.Success);
-            _precioDe = default;
+            _precioDe = null;
             await BuscarAsync();
         }
         catch (ApiException ex)

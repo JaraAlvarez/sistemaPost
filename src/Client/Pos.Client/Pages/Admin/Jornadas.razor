@@ -1,4 +1,5 @@
 @page "/admin/jornadas"
+@using Pos.Modules.Cash.Contracts
 @inject ApiClient Api
 @inject NavigationManager Navigation
 
@@ -30,23 +31,23 @@
         </MudGrid>
 
         <MudTable RowsPerPage="25" Items="_sessions" Dense="true" Hover="true" Striped="true" Class="fila-clic"
-                  OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
+                  OnRowClick="@((TableRowClickEventArgs<CashSessionSummaryDto> e) => Abrir(e.Item))">
             <HeaderContent>
                 <MudTh>Turno</MudTh><MudTh>Caja</MudTh><MudTh>Cajero</MudTh><MudTh>Fecha</MudTh><MudTh>Estado</MudTh><MudTh Class="num">Diferencia</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd><a href="@($"/admin/jornadas/{context.Str("id")}")" @onclick:stopPropagation="true">@context.Str("number")</a></MudTd>
-                <MudTd>@context.Str("terminalCode")</MudTd>
-                <MudTd>@context.Str("cashierName")</MudTd>
-                <MudTd>@context.Str("businessDate")</MudTd>
+                <MudTd><a href="@($"/admin/jornadas/{context.Id}")" @onclick:stopPropagation="true">@context.Number</a></MudTd>
+                <MudTd>@context.TerminalCode</MudTd>
+                <MudTd>@context.CashierName</MudTd>
+                <MudTd>@context.BusinessDate.ToString("dd/MM/yyyy", Format.Colombia)</MudTd>
                 <MudTd>
-                    @JornadaDetalle.Estado(context.Str("status"))
-                    @if (context.Bool("reviewRequired") && !context.Bool("reviewed"))
+                    @JornadaDetalle.Estado(context.Status)
+                    @if (context.ReviewRequired && !context.Reviewed)
                     {
                         <MudChip T="string" Size="Size.Small" Color="Color.Warning">Por revisar</MudChip>
                     }
                 </MudTd>
-                <MudTd Class="num">@(context.Prop("difference").ValueKind == JsonValueKind.Number ? Format.Money(context.Dec("difference")) : "")</MudTd>
+                <MudTd Class="num">@(context.Difference is { } diferencia ? Format.Money(diferencia) : "")</MudTd>
             </RowTemplate>
             <NoRecordsContent><EstadoVacio Mensaje="No hay turnos con esos filtros." /></NoRecordsContent>
             <PagerContent><Paginador /></PagerContent>
@@ -55,7 +56,7 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _sessions = [];
+    private IReadOnlyList<CashSessionSummaryDto> _sessions = [];
     private DateTime? _desde = DateTime.Today.AddDays(-7), _hasta = DateTime.Today;
     private string _estado = "";
     private bool _pendientes, _loading = true;
@@ -127,7 +128,7 @@
                 query.Add("pendingReview=true");
             }
 
-            _sessions = (await Api.GetAsync<JsonElement>("api/v1/cash/sessions?" + string.Join("&", query))).Items();
+            _sessions = await Api.GetAsync<List<CashSessionSummaryDto>>("api/v1/cash/sessions?" + string.Join("&", query));
             _error = null;
         }
         catch (ApiException ex)
@@ -138,5 +139,11 @@
         _loading = false;
     }
 
-    private void Abrir(JsonElement session) => Navigation.NavigateTo($"/admin/jornadas/{session.GetProperty("id").GetGuid()}");
+    private void Abrir(CashSessionSummaryDto? session)
+    {
+        if (session is not null)
+        {
+            Navigation.NavigateTo($"/admin/jornadas/{session.Id}");
+        }
+    }
 }

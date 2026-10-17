@@ -5,6 +5,9 @@
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Inventory.Contracts
+@using Pos.Modules.Organization.Contracts
 
 <PageTitle>@Titulo · BusinessPost</PageTitle>
 
@@ -18,7 +21,7 @@
             }
             @if (PuedeEditar)
             {
-                @if (Estado == "ACTIVE")
+                @if (EnumText.Same(Estado, "ACTIVE"))
                 {
                     <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="@(() => CambiarEstadoAsync("Inactive"))">Inactivar</MudButton>
                 }
@@ -26,7 +29,7 @@
                 {
                     <MudButton Variant="Variant.Outlined" OnClick="@(() => CambiarEstadoAsync("Active"))">Activar</MudButton>
                 }
-                @if (Estado != "DISCONTINUED")
+                @if (!EnumText.Same(Estado, "DISCONTINUED"))
                 {
                     <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="@(() => CambiarEstadoAsync("Discontinued"))">Descontinuar</MudButton>
                 }
@@ -34,7 +37,7 @@
         }
     </Acciones>
     <ChildContent>
-        @if (Id is null || _producto.ValueKind == JsonValueKind.Object)
+        @if (Id is null || _producto is not null)
         {
             <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Outlined="true" TabPanelsClass="pa-4">
                 <MudTabPanel Text="Datos">
@@ -58,9 +61,9 @@
                         </MudItem>
                         <MudItem xs="12" sm="6">
                             <MudSelect T="Guid?" @bind-Value="_brand" Label="Marca (opcional)" Clearable="true" ReadOnly="@(!PuedeEditar)">
-                                @foreach (var brand in _brands.Where(b => b.Str("status") == "ACTIVE" || b.GetProperty("id").GetGuid() == _brand))
+                                @foreach (var brand in _brands.Where(b => EnumText.Same(b.Status, "ACTIVE") || b.Id == _brand))
                                 {
-                                    <MudSelectItem T="Guid?" Value="@brand.GetProperty("id").GetGuid()">@brand.Str("name")</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@brand.Id">@brand.Name</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
@@ -68,7 +71,7 @@
                             <MudSelect T="string" Value="_unit" ValueChanged="CambiarUnidad" Label="Unidad base" ReadOnly="@(!PuedeEditar)">
                                 @foreach (var unit in _units)
                                 {
-                                    <MudSelectItem T="string" Value="@unit.Str("code")">@unit.Str("name") (@unit.Str("code"))</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@unit.Code">@unit.Name (@unit.Code)</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
@@ -93,7 +96,7 @@
                             <MudSelect T="string" @bind-Value="_netUnit" Label="Unidad del contenido" Clearable="true" ReadOnly="@(!PuedeEditar)">
                                 @foreach (var unit in _units)
                                 {
-                                    <MudSelectItem T="string" Value="@unit.Str("code")">@unit.Str("name") (@unit.Str("code"))</MudSelectItem>
+                                    <MudSelectItem T="string" Value="@unit.Code">@unit.Name (@unit.Code)</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
@@ -158,16 +161,16 @@
                             </HeaderContent>
                             <RowTemplate>
                                 <MudTd>@NombreLista(context)</MudTd>
-                                <MudTd>@NombrePresentacion(context.Str("packagingId"))</MudTd>
-                                <MudTd>@NombreSucursal(context.Str("branchId"))</MudTd>
-                                <MudTd Class="num">@Format.Money(context.Dec("price"))</MudTd>
-                                <MudTd>@Format.Date(context.Date("validFrom"))</MudTd>
-                                <MudTd>@Format.Date(context.Date("validTo"))</MudTd>
+                                <MudTd>@NombrePresentacion(context.PackagingId)</MudTd>
+                                <MudTd>@NombreSucursal(context.BranchId)</MudTd>
+                                <MudTd Class="num">@Format.Money(context.Price)</MudTd>
+                                <MudTd>@Format.Date(context.ValidFrom)</MudTd>
+                                <MudTd>@Format.Date(context.ValidTo)</MudTd>
                                 <MudTd>
-                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@ColorEstadoPrecio(context.Str("state"))">@EstadoPrecio(context.Str("state"))</MudChip>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@ColorEstadoPrecio(context.State)">@EstadoPrecio(context.State)</MudChip>
                                 </MudTd>
                                 <MudTd>
-                                    @if (context.Str("state") == "SCHEDULED" && Session.Has("catalog.price.manage"))
+                                    @if (EnumText.Same(context.State, "SCHEDULED") && Session.Has("catalog.price.manage"))
                                     {
                                         <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => CancelarPrecioAsync(context))">Cancelar</MudButton>
                                     }
@@ -192,12 +195,12 @@
                                 <MudTh>Se vende</MudTh><MudTh>Se compra</MudTh><MudTh></MudTh>
                             </HeaderContent>
                             <RowTemplate>
-                                <MudTd>@context.Str("name")</MudTd>
-                                <MudTd Class="num">@Format.Quantity(context.Dec("factor")) @_unit</MudTd>
-                                <MudTd Class="num">@CodigosDe(context.Str("id"))</MudTd>
-                                <MudTd Class="num">@(PrecioActual(ListaPorDefecto, context.GetProperty("id").GetGuid(), null) is { } precio ? Format.Money(precio) : "—")</MudTd>
-                                <MudTd>@(context.Bool("isSellable") ? "Sí" : "No")</MudTd>
-                                <MudTd>@(context.Bool("isPurchasable") ? "Sí" : "No")</MudTd>
+                                <MudTd>@context.Name</MudTd>
+                                <MudTd Class="num">@Format.Quantity(context.Factor) @_unit</MudTd>
+                                <MudTd Class="num">@CodigosDe(context.Id)</MudTd>
+                                <MudTd Class="num">@(PrecioActual(ListaPorDefecto, context.Id, null) is { } precio ? Format.Money(precio) : "—")</MudTd>
+                                <MudTd>@(context.IsSellable ? "Sí" : "No")</MudTd>
+                                <MudTd>@(context.IsPurchasable ? "Sí" : "No")</MudTd>
                                 <MudTd>
                                     @if (PuedeEditar)
                                     {
@@ -221,7 +224,7 @@
                                         <MudSelectItem T="Guid" Value="@Guid.Empty">Unidad base</MudSelectItem>
                                         @foreach (var packaging in Presentaciones)
                                         {
-                                            <MudSelectItem T="Guid" Value="@packaging.GetProperty("id").GetGuid()">@packaging.Str("name")</MudSelectItem>
+                                            <MudSelectItem T="Guid" Value="@packaging.Id">@packaging.Name</MudSelectItem>
                                         }
                                     </MudSelect>
                                 }
@@ -236,10 +239,10 @@
                                 <MudTh>Código</MudTh><MudTh>Tipo</MudTh><MudTh>Presentación</MudTh><MudTh>Principal</MudTh><MudTh></MudTh>
                             </HeaderContent>
                             <RowTemplate>
-                                <MudTd Class="num">@context.Str("code")</MudTd>
-                                <MudTd>@TipoCodigo(context.Str("codeType"))</MudTd>
-                                <MudTd>@NombrePresentacion(context.Str("packagingId"))</MudTd>
-                                <MudTd>@(context.Bool("isPrimary") ? "Sí" : "")</MudTd>
+                                <MudTd Class="num">@context.Code</MudTd>
+                                <MudTd>@TipoCodigo(context.CodeType)</MudTd>
+                                <MudTd>@NombrePresentacion(context.PackagingId)</MudTd>
+                                <MudTd>@(context.IsPrimary ? "Sí" : "")</MudTd>
                                 <MudTd>
                                     @if (PuedeEditar)
                                     {
@@ -258,7 +261,7 @@
                                 <MudSelect T="Guid?" @bind-Value="_nuevoImpuesto" Label="Agregar impuesto" Style="min-width:260px">
                                     @foreach (var tax in ImpuestosDisponibles)
                                     {
-                                        <MudSelectItem T="Guid?" Value="@tax.GetProperty("id").GetGuid()">@tax.Str("code") · @tax.Str("name")</MudSelectItem>
+                                        <MudSelectItem T="Guid?" Value="@tax.Id">@tax.Code · @tax.Name</MudSelectItem>
                                     }
                                 </MudSelect>
                                 @if (ImpuestoNuevoEsFijo)
@@ -273,11 +276,11 @@
                                 <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Clase</MudTh><MudTh Class="num">Tarifa vigente</MudTh><MudTh Class="num">Valor fijo del producto</MudTh><MudTh></MudTh>
                             </HeaderContent>
                             <RowTemplate>
-                                <MudTd>@context.Str("code")</MudTd>
-                                <MudTd>@context.Str("name")</MudTd>
-                                <MudTd>@ClaseImpuesto(context.Str("kind"))</MudTd>
+                                <MudTd>@context.Code</MudTd>
+                                <MudTd>@context.Name</MudTd>
+                                <MudTd>@ClaseImpuesto(context.Kind)</MudTd>
                                 <MudTd Class="num">@TarifaVigente(context)</MudTd>
-                                <MudTd Class="num">@(context.Str("fixedAmount") == "" ? "—" : Format.Money(context.Dec("fixedAmount")))</MudTd>
+                                <MudTd Class="num">@Format.Money(context.FixedAmount)</MudTd>
                                 <MudTd>
                                     @if (PuedeEditar)
                                     {
@@ -299,7 +302,7 @@
                             else
                             {
                                 <MudText Typo="Typo.overline" Class="d-block">Total en la sucursal</MudText>
-                                <MudText Typo="Typo.h4" Class="num mb-3">@Format.Quantity(_existencias.Sum(e => e.Dec("quantity"))) @_unit</MudText>
+                                <MudText Typo="Typo.h4" Class="num mb-3">@Format.Quantity(_existencias.Sum(e => e.Quantity)) @_unit</MudText>
                                 <MudTable Items="_existencias" Dense="true" Striped="true" Hover="true">
                                     <HeaderContent>
                                         <MudTh>Bodega</MudTh><MudTh Class="num">Cantidad</MudTh><MudTh Class="num">Mínimo</MudTh>
@@ -307,17 +310,17 @@
                                     </HeaderContent>
                                     <RowTemplate>
                                         <MudTd>
-                                            @context.Str("warehouseCode")
-                                            @if (context.Bool("belowMinimum"))
+                                            @context.WarehouseCode
+                                            @if (context.BelowMinimum)
                                             {
                                                 <MudChip T="string" Size="Size.Small" Color="Color.Warning">Bajo el mínimo</MudChip>
                                             }
                                         </MudTd>
-                                        <MudTd Class="num">@Format.Quantity(context.Dec("quantity")) @context.Str("baseUnitCode")</MudTd>
-                                        <MudTd Class="num">@(context.Str("minQuantity") == "" ? "—" : Format.Quantity(context.Dec("minQuantity")))</MudTd>
-                                        <MudTd Class="num">@(context.Str("averageCost") == "" ? "—" : Format.Money(context.Dec("averageCost")))</MudTd>
-                                        <MudTd Class="num">@(context.Str("totalValue") == "" ? "—" : Format.Money(context.Dec("totalValue")))</MudTd>
-                                        <MudTd>@Format.Date(context.Date("lastMovementAt"))</MudTd>
+                                        <MudTd Class="num">@Format.Quantity(context.Quantity) @context.BaseUnitCode</MudTd>
+                                        <MudTd Class="num">@(context.MinQuantity is { } minimo ? Format.Quantity(minimo) : "—")</MudTd>
+                                        <MudTd Class="num">@Format.Money(context.AverageCost)</MudTd>
+                                        <MudTd Class="num">@Format.Money(context.TotalValue)</MudTd>
+                                        <MudTd>@Format.Date(context.LastMovementAt)</MudTd>
                                     </RowTemplate>
                                     <NoRecordsContent><EstadoVacio Mensaje="Sin existencias registradas en las bodegas de la sucursal." Compacto="true" /></NoRecordsContent>
                                 </MudTable>
@@ -334,14 +337,14 @@
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true" aria-labelledby="titulo-precio">
-            <h2 id="titulo-precio">Precio de @_producto.Str("name")</h2>
+            <h2 id="titulo-precio">Precio de @(_producto?.Name)</h2>
             <MudText Typo="Typo.body2">
                 Precio actual: @(PrecioSeleccionado is { } actual ? Format.Money(actual) : "sin precio"). Rige desde ahora o desde la fecha que indique.
             </MudText>
             <MudSelect T="Guid?" Value="_precioLista" ValueChanged="CambiarListaPrecio" Label="Lista de precios">
-                @foreach (var list in _priceLists.Where(l => l.Str("status") == "ACTIVE" || l.Bool("isDefault")))
+                @foreach (var list in _priceLists.Where(l => EnumText.Same(l.Status, "ACTIVE") || l.IsDefault))
                 {
-                    <MudSelectItem T="Guid?" Value="@list.GetProperty("id").GetGuid()">@list.Str("name")@(list.Bool("isDefault") ? " (por defecto)" : "")</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@list.Id">@list.Name@(list.IsDefault ? " (por defecto)" : "")</MudSelectItem>
                 }
             </MudSelect>
             @if (_branches.Count > 0)
@@ -350,7 +353,7 @@
                     <MudSelectItem T="Guid" Value="@Guid.Empty">Todas las sucursales</MudSelectItem>
                     @foreach (var branch in _branches)
                     {
-                        <MudSelectItem T="Guid" Value="@branch.GetProperty("id").GetGuid()">@branch.Str("name")</MudSelectItem>
+                        <MudSelectItem T="Guid" Value="@branch.Id">@branch.Name</MudSelectItem>
                     }
                 </MudSelect>
             }
@@ -360,7 +363,7 @@
                     <MudSelectItem T="Guid" Value="@Guid.Empty">Unidad base (@_unit)</MudSelectItem>
                     @foreach (var packaging in PresentacionesVendibles)
                     {
-                        <MudSelectItem T="Guid" Value="@packaging.GetProperty("id").GetGuid()">@packaging.Str("name") (@Format.Quantity(packaging.Dec("factor")) @_unit)</MudSelectItem>
+                        <MudSelectItem T="Guid" Value="@packaging.Id">@packaging.Name (@Format.Quantity(packaging.Factor) @_unit)</MudSelectItem>
                     }
                 </MudSelect>
             }
@@ -406,8 +409,15 @@
     [Parameter]
     public Guid? Id { get; set; }
 
-    private List<JsonElement> _categories = [], _brands = [], _units = [], _taxes = [], _priceLists = [], _branches = [], _precios = [], _existencias = [];
-    private JsonElement _producto;
+    private List<JsonElement> _categories = [];
+    private List<BrandDto> _brands = [];
+    private List<UnitDto> _units = [];
+    private List<TaxDto> _taxes = [];
+    private List<PriceListDto> _priceLists = [];
+    private List<BranchDto> _branches = [];
+    private List<PriceDto> _precios = [];
+    private List<StockDto> _existencias = [];
+    private ProductDetailDto? _producto;
     private string? _clave;
     private bool _maestros, _loading = true, _busy, _cambiandoPrecio;
     private int _tab;
@@ -439,15 +449,15 @@
     private Guid? _nuevoImpuesto;
     private decimal? _nuevoValorFijo;
 
-    private bool EsExistente => Id is not null && _producto.ValueKind == JsonValueKind.Object;
+    private bool EsExistente => Id is not null && _producto is not null;
 
     private bool PuedeEditar => Session.Has("catalog.product.manage");
 
-    private string Estado => _producto.Str("status");
+    private string Estado => _producto?.Status ?? "";
 
-    private string Titulo => EsExistente ? _producto.Str("name") : Id is null ? "Nuevo producto" : "Producto";
+    private string Titulo => Id is not null && _producto is { } producto ? producto.Name : Id is null ? "Nuevo producto" : "Producto";
 
-    private string? Subtitulo => EsExistente ? $"SKU {_producto.Str("sku")} · {NombreEstado(Estado)}" : null;
+    private string? Subtitulo => Id is not null && _producto is { } producto ? $"SKU {producto.Sku} · {NombreEstado(producto.Status)}" : null;
 
     private bool FormularioValido => !string.IsNullOrWhiteSpace(_name) && _category is not null && !string.IsNullOrWhiteSpace(_unit)
                                      && !(PluObligatorio && string.IsNullOrWhiteSpace(_plu));
@@ -455,28 +465,27 @@
     /// <summary>El servidor exige PLU a los productos vendidos por báscula (solo kilogramos).</summary>
     private bool PluObligatorio => _unit == "KG" && _scale;
 
-    private List<JsonElement> Codigos => _producto.Prop("barcodes").Items();
+    private IReadOnlyList<BarcodeDto> Codigos => _producto?.Barcodes ?? [];
 
-    private List<JsonElement> Impuestos => _producto.Prop("taxes").Items();
+    private IReadOnlyList<ProductTaxDto> Impuestos => _producto?.Taxes ?? [];
 
-    private List<JsonElement> Presentaciones => _producto.Prop("packagings").Items();
+    private IReadOnlyList<PackagingDto> Presentaciones => _producto?.Packagings ?? [];
 
     /// <summary>Modo de venta según la dimensión de la unidad base (el servidor exige que coincidan).</summary>
-    private string ModoVenta => _units.FirstOrDefault(u => u.Str("code") == _unit).Str("dimension") switch
+    private string ModoVenta => EnumText.Normalize(_units.FirstOrDefault(u => u.Code == _unit)?.Dimension) switch
     {
         "WEIGHT" => "Weight",
         "VOLUME" => "Volume",
         _ => "Unit",
     };
 
-    private IEnumerable<JsonElement> ImpuestosDisponibles =>
-        _taxes.Where(t => t.Str("status") == "ACTIVE" && Impuestos.All(i => i.Str("taxId") != t.Str("id")));
+    private IEnumerable<TaxDto> ImpuestosDisponibles =>
+        _taxes.Where(t => EnumText.Same(t.Status, "ACTIVE") && Impuestos.All(i => i.TaxId != t.Id));
 
     private bool ImpuestoNuevoEsFijo =>
-        _nuevoImpuesto is { } id && _taxes.FirstOrDefault(t => t.Str("id") == id.ToString()).Str("calculation") == "FIXED_PER_UNIT";
+        _nuevoImpuesto is { } id && EnumText.Same(_taxes.FirstOrDefault(t => t.Id == id)?.Calculation, "FIXED_PER_UNIT");
 
-    private Guid? ListaPorDefecto =>
-        _priceLists.FirstOrDefault(l => l.Bool("isDefault")) is { ValueKind: JsonValueKind.Object } list ? list.GetProperty("id").GetGuid() : null;
+    private Guid? ListaPorDefecto => _priceLists.FirstOrDefault(l => l.IsDefault)?.Id;
 
     /// <summary>Precio vigente por unidad base en la lista por defecto, para todas las sucursales.</summary>
     private decimal? PrecioVigente => PrecioActual(ListaPorDefecto, null, null);
@@ -484,15 +493,15 @@
     /// <summary>Precio vigente de la combinación elegida en «Cambiar precio».</summary>
     private decimal? PrecioSeleccionado => PrecioActual(_precioLista, SinVacio(_precioPresentacion), SinVacio(_precioSucursal));
 
-    private IEnumerable<JsonElement> PresentacionesVendibles => Presentaciones.Where(p => p.Bool("isSellable") || p.GetProperty("id").GetGuid() == _precioPresentacion);
+    private IEnumerable<PackagingDto> PresentacionesVendibles => Presentaciones.Where(p => p.IsSellable || p.Id == _precioPresentacion);
 
     /// <summary>Precio vigente en una lista (null = cualquiera), presentación (null = unidad base) y sucursal (null = todas).</summary>
     private decimal? PrecioActual(Guid? lista, Guid? presentacion, Guid? sucursal) =>
-        _precios.Where(p => p.Str("state") == "CURRENT"
-                            && string.Equals(p.Str("packagingId"), presentacion?.ToString() ?? "", StringComparison.OrdinalIgnoreCase)
-                            && string.Equals(p.Str("branchId"), sucursal?.ToString() ?? "", StringComparison.OrdinalIgnoreCase)
-                            && (lista is not { } l || string.Equals(p.Str("priceListId"), l.ToString(), StringComparison.OrdinalIgnoreCase)))
-            .Select(p => (decimal?)p.Dec("price")).FirstOrDefault();
+        _precios.Where(p => EnumText.Same(p.State, "CURRENT")
+                            && p.PackagingId == presentacion
+                            && p.BranchId == sucursal
+                            && (lista is not { } l || p.PriceListId == l))
+            .Select(p => (decimal?)p.Price).FirstOrDefault();
 
     private static Guid? SinVacio(Guid id) => id == Guid.Empty ? null : id;
 
@@ -518,7 +527,7 @@
             }
             else
             {
-                _producto = default;
+                _producto = null;
                 _tab = 0;
                 LlenarFormulario();
             }
@@ -539,15 +548,15 @@
         }
 
         _categories = (await Api.GetAsync<JsonElement>("api/v1/catalog/categories")).Items();
-        _brands = (await Api.GetAsync<JsonElement>("api/v1/catalog/brands")).Items();
-        _units = (await Api.GetAsync<JsonElement>("api/v1/catalog/units")).Items();
-        _taxes = (await Api.GetAsync<JsonElement>("api/v1/catalog/taxes")).Items();
-        _priceLists = (await Api.GetAsync<JsonElement>("api/v1/catalog/price-lists")).Items();
+        _brands = await Api.GetAsync<List<BrandDto>>("api/v1/catalog/brands");
+        _units = await Api.GetAsync<List<UnitDto>>("api/v1/catalog/units");
+        _taxes = await Api.GetAsync<List<TaxDto>>("api/v1/catalog/taxes");
+        _priceLists = await Api.GetAsync<List<PriceListDto>>("api/v1/catalog/price-lists");
         if (Session.Has("organization.branch.view"))
         {
             try
             {
-                _branches = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
+                _branches = await Api.GetAsync<List<BranchDto>>("api/v1/organization/branches");
             }
             catch (ApiException)
             {
@@ -561,8 +570,8 @@
 
     private async Task CargarProductoAsync(Guid id)
     {
-        _producto = await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{id}");
-        _precios = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{id}/prices")).Items();
+        _producto = await Api.GetAsync<ProductDetailDto>($"api/v1/catalog/products/{id}");
+        _precios = await Api.GetAsync<List<PriceDto>>($"api/v1/catalog/products/{id}/prices");
         LlenarFormulario();
         await CargarExistenciasAsync(id);
     }
@@ -576,7 +585,7 @@
 
         try
         {
-            _existencias = (await Api.GetAsync<JsonElement>($"api/v1/inventory/stock?productId={id}")).Items();
+            _existencias = await Api.GetAsync<List<StockDto>>($"api/v1/inventory/stock?productId={id}");
             _errorExistencias = null;
         }
         catch (ApiException ex)
@@ -589,23 +598,22 @@
     private void LlenarFormulario()
     {
         var p = _producto;
-        var existe = p.ValueKind == JsonValueKind.Object;
-        _sku = existe ? p.Str("sku") : null;
-        _name = existe ? p.Str("name") : null;
-        _shortName = existe ? p.Str("shortName") : null;
-        _description = existe && p.Str("description") is { Length: > 0 } description ? description : null;
-        _category = existe ? p.GetProperty("categoryId").GetGuid() : null;
-        _brand = existe && p.Str("brandId") is { Length: > 0 } brand ? Guid.Parse(brand) : null;
-        _unit = existe ? p.Str("baseUnitCode") : "UND";
-        _productType = existe && p.Str("productType") == "SERVICE" ? "Service" : "Stockable";
-        _scale = p.Bool("isSoldByScale");
-        _decimal = p.Bool("allowsDecimalQuantity");
-        _openPrice = p.Bool("allowsOpenPrice");
-        _lots = p.Bool("tracksLots");
-        _expiry = p.Bool("tracksExpiry");
-        _plu = existe && p.Str("pluCode") is { Length: > 0 } plu ? plu : null;
-        _netContent = existe && p.Str("netContent") != "" ? p.Dec("netContent") : null;
-        _netUnit = existe && p.Str("netContentUnit") is { Length: > 0 } netUnit ? netUnit : null;
+        _sku = p?.Sku;
+        _name = p?.Name;
+        _shortName = p?.ShortName;
+        _description = p?.Description is { Length: > 0 } description ? description : null;
+        _category = p?.CategoryId;
+        _brand = p?.BrandId;
+        _unit = p?.BaseUnitCode ?? "UND";
+        _productType = p is not null && EnumText.Same(p.ProductType, "SERVICE") ? "Service" : "Stockable";
+        _scale = p?.IsSoldByScale ?? false;
+        _decimal = p?.AllowsDecimalQuantity ?? false;
+        _openPrice = p?.AllowsOpenPrice ?? false;
+        _lots = p?.TracksLots ?? false;
+        _expiry = p?.TracksExpiry ?? false;
+        _plu = p?.PluCode is { Length: > 0 } plu ? plu : null;
+        _netContent = p?.NetContent;
+        _netUnit = p?.NetContentUnit is { Length: > 0 } netUnit ? netUnit : null;
         _barcode = null;
         _price = 0;
     }
@@ -651,7 +659,7 @@
         _busy = true;
         try
         {
-            var created = await Api.PostAsync<JsonElement>("api/v1/catalog/products", new
+            var created = await Api.PostAsync<ProductDetailDto>("api/v1/catalog/products", new
             {
                 product = DatosProducto(),
                 barcode = string.IsNullOrWhiteSpace(_barcode) ? null : _barcode.Trim(),
@@ -660,7 +668,7 @@
                 price = _price,
             });
             Snackbar.Add("Producto creado.", Severity.Success);
-            Navigation.NavigateTo($"/admin/productos/{created.GetProperty("id").GetGuid()}", replace: true);
+            Navigation.NavigateTo($"/admin/productos/{created.Id}", replace: true);
         }
         catch (ApiException ex)
         {
@@ -674,14 +682,14 @@
     {
         await EjecutarAsync(async id =>
         {
-            await Api.PutAsync<JsonElement>($"api/v1/catalog/products/{id}", DatosProducto());
+            await Api.PutAsync<ProductDetailDto>($"api/v1/catalog/products/{id}", DatosProducto());
             return "Producto actualizado.";
         });
     }
 
     private async Task CambiarEstadoAsync(string status)
     {
-        var name = _producto.Str("name");
+        var name = _producto?.Name ?? "";
         var (titulo, mensaje, accion, peligro, aviso) = status switch
         {
             "Inactive" => ("Inactivar producto", $"{name} quedará inactivo: no se podrá vender hasta activarlo de nuevo.", "Inactivar", true, "Producto inactivado."),
@@ -732,14 +740,14 @@
     {
         await EjecutarAsync(async id =>
         {
-            var result = await Api.PostAsync<JsonElement>($"api/v1/catalog/products/{id}/prices", new
+            var result = await Api.PostAsync<SetPriceResultDto>($"api/v1/catalog/products/{id}/prices", new
             {
                 price = _nuevoPrecio, priceListId = _precioLista, packagingId = SinVacio(_precioPresentacion), branchId = SinVacio(_precioSucursal),
                 validFrom = _desde is { } d ? new DateTimeOffset(d.Date) : (DateTimeOffset?)null,
             });
-            foreach (var warning in result.Prop("warnings").Items())
+            foreach (var warning in result.Warnings)
             {
-                Snackbar.Add(warning.ToString(), Severity.Warning);
+                Snackbar.Add(warning, Severity.Warning);
             }
 
             _cambiandoPrecio = false;
@@ -747,17 +755,17 @@
         });
     }
 
-    private async Task CancelarPrecioAsync(JsonElement price)
+    private async Task CancelarPrecioAsync(PriceDto price)
     {
         if (!await Dialogs.ConfirmarAsync("Cancelar precio programado",
-                $"El precio de {Format.Money(price.Dec("price"))} que iba a regir desde el {Format.Date(price.Date("validFrom"))} no se aplicará.", "Cancelar precio", true))
+                $"El precio de {Format.Money(price.Price)} que iba a regir desde el {Format.Date(price.ValidFrom)} no se aplicará.", "Cancelar precio", true))
         {
             return;
         }
 
         await EjecutarAsync(async id =>
         {
-            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/prices/{price.GetProperty("id").GetGuid()}", null);
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/prices/{price.Id}", null);
             return "Precio programado cancelado.";
         });
     }
@@ -778,30 +786,28 @@
         });
     }
 
-    private async Task QuitarCodigoAsync(JsonElement barcode)
+    private async Task QuitarCodigoAsync(BarcodeDto barcode)
     {
-        if (!await Dialogs.ConfirmarAsync("Quitar código de barras", $"El código {barcode.Str("code")} dejará de reconocerse en la caja.", "Quitar", true))
+        if (!await Dialogs.ConfirmarAsync("Quitar código de barras", $"El código {barcode.Code} dejará de reconocerse en la caja.", "Quitar", true))
         {
             return;
         }
 
         await EjecutarAsync(async id =>
         {
-            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/barcodes/{barcode.GetProperty("id").GetGuid()}", null);
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/barcodes/{barcode.Id}", null);
             return "Código quitado.";
         });
     }
 
     /// <summary>Abre el formulario de presentación: vacío (nueva) o con los datos de una existente.</summary>
-    private void AbrirPresentacion(JsonElement? packaging)
+    private void AbrirPresentacion(PackagingDto? packaging)
     {
-        var p = packaging ?? default;
-        var existe = p.ValueKind == JsonValueKind.Object;
-        _presentacionId = existe ? p.GetProperty("id").GetGuid() : null;
-        _pNombre = existe ? p.Str("name") : null;
-        _pFactor = existe ? p.Dec("factor") : 0;
-        _pVende = !existe || p.Bool("isSellable");
-        _pCompra = !existe || p.Bool("isPurchasable");
+        _presentacionId = packaging?.Id;
+        _pNombre = packaging?.Name;
+        _pFactor = packaging?.Factor ?? 0;
+        _pVende = packaging?.IsSellable ?? true;
+        _pCompra = packaging?.IsPurchasable ?? true;
         _pCodigo = null;
         _pPrecio = null;
         _editandoPresentacion = true;
@@ -814,14 +820,14 @@
         {
             if (_presentacionId is { } packagingId)
             {
-                await Api.PutAsync<JsonElement>($"api/v1/catalog/products/{id}/packagings/{packagingId}", new
+                await Api.PutAsync<PackagingDto>($"api/v1/catalog/products/{id}/packagings/{packagingId}", new
                 {
                     name, factor = _pFactor, isSellable = _pVende, isPurchasable = _pCompra,
                 });
             }
             else
             {
-                await Api.PostAsync<JsonElement>($"api/v1/catalog/products/{id}/packagings", new
+                await Api.PostAsync<ProductDetailDto>($"api/v1/catalog/products/{id}/packagings", new
                 {
                     name, factor = _pFactor, isSellable = _pVende, isPurchasable = _pCompra,
                     barcode = string.IsNullOrWhiteSpace(_pCodigo) ? null : _pCodigo.Trim(),
@@ -835,28 +841,28 @@
         });
     }
 
-    private async Task QuitarPresentacionAsync(JsonElement packaging)
+    private async Task QuitarPresentacionAsync(PackagingDto packaging)
     {
         if (!await Dialogs.ConfirmarAsync("Eliminar presentación",
-                $"Se elimina {packaging.Str("name")} con sus códigos de barras; sus precios vigentes se cierran y los programados se cancelan.", "Eliminar", true))
+                $"Se elimina {packaging.Name} con sus códigos de barras; sus precios vigentes se cierran y los programados se cancelan.", "Eliminar", true))
         {
             return;
         }
 
         await EjecutarAsync(async id =>
         {
-            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/packagings/{packaging.GetProperty("id").GetGuid()}", null);
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/packagings/{packaging.Id}", null);
             return "Presentación eliminada.";
         });
     }
 
-    private string CodigosDe(string packagingId) =>
-        Codigos.Where(b => string.Equals(b.Str("packagingId"), packagingId, StringComparison.OrdinalIgnoreCase)).Select(b => b.Str("code")).ToList() is { Count: > 0 } codes
+    private string CodigosDe(Guid packagingId) =>
+        Codigos.Where(b => b.PackagingId == packagingId).Select(b => b.Code).ToList() is { Count: > 0 } codes
             ? string.Join(", ", codes)
             : "—";
 
-    private string NombreSucursal(string branchId) =>
-        branchId == "" ? "Todas" : _branches.FirstOrDefault(b => string.Equals(b.Str("id"), branchId, StringComparison.OrdinalIgnoreCase)).Str("name") is { Length: > 0 } name ? name : "Una sucursal";
+    private string NombreSucursal(Guid? branchId) =>
+        branchId is not { } id ? "Todas" : _branches.FirstOrDefault(b => b.Id == id)?.Name is { Length: > 0 } name ? name : "Una sucursal";
 
     private async Task AgregarImpuestoAsync()
     {
@@ -866,29 +872,29 @@
         }
 
         var fixedAmount = ImpuestoNuevoEsFijo ? _nuevoValorFijo : null;
-        var taxes = Impuestos.Select(t => new { taxId = t.GetProperty("taxId").GetGuid(), fixedAmount = t.Str("fixedAmount") == "" ? (decimal?)null : t.Dec("fixedAmount") })
+        var taxes = Impuestos.Select(t => new { taxId = t.TaxId, fixedAmount = t.FixedAmount })
             .Append(new { taxId, fixedAmount }).ToList();
         await GuardarImpuestosAsync(taxes, "Impuesto agregado.");
         _nuevoImpuesto = null;
         _nuevoValorFijo = null;
     }
 
-    private async Task QuitarImpuestoAsync(JsonElement tax)
+    private async Task QuitarImpuestoAsync(ProductTaxDto tax)
     {
-        if (!await Dialogs.ConfirmarAsync("Quitar impuesto", $"El producto dejará de llevar {tax.Str("name")} en las ventas nuevas.", "Quitar", true))
+        if (!await Dialogs.ConfirmarAsync("Quitar impuesto", $"El producto dejará de llevar {tax.Name} en las ventas nuevas.", "Quitar", true))
         {
             return;
         }
 
-        var taxes = Impuestos.Where(t => t.Str("id") != tax.Str("id"))
-            .Select(t => new { taxId = t.GetProperty("taxId").GetGuid(), fixedAmount = t.Str("fixedAmount") == "" ? (decimal?)null : t.Dec("fixedAmount") }).ToList();
+        var taxes = Impuestos.Where(t => t.Id != tax.Id)
+            .Select(t => new { taxId = t.TaxId, fixedAmount = t.FixedAmount }).ToList();
         await GuardarImpuestosAsync(taxes, "Impuesto quitado.");
     }
 
     private Task GuardarImpuestosAsync(object taxes, string aviso) =>
         EjecutarAsync(async id =>
         {
-            await Api.PutAsync<JsonElement>($"api/v1/catalog/products/{id}/taxes", taxes);
+            await Api.PutAsync<ProductDetailDto>($"api/v1/catalog/products/{id}/taxes", taxes);
             return aviso;
         });
 
@@ -915,24 +921,22 @@
         _busy = false;
     }
 
-    private string NombreLista(JsonElement price) =>
-        _priceLists.FirstOrDefault(l => l.Str("id") == price.Str("priceListId")) is { ValueKind: JsonValueKind.Object } list ? list.Str("name") : price.Str("priceListCode");
+    private string NombreLista(PriceDto price) => _priceLists.FirstOrDefault(l => l.Id == price.PriceListId)?.Name ?? price.PriceListCode;
 
-    private string NombrePresentacion(string packagingId) =>
-        packagingId == "" ? "Unidad base" : Presentaciones.FirstOrDefault(p => p.Str("id") == packagingId).Str("name") is { Length: > 0 } name ? name : "Presentación";
+    private string NombrePresentacion(Guid? packagingId) =>
+        packagingId is not { } id ? "Unidad base" : Presentaciones.FirstOrDefault(p => p.Id == id)?.Name is { Length: > 0 } name ? name : "Presentación";
 
-    private string TarifaVigente(JsonElement productTax)
+    private string TarifaVigente(ProductTaxDto productTax)
     {
-        var rate = _taxes.FirstOrDefault(t => t.Str("id") == productTax.Str("taxId")).Prop("currentRate");
-        if (rate.ValueKind != JsonValueKind.Object)
+        if (_taxes.FirstOrDefault(t => t.Id == productTax.TaxId)?.CurrentRate is not { } rate)
         {
             return "—";
         }
 
-        return rate.Str("rate") != "" ? $"{rate.Dec("rate").ToString("0.##", Format.Colombia)} %" : Format.Money(rate.Dec("fixedAmount"));
+        return rate.Rate is { } tarifa ? $"{tarifa.ToString("0.##", Format.Colombia)} %" : Format.Money(rate.FixedAmount ?? 0m);
     }
 
-    private static string NombreEstado(string status) => status switch
+    private static string NombreEstado(string status) => EnumText.Normalize(status) switch
     {
         "ACTIVE" => "Activo",
         "INACTIVE" => "Inactivo",
@@ -940,7 +944,7 @@
         _ => status,
     };
 
-    private static string EstadoPrecio(string state) => state switch
+    private static string EstadoPrecio(string state) => EnumText.Normalize(state) switch
     {
         "CURRENT" => "Vigente",
         "SCHEDULED" => "Programado",
@@ -948,14 +952,14 @@
         _ => state,
     };
 
-    private static Color ColorEstadoPrecio(string state) => state switch
+    private static Color ColorEstadoPrecio(string state) => EnumText.Normalize(state) switch
     {
         "CURRENT" => Color.Success,
         "SCHEDULED" => Color.Info,
         _ => Color.Default,
     };
 
-    private static string TipoCodigo(string type) => type.Replace("_", "", StringComparison.Ordinal) switch
+    private static string TipoCodigo(string type) => EnumText.Normalize(type).Replace("_", "", StringComparison.Ordinal) switch
     {
         "EAN13" => "EAN-13",
         "EAN8" => "EAN-8",
@@ -965,7 +969,7 @@
         _ => type,
     };
 
-    private static string ClaseImpuesto(string kind) => kind switch
+    private static string ClaseImpuesto(string kind) => EnumText.Normalize(kind) switch
     {
         "VAT" => "IVA",
         "CONSUMPTION" => "Impuesto al consumo (INC)",

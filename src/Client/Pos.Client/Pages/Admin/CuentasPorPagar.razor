@@ -3,6 +3,7 @@
 @inject SessionState Session
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@using Pos.Modules.Purchasing.Contracts
 
 <PageTitle>Cuentas por pagar · BusinessPost</PageTitle>
 
@@ -14,22 +15,22 @@
         }
     </Acciones>
     <ChildContent>
-        @if (_vencimientos.ValueKind == JsonValueKind.Object)
+        @if (_vencimientos is { } vencimientos)
         {
             <MudStack Row="true" Class="mb-3 flex-wrap">
                 <MudPaper Outlined="true" Class="pa-3">
                     <MudText Typo="Typo.caption">Vencido a hoy</MudText>
-                    <div class="cifra" style="color:var(--mud-palette-error)">@Format.Money(_vencimientos.Dec("overdueTotal"))</div>
+                    <div class="cifra" style="color:var(--mud-palette-error)">@Format.Money(vencimientos.OverdueTotal)</div>
                     <MudText Typo="Typo.caption">@Vencidas.Count factura(s)</MudText>
                 </MudPaper>
                 <MudPaper Outlined="true" Class="pa-3">
-                    <MudText Typo="Typo.caption">Vence en los próximos @_vencimientos.Dec("days") días</MudText>
-                    <div class="cifra">@Format.Money(_vencimientos.Dec("dueSoonTotal"))</div>
+                    <MudText Typo="Typo.caption">Vence en los próximos @vencimientos.Days días</MudText>
+                    <div class="cifra">@Format.Money(vencimientos.DueSoonTotal)</div>
                     <MudText Typo="Typo.caption">@PorVencer.Count factura(s)</MudText>
                 </MudPaper>
                 <MudPaper Outlined="true" Class="pa-3">
                     <MudText Typo="Typo.caption">Total por pagar</MudText>
-                    <div class="cifra">@Format.Money(_edades.Prop("totals").Dec("total"))</div>
+                    <div class="cifra">@Format.Money(_edades?.Totals.Total ?? 0m)</div>
                 </MudPaper>
             </MudStack>
         }
@@ -49,17 +50,17 @@
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Emisión</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Valor</MudTh><MudTh Class="num">Saldo</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("supplierName")</MudTd>
-                        <MudTd>@context.Str("documentNumber")</MudTd>
-                        <MudTd>@Dia(context, "issueDate")</MudTd>
-                        <MudTd>@Dia(context, "dueDate")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("originalAmount"))</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd>@context.DocumentNumber</MudTd>
+                        <MudTd>@Dia(context.IssueDate)</MudTd>
+                        <MudTd>@Dia(context.DueDate)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.OriginalAmount)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Balance)</MudTd>
                         <MudTd>@EstadoCuenta(context)</MudTd>
                         <MudTd>
-                            @if (Session.Has("purchasing.payable.pay") && context.Str("status") == "OPEN" && context.Dec("balance") > 0)
+                            @if (Session.Has("purchasing.payable.pay") && EnumText.Same(context.Status, "OPEN") && context.Balance > 0)
                             {
-                                <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/admin/cuentas-por-pagar/pago?proveedor={context.GetProperty("supplierId").GetGuid()}&factura={context.GetProperty("id").GetGuid()}")">Pagar</MudButton>
+                                <MudButton Size="Size.Small" Color="Color.Primary" Href="@($"/admin/cuentas-por-pagar/pago?proveedor={context.SupplierId}&factura={context.Id}")">Pagar</MudButton>
                             }
                         </MudTd>
                     </RowTemplate>
@@ -68,29 +69,29 @@
                 </MudTable>
             </MudTabPanel>
             <MudTabPanel Text="Cartera por edades">
-                <MudText Typo="Typo.body2" Class="my-3">Saldos vencidos por días al @Dia(_edades, "asOf").</MudText>
+                <MudText Typo="Typo.body2" Class="my-3">Saldos vencidos por días al @Dia(_edades?.AsOf).</MudText>
                 <MudTable RowsPerPage="25" Items="Edades" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Proveedor</MudTh><MudTh Class="num">Corriente</MudTh><MudTh Class="num">1 a 30</MudTh><MudTh Class="num">31 a 60</MudTh><MudTh Class="num">61 a 90</MudTh>
                         <MudTh Class="num">Más de 90</MudTh><MudTh Class="num">Total</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("supplierCode") · @context.Str("supplierName")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("current"))</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("days1To30"))</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("days31To60"))</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("days61To90"))</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("over90"))</MudTd>
-                        <MudTd Class="num"><b>@Format.Money(context.Dec("total"))</b></MudTd>
+                        <MudTd>@context.SupplierCode · @context.SupplierName</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Current)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Days1To30)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Days31To60)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Days61To90)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Over90)</MudTd>
+                        <MudTd Class="num"><b>@Format.Money(context.Total)</b></MudTd>
                     </RowTemplate>
                     <FooterContent>
                         <MudTd><b>Total</b></MudTd>
-                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("current"))</b></MudTd>
-                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("days1To30"))</b></MudTd>
-                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("days31To60"))</b></MudTd>
-                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("days61To90"))</b></MudTd>
-                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("over90"))</b></MudTd>
-                        <MudTd Class="num"><b>@Format.Money(Totales.Dec("total"))</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales?.Current ?? 0m)</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales?.Days1To30 ?? 0m)</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales?.Days31To60 ?? 0m)</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales?.Days61To90 ?? 0m)</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales?.Over90 ?? 0m)</b></MudTd>
+                        <MudTd Class="num"><b>@Format.Money(Totales?.Total ?? 0m)</b></MudTd>
                     </FooterContent>
                     <NoRecordsContent><EstadoVacio Mensaje="No hay saldos por pagar." /></NoRecordsContent>
                     <PagerContent><Paginador /></PagerContent>
@@ -103,25 +104,25 @@
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Venció</MudTh><MudTh Class="num">Días vencida</MudTh><MudTh Class="num">Saldo</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("supplierName")</MudTd>
-                        <MudTd>@context.Str("documentNumber")</MudTd>
-                        <MudTd>@Dia(context, "dueDate")</MudTd>
-                        <MudTd Class="num">@context.Dec("daysOverdue")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd>@context.DocumentNumber</MudTd>
+                        <MudTd>@Dia(context.DueDate)</MudTd>
+                        <MudTd Class="num">@context.DaysOverdue</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Balance)</MudTd>
                     </RowTemplate>
                     <NoRecordsContent><EstadoVacio Mensaje="No hay facturas vencidas." /></NoRecordsContent>
                     <PagerContent><Paginador /></PagerContent>
                 </MudTable>
-                <MudText Typo="Typo.h6" Class="mb-1">Por vencer en los próximos @_vencimientos.Dec("days") días</MudText>
+                <MudText Typo="Typo.h6" Class="mb-1">Por vencer en los próximos @(_vencimientos?.Days ?? 0) días</MudText>
                 <MudTable RowsPerPage="25" Items="PorVencer" Dense="true" Striped="true">
                     <HeaderContent>
                         <MudTh>Proveedor</MudTh><MudTh>Documento</MudTh><MudTh>Vence</MudTh><MudTh Class="num">Saldo</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("supplierName")</MudTd>
-                        <MudTd>@context.Str("documentNumber")</MudTd>
-                        <MudTd>@Dia(context, "dueDate")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("balance"))</MudTd>
+                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd>@context.DocumentNumber</MudTd>
+                        <MudTd>@Dia(context.DueDate)</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Balance)</MudTd>
                     </RowTemplate>
                     <NoRecordsContent><EstadoVacio Mensaje="Nada vence en esos días." /></NoRecordsContent>
                     <PagerContent><Paginador /></PagerContent>
@@ -133,14 +134,14 @@
                         <MudTh>Número</MudTh><MudTh>Proveedor</MudTh><MudTh>Fecha</MudTh><MudTh>Referencia</MudTh><MudTh Class="num">Valor</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("number")</MudTd>
-                        <MudTd>@context.Str("supplierName")</MudTd>
-                        <MudTd>@Dia(context, "date")</MudTd>
-                        <MudTd>@context.Str("reference")</MudTd>
-                        <MudTd Class="num">@Format.Money(context.Dec("total"))</MudTd>
-                        <MudTd>@(context.Str("status") == "VOIDED" ? "Anulado" : "Registrado")</MudTd>
+                        <MudTd>@context.Number</MudTd>
+                        <MudTd>@context.SupplierName</MudTd>
+                        <MudTd>@Dia(context.Date)</MudTd>
+                        <MudTd>@context.Reference</MudTd>
+                        <MudTd Class="num">@Format.Money(context.Total)</MudTd>
+                        <MudTd>@(EnumText.Same(context.Status, "VOIDED") ? "Anulado" : "Registrado")</MudTd>
                         <MudTd>
-                            @if (Session.Has("purchasing.payable.pay") && context.Str("status") == "POSTED")
+                            @if (Session.Has("purchasing.payable.pay") && EnumText.Same(context.Status, "POSTED"))
                             {
                                 <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => PedirAnulacion(context))">Anular</MudButton>
                             }
@@ -154,15 +155,15 @@
     </ChildContent>
 </Pagina>
 
-@if (_anular.ValueKind == JsonValueKind.Object)
+@if (_anular is { } anular)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>Anular el pago @_anular.Str("number")</h2>
-            <MudText Typo="Typo.body2">@_anular.Str("supplierName") · @Format.Money(_anular.Dec("total")). Los saldos de las facturas vuelven a quedar pendientes.</MudText>
+            <h2>Anular el pago @anular.Number</h2>
+            <MudText Typo="Typo.body2">@anular.SupplierName · @Format.Money(anular.Total). Los saldos de las facturas vuelven a quedar pendientes.</MudText>
             <MudTextField @bind-Value="_motivo" Label="Motivo (5 a 300 caracteres)" Immediate="true" AutoFocus="true" Lines="2" />
             <div class="acciones">
-                <MudButton OnClick="@(() => _anular = default)">Cancelar</MudButton>
+                <MudButton OnClick="@(() => _anular = null)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_busy" OnClick="AnularAsync">Anular</MudButton>
             </div>
         </div>
@@ -170,10 +171,12 @@
 }
 
 @code {
-    private List<JsonElement> _cuentas = [];
-    private List<JsonElement> _pagos = [];
+    private List<PayableDto> _cuentas = [];
+    private List<PurchasingDocumentDto> _pagos = [];
     private List<Proveedor> _proveedores = [];
-    private JsonElement _vencimientos, _edades, _anular;
+    private DuePayablesDto? _vencimientos;
+    private AgingReportDto? _edades;
+    private PurchasingDocumentDto? _anular;
     private Guid? _proveedor;
     private string? _error, _motivo;
     private bool _loading = true, _busy, _soloAbiertas = true;
@@ -192,13 +195,13 @@
     [SupplyParameterFromQuery(Name = "tab")]
     public string? Pestana { get; set; }
 
-    private List<JsonElement> Vencidas => _vencimientos.Prop("overdue").Items();
+    private IReadOnlyList<PayableDto> Vencidas => _vencimientos?.Overdue ?? [];
 
-    private List<JsonElement> PorVencer => _vencimientos.Prop("dueSoon").Items();
+    private IReadOnlyList<PayableDto> PorVencer => _vencimientos?.DueSoon ?? [];
 
-    private List<JsonElement> Edades => _edades.Prop("rows").Items();
+    private IReadOnlyList<AgingRowDto> Edades => _edades?.Rows ?? [];
 
-    private JsonElement Totales => _edades.Prop("totals");
+    private AgingRowDto? Totales => _edades?.Totals;
 
     protected override Task OnInitializedAsync()
     {
@@ -222,30 +225,29 @@
         ActualizarFiltros();
     }
 
-    private static string EstadoCuenta(JsonElement account) => account.Str("status") switch
+    private static string EstadoCuenta(PayableDto account) => EnumText.Normalize(account.Status) switch
     {
-        "OPEN" when account.Dec("daysOverdue") > 0 => $"Vencida ({account.Dec("daysOverdue")} días)",
+        "OPEN" when account.DaysOverdue > 0 => $"Vencida ({account.DaysOverdue} días)",
         "OPEN" => "Pendiente",
         "SETTLED" => "Pagada",
         "VOIDED" => "Anulada",
         var other => other,
     };
 
-    /// <summary>Fecha sin hora (DateOnly del servidor, "yyyy-MM-dd").</summary>
-    private static string Dia(JsonElement element, string name) =>
-        DateOnly.TryParse(element.Str(name), CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "—";
+    /// <summary>Fecha sin hora (DateOnly del servidor) como día/mes/año.</summary>
+    private static string Dia(DateOnly? date) => date is { } value ? value.ToString("dd/MM/yyyy", Format.Colombia) : "—";
 
-    private static List<Proveedor> Proveedores(IEnumerable<JsonElement> accounts) =>
-        [.. accounts.Select(a => new Proveedor(a.GetProperty("supplierId").GetGuid(), a.Str("supplierName"))).Distinct().OrderBy(p => p.Nombre, StringComparer.CurrentCulture)];
+    private static List<Proveedor> Proveedores(IEnumerable<PayableDto> accounts) =>
+        [.. accounts.Select(a => new Proveedor(a.SupplierId, a.SupplierName)).Distinct().OrderBy(p => p.Nombre, StringComparer.CurrentCulture)];
 
     private async Task CargarAsync()
     {
         _loading = true;
         try
         {
-            _vencimientos = await Api.GetAsync<JsonElement>("api/v1/purchasing/payables/due");
-            _edades = await Api.GetAsync<JsonElement>("api/v1/purchasing/payables/aging");
-            _pagos = (await Api.GetAsync<JsonElement>("api/v1/purchasing/payments")).Items();
+            _vencimientos = await Api.GetAsync<DuePayablesDto>("api/v1/purchasing/payables/due");
+            _edades = await Api.GetAsync<AgingReportDto>("api/v1/purchasing/payables/aging");
+            _pagos = [.. await Api.GetAsync<List<PurchasingDocumentDto>>("api/v1/purchasing/payments")];
             await CargarCuentasAsync();
             _error = null;
         }
@@ -261,7 +263,7 @@
     {
         var supplier = _proveedor is { } id ? $"supplierId={id}&" : "";
         var open = _soloAbiertas ? "true" : "false";
-        _cuentas = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/payables?{supplier}openOnly={open}")).Items();
+        _cuentas = [.. await Api.GetAsync<List<PayableDto>>($"api/v1/purchasing/payables?{supplier}openOnly={open}")];
         if (_proveedor is null)
         {
             _proveedores = Proveedores(_cuentas);
@@ -269,7 +271,7 @@
         else if (_proveedores.Count == 0)
         {
             // Llegó con el proveedor en la dirección: la lista del selector sale de todas las cuentas con el mismo filtro de saldo.
-            _proveedores = Proveedores((await Api.GetAsync<JsonElement>($"api/v1/purchasing/payables?openOnly={open}")).Items());
+            _proveedores = Proveedores(await Api.GetAsync<List<PayableDto>>($"api/v1/purchasing/payables?openOnly={open}"));
         }
     }
 
@@ -299,7 +301,7 @@
         }
     }
 
-    private void PedirAnulacion(JsonElement payment)
+    private void PedirAnulacion(PurchasingDocumentDto payment)
     {
         _motivo = null;
         _anular = payment;
@@ -307,12 +309,17 @@
 
     private async Task AnularAsync()
     {
+        if (_anular is not { } anular)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
-            await Api.PostAsync<JsonElement>($"api/v1/purchasing/payments/{_anular.GetProperty("id").GetGuid()}/void", new { reason = (_motivo ?? "").Trim() });
-            Snackbar.Add($"Pago {_anular.Str("number")} anulado.", Severity.Success);
-            _anular = default;
+            await Api.PostAsync<PaymentDto>($"api/v1/purchasing/payments/{anular.Id}/void", new { reason = (_motivo ?? "").Trim() });
+            Snackbar.Add($"Pago {anular.Number} anulado.", Severity.Success);
+            _anular = null;
             await CargarAsync();
         }
         catch (ApiException ex)

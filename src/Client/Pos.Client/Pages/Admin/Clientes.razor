@@ -1,4 +1,6 @@
 @page "/admin/clientes"
+@using Pos.Modules.Catalog.Contracts
+@using Pos.Modules.Customers.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
@@ -55,11 +57,11 @@
                         <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Lista de precios</MudTh><MudTh>Por defecto</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("code")</MudTd>
-                        <MudTd>@context.Str("name")</MudTd>
-                        <MudTd>@NombreLista(context.Str("priceListId"))</MudTd>
-                        <MudTd>@(context.Bool("isDefault") ? "Sí" : "")</MudTd>
-                        <MudTd>@ClienteDetalle.NombreEstado(context.Str("status"))</MudTd>
+                        <MudTd>@context.Code</MudTd>
+                        <MudTd>@context.Name</MudTd>
+                        <MudTd>@NombreLista(context.PriceListId)</MudTd>
+                        <MudTd>@(context.IsDefault ? "Sí" : "")</MudTd>
+                        <MudTd>@ClienteDetalle.NombreEstado(context.Status)</MudTd>
                         <MudTd>
                             @if (Session.Has("customers.group.manage"))
                             {
@@ -89,7 +91,7 @@
                 <MudSelectItem T="Guid?" Value="@((Guid?)null)">Lista general</MudSelectItem>
                 @foreach (var list in _priceLists)
                 {
-                    <MudSelectItem T="Guid?" Value="@list.GetProperty("id").GetGuid()">@list.Str("name")</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@list.Id">@list.Name</MudSelectItem>
                 }
             </MudSelect>
             @if (_grupoId is not null)
@@ -106,8 +108,8 @@
 
 @code {
     private List<JsonElement> _items = [];
-    private List<JsonElement> _groups = [];
-    private List<JsonElement> _priceLists = [];
+    private IReadOnlyList<CustomerGroupDto> _groups = [];
+    private List<PriceListDto> _priceLists = [];
     private int _tab, _total;
     private string _statusFilter = "";
     private string? _search, _error, _grupoCode, _grupoName;
@@ -138,7 +140,7 @@
         await CargarGruposAsync();
         try
         {
-            _priceLists = (await Api.GetAsync<JsonElement>("api/v1/catalog/price-lists")).Items().Where(l => l.Str("status") == "ACTIVE").ToList();
+            _priceLists = (await Api.GetAsync<IReadOnlyList<PriceListDto>>("api/v1/catalog/price-lists")).Where(l => EnumText.Same(l.Status, "ACTIVE")).ToList();
         }
         catch (ApiException)
         {
@@ -193,7 +195,7 @@
     {
         try
         {
-            _groups = (await Api.GetAsync<JsonElement>("api/v1/customers/groups")).Items();
+            _groups = await Api.GetAsync<IReadOnlyList<CustomerGroupDto>>("api/v1/customers/groups");
         }
         catch (ApiException ex)
         {
@@ -203,8 +205,8 @@
 
     private static string? Nulo(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private string NombreLista(string id) =>
-        string.IsNullOrEmpty(id) ? "General" : _priceLists.FirstOrDefault(l => l.Str("id") == id).Str("name") is { Length: > 0 } name ? name : "Lista propia";
+    private string NombreLista(Guid? id) =>
+        id is null ? "General" : _priceLists.FirstOrDefault(l => l.Id == id)?.Name is { Length: > 0 } name ? name : "Lista propia";
 
     private void NuevoGrupo()
     {
@@ -215,13 +217,13 @@
         _grupoForm = true;
     }
 
-    private void EditarGrupo(JsonElement group)
+    private void EditarGrupo(CustomerGroupDto group)
     {
-        _grupoId = group.GetProperty("id").GetGuid();
-        _grupoCode = group.Str("code");
-        _grupoName = group.Str("name");
-        _grupoLista = Guid.TryParse(group.Str("priceListId"), out var list) ? list : null;
-        _grupoActivo = group.Str("status") == "ACTIVE";
+        _grupoId = group.Id;
+        _grupoCode = group.Code;
+        _grupoName = group.Name;
+        _grupoLista = group.PriceListId;
+        _grupoActivo = EnumText.Same(group.Status, "ACTIVE");
         _grupoForm = true;
     }
 
@@ -232,12 +234,12 @@
         {
             if (_grupoId is { } id)
             {
-                await Api.PutAsync<JsonElement>($"api/v1/customers/groups/{id}", new { name = Nulo(_grupoName), priceListId = _grupoLista, isActive = _grupoActivo });
+                await Api.PutAsync<CustomerGroupDto>($"api/v1/customers/groups/{id}", new { name = Nulo(_grupoName), priceListId = _grupoLista, isActive = _grupoActivo });
                 Snackbar.Add("Grupo actualizado.", Severity.Success);
             }
             else
             {
-                await Api.PostAsync<JsonElement>("api/v1/customers/groups", new { code = Nulo(_grupoCode), name = Nulo(_grupoName), priceListId = _grupoLista });
+                await Api.PostAsync<CustomerGroupDto>("api/v1/customers/groups", new { code = Nulo(_grupoCode), name = Nulo(_grupoName), priceListId = _grupoLista });
                 Snackbar.Add("Grupo creado.", Severity.Success);
             }
 

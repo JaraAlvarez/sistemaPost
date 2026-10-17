@@ -1,4 +1,5 @@
 @page "/admin/promociones"
+@using Pos.Modules.Promotions.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject NavigationManager Navigation
@@ -24,18 +25,18 @@
             <MudSelectItem T="string" Value="@("Ended")">Terminadas</MudSelectItem>
         </MudSelect>
         <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
-                  OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
+                  OnRowClick="@((TableRowClickEventArgs<PromotionSummaryDto> e) => Abrir(e.Item))">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Estado</MudTh><MudTh>Desde</MudTh><MudTh>Hasta</MudTh><MudTh>Rige ahora</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd><a href="@($"/admin/promociones/{context.Str("id")}")" @onclick:stopPropagation="true">@context.Str("number")</a></MudTd>
-                <MudTd>@context.Str("name")</MudTd>
-                <MudTd>@PromocionDetalle.NombreTipo(context.Str("type"))</MudTd>
-                <MudTd>@PromocionDetalle.NombreEstado(context.Str("status"))</MudTd>
-                <MudTd>@Format.Date(context.Date("validFrom"))</MudTd>
-                <MudTd>@Format.Date(context.Date("validTo"))</MudTd>
-                <MudTd>@(context.Bool("inEffectNow") ? "Sí" : "No")</MudTd>
+                <MudTd><a href="@($"/admin/promociones/{context.Id}")" @onclick:stopPropagation="true">@context.Number</a></MudTd>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@PromocionDetalle.NombreTipo(context.Type)</MudTd>
+                <MudTd>@PromocionDetalle.NombreEstado(context.Status)</MudTd>
+                <MudTd>@Format.Date(context.ValidFrom)</MudTd>
+                <MudTd>@Format.Date(context.ValidTo)</MudTd>
+                <MudTd>@(context.InEffectNow ? "Sí" : "No")</MudTd>
             </RowTemplate>
             <NoRecordsContent><EstadoVacio Mensaje="No hay promociones." /></NoRecordsContent>
             <PagerContent><Paginador /></PagerContent>
@@ -44,7 +45,7 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _items = [];
+    private IReadOnlyList<PromotionSummaryDto> _items = [];
     private string _statusFilter = "";
     private string? _error;
     private bool _loading = true;
@@ -70,7 +71,7 @@
         try
         {
             var filter = string.IsNullOrEmpty(_statusFilter) ? "" : $"?status={_statusFilter}";
-            _items = (await Api.GetAsync<JsonElement>($"api/v1/promotions{filter}")).Items();
+            _items = await Api.GetAsync<IReadOnlyList<PromotionSummaryDto>>($"api/v1/promotions{filter}");
             _error = null;
         }
         catch (ApiException ex)
@@ -88,5 +89,11 @@
         return CargarAsync();
     }
 
-    private void Abrir(JsonElement promotion) => Navigation.NavigateTo($"/admin/promociones/{promotion.GetProperty("id").GetGuid()}");
+    private void Abrir(PromotionSummaryDto? promotion)
+    {
+        if (promotion is not null)
+        {
+            Navigation.NavigateTo($"/admin/promociones/{promotion.Id}");
+        }
+    }
 }

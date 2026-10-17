@@ -1,6 +1,7 @@
 @* Avisos permanentes (licencia, backups, integridad) en UNA franja compacta arriba del contenido: un resumen corto de cada aviso con su
    enlace; "Ver detalle" despliega el texto completo. Antes eran varias cajas en todas las pantallas que empujaban el contenido hacia abajo. *@
 @inject SessionState Session
+@implements IDisposable
 
 @if (Items.Count > 0)
 {
@@ -35,6 +36,13 @@
 
 @code {
     private bool _abierto;
+
+    // Al activar o verificar la licencia cambia la sesión: la franja se actualiza sin recargar la página.
+    protected override void OnInitialized() => Session.Changed += Refrescar;
+
+    private void Refrescar() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= Refrescar;
 
     private sealed record Aviso(string Corto, string Detalle, string Href, bool Grave);
 

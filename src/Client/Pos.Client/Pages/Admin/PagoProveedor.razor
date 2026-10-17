@@ -3,6 +3,8 @@
 @inject SessionState Session
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@using Pos.Modules.Cash.Contracts
+@using Pos.Modules.Purchasing.Contracts
 
 <PageTitle>Registrar pago a proveedor · BusinessPost</PageTitle>
 
@@ -71,7 +73,7 @@
                     <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
                         @foreach (var method in _medios)
                         {
-                            <MudSelectItem T="Guid?" Value="@method.GetProperty("id").GetGuid()">@method.Str("name")@(method.Bool("requiresReference") ? " (exige referencia)" : "")</MudSelectItem>
+                            <MudSelectItem T="Guid?" Value="@method.Id">@method.Name@(method.RequiresReference ? " (exige referencia)" : "")</MudSelectItem>
                         }
                     </MudSelect>
                     <MudTextField @bind-Value="_referencia" Label="Referencia (transferencia, cheque…)" Immediate="true" />
@@ -86,7 +88,7 @@
 @code {
     private const string Lista = "/admin/cuentas-por-pagar";
 
-    private List<JsonElement> _medios = [];
+    private List<PaymentMethodDto> _medios = [];
     private List<Proveedor> _conSaldo = [];
     private List<Aplicacion> _aplicaciones = [];
     private Guid? _pagoProveedor, _medio;
@@ -121,9 +123,9 @@
         _loading = true;
         try
         {
-            _medios = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
-            _conSaldo = [.. (await Api.GetAsync<JsonElement>("api/v1/purchasing/payables?openOnly=true")).Items()
-                .Select(a => new Proveedor(a.GetProperty("supplierId").GetGuid(), a.Str("supplierName"))).Distinct().OrderBy(p => p.Nombre, StringComparer.CurrentCulture)];
+            _medios = [.. await Api.GetAsync<List<PaymentMethodDto>>("api/v1/cash/payment-methods")];
+            _conSaldo = [.. (await Api.GetAsync<List<PayableDto>>("api/v1/purchasing/payables?openOnly=true"))
+                .Select(a => new Proveedor(a.SupplierId, a.SupplierName)).Distinct().OrderBy(p => p.Nombre, StringComparer.CurrentCulture)];
             if (ProveedorInicial is not null)
             {
                 await ElegirProveedorAsync(ProveedorInicial);
@@ -146,9 +148,8 @@
         _loading = false;
     }
 
-    /// <summary>Fecha sin hora (DateOnly del servidor, "yyyy-MM-dd").</summary>
-    private static string Dia(JsonElement element, string name) =>
-        DateOnly.TryParse(element.Str(name), CultureInfo.InvariantCulture, out var date) ? date.ToString("dd/MM/yyyy", Format.Colombia) : "—";
+    /// <summary>Fecha sin hora (DateOnly del servidor) como día/mes/año.</summary>
+    private static string Dia(DateOnly date) => date.ToString("dd/MM/yyyy", Format.Colombia);
 
     private async Task ElegirProveedorAsync(Guid? supplierId)
     {
@@ -161,14 +162,14 @@
 
         try
         {
-            var accounts = (await Api.GetAsync<JsonElement>($"api/v1/purchasing/payables?supplierId={id}&openOnly=true")).Items();
-            _aplicaciones = [.. accounts.OrderBy(a => a.Str("dueDate")).Select(a => new Aplicacion
+            var accounts = await Api.GetAsync<List<PayableDto>>($"api/v1/purchasing/payables?supplierId={id}&openOnly=true");
+            _aplicaciones = [.. accounts.OrderBy(a => a.DueDate).Select(a => new Aplicacion
             {
-                AccountId = a.GetProperty("id").GetGuid(),
-                Documento = a.Str("documentNumber"),
-                Vence = Dia(a, "dueDate"),
-                Saldo = a.Dec("balance"),
-                Valor = a.Dec("balance"),
+                AccountId = a.Id,
+                Documento = a.DocumentNumber,
+                Vence = Dia(a.DueDate),
+                Saldo = a.Balance,
+                Valor = a.Balance,
                 // Desmarcadas: se paga solo lo que se elige (con todas marcadas era fácil pagar facturas que no se estaban pagando).
                 Incluir = false,
             })];
@@ -196,17 +197,17 @@
         _busy = true;
         try
         {
-            var payment = await Api.PostAsync<JsonElement>("api/v1/purchasing/payments", new
+            var payment = await Api.PostAsync<PaymentDto>("api/v1/purchasing/payments", new
             {
                 supplierId = _pagoProveedor, paymentDate = DateOnly.FromDateTime(_fecha ?? DateTime.Today), paymentMethodId = _medio,
                 reference = string.IsNullOrWhiteSpace(_referencia) ? null : _referencia.Trim(), notes = string.IsNullOrWhiteSpace(_notas) ? null : _notas.Trim(),
                 allocations = _aplicaciones.Where(a => a.Incluir && a.Valor > 0).Select(a => new { accountId = a.AccountId, amount = a.Valor }).ToList(),
                 cashSessionId = (Guid?)null,
             });
-            Snackbar.Add($"Pago {payment.Str("number")} registrado por {Format.Money(payment.Dec("amount"))}.", Severity.Success);
-            foreach (var warning in payment.Prop("warnings").Items())
+            Snackbar.Add($"Pago {payment.Number} registrado por {Format.Money(payment.Amount)}.", Severity.Success);
+            foreach (var warning in payment.Warnings ?? [])
             {
-                Snackbar.Add(warning.Str("message"), Severity.Warning);
+                Snackbar.Add(warning.Message, Severity.Warning);
             }
 
             Navigation.NavigateTo(Lista);

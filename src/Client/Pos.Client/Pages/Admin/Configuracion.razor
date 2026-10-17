@@ -1,4 +1,7 @@
 @page "/admin/configuracion"
+@using Pos.Application.Abstractions.Settings
+@using Pos.Modules.Cash.Contracts
+@using Pos.Modules.Organization.Contracts
 @inject ApiClient Api
 @inject SessionState Session
 @inject Bodegas Bodegas
@@ -16,7 +19,7 @@
                 {
                     <MudAlert Severity="Severity.Error">@_errorEmpresa</MudAlert>
                 }
-                else if (_empresa.ValueKind == JsonValueKind.Object)
+                else if (_empresa is not null)
                 {
                     <MudGrid Spacing="2">
                         <MudItem xs="12" sm="6"><MudTextField @bind-Value="_cRazonSocial" Label="Razón social" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
@@ -40,7 +43,7 @@
                         <MudItem xs="12" sm="3"><MudTextField @bind-Value="_cCorreo" Label="Correo" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
                     </MudGrid>
                     <MudText Typo="Typo.caption" Class="d-block mt-2">
-                        País: @_empresa.Str("countryCode") · Moneda: @_empresa.Str("currencyCode") · Zona horaria: @_empresa.Str("timezone")
+                        País: @_empresa.CountryCode · Moneda: @_empresa.CurrencyCode · Zona horaria: @_empresa.Timezone
                     </MudText>
                     @if (PuedeEmpresa)
                     {
@@ -65,20 +68,20 @@
                         <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Municipio</MudTh><MudTh>Dirección</MudTh><MudTh>Teléfono</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd>@context.Str("code")@(context.Bool("isHomeBranch") ? " (esta tienda)" : "")</MudTd>
-                        <MudTd>@context.Str("name")</MudTd>
-                        <MudTd>@context.Str("municipalityCode")</MudTd>
-                        <MudTd>@context.Str("address")</MudTd>
-                        <MudTd>@context.Str("phone")</MudTd>
-                        <MudTd>@Estado(context.Str("status"))</MudTd>
+                        <MudTd>@context.Code@(context.IsHomeBranch ? " (esta tienda)" : "")</MudTd>
+                        <MudTd>@context.Name</MudTd>
+                        <MudTd>@context.MunicipalityCode</MudTd>
+                        <MudTd>@context.Address</MudTd>
+                        <MudTd>@context.Phone</MudTd>
+                        <MudTd>@Estado(context.Status)</MudTd>
                         <MudTd>
                             <MudButton Size="Size.Small" OnClick="@(() => VerBodegasAsync(context))">Bodegas</MudButton>
                             @if (Session.Has("organization.branch.manage"))
                             {
                                 <MudButton Size="Size.Small" OnClick="@(() => EditarSucursal(context))">Editar</MudButton>
-                                @if (Activo(context))
+                                @if (Activo(context.Status))
                                 {
-                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar sucursal", $"La sucursal {context.Str("name")} quedará inactiva.", "Inactivar", true)) { await EstadoSucursalAsync(context, "deactivate"); } })">Inactivar</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar sucursal", $"La sucursal {context.Name} quedará inactiva.", "Inactivar", true)) { await EstadoSucursalAsync(context, "deactivate"); } })">Inactivar</MudButton>
                                 }
                                 else
                                 {
@@ -91,10 +94,10 @@
                     <PagerContent><Paginador /></PagerContent>
                 </MudTable>
 
-                @if (_sucursalBodegas.ValueKind == JsonValueKind.Object)
+                @if (_sucursalBodegas is not null)
                 {
                     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-4 mb-2">
-                        <MudText Typo="Typo.h6">Bodegas de @_sucursalBodegas.Str("name")</MudText>
+                        <MudText Typo="Typo.h6">Bodegas de @_sucursalBodegas.Name</MudText>
                         <MudSpacer />
                         @if (Session.Has("organization.warehouse.manage"))
                         {
@@ -106,16 +109,16 @@
                             <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Vende</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd>@context.Str("code")</MudTd>
-                            <MudTd>@context.Str("name")</MudTd>
-                            <MudTd>@TipoBodega(context.Str("kind"))</MudTd>
-                            <MudTd>@(context.Bool("allowsSales") ? "Sí" : "No")</MudTd>
-                            <MudTd>@Estado(context.Str("status"))</MudTd>
+                            <MudTd>@context.Code</MudTd>
+                            <MudTd>@context.Name</MudTd>
+                            <MudTd>@TipoBodega(context.Kind)</MudTd>
+                            <MudTd>@(context.AllowsSales ? "Sí" : "No")</MudTd>
+                            <MudTd>@Estado(context.Status)</MudTd>
                             <MudTd>
-                                @if (Session.Has("organization.warehouse.manage") && Activo(context))
+                                @if (Session.Has("organization.warehouse.manage") && Activo(context.Status))
                                 {
                                     <MudButton Size="Size.Small" OnClick="@(() => EditarBodega(context))">Editar</MudButton>
-                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar bodega", $"La bodega {context.Str("name")} quedará inactiva y no recibirá movimientos.", "Inactivar", true)) { await InactivarBodegaAsync(context); } })">Inactivar</MudButton>
+                                    <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(async () => { if (await Dialogs.ConfirmarAsync("Inactivar bodega", $"La bodega {context.Name} quedará inactiva y no recibirá movimientos.", "Inactivar", true)) { await InactivarBodegaAsync(context); } })">Inactivar</MudButton>
                                 }
                             </MudTd>
                         </RowTemplate>
@@ -139,13 +142,13 @@
                     <MudTh>Código</MudTh><MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Código DIAN</MudTh><MudTh>Pide referencia</MudTh><MudTh Class="num">Orden</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd>@context.Str("code")@(context.Bool("isSystem") ? " (sistema)" : "")</MudTd>
-                    <MudTd>@context.Str("name")</MudTd>
-                    <MudTd>@TipoMedio(context.Str("kind"))</MudTd>
-                    <MudTd>@context.Str("dianCode")</MudTd>
-                    <MudTd>@(context.Bool("requiresReference") ? "Sí" : "No")</MudTd>
-                    <MudTd Class="num">@context.Str("sortOrder")</MudTd>
-                    <MudTd>@Estado(context.Str("status"))</MudTd>
+                    <MudTd>@context.Code@(context.IsSystem ? " (sistema)" : "")</MudTd>
+                    <MudTd>@context.Name</MudTd>
+                    <MudTd>@TipoMedio(context.Kind)</MudTd>
+                    <MudTd>@context.DianCode</MudTd>
+                    <MudTd>@(context.RequiresReference ? "Sí" : "No")</MudTd>
+                    <MudTd Class="num">@context.SortOrder</MudTd>
+                    <MudTd>@Estado(context.Status)</MudTd>
                     <MudTd>
                         @if (PuedeMedios)
                         {
@@ -164,7 +167,7 @@
                     <MudSelectItem T="Guid?" Value="@((Guid?)null)">Empresa (todas las sucursales)</MudSelectItem>
                     @foreach (var branch in _sucursales)
                     {
-                        <MudSelectItem T="Guid?" Value="@branch.GetProperty("id").GetGuid()">Sucursal @branch.Str("code") · @branch.Str("name")</MudSelectItem>
+                        <MudSelectItem T="Guid?" Value="@branch.Id">Sucursal @branch.Code · @branch.Name</MudSelectItem>
                     }
                 </MudSelect>
                 @if (_errorParametros is not null)
@@ -180,16 +183,16 @@
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd Style="white-space: normal;">
-                            <b>@context.Str("description")</b><br />
-                            <MudText Typo="Typo.caption">@context.Str("key")</MudText>
+                            <b>@context.Description</b><br />
+                            <MudText Typo="Typo.caption">@context.Key</MudText>
                         </MudTd>
-                        <MudTd Style="white-space: normal;">@Valor(context.Prop("value"))</MudTd>
-                        <MudTd>@Origen(context.Str("source"))</MudTd>
+                        <MudTd Style="white-space: normal;">@Valor(context.Value)</MudTd>
+                        <MudTd>@Origen(context.Source)</MudTd>
                         <MudTd>
                             @if (Session.Has("settings.setting.manage") && Permitido(context))
                             {
                                 <MudButton Size="Size.Small" OnClick="@(() => EditarParametro(context))">Cambiar</MudButton>
-                                @if (context.Str("source") == Alcance)
+                                @if (context.Source.ToString() == Alcance)
                                 {
                                     <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => QuitarParametroAsync(context))">Volver a heredar</MudButton>
                                 }
@@ -229,7 +232,7 @@
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>@(_bodegaId is null ? $"Nueva bodega en {_sucursalBodegas.Str("name")}" : "Editar bodega")</h2>
+            <h2>@(_bodegaId is null ? $"Nueva bodega en {_sucursalBodegas?.Name}" : "Editar bodega")</h2>
             @if (_bodegaId is null)
             {
                 <MudTextField @bind-Value="_wCodigo" Label="Código (p. ej. BODEGA)" Immediate="true" />
@@ -286,26 +289,26 @@
     </div>
 }
 
-@if (_parametro.ValueKind == JsonValueKind.Object)
+@if (_parametro is not null)
 {
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true">
-            <h2>@_parametro.Str("description")</h2>
-            <MudText Typo="Typo.caption" Class="d-block mb-2">@_parametro.Str("key") · nivel: @(_nivel is null ? "empresa" : "sucursal")</MudText>
+            <h2>@_parametro.Description</h2>
+            <MudText Typo="Typo.caption" Class="d-block mb-2">@_parametro.Key · nivel: @(_nivel is null ? "empresa" : "sucursal")</MudText>
             <MudText Typo="Typo.body2" Class="mb-2">
-                Valor actual: @Valor(_parametro.Prop("value")) (@Origen(_parametro.Str("source"))). Sin la excepción sería @Valor(_parametro.Prop("inheritedValue")).
+                Valor actual: @Valor(_parametro.Value) (@Origen(_parametro.Source)). Sin la excepción sería @Valor(_parametro.InheritedValue).
             </MudText>
-            @if (EsBooleano(_parametro.Prop("value")))
+            @if (EsBooleano(_parametro.Value))
             {
                 <MudSwitch T="bool" @bind-Value="_valorBool" Label="@(_valorBool ? "Sí" : "No")" Color="Color.Primary" />
             }
             else
             {
                 <MudTextField @bind-Value="_valorTexto" Label="Nuevo valor" Immediate="true" AutoFocus="true"
-                              HelperText="@(_parametro.Prop("value").ValueKind == JsonValueKind.String ? "Texto" : "Número, lista o valor JSON")" />
+                              HelperText="@(_parametro.Value.ValueKind == JsonValueKind.String ? "Texto" : "Número, lista o valor JSON")" />
             }
             <div class="acciones">
-                <MudButton OnClick="@(() => _parametro = default)">Cancelar</MudButton>
+                <MudButton OnClick="@(() => _parametro = null)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarParametroAsync">Guardar</MudButton>
             </div>
         </div>
@@ -319,14 +322,14 @@
     private string? _error, _errorEmpresa, _errorSucursales, _errorMedios, _errorParametros;
 
     // Empresa
-    private JsonElement _empresa;
+    private CompanyDto? _empresa;
     private string? _cRazonSocial, _cNombreComercial, _cRegimen, _cResponsabilidades, _cMunicipio, _cDireccion, _cTelefono, _cCorreo;
     private string _cTipoPersona = "Legal";
 
     // Sucursales y bodegas
-    private List<JsonElement> _sucursales = [];
-    private List<JsonElement> _bodegas = [];
-    private JsonElement _sucursalBodegas;
+    private List<BranchDto> _sucursales = [];
+    private List<WarehouseDto> _bodegas = [];
+    private BranchDto? _sucursalBodegas;
     private bool _panelSucursal, _panelBodega;
     private Guid? _sucursalId, _bodegaId;
     private string? _bCodigo, _bNombre, _bMunicipio, _bDireccion, _bTelefono, _wCodigo, _wNombre;
@@ -334,7 +337,7 @@
     private bool _wVende;
 
     // Medios de pago
-    private List<JsonElement> _medios = [];
+    private List<PaymentMethodDto> _medios = [];
     private bool _panelMedio, _pReferencia, _pActivo = true;
     private Guid? _medioId;
     private string? _pCodigo, _pNombre, _pDian;
@@ -342,8 +345,8 @@
     private int _pOrden = 50;
 
     // Parámetros
-    private List<JsonElement> _parametros = [];
-    private JsonElement _parametro;
+    private List<EffectiveSetting> _parametros = [];
+    private EffectiveSetting? _parametro;
     private Guid? _nivel;
     private string? _buscarParametro, _valorTexto;
     private bool _valorBool;
@@ -353,7 +356,7 @@
     private bool PuedeMedios => Session.Has("cash.payment_method.manage");
 
     private string Identificacion =>
-        $"{_empresa.Str("identificationType")} {_empresa.Str("identificationNumber")}{(_empresa.Str("checkDigit").Length > 0 ? "-" + _empresa.Str("checkDigit") : "")}";
+        _empresa is null ? "" : $"{_empresa.IdentificationType} {_empresa.IdentificationNumber}{(!string.IsNullOrEmpty(_empresa.CheckDigit) ? "-" + _empresa.CheckDigit : "")}";
 
     private string Alcance => _nivel is null ? "Company" : "Branch";
 
@@ -391,16 +394,17 @@
     {
         try
         {
-            _empresa = await Api.GetAsync<JsonElement>("api/v1/organization/company");
-            _cRazonSocial = _empresa.Str("legalName");
-            _cNombreComercial = _empresa.Str("tradeName");
-            _cTipoPersona = _empresa.Str("personType") is { Length: > 0 } personType ? EnumText.ToEnumName(personType) : "Legal";
-            _cRegimen = _empresa.Str("taxRegime");
-            _cResponsabilidades = string.Join(", ", _empresa.Prop("fiscalResponsibilities").Items().Select(r => r.ToString()));
-            _cMunicipio = _empresa.Str("municipalityCode");
-            _cDireccion = _empresa.Str("address");
-            _cTelefono = _empresa.Str("phone");
-            _cCorreo = _empresa.Str("email");
+            var empresa = await Api.GetAsync<CompanyDto>("api/v1/organization/company");
+            _empresa = empresa;
+            _cRazonSocial = empresa.LegalName;
+            _cNombreComercial = empresa.TradeName;
+            _cTipoPersona = empresa.PersonType is { Length: > 0 } personType ? EnumText.ToEnumName(personType) : "Legal";
+            _cRegimen = empresa.TaxRegime;
+            _cResponsabilidades = string.Join(", ", empresa.FiscalResponsibilities);
+            _cMunicipio = empresa.MunicipalityCode;
+            _cDireccion = empresa.Address;
+            _cTelefono = empresa.Phone;
+            _cCorreo = empresa.Email;
             _errorEmpresa = null;
         }
         catch (ApiException ex)
@@ -411,6 +415,11 @@
 
     private async Task GuardarEmpresaAsync()
     {
+        if (_empresa is null)
+        {
+            return;
+        }
+
         _busy = true;
         try
         {
@@ -419,9 +428,9 @@
                 legalName = _cRazonSocial,
                 tradeName = _cNombreComercial,
                 personType = _cTipoPersona,
-                identificationType = _empresa.Str("identificationType"),
-                identificationNumber = _empresa.Str("identificationNumber"),
-                checkDigit = Vacio(_empresa.Str("checkDigit")),
+                identificationType = _empresa.IdentificationType,
+                identificationNumber = _empresa.IdentificationNumber,
+                checkDigit = Vacio(_empresa.CheckDigit),
                 taxRegime = _cRegimen,
                 fiscalResponsibilities = (_cResponsabilidades ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                 municipalityCode = _cMunicipio,
@@ -446,7 +455,7 @@
     {
         try
         {
-            _sucursales = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
+            _sucursales = await Api.GetAsync<List<BranchDto>>("api/v1/organization/branches");
             _errorSucursales = null;
         }
         catch (ApiException ex)
@@ -462,14 +471,14 @@
         _panelSucursal = true;
     }
 
-    private void EditarSucursal(JsonElement branch)
+    private void EditarSucursal(BranchDto branch)
     {
-        _sucursalId = branch.GetProperty("id").GetGuid();
-        _bCodigo = branch.Str("code");
-        _bNombre = branch.Str("name");
-        _bMunicipio = branch.Str("municipalityCode");
-        _bDireccion = branch.Str("address");
-        _bTelefono = branch.Str("phone");
+        _sucursalId = branch.Id;
+        _bCodigo = branch.Code;
+        _bNombre = branch.Name;
+        _bMunicipio = branch.MunicipalityCode;
+        _bDireccion = branch.Address;
+        _bTelefono = branch.Phone;
         _panelSucursal = true;
     }
 
@@ -506,11 +515,11 @@
         _busy = false;
     }
 
-    private async Task EstadoSucursalAsync(JsonElement branch, string action)
+    private async Task EstadoSucursalAsync(BranchDto branch, string action)
     {
         try
         {
-            await Api.PostAsync($"api/v1/organization/branches/{branch.GetProperty("id").GetGuid()}/{action}");
+            await Api.PostAsync($"api/v1/organization/branches/{branch.Id}/{action}");
             Snackbar.Add(action == "activate" ? "Sucursal activada." : "Sucursal inactivada.", Severity.Success);
             await CargarSucursalesAsync();
         }
@@ -520,11 +529,11 @@
         }
     }
 
-    private async Task VerBodegasAsync(JsonElement branch)
+    private async Task VerBodegasAsync(BranchDto branch)
     {
         try
         {
-            await CargarBodegasAsync(branch.GetProperty("id").GetGuid());
+            await CargarBodegasAsync(branch.Id);
         }
         catch (ApiException ex)
         {
@@ -534,9 +543,9 @@
 
     private async Task CargarBodegasAsync(Guid branchId)
     {
-        var detail = await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{branchId}");
-        _sucursalBodegas = detail.Prop("branch");
-        _bodegas = detail.Prop("warehouses").Items();
+        var detail = await Api.GetAsync<BranchDetailDto>($"api/v1/organization/branches/{branchId}");
+        _sucursalBodegas = detail.Branch;
+        _bodegas = [.. detail.Warehouses];
     }
 
     private void NuevaBodega()
@@ -548,20 +557,25 @@
         _panelBodega = true;
     }
 
-    private void EditarBodega(JsonElement warehouse)
+    private void EditarBodega(WarehouseDto warehouse)
     {
-        _bodegaId = warehouse.GetProperty("id").GetGuid();
-        _wNombre = warehouse.Str("name");
-        _wVende = warehouse.Bool("allowsSales");
+        _bodegaId = warehouse.Id;
+        _wNombre = warehouse.Name;
+        _wVende = warehouse.AllowsSales;
         _panelBodega = true;
     }
 
     private async Task GuardarBodegaAsync()
     {
+        if (_sucursalBodegas is null)
+        {
+            return;
+        }
+
+        var branchId = _sucursalBodegas.Id;
         _busy = true;
         try
         {
-            var branchId = _sucursalBodegas.GetProperty("id").GetGuid();
             if (_bodegaId is { } id)
             {
                 await Api.PutAsync<JsonElement>($"api/v1/organization/warehouses/{id}", new { name = _wNombre, allowsSales = _wVende });
@@ -588,14 +602,14 @@
         _busy = false;
     }
 
-    private async Task InactivarBodegaAsync(JsonElement warehouse)
+    private async Task InactivarBodegaAsync(WarehouseDto warehouse)
     {
         try
         {
-            await Api.PostAsync($"api/v1/organization/warehouses/{warehouse.GetProperty("id").GetGuid()}/deactivate");
+            await Api.PostAsync($"api/v1/organization/warehouses/{warehouse.Id}/deactivate");
             Snackbar.Add("Bodega inactivada.", Severity.Success);
             Bodegas.Invalidar();
-            await CargarBodegasAsync(_sucursalBodegas.GetProperty("id").GetGuid());
+            await CargarBodegasAsync(warehouse.BranchId);
         }
         catch (ApiException ex)
         {
@@ -609,9 +623,9 @@
     {
         try
         {
-            _medios = [.. (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods?includeInactive=true")).Items()
-                .Where(m => !ReservedKinds.Contains(m.Str("kind")))
-                .OrderBy(m => m.Dec("sortOrder"))];
+            _medios = [.. (await Api.GetAsync<List<PaymentMethodDto>>("api/v1/cash/payment-methods?includeInactive=true"))
+                .Where(m => !ReservedKinds.Contains(EnumText.Normalize(m.Kind)))
+                .OrderBy(m => m.SortOrder)];
             _errorMedios = null;
         }
         catch (ApiException ex)
@@ -631,14 +645,14 @@
         _panelMedio = true;
     }
 
-    private void EditarMedio(JsonElement method)
+    private void EditarMedio(PaymentMethodDto method)
     {
-        _medioId = method.GetProperty("id").GetGuid();
-        _pNombre = method.Str("name");
-        _pDian = method.Str("dianCode");
-        _pOrden = (int)method.Dec("sortOrder");
-        _pReferencia = method.Bool("requiresReference");
-        _pActivo = method.Str("status") == "ACTIVE";
+        _medioId = method.Id;
+        _pNombre = method.Name;
+        _pDian = method.DianCode;
+        _pOrden = method.SortOrder;
+        _pReferencia = method.RequiresReference;
+        _pActivo = EnumText.Same(method.Status, "ACTIVE");
         _panelMedio = true;
     }
 
@@ -682,7 +696,7 @@
         try
         {
             var query = _nivel is { } branchId ? $"?branchId={branchId}" : "";
-            _parametros = [.. (await Api.GetAsync<JsonElement>("api/v1/settings" + query)).Items().OrderBy(s => s.Str("key"), StringComparer.Ordinal)];
+            _parametros = [.. (await Api.GetAsync<List<EffectiveSetting>>("api/v1/settings" + query)).OrderBy(s => s.Key, StringComparer.Ordinal)];
             _errorParametros = null;
         }
         catch (ApiException ex)
@@ -697,16 +711,16 @@
         await CargarParametrosAsync();
     }
 
-    private bool FiltroParametro(JsonElement setting) =>
+    private bool FiltroParametro(EffectiveSetting setting) =>
         string.IsNullOrWhiteSpace(_buscarParametro)
-        || setting.Str("key").Contains(_buscarParametro, StringComparison.OrdinalIgnoreCase)
-        || setting.Str("description").Contains(_buscarParametro, StringComparison.OrdinalIgnoreCase);
+        || setting.Key.Contains(_buscarParametro, StringComparison.OrdinalIgnoreCase)
+        || setting.Description.Contains(_buscarParametro, StringComparison.OrdinalIgnoreCase);
 
-    private bool Permitido(JsonElement setting) => setting.Prop("allowedScopes").Items().Any(s => s.ToString() == Alcance);
+    private bool Permitido(EffectiveSetting setting) => setting.AllowedScopes.Any(s => s.ToString() == Alcance);
 
-    private void EditarParametro(JsonElement setting)
+    private void EditarParametro(EffectiveSetting setting)
     {
-        var value = setting.Prop("value");
+        var value = setting.Value;
         _valorBool = value.ValueKind == JsonValueKind.True;
         _valorTexto = value.ValueKind switch
         {
@@ -719,8 +733,14 @@
 
     private async Task GuardarParametroAsync()
     {
+        if (_parametro is null)
+        {
+            return;
+        }
+
+        var key = _parametro.Key;
         JsonElement value;
-        var current = _parametro.Prop("value");
+        var current = _parametro.Value;
         if (EsBooleano(current))
         {
             value = JsonSerializer.SerializeToElement(_valorBool);
@@ -746,9 +766,9 @@
         _busy = true;
         try
         {
-            await Api.PutAsync<JsonElement?>($"api/v1/settings/{Uri.EscapeDataString(_parametro.Str("key"))}", new { scope = Alcance, scopeId = _nivel, value });
+            await Api.PutAsync<JsonElement?>($"api/v1/settings/{Uri.EscapeDataString(key)}", new { scope = Alcance, scopeId = _nivel, value });
             Snackbar.Add("Parámetro guardado.", Severity.Success);
-            _parametro = default;
+            _parametro = null;
             await CargarParametrosAsync();
         }
         catch (ApiException ex)
@@ -759,12 +779,12 @@
         _busy = false;
     }
 
-    private async Task QuitarParametroAsync(JsonElement setting)
+    private async Task QuitarParametroAsync(EffectiveSetting setting)
     {
         try
         {
             var scopeId = _nivel is { } id ? $"&scopeId={id}" : "";
-            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/settings/{Uri.EscapeDataString(setting.Str("key"))}?scope={Alcance}{scopeId}", null);
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/settings/{Uri.EscapeDataString(setting.Key)}?scope={Alcance}{scopeId}", null);
             Snackbar.Add("Excepción eliminada: el parámetro vuelve a heredar.", Severity.Success);
             await CargarParametrosAsync();
         }
@@ -778,7 +798,7 @@
 
     private static string? Vacio(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static bool Activo(JsonElement element) => EnumText.Same(element.Str("status"), "ACTIVE");
+    private static bool Activo(string status) => EnumText.Same(status, "ACTIVE");
 
     private static bool EsBooleano(JsonElement value) => value.ValueKind is JsonValueKind.True or JsonValueKind.False;
 
@@ -799,7 +819,7 @@
         _ => kind,
     };
 
-    private static string TipoMedio(string kind) => kind switch
+    private static string TipoMedio(string kind) => EnumText.Normalize(kind) switch
     {
         "CASH" => "Efectivo",
         "DEBIT_CARD" => "Tarjeta débito",
@@ -811,13 +831,13 @@
         _ => kind,
     };
 
-    private static string Origen(string source) => source switch
+    private static string Origen(SettingSource source) => source switch
     {
-        "Default" => "valor por defecto",
-        "Company" => "empresa",
-        "Branch" => "sucursal",
-        "Terminal" => "caja",
-        _ => source,
+        SettingSource.Default => "valor por defecto",
+        SettingSource.Company => "empresa",
+        SettingSource.Branch => "sucursal",
+        SettingSource.Terminal => "caja",
+        _ => source.ToString(),
     };
 
     private static string Valor(JsonElement value) => value.ValueKind switch
