@@ -63,6 +63,10 @@
 </PantallaAcceso>
 
 @code {
+    /// <summary>Página a la que se vuelve después de ingresar (la que se estaba usando).</summary>
+    [SupplyParameterFromQuery(Name = "volver")]
+    public string? Volver { get; set; }
+
     private bool _loading = true;
     private bool _busy;
     private bool _needsPairing;
@@ -110,7 +114,11 @@
         try
         {
             Session.SignIn(await login());
-            Navigation.NavigateTo(Session.IsTerminal ? "/caja" : Session.Me!.MustChangePassword ? "/cambiar-clave" : "/admin");
+            var volver = SessionState.RutaSegura(Volver);
+            Navigation.NavigateTo(Session.IsTerminal ? "/caja"
+                : Session.Me!.MustChangePassword ? "/cambiar-clave"
+                : volver is not null && volver.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ? volver
+                : "/admin");
         }
         catch (ApiException ex)
         {

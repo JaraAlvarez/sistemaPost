@@ -1,7 +1,7 @@
 @page "/admin/traslados"
 @inject ApiClient Api
 @inject SessionState Session
-@inject ISnackbar Snackbar
+@inject Bodegas Bodegas
 @inject NavigationManager Navigation
 
 <PageTitle>Traslados · BusinessPost</PageTitle>
@@ -22,7 +22,7 @@
             <MudSelectItem T="string" Value="@("RECEIVED_WITH_DIFFERENCES")">Recibido con diferencias</MudSelectItem>
             <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
         </MudSelect>
-        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowClass="cursor-pointer"
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Ver(e.Item))">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Origen</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
@@ -30,7 +30,7 @@
             <RowTemplate>
                 <MudTd>@context.Str("number")</MudTd>
                 <MudTd>@Format.Date(context.Date("createdAt"))</MudTd>
-                <MudTd>@Bodega(context.Str("warehouseId"))</MudTd>
+                <MudTd>@Bodegas.Nombre(context.Str("warehouseId"))</MudTd>
                 <MudTd>@Estado(context.Str("status"))</MudTd>
                 @* El clic del botón sube a la fila (OnRowClick): así se navega una sola vez. *@
                 <MudTd><MudButton Size="Size.Small">Ver</MudButton></MudTd>
@@ -43,32 +43,24 @@
 
 @code {
     private List<JsonElement> _items = [];
-    private List<JsonElement> _bodegas = [];
     private string _estado = "";
     private string? _error;
     private bool _loading = true;
 
+    private static readonly string[] Estados = ["DRAFT", "IN_TRANSIT", "RECEIVED", "RECEIVED_WITH_DIFFERENCES", "CANCELLED"];
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoQuery { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
-        await CargarBodegasAsync();
+        if (EstadoQuery is { } estado && Estados.Contains(estado, StringComparer.Ordinal))
+        {
+            _estado = estado;
+        }
+
+        await Bodegas.CargarAsync();
         await CargarAsync();
-    }
-
-    private async Task CargarBodegasAsync()
-    {
-        if (Session.Me is not { } me)
-        {
-            return;
-        }
-
-        try
-        {
-            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
-        }
     }
 
     private async Task CargarAsync()
@@ -90,16 +82,11 @@
     private async Task FiltrarAsync(string? estado)
     {
         _estado = estado ?? "";
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["estado"] = _estado });
         await CargarAsync();
     }
 
     private void Ver(JsonElement transfer) => Navigation.NavigateTo($"/admin/traslados/{transfer.GetProperty("id").GetGuid()}");
-
-    private string Bodega(string id)
-    {
-        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
-        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
-    }
 
     private static string Estado(string status) => status switch
     {

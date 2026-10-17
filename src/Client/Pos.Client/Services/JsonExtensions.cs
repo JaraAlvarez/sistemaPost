@@ -27,3 +27,27 @@ public static class JsonExtensions
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && value.TryGetDateTimeOffset(out var date)
             ? date : null;
 }
+
+/// <summary>Nombres de las categorías del catálogo: la API da <c>path</c> como cadena de ids (<c>/id1/id2/</c>), no de nombres.</summary>
+public static class Categorias
+{
+    /// <summary>"Abarrotes › Granos" a partir de la lista completa de categorías (la de <c>api/v1/catalog/categories</c>).</summary>
+    public static string Nombre(IReadOnlyList<JsonElement> todas, JsonElement categoria)
+    {
+        ArgumentNullException.ThrowIfNull(todas);
+        var nombres = todas.Where(c => c.ValueKind == JsonValueKind.Object).ToDictionary(c => c.Str("id"), c => c.Str("name"), StringComparer.OrdinalIgnoreCase);
+        var partes = categoria.Str("path").Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(id => nombres.GetValueOrDefault(id))
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToList();
+        return partes.Count > 0 ? string.Join(" › ", partes) : categoria.Str("name");
+    }
+
+    /// <summary>Nombre de la categoría con ese id, o vacío.</summary>
+    public static string Nombre(IReadOnlyList<JsonElement> todas, Guid id)
+    {
+        ArgumentNullException.ThrowIfNull(todas);
+        var categoria = todas.FirstOrDefault(c => c.Prop("id").TryGetGuid(out var g) && g == id);
+        return categoria.ValueKind == JsonValueKind.Object ? Nombre(todas, categoria) : string.Empty;
+    }
+}

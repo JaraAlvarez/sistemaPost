@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Cuentas por pagar · BusinessPost</PageTitle>
 
@@ -32,7 +33,7 @@
                 </MudPaper>
             </MudStack>
         }
-        <MudTabs Elevation="0" Class="mb-2">
+        <MudTabs ActivePanelIndex="_tab" ActivePanelIndexChanged="CambiarPestana" Elevation="0" Class="mb-2">
             <MudTabPanel Text="Facturas por pagar">
                 <MudStack Row="true" Class="my-3" AlignItems="AlignItems.Center">
                     <MudSelect T="Guid?" Value="_proveedor" ValueChanged="@(v => FiltrarProveedorAsync(v))" Label="Proveedor" Clearable="true" Style="min-width:280px">
@@ -176,6 +177,20 @@
     private Guid? _proveedor;
     private string? _error, _motivo;
     private bool _loading = true, _busy, _soloAbiertas = true;
+    private int _tab;
+
+    /// <summary>Pestañas en la dirección; la primera (facturas) no se escribe.</summary>
+    private static readonly string[] Pestanas = ["facturas", "edades", "vencimientos", "pagos"];
+
+    [SupplyParameterFromQuery(Name = "proveedor")]
+    public string? ProveedorQuery { get; set; }
+
+    /// <summary>"no" incluye las facturas sin saldo (por omisión solo se ven las que tienen saldo).</summary>
+    [SupplyParameterFromQuery(Name = "saldo")]
+    public string? SaldoQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Pestana { get; set; }
 
     private List<JsonElement> Vencidas => _vencimientos.Prop("overdue").Items();
 
@@ -185,7 +200,27 @@
 
     private JsonElement Totales => _edades.Prop("totals");
 
-    protected override Task OnInitializedAsync() => CargarAsync();
+    protected override Task OnInitializedAsync()
+    {
+        _proveedor = Guid.TryParse(ProveedorQuery, out var proveedor) && proveedor != Guid.Empty ? proveedor : null;
+        _soloAbiertas = !string.Equals(SaldoQuery, "no", StringComparison.OrdinalIgnoreCase);
+        var tab = Array.IndexOf(Pestanas, Pestana ?? "");
+        _tab = tab < 0 ? 0 : tab;
+        return CargarAsync();
+    }
+
+    private void ActualizarFiltros() => Filtros.Actualizar(Navigation, new Dictionary<string, object?>
+    {
+        ["proveedor"] = _proveedor,
+        ["saldo"] = _soloAbiertas ? null : "no",
+        ["tab"] = _tab > 0 && _tab < Pestanas.Length ? Pestanas[_tab] : null,
+    });
+
+    private void CambiarPestana(int tab)
+    {
+        _tab = tab;
+        ActualizarFiltros();
+    }
 
     private static string EstadoCuenta(JsonElement account) => account.Str("status") switch
     {
@@ -231,17 +266,24 @@
         {
             _proveedores = Proveedores(_cuentas);
         }
+        else if (_proveedores.Count == 0)
+        {
+            // Llegó con el proveedor en la dirección: la lista del selector sale de todas las cuentas con el mismo filtro de saldo.
+            _proveedores = Proveedores((await Api.GetAsync<JsonElement>($"api/v1/purchasing/payables?openOnly={open}")).Items());
+        }
     }
 
     private async Task FiltrarProveedorAsync(Guid? supplierId)
     {
         _proveedor = supplierId;
+        ActualizarFiltros();
         await RecargarCuentasAsync();
     }
 
     private async Task FiltrarAbiertasAsync(bool openOnly)
     {
         _soloAbiertas = openOnly;
+        ActualizarFiltros();
         await RecargarCuentasAsync();
     }
 

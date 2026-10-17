@@ -54,6 +54,51 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
 
         await ZipFile.ExtractToDirectoryAsync(packagePath, temporary, overwriteFiles: true, cancellationToken);
         Directory.Move(temporary, target);
+        await PrecalentarAsync(target, cancellationToken);
+    }
+
+    /// <summary>
+    /// Corre los programas de la versión nueva en modo <c>--precalentar</c> (D17C-02): el antivirus revisa sus .exe y .dll ahora, con la
+    /// versión anterior todavía vendiendo, y no durante el cambio (en pruebas, más de 4 minutos sin firma de código). Mejor esfuerzo: si
+    /// falla o tarda más de ⚙️ 15 minutos, la actualización sigue igual.
+    /// </summary>
+    private async Task PrecalentarAsync(string versionDirectory, CancellationToken cancellationToken)
+    {
+        foreach (var (folder, exe) in new[] { ("server", "Pos.Server.Host.exe"), ("migrator", "Pos.Server.Migrator.exe"), ("agent", "Pos.Terminal.Agent.exe") })
+        {
+            var path = Path.Combine(versionDirectory, folder, exe);
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            var reloj = Stopwatch.StartNew();
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo(path, "--precalentar")
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    WorkingDirectory = Path.GetDirectoryName(path)!,
+                })!;
+                using var limite = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                limite.CancelAfter(TimeSpan.FromMinutes(15));
+                try
+                {
+                    await process.WaitForExitAsync(limite.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+
+                LogPrecalentado(logger, exe, reloj.Elapsed.TotalSeconds);
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                LogServiceFailed(logger, exe, ex.Message);
+            }
+        }
     }
 
     public async Task<int> OpenCashSessionsAsync(CancellationToken cancellationToken)
@@ -249,6 +294,9 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Migrador {Version} {Command}: código {ExitCode}. {Output} {Error}")]
     private static partial void LogMigrator(ILogger logger, string version, string command, int exitCode, string output, string error);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Versión nueva precalentada: {Program} en {Seconds:0.0} s.")]
+    private static partial void LogPrecalentado(ILogger logger, string program, double seconds);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Name}: {Error}")]
     private static partial void LogServiceFailed(ILogger logger, string name, string error);

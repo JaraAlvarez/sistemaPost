@@ -2,6 +2,7 @@
 @page "/admin/compras/{Id:guid}"
 @inject ApiClient Api
 @inject SessionState Session
+@inject Bodegas Bodegas
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
@@ -54,15 +55,15 @@
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega que recibe" Disabled="_ordenId is not null">
-                            @foreach (var warehouse in _bodegas)
+                            @foreach (var warehouse in Bodegas.Elegibles)
                             {
-                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(warehouse)</MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
                     <MudItem xs="12" sm="6" md="4"><MudTextField @bind-Value="_factura" Label="Número de la factura del proveedor" Immediate="true" /></MudItem>
                     <MudItem xs="12" sm="6" md="4"><MudDatePicker @bind-Date="_fecha" Label="Fecha de la factura" DateFormat="dd/MM/yyyy" /></MudItem>
-                    <MudItem xs="12" sm="6" md="4"><MudNumericField T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura (para contabilizar)" Min="0" /></MudItem>
+                    <MudItem xs="12" sm="6" md="4"><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura (para contabilizar)" Min="0" /></MudItem>
                     <MudItem xs="12" sm="6" md="4">
                         <MudSelect T="string" @bind-Value="_modo" Label="Forma de pago">
                             <MudSelectItem T="string" Value="@("Credit")">A crédito (plazo del proveedor)</MudSelectItem>
@@ -87,69 +88,7 @@
 
             <MudPaper Outlined="true" Class="pa-4 mb-4">
                 <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Productos</MudText>
-                <MudTextField T="string" @bind-Value="_buscar" Label="Buscar producto por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarProductosAsync())" Class="mb-2" />
-                @if (_resultados.Count > 0)
-                {
-                    <MudSimpleTable Dense="true" Hover="true" Class="mb-3">
-                        <tbody>
-                            @foreach (var product in _resultados)
-                            {
-                                <tr>
-                                    <td>@product.Str("sku")</td>
-                                    <td>@product.Str("name")</td>
-                                    <td>@product.Str("primaryBarcode")</td>
-                                    <td><MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => AgregarAsync(product))">Agregar</MudButton></td>
-                                </tr>
-                            }
-                        </tbody>
-                    </MudSimpleTable>
-                }
-                <MudSimpleTable Dense="true" Outlined="true">
-                    <thead>
-                        <tr>
-                            <th>Producto</th><th>Presentación</th><th class="num">Cantidad</th><th class="num">Costo unitario</th>
-                            <th class="num">Descuento</th><th>Lote</th><th>Vencimiento</th><th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var linea in _lineas)
-                        {
-                            <tr>
-                                <td>@linea.Sku · @linea.Nombre</td>
-                                <td style="min-width:150px">
-                                    <MudSelect T="Guid" @bind-Value="linea.EmpaqueId" Dense="true">
-                                        <MudSelectItem T="Guid" Value="Guid.Empty">@linea.Unidad (unidad base)</MudSelectItem>
-                                        @foreach (var packaging in linea.Empaques)
-                                        {
-                                            <MudSelectItem T="Guid" Value="packaging.Id">@packaging.Nombre</MudSelectItem>
-                                        }
-                                    </MudSelect>
-                                </td>
-                                <td style="min-width:100px"><MudNumericField T="decimal" @bind-Value="linea.Cantidad" Min="0" /></td>
-                                <td style="min-width:130px"><MudNumericField T="decimal?" @bind-Value="linea.Costo" Min="0" Placeholder="Último costo" /></td>
-                                <td style="min-width:110px"><MudNumericField T="decimal" @bind-Value="linea.Descuento" Min="0" /></td>
-                                <td style="min-width:110px">
-                                    @if (linea.Lotes)
-                                    {
-                                        <MudTextField @bind-Value="linea.Lote" Placeholder="Lote" Immediate="true" />
-                                    }
-                                </td>
-                                <td style="min-width:150px">
-                                    @if (linea.Vence)
-                                    {
-                                        <MudDatePicker @bind-Date="linea.Vencimiento" DateFormat="dd/MM/yyyy" Placeholder="Vence" />
-                                    }
-                                </td>
-                                <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Quitar producto" OnClick="@(() => Quitar(linea))" /></td>
-                            </tr>
-                        }
-                        @if (_lineas.Count == 0)
-                        {
-                            <tr><td colspan="8">Busque y agregue los productos.</td></tr>
-                        }
-                    </tbody>
-                </MudSimpleTable>
+                <LineasProductos Lineas="_lineas" Compra="true" />
             </MudPaper>
         }
         else if (_compra.ValueKind == JsonValueKind.Object)
@@ -188,7 +127,7 @@
                     {
                         <MudPaper Outlined="true" Class="pa-4">
                             <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">Total de la factura del proveedor</MudText>
-                            <MudNumericField T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al contabilizar)" Min="0" />
+                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_totalFactura" Label="Total de la factura del proveedor (se compara con el calculado al contabilizar)" Min="0" />
                         </MudPaper>
                     }
                     else if (_compra.Str("status") == "VOIDED")
@@ -231,12 +170,10 @@
 
 @code {
     private List<JsonElement> _proveedores = [];
-    private List<JsonElement> _bodegas = [];
     private List<JsonElement> _medios = [];
-    private List<JsonElement> _resultados = [];
-    private List<Linea> _lineas = [];
+    private List<LineaProducto> _lineas = [];
     private string _modo = "Credit";
-    private string? _error, _factura, _referencia, _notas, _buscar, _motivo, _ordenNumero, _clave;
+    private string? _error, _factura, _referencia, _notas, _motivo, _ordenNumero, _clave;
     private Guid? _proveedor, _bodega, _medio, _ordenId;
     private DateTime? _fecha;
     private decimal? _totalFactura;
@@ -319,23 +256,11 @@
     {
         _proveedores = (await Api.GetAsync<JsonElement>("api/v1/purchasing/suppliers")).Items();
         _medios = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
-        if (Session.Me is { } me)
-        {
-            try
-            {
-                var branch = await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}");
-                _bodegas = [.. branch.Prop("warehouses").Items().Where(w => w.Str("status") is "ACTIVE" or "Active")];
-            }
-            catch (ApiException ex)
-            {
-                Snackbar.Add($"No se pudieron leer las bodegas: {ex.Texto}", Severity.Warning);
-            }
-        }
+        await Bodegas.CargarAsync();
 
         JsonElement? order = Orden is { } orderId ? await Api.GetAsync<JsonElement>($"api/v1/purchasing/orders/{orderId}") : null;
         _lineas = [];
-        _resultados = [];
-        _buscar = _factura = _referencia = _notas = null;
+        _factura = _referencia = _notas = null;
         _fecha = DateTime.Today;
         _totalFactura = null;
         _modo = "Credit";
@@ -343,51 +268,7 @@
         _ordenId = order?.GetProperty("id").GetGuid();
         _ordenNumero = order?.Str("number");
         _proveedor = order?.GetProperty("supplierId").GetGuid();
-        _bodega = order?.GetProperty("warehouseId").GetGuid()
-            ?? _bodegas.Where(w => w.Str("kind") == "SalesFloor").Concat(_bodegas).Select(w => (Guid?)w.GetProperty("id").GetGuid()).FirstOrDefault();
-    }
-
-    private async Task BuscarProductosAsync()
-    {
-        if (string.IsNullOrWhiteSpace(_buscar))
-        {
-            _resultados = [];
-            return;
-        }
-
-        try
-        {
-            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Texto, Severity.Error);
-        }
-    }
-
-    private async Task AgregarAsync(JsonElement product)
-    {
-        try
-        {
-            var detail = await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{product.GetProperty("id").GetGuid()}");
-            _lineas.Add(new Linea
-            {
-                ProductId = detail.GetProperty("id").GetGuid(),
-                Sku = detail.Str("sku"),
-                Nombre = detail.Str("name"),
-                Unidad = detail.Str("baseUnitCode"),
-                Lotes = detail.Bool("tracksLots"),
-                Vence = detail.Bool("tracksExpiry"),
-                Empaques = [.. detail.Prop("packagings").Items().Where(p => p.Bool("isPurchasable"))
-                    .Select(p => new Empaque(p.GetProperty("id").GetGuid(), $"{p.Str("name")} (× {Format.Quantity(p.Dec("factor"))})"))],
-            });
-            _resultados = [];
-            _buscar = null;
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Texto, Severity.Error);
-        }
+        _bodega = order?.GetProperty("warehouseId").GetGuid() ?? Bodegas.Primera(Bodegas.Elegibles);
     }
 
     private async Task CrearAsync()
@@ -522,38 +403,5 @@
         }
 
         _busy = false;
-    }
-
-    private void Quitar(Linea linea) => _lineas.Remove(linea);
-
-    private sealed record Empaque(Guid Id, string Nombre);
-
-    private sealed class Linea
-    {
-        public Guid ProductId { get; init; }
-
-        public string Sku { get; init; } = "";
-
-        public string Nombre { get; init; } = "";
-
-        public string Unidad { get; init; } = "";
-
-        public List<Empaque> Empaques { get; init; } = [];
-
-        public bool Lotes { get; init; }
-
-        public bool Vence { get; init; }
-
-        public Guid EmpaqueId { get; set; }
-
-        public decimal Cantidad { get; set; } = 1;
-
-        public decimal? Costo { get; set; }
-
-        public decimal Descuento { get; set; }
-
-        public string? Lote { get; set; }
-
-        public DateTime? Vencimiento { get; set; }
     }
 }

@@ -239,6 +239,9 @@ html[data-tema="oscuro"] .arranque-nombre span { color: #8B9CFF; }
 .mud-simple-table { border-radius: var(--bp-radio-l); }
 .mud-simple-table.mud-table-outlined { overflow: hidden; }
 .mud-simple-table table tbody tr:hover td { background: var(--mud-palette-table-hover); }
+/* Listas cuya fila abre el detalle (Class="fila-clic" en el MudTable con OnRowClick). */
+.fila-clic tbody tr { cursor: pointer; }
+.fila-clic tbody tr:hover td { background: var(--mud-palette-table-hover); }
 .mud-table-container { overflow-x: auto; }
 .mud-tabs .mud-tabs-tabbar { background: transparent; border-bottom: 1px solid var(--mud-palette-lines-default); }
 .mud-tab { text-transform: none; font-weight: 600; min-height: 46px; }
@@ -611,3 +614,11 @@ html[data-tema="oscuro"] .etiqueta.promo { color: #86EFAC; }
     .caja-barra .mud-button-root { min-width: 44px; padding-left: 10px; padding-right: 10px; }
     .caja-barra .mud-button-root .mud-button-icon-start { margin: 0; }
 }
+
+/* Consultar precio (F5) en la caja. */
+.consulta-resultado { margin-top: 14px; padding: 16px 18px; border-radius: var(--bp-radio-l); background: var(--mud-palette-background-gray); }
+.consulta-nombre { font-size: 1.35rem; font-weight: 750; line-height: 1.25; }
+.consulta-codigos { margin-top: 2px; color: var(--mud-palette-text-secondary); font-size: .9rem; }
+.consulta-precio { margin-top: 10px; font-size: clamp(40px, 6vw, 56px); font-weight: 800; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.consulta-precio small { display: block; font-size: .85rem; font-weight: 600; letter-spacing: 0; color: var(--mud-palette-text-secondary); }
+.consulta-detalle { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: .9rem; color: var(--mud-palette-text-secondary); }

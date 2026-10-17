@@ -102,7 +102,7 @@ internal static class CustomersMapping
         c.PartyId, p.DisplayName, p.PersonType, p.IdentificationType, p.IdentificationNumber, p.CheckDigit, p.Email, p.Phone, p.Address, p.MunicipalityCode,
         p.TaxRegime, p.FiscalResponsibilities, c.GroupId, group?.Code ?? string.Empty, c.PriceListId, c.Status.Db(), c.BlockReason, c.Origin.Db(),
         c.AlwaysRequestsInvoice, c.ServiceConsent, c.MarketingConsent, c.MarketingChannels?.Split(';') ?? [], c.ConsentPolicyVersion, c.AnonymizedAt,
-        string.IsNullOrWhiteSpace(p.Email));
+        string.IsNullOrWhiteSpace(p.Email), p.LegalName, p.FirstNames, p.LastNames, p.TradeName);
 
     public static CustomerGroupDto ToDto(this CustomerGroup g) => new(g.Id, g.Code, g.Name, g.PriceListId, g.IsDefault, g.Status.Db());
 

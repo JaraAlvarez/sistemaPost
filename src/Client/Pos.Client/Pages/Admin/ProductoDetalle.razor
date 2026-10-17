@@ -52,7 +52,7 @@
                             <MudSelect T="Guid?" @bind-Value="_category" Label="Categoría" ReadOnly="@(!PuedeEditar)">
                                 @foreach (var category in _categories)
                                 {
-                                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@category.Str("path")</MudSelectItem>
+                                    <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@Categorias.Nombre(_categories, category)</MudSelectItem>
                                 }
                             </MudSelect>
                         </MudItem>
@@ -82,10 +82,12 @@
                             <MudTextField @bind-Value="_description" Label="Descripción (opcional)" Immediate="true" Lines="2" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>
                         <MudItem xs="12" sm="4">
-                            <MudTextField @bind-Value="_plu" Label="PLU de báscula (opcional)" Immediate="true" ReadOnly="@(!PuedeEditar)" HelperText="Hasta 6 dígitos" />
+                            <MudTextField @bind-Value="_plu" Label="@(PluObligatorio ? "PLU de báscula" : "PLU de báscula (opcional)")" Immediate="true" ReadOnly="@(!PuedeEditar)"
+                                          Required="@PluObligatorio" RequiredError="Un producto de báscula necesita su PLU."
+                                          HelperText="@(PluObligatorio ? "Obligatorio: es el número que la báscula imprime en la etiqueta (1 a 6 dígitos)" : "Hasta 6 dígitos")" />
                         </MudItem>
                         <MudItem xs="6" sm="4">
-                            <MudNumericField T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
+                            <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_netContent" Label="Contenido neto (opcional)" Min="0" ReadOnly="@(!PuedeEditar)" />
                         </MudItem>
                         <MudItem xs="6" sm="4">
                             <MudSelect T="string" @bind-Value="_netUnit" Label="Unidad del contenido" Clearable="true" ReadOnly="@(!PuedeEditar)">
@@ -119,7 +121,7 @@
                                 <MudTextField @bind-Value="_barcode" Label="Código de barras" Immediate="true" HelperText="Vacío = se genera uno interno" />
                             </MudItem>
                             <MudItem xs="12" sm="6">
-                                <MudNumericField T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
+                                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_price" Label="Precio de venta (IVA incluido)" Min="0" />
                             </MudItem>
                         }
                     </MudGrid>
@@ -137,6 +139,10 @@
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !FormularioValido)" OnClick="CrearAsync">Crear producto</MudButton>
                             }
                         </MudStack>
+                        @if (PluObligatorio && string.IsNullOrWhiteSpace(_plu))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block mt-1">Escriba el PLU de báscula para poder guardar.</MudText>
+                        }
                     }
                 </MudTabPanel>
 
@@ -153,7 +159,7 @@
                             <RowTemplate>
                                 <MudTd>@NombreLista(context)</MudTd>
                                 <MudTd>@NombrePresentacion(context.Str("packagingId"))</MudTd>
-                                <MudTd>@(context.Str("branchId") == "" ? "Todas" : "Solo una sucursal")</MudTd>
+                                <MudTd>@NombreSucursal(context.Str("branchId"))</MudTd>
                                 <MudTd Class="num">@Format.Money(context.Dec("price"))</MudTd>
                                 <MudTd>@Format.Date(context.Date("validFrom"))</MudTd>
                                 <MudTd>@Format.Date(context.Date("validTo"))</MudTd>
@@ -171,11 +177,54 @@
                         </MudTable>
                     </MudTabPanel>
 
+                    <MudTabPanel Text="Presentaciones">
+                        <MudText Typo="Typo.body2" Class="mb-3">
+                            Empaques en que se compra o se vende el producto (p. ej. «Caja × 12», «Paca × 6»). Las unidades son cuántas @_unit trae cada empaque.
+                        </MudText>
+                        @if (PuedeEditar)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add" Class="mb-3" Disabled="_busy"
+                                       OnClick="@(() => AbrirPresentacion(null))">Agregar presentación</MudButton>
+                        }
+                        <MudTable Items="Presentaciones" Dense="true" Striped="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh>Nombre</MudTh><MudTh Class="num">Unidades</MudTh><MudTh>Códigos de barras</MudTh><MudTh Class="num">Precio vigente</MudTh>
+                                <MudTh>Se vende</MudTh><MudTh>Se compra</MudTh><MudTh></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@context.Str("name")</MudTd>
+                                <MudTd Class="num">@Format.Quantity(context.Dec("factor")) @_unit</MudTd>
+                                <MudTd Class="num">@CodigosDe(context.Str("id"))</MudTd>
+                                <MudTd Class="num">@(PrecioActual(ListaPorDefecto, context.GetProperty("id").GetGuid(), null) is { } precio ? Format.Money(precio) : "—")</MudTd>
+                                <MudTd>@(context.Bool("isSellable") ? "Sí" : "No")</MudTd>
+                                <MudTd>@(context.Bool("isPurchasable") ? "Sí" : "No")</MudTd>
+                                <MudTd>
+                                    @if (PuedeEditar)
+                                    {
+                                        <MudButton Size="Size.Small" Disabled="_busy" OnClick="@(() => AbrirPresentacion(context))">Editar</MudButton>
+                                        <MudButton Size="Size.Small" Color="Color.Error" Disabled="_busy" OnClick="@(() => QuitarPresentacionAsync(context))">Eliminar</MudButton>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent><EstadoVacio Mensaje="El producto no tiene presentaciones." Detalle="Se vende y se compra solo por unidad base." Compacto="true" /></NoRecordsContent>
+                        </MudTable>
+                    </MudTabPanel>
+
                     <MudTabPanel Text="Códigos de barras">
                         @if (PuedeEditar)
                         {
                             <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap">
                                 <MudTextField @bind-Value="_nuevoCodigo" Label="Código de fábrica" Immediate="true" Style="min-width:240px" />
+                                @if (Presentaciones.Count > 0)
+                                {
+                                    <MudSelect T="Guid" @bind-Value="_codigoPresentacion" Label="Presentación" Style="min-width:200px">
+                                        <MudSelectItem T="Guid" Value="@Guid.Empty">Unidad base</MudSelectItem>
+                                        @foreach (var packaging in Presentaciones)
+                                        {
+                                            <MudSelectItem T="Guid" Value="@packaging.GetProperty("id").GetGuid()">@packaging.Str("name")</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                }
                                 <MudCheckBox T="bool" @bind-Value="_nuevoPrincipal" Label="Principal" />
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_nuevoCodigo))"
                                            OnClick="@(() => AgregarCodigoAsync(false))">Agregar</MudButton>
@@ -214,7 +263,7 @@
                                 </MudSelect>
                                 @if (ImpuestoNuevoEsFijo)
                                 {
-                                    <MudNumericField T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
+                                    <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_nuevoValorFijo" Label="Valor fijo por unidad (opcional)" Min="0" />
                                 }
                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _nuevoImpuesto is null)" OnClick="AgregarImpuestoAsync">Agregar</MudButton>
                             </MudStack>
@@ -286,12 +335,69 @@
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true" aria-labelledby="titulo-precio">
             <h2 id="titulo-precio">Precio de @_producto.Str("name")</h2>
-            <MudText Typo="Typo.body2">Precio actual: @Format.Money(PrecioVigente). El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.</MudText>
-            <MudNumericField T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
-            <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" />
+            <MudText Typo="Typo.body2">
+                Precio actual para esta combinación: @(PrecioSeleccionado is { } actual ? Format.Money(actual) : "sin precio").
+                El cambio queda en la auditoría y rige desde ahora o desde la fecha indicada.
+            </MudText>
+            <MudSelect T="Guid?" Value="_precioLista" ValueChanged="CambiarListaPrecio" Label="Lista de precios">
+                @foreach (var list in _priceLists.Where(l => l.Str("status") == "ACTIVE" || l.Bool("isDefault")))
+                {
+                    <MudSelectItem T="Guid?" Value="@list.GetProperty("id").GetGuid()">@list.Str("name")@(list.Bool("isDefault") ? " (por defecto)" : "")</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_branches.Count > 0)
+            {
+                <MudSelect T="Guid" Value="_precioSucursal" ValueChanged="CambiarSucursalPrecio" Label="Sucursal">
+                    <MudSelectItem T="Guid" Value="@Guid.Empty">Todas las sucursales</MudSelectItem>
+                    @foreach (var branch in _branches)
+                    {
+                        <MudSelectItem T="Guid" Value="@branch.GetProperty("id").GetGuid()">@branch.Str("name")</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            @if (PresentacionesVendibles.Any())
+            {
+                <MudSelect T="Guid" Value="_precioPresentacion" ValueChanged="CambiarPresentacionPrecio" Label="Presentación">
+                    <MudSelectItem T="Guid" Value="@Guid.Empty">Unidad base (@_unit)</MudSelectItem>
+                    @foreach (var packaging in PresentacionesVendibles)
+                    {
+                        <MudSelectItem T="Guid" Value="@packaging.GetProperty("id").GetGuid()">@packaging.Str("name") (@Format.Quantity(packaging.Dec("factor")) @_unit)</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_nuevoPrecio" Label="Nuevo precio (IVA incluido)" Min="0" AutoFocus="true" />
+            <MudDatePicker @bind-Date="_desde" Label="Rige desde (opcional)" DateFormat="dd/MM/yyyy" MinDate="@DateTime.Today"
+                           Clearable="true" HelperText="Vacío = rige desde ahora; con fecha queda programado" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _cambiandoPrecio = false)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="GuardarPrecioAsync">Guardar</MudButton>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_editandoPresentacion)
+{
+    <div class="panel-fondo">
+        <div class="panel" role="dialog" aria-modal="true" aria-labelledby="titulo-presentacion">
+            <h2 id="titulo-presentacion">@(_presentacionId is null ? "Nueva presentación" : "Editar presentación")</h2>
+            <MudTextField @bind-Value="_pNombre" Label="Nombre" Immediate="true" AutoFocus="true" MaxLength="60" HelperText="Ej.: Caja × 12, Paca × 6" />
+            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_pFactor" Label="@($"Unidades por empaque ({_unit})")" Min="0" />
+            <MudCheckBox T="bool" @bind-Value="_pVende" Label="Se vende en la caja" />
+            <MudCheckBox T="bool" @bind-Value="_pCompra" Label="Se compra a proveedores" />
+            @if (_presentacionId is null)
+            {
+                <MudTextField @bind-Value="_pCodigo" Label="Código de barras del empaque (opcional)" Immediate="true" />
+                @if (Session.Has("catalog.price.manage"))
+                {
+                    <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_pPrecio" Label="Precio del empaque (opcional, IVA incluido)" Min="0"
+                                     HelperText="Se fija en la lista por defecto para todas las sucursales" />
+                }
+            }
+            <div class="acciones">
+                <MudButton OnClick="@(() => _editandoPresentacion = false)">Cancelar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_pNombre) || _pFactor <= 0)"
+                           OnClick="GuardarPresentacionAsync">Guardar</MudButton>
             </div>
         </div>
     </div>
@@ -301,7 +407,7 @@
     [Parameter]
     public Guid? Id { get; set; }
 
-    private List<JsonElement> _categories = [], _brands = [], _units = [], _taxes = [], _priceLists = [], _precios = [], _existencias = [];
+    private List<JsonElement> _categories = [], _brands = [], _units = [], _taxes = [], _priceLists = [], _branches = [], _precios = [], _existencias = [];
     private JsonElement _producto;
     private string? _clave;
     private bool _maestros, _loading = true, _busy, _cambiandoPrecio;
@@ -319,8 +425,18 @@
     // Precio, códigos e impuestos.
     private decimal _nuevoPrecio;
     private DateTime? _desde;
+    private Guid? _precioLista;
+    private Guid _precioSucursal, _precioPresentacion; // Guid.Empty = todas las sucursales / unidad base.
     private string? _nuevoCodigo;
     private bool _nuevoPrincipal;
+    private Guid _codigoPresentacion; // Guid.Empty = unidad base.
+
+    // Presentación en edición (_presentacionId null = nueva).
+    private bool _editandoPresentacion, _pVende, _pCompra;
+    private Guid? _presentacionId;
+    private string? _pNombre, _pCodigo;
+    private decimal _pFactor;
+    private decimal? _pPrecio;
     private Guid? _nuevoImpuesto;
     private decimal? _nuevoValorFijo;
 
@@ -334,7 +450,11 @@
 
     private string? Subtitulo => EsExistente ? $"SKU {_producto.Str("sku")} · {NombreEstado(Estado)}" : null;
 
-    private bool FormularioValido => !string.IsNullOrWhiteSpace(_name) && _category is not null && !string.IsNullOrWhiteSpace(_unit);
+    private bool FormularioValido => !string.IsNullOrWhiteSpace(_name) && _category is not null && !string.IsNullOrWhiteSpace(_unit)
+                                     && !(PluObligatorio && string.IsNullOrWhiteSpace(_plu));
+
+    /// <summary>El servidor exige PLU a los productos vendidos por báscula (solo kilogramos).</summary>
+    private bool PluObligatorio => _unit == "KG" && _scale;
 
     private List<JsonElement> Codigos => _producto.Prop("barcodes").Items();
 
@@ -360,10 +480,22 @@
         _priceLists.FirstOrDefault(l => l.Bool("isDefault")) is { ValueKind: JsonValueKind.Object } list ? list.GetProperty("id").GetGuid() : null;
 
     /// <summary>Precio vigente por unidad base en la lista por defecto, para todas las sucursales.</summary>
-    private decimal? PrecioVigente =>
-        _precios.Where(p => p.Str("state") == "CURRENT" && p.Str("packagingId") == "" && p.Str("branchId") == ""
-                            && (ListaPorDefecto is not { } lista || p.Str("priceListId") == lista.ToString()))
+    private decimal? PrecioVigente => PrecioActual(ListaPorDefecto, null, null);
+
+    /// <summary>Precio vigente de la combinación elegida en «Cambiar precio».</summary>
+    private decimal? PrecioSeleccionado => PrecioActual(_precioLista, SinVacio(_precioPresentacion), SinVacio(_precioSucursal));
+
+    private IEnumerable<JsonElement> PresentacionesVendibles => Presentaciones.Where(p => p.Bool("isSellable") || p.GetProperty("id").GetGuid() == _precioPresentacion);
+
+    /// <summary>Precio vigente en una lista (null = cualquiera), presentación (null = unidad base) y sucursal (null = todas).</summary>
+    private decimal? PrecioActual(Guid? lista, Guid? presentacion, Guid? sucursal) =>
+        _precios.Where(p => p.Str("state") == "CURRENT"
+                            && string.Equals(p.Str("packagingId"), presentacion?.ToString() ?? "", StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(p.Str("branchId"), sucursal?.ToString() ?? "", StringComparison.OrdinalIgnoreCase)
+                            && (lista is not { } l || string.Equals(p.Str("priceListId"), l.ToString(), StringComparison.OrdinalIgnoreCase)))
             .Select(p => (decimal?)p.Dec("price")).FirstOrDefault();
+
+    private static Guid? SinVacio(Guid id) => id == Guid.Empty ? null : id;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -412,6 +544,19 @@
         _units = (await Api.GetAsync<JsonElement>("api/v1/catalog/units")).Items();
         _taxes = (await Api.GetAsync<JsonElement>("api/v1/catalog/taxes")).Items();
         _priceLists = (await Api.GetAsync<JsonElement>("api/v1/catalog/price-lists")).Items();
+        if (Session.Has("organization.branch.view"))
+        {
+            try
+            {
+                _branches = (await Api.GetAsync<JsonElement>("api/v1/organization/branches")).Items();
+            }
+            catch (ApiException)
+            {
+                // Sin sucursales el precio se fija para todas; la ficha sigue funcionando.
+                _branches = [];
+            }
+        }
+
         _maestros = true;
     }
 
@@ -558,9 +703,30 @@
 
     private void AbrirPrecio()
     {
-        _nuevoPrecio = PrecioVigente ?? 0;
+        _precioLista = ListaPorDefecto;
+        _precioSucursal = Guid.Empty;
+        _precioPresentacion = Guid.Empty;
+        _nuevoPrecio = PrecioSeleccionado ?? 0;
         _desde = null;
         _cambiandoPrecio = true;
+    }
+
+    private void CambiarListaPrecio(Guid? lista)
+    {
+        _precioLista = lista;
+        _nuevoPrecio = PrecioSeleccionado ?? 0;
+    }
+
+    private void CambiarSucursalPrecio(Guid sucursal)
+    {
+        _precioSucursal = sucursal;
+        _nuevoPrecio = PrecioSeleccionado ?? 0;
+    }
+
+    private void CambiarPresentacionPrecio(Guid presentacion)
+    {
+        _precioPresentacion = presentacion;
+        _nuevoPrecio = PrecioSeleccionado ?? 0;
     }
 
     private async Task GuardarPrecioAsync()
@@ -569,7 +735,7 @@
         {
             var result = await Api.PostAsync<JsonElement>($"api/v1/catalog/products/{id}/prices", new
             {
-                price = _nuevoPrecio, priceListId = (Guid?)null, packagingId = (Guid?)null, branchId = (Guid?)null,
+                price = _nuevoPrecio, priceListId = _precioLista, packagingId = SinVacio(_precioPresentacion), branchId = SinVacio(_precioSucursal),
                 validFrom = _desde is { } d ? new DateTimeOffset(d.Date) : (DateTimeOffset?)null,
             });
             foreach (var warning in result.Prop("warnings").Items())
@@ -603,10 +769,12 @@
         {
             await Api.PostAsync($"api/v1/catalog/products/{id}/barcodes", new
             {
-                code = generar ? null : _nuevoCodigo?.Trim(), packagingId = (Guid?)null, type = (string?)null, generate = generar, isPrimary = _nuevoPrincipal,
+                code = generar ? null : _nuevoCodigo?.Trim(), packagingId = _codigoPresentacion == Guid.Empty ? (Guid?)null : _codigoPresentacion,
+                type = (string?)null, generate = generar, isPrimary = _nuevoPrincipal,
             });
             _nuevoCodigo = null;
             _nuevoPrincipal = false;
+            _codigoPresentacion = Guid.Empty;
             return generar ? "Código interno generado." : "Código agregado.";
         });
     }
@@ -624,6 +792,72 @@
             return "Código quitado.";
         });
     }
+
+    /// <summary>Abre el formulario de presentación: vacío (nueva) o con los datos de una existente.</summary>
+    private void AbrirPresentacion(JsonElement? packaging)
+    {
+        var p = packaging ?? default;
+        var existe = p.ValueKind == JsonValueKind.Object;
+        _presentacionId = existe ? p.GetProperty("id").GetGuid() : null;
+        _pNombre = existe ? p.Str("name") : null;
+        _pFactor = existe ? p.Dec("factor") : 0;
+        _pVende = !existe || p.Bool("isSellable");
+        _pCompra = !existe || p.Bool("isPurchasable");
+        _pCodigo = null;
+        _pPrecio = null;
+        _editandoPresentacion = true;
+    }
+
+    private async Task GuardarPresentacionAsync()
+    {
+        var name = (_pNombre ?? "").Trim();
+        await EjecutarAsync(async id =>
+        {
+            if (_presentacionId is { } packagingId)
+            {
+                await Api.PutAsync<JsonElement>($"api/v1/catalog/products/{id}/packagings/{packagingId}", new
+                {
+                    name, factor = _pFactor, isSellable = _pVende, isPurchasable = _pCompra,
+                });
+            }
+            else
+            {
+                await Api.PostAsync<JsonElement>($"api/v1/catalog/products/{id}/packagings", new
+                {
+                    name, factor = _pFactor, isSellable = _pVende, isPurchasable = _pCompra,
+                    barcode = string.IsNullOrWhiteSpace(_pCodigo) ? null : _pCodigo.Trim(),
+                    price = Session.Has("catalog.price.manage") ? _pPrecio : null,
+                });
+            }
+
+            var aviso = _presentacionId is null ? "Presentación agregada." : "Presentación actualizada.";
+            _editandoPresentacion = false;
+            return aviso;
+        });
+    }
+
+    private async Task QuitarPresentacionAsync(JsonElement packaging)
+    {
+        if (!await Dialogs.ConfirmarAsync("Eliminar presentación",
+                $"Se elimina {packaging.Str("name")} con sus códigos de barras; sus precios vigentes se cierran y los programados se cancelan.", "Eliminar", true))
+        {
+            return;
+        }
+
+        await EjecutarAsync(async id =>
+        {
+            await Api.SendAsync<JsonElement?>(HttpMethod.Delete, $"api/v1/catalog/products/{id}/packagings/{packaging.GetProperty("id").GetGuid()}", null);
+            return "Presentación eliminada.";
+        });
+    }
+
+    private string CodigosDe(string packagingId) =>
+        Codigos.Where(b => string.Equals(b.Str("packagingId"), packagingId, StringComparison.OrdinalIgnoreCase)).Select(b => b.Str("code")).ToList() is { Count: > 0 } codes
+            ? string.Join(", ", codes)
+            : "—";
+
+    private string NombreSucursal(string branchId) =>
+        branchId == "" ? "Todas" : _branches.FirstOrDefault(b => string.Equals(b.Str("id"), branchId, StringComparison.OrdinalIgnoreCase)).Str("name") is { Length: > 0 } name ? name : "Una sucursal";
 
     private async Task AgregarImpuestoAsync()
     {

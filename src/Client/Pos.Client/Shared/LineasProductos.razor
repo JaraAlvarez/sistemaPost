@@ -1,0 +1,142 @@
+@* Productos de una orden o una factura de compra nueva: búsqueda por nombre, SKU o código de barras y la tabla de líneas (presentación,
+   cantidad y costo; en la factura también descuento, lote y vencimiento). Agrega y quita directamente en la lista Lineas. *@
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+
+<MudTextField T="string" @bind-Value="_buscar" Label="Buscar producto por nombre, SKU o código de barras" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarAsync())" Class="mb-2" />
+@if (_resultados.Count > 0)
+{
+    <MudSimpleTable Dense="true" Hover="true" Class="mb-3">
+        <tbody>
+            @foreach (var product in _resultados)
+            {
+                <tr>
+                    <td>@product.Str("sku")</td>
+                    <td>@product.Str("name")</td>
+                    <td>@product.Str("primaryBarcode")</td>
+                    <td><MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add" OnClick="@(() => AgregarAsync(product))">Agregar</MudButton></td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+<MudSimpleTable Dense="true" Outlined="true">
+    <thead>
+        <tr>
+            <th>Producto</th><th>Presentación</th><th class="num">Cantidad</th><th class="num">Costo unitario</th>
+            @if (Compra)
+            {
+                <th class="num">Descuento</th><th>Lote</th><th>Vencimiento</th>
+            }
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var linea in Lineas)
+        {
+            <tr>
+                <td>@linea.Sku · @linea.Nombre</td>
+                <td style="min-width:150px">
+                    <MudSelect T="Guid" @bind-Value="linea.EmpaqueId" Dense="true">
+                        <MudSelectItem T="Guid" Value="Guid.Empty">@linea.Unidad (unidad base)</MudSelectItem>
+                        @foreach (var packaging in linea.Empaques)
+                        {
+                            <MudSelectItem T="Guid" Value="packaging.Id">@packaging.Nombre</MudSelectItem>
+                        }
+                    </MudSelect>
+                </td>
+                <td style="min-width:100px"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="linea.Cantidad" Min="0" /></td>
+                <td style="min-width:130px"><MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="linea.Costo" Min="0" Placeholder="Último costo" /></td>
+                @if (Compra)
+                {
+                    <td style="min-width:110px"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="linea.Descuento" Min="0" /></td>
+                    <td style="min-width:110px">
+                        @if (linea.Lotes)
+                        {
+                            <MudTextField @bind-Value="linea.Lote" Placeholder="Lote" Immediate="true" />
+                        }
+                    </td>
+                    <td style="min-width:150px">
+                        @if (linea.Vence)
+                        {
+                            <MudDatePicker @bind-Date="linea.Vencimiento" DateFormat="dd/MM/yyyy" Placeholder="Vence" />
+                        }
+                    </td>
+                }
+                <td><MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" aria-label="Quitar producto" OnClick="@(() => Lineas.Remove(linea))" /></td>
+            </tr>
+        }
+        @if (Lineas.Count == 0)
+        {
+            <tr><td colspan="@(Compra ? 8 : 5)">Busque y agregue los productos.</td></tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@code {
+    /// <summary>Las líneas del documento: el componente agrega y quita aquí. Al cambiar la lista (documento nuevo) se limpia la búsqueda.</summary>
+    [Parameter, EditorRequired]
+    public List<LineaProducto> Lineas { get; set; } = [];
+
+    /// <summary>Factura de compra: muestra descuento, lote y vencimiento (estos dos solo si el producto los maneja).</summary>
+    [Parameter]
+    public bool Compra { get; set; }
+
+    private List<JsonElement> _resultados = [];
+    private List<LineaProducto>? _lineasPrevias;
+    private string? _buscar;
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(Lineas, _lineasPrevias))
+        {
+            _lineasPrevias = Lineas;
+            _resultados = [];
+            _buscar = null;
+        }
+    }
+
+    private async Task BuscarAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_buscar))
+        {
+            _resultados = [];
+            return;
+        }
+
+        try
+        {
+            _resultados = (await Api.GetAsync<JsonElement>($"api/v1/catalog/products?pageSize=10&search={Uri.EscapeDataString(_buscar.Trim())}")).Items();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+    }
+
+    private async Task AgregarAsync(JsonElement product)
+    {
+        try
+        {
+            var detail = await Api.GetAsync<JsonElement>($"api/v1/catalog/products/{product.GetProperty("id").GetGuid()}");
+            Lineas.Add(new LineaProducto
+            {
+                ProductId = detail.GetProperty("id").GetGuid(),
+                Sku = detail.Str("sku"),
+                Nombre = detail.Str("name"),
+                Unidad = detail.Str("baseUnitCode"),
+                Lotes = detail.Bool("tracksLots"),
+                Vence = detail.Bool("tracksExpiry"),
+                Empaques = [.. detail.Prop("packagings").Items().Where(p => p.Bool("isPurchasable"))
+                    .Select(p => new EmpaqueProducto(p.GetProperty("id").GetGuid(), $"{p.Str("name")} (× {Format.Quantity(p.Dec("factor"))})"))],
+            });
+            _resultados = [];
+            _buscar = null;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+    }
+}

@@ -119,7 +119,7 @@ public sealed class PartyRegistry(IInstallationContext installation, IPartyStore
         return new PartyProfile(
             p.Id, p.DisplayName, p.PersonType.ToString().ToUpperInvariant(), p.IdentificationType, p.IdentificationNumber, p.CheckDigit, p.LegalName, p.FirstNames,
             p.LastNames, p.TaxRegime, p.FiscalResponsibilities.Split(';', StringSplitOptions.RemoveEmptyEntries), p.Email, p.Phone, p.Address, p.MunicipalityCode,
-            p.Status.ToString().ToUpperInvariant(), p.IsSystem);
+            p.Status.ToString().ToUpperInvariant(), p.IsSystem, p.TradeName);
     }
 
     private static Result<PartyData> ToData(PartyRegistration r)

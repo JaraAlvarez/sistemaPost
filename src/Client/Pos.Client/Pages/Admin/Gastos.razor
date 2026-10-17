@@ -2,6 +2,7 @@
 @inject ApiClient Api
 @inject SessionState Session
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Gastos · BusinessPost</PageTitle>
 
@@ -20,7 +21,7 @@
         }
     </Acciones>
     <ChildContent>
-        <MudTabs @bind-ActivePanelIndex="_tab">
+        <MudTabs ActivePanelIndex="_tab" ActivePanelIndexChanged="CambiarPestana">
             <MudTabPanel Text="Gastos">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="my-3">
                     <MudDatePicker @bind-Date="_desde" Label="Desde" DateFormat="dd/MM/yyyy" Style="max-width: 180px" />
@@ -32,7 +33,7 @@
                             <MudSelectItem T="Guid?" Value="@category.GetProperty("id").GetGuid()">@NombreCategoria(category)</MudSelectItem>
                         }
                     </MudSelect>
-                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="BuscarAsync">Consultar</MudButton>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search" OnClick="FiltrarAsync">Consultar</MudButton>
                 </MudStack>
                 <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true">
                     <HeaderContent>
@@ -110,8 +111,8 @@
             </MudSelect>
             <MudTextField @bind-Value="_descripcion" Label="Descripción" Immediate="true" />
             <MudStack Row="true">
-                <MudNumericField T="decimal" @bind-Value="_valor" Label="Valor total pagado" Min="0" />
-                <MudNumericField T="decimal" @bind-Value="_iva" Label="IVA incluido (si aplica)" Min="0" />
+                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_valor" Label="Valor total pagado" Min="0" />
+                <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_iva" Label="IVA incluido (si aplica)" Min="0" />
             </MudStack>
             <MudSelect T="Guid?" @bind-Value="_medio" Label="Medio de pago">
                 @foreach (var method in _methods)
@@ -179,7 +180,7 @@
                     }
                 </MudSelect>
             }
-            <MudNumericField T="int" @bind-Value="_categoriaOrden" Label="Orden" Min="0" />
+            <MudNumericField Culture="@Format.Colombia" T="int" @bind-Value="_categoriaOrden" Label="Orden" Min="0" />
             @if (_categoriaId is not null)
             {
                 <MudCheckBox T="bool" @bind-Value="_categoriaActiva" Label="Activa" />
@@ -205,9 +206,31 @@
     private decimal _valor, _iva;
     private JsonElement _anular;
 
+    [SupplyParameterFromQuery(Name = "desde")]
+    public string? Desde { get; set; }
+
+    [SupplyParameterFromQuery(Name = "hasta")]
+    public string? Hasta { get; set; }
+
+    [SupplyParameterFromQuery(Name = "categoria")]
+    public string? CategoriaQuery { get; set; }
+
+    /// <summary>"categorias" abre la pestaña de categorías.</summary>
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Pestana { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
+        // Sin fechas en la dirección se conserva el rango por omisión (mes en curso).
+        _desde = Filtros.Fecha(Desde) ?? _desde;
+        _hasta = Filtros.Fecha(Hasta) ?? _hasta;
+        _tab = Pestana == "categorias" ? 1 : 0;
         await CargarCategoriasAsync();
+        if (Guid.TryParse(CategoriaQuery, out var categoria) && _categories.Any(c => Guid.TryParse(c.Str("id"), out var id) && id == categoria))
+        {
+            _filtroCategoria = categoria;
+        }
+
         try
         {
             _methods = (await Api.GetAsync<JsonElement>("api/v1/cash/payment-methods")).Items();
@@ -218,6 +241,26 @@
         }
 
         await BuscarAsync();
+    }
+
+    private void ActualizarFiltros() => Filtros.Actualizar(Navigation, new Dictionary<string, object?>
+    {
+        ["desde"] = _desde,
+        ["hasta"] = _hasta,
+        ["categoria"] = _filtroCategoria,
+        ["tab"] = _tab == 1 ? "categorias" : null,
+    });
+
+    private void CambiarPestana(int tab)
+    {
+        _tab = tab;
+        ActualizarFiltros();
+    }
+
+    private Task FiltrarAsync()
+    {
+        ActualizarFiltros();
+        return BuscarAsync();
     }
 
     private async Task BuscarAsync()

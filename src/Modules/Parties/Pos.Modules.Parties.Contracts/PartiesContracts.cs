@@ -73,7 +73,8 @@ public sealed record PartyProfile(
     string? Address,
     string? MunicipalityCode,
     string Status,
-    bool IsSystem);
+    bool IsSystem,
+    string? TradeName = null);
 
 /// <summary>
 /// Resultado de registrar: el tercero (nuevo o el que ya existía con esa identificación, sin modificarlo) y los posibles

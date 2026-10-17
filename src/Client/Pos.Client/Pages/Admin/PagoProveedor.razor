@@ -37,7 +37,7 @@
                                         <td>@item.Documento</td>
                                         <td>@item.Vence</td>
                                         <td class="num">@Format.Money(item.Saldo)</td>
-                                        <td style="min-width:140px"><MudNumericField T="decimal" @bind-Value="item.Valor" Min="0" Max="item.Saldo" Disabled="!item.Incluir" /></td>
+                                        <td style="min-width:140px"><MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="item.Valor" Min="0" Max="item.Saldo" Disabled="!item.Incluir" /></td>
                                     </tr>
                                 }
                             </tbody>

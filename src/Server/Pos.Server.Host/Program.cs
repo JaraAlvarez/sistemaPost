@@ -3,6 +3,11 @@ using Microsoft.Extensions.Hosting.WindowsServices;
 using Pos.Server.Host;
 using Serilog;
 
+if (Pos.Shared.Precalentamiento.Pedido(args))
+{
+    return Pos.Shared.Precalentamiento.Ejecutar();
+}
+
 try
 {
     var builder = WebApplication.CreateBuilder(new WebApplicationOptions

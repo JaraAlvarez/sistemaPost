@@ -25,11 +25,11 @@
                 <MudCheckBox T="bool" @bind-Value="_pendientes" Label="Por revisar" />
             </MudItem>
             <MudItem xs="12" sm="2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_loading" OnClick="BuscarAsync">Buscar</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_loading" OnClick="FiltrarAsync">Buscar</MudButton>
             </MudItem>
         </MudGrid>
 
-        <MudTable RowsPerPage="25" Items="_sessions" Dense="true" Hover="true" Striped="true" RowStyle="cursor: pointer"
+        <MudTable RowsPerPage="25" Items="_sessions" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
             <HeaderContent>
                 <MudTh>Jornada</MudTh><MudTh>Caja</MudTh><MudTh>Cajero</MudTh><MudTh>Fecha</MudTh><MudTh>Estado</MudTh><MudTh Class="num">Diferencia</MudTh>
@@ -61,7 +61,45 @@
     private bool _pendientes, _loading = true;
     private string? _error;
 
-    protected override Task OnInitializedAsync() => BuscarAsync();
+    private static readonly string[] Estados = ["OPEN", "CLOSING", "CLOSED"];
+
+    [SupplyParameterFromQuery(Name = "desde")]
+    public string? Desde { get; set; }
+
+    [SupplyParameterFromQuery(Name = "hasta")]
+    public string? Hasta { get; set; }
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "revisar")]
+    public string? Revisar { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        // Sin fechas en la dirección se conserva el rango por omisión (últimos 7 días).
+        _desde = Filtros.Fecha(Desde) ?? _desde;
+        _hasta = Filtros.Fecha(Hasta) ?? _hasta;
+        if (EstadoQuery is { } estado && Estados.Contains(estado, StringComparer.Ordinal))
+        {
+            _estado = estado;
+        }
+
+        _pendientes = string.Equals(Revisar, "true", StringComparison.OrdinalIgnoreCase);
+        return BuscarAsync();
+    }
+
+    private Task FiltrarAsync()
+    {
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?>
+        {
+            ["desde"] = _desde,
+            ["hasta"] = _hasta,
+            ["estado"] = _estado,
+            ["revisar"] = _pendientes,
+        });
+        return BuscarAsync();
+    }
 
     private async Task BuscarAsync()
     {

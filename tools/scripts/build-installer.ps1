@@ -11,6 +11,13 @@
 .PARAMETER PostgresZip
     ZIP oficial de binarios de PostgreSQL 18 para Windows x64 (https://www.enterprisedb.com/download-postgresql-binaries). Se incluye sin
     pgAdmin, StackBuilder ni documentación.
+.PARAMETER CodeSigningThumbprint
+    Huella (thumbprint) del certificado de firma de código (Authenticode) instalado en el almacén del usuario o del equipo. Con él se
+    firman los .exe y .dll propios y el instalador. Sin firma, Windows Defender retiene cada .exe nuevo mientras lo revisa en la nube:
+    el primer arranque después de instalar o actualizar puede tardar varios minutos y superar los 30 s que Windows da a un servicio
+    (ver docs/guia-instalacion.md §8). Muy recomendado para clientes.
+.PARAMETER TimestampUrl
+    Servidor de sello de tiempo RFC 3161 del emisor del certificado (la firma sigue válida cuando el certificado vence).
 .EXAMPLE
     ./tools/scripts/build-installer.ps1 -Version 1.0.0 -PostgresZip C:\descargas\postgresql-18.1-1-windows-x64-binaries.zip `
         -LicenseServer https://businesspost.tutiendanueva.com/ -UpdateBaseUrl https://businesspost.tutiendanueva.com/updates/ -SigningKey D:\claves\actualizaciones.pem
@@ -23,7 +30,9 @@ param(
     [string] $UpdateBaseUrl = '',
     [ValidateSet('stable', 'beta', 'internal')] [string] $Channel = 'stable',
     [string] $SigningKey,
-    [string] $Notes = ''
+    [string] $Notes = '',
+    [string] $CodeSigningThumbprint,
+    [string] $TimestampUrl = 'http://timestamp.digicert.com'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +60,26 @@ Publish 'src\Server\Pos.Server.Migrator\Pos.Server.Migrator.csproj' (Join-Path $
 Publish 'src\Terminal\Pos.Terminal.Agent\Pos.Terminal.Agent.csproj' (Join-Path $app 'agent')
 Publish 'src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj' (Join-Path $package 'updater') -SingleFile
 
+# Firma de código (Authenticode): los ejecutables propios firmados no quedan retenidos por Windows Defender en el primer arranque.
+function Sign([string[]] $files) {
+    if (-not $CodeSigningThumbprint -or $files.Count -eq 0) { return }
+    $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending | Select-Object -First 1
+    if (-not $signtool) { throw 'No se encontró signtool.exe (instale el Windows SDK) para firmar con -CodeSigningThumbprint.' }
+    foreach ($group in ($files | Group-Object { [math]::Floor([array]::IndexOf($files, $_) / 50) })) {
+        & $signtool.FullName sign /sha1 $CodeSigningThumbprint /fd SHA256 /tr $TimestampUrl /td SHA256 @($group.Group)
+        if ($LASTEXITCODE -ne 0) { throw 'Falló la firma de código.' }
+    }
+}
+
+if ($CodeSigningThumbprint) {
+    Write-Host 'Firmando los ejecutables propios (Authenticode)...' -ForegroundColor Cyan
+    $own = Get-ChildItem $app, (Join-Path $package 'updater') -Recurse -Include 'Pos.*.exe', 'Pos.*.dll', 'BusinessPost*.exe' | ForEach-Object FullName
+    Sign $own
+} else {
+    Write-Warning 'Sin -CodeSigningThumbprint: los ejecutables van sin firma de código. El primer arranque tras instalar o actualizar puede tardar varios minutos (docs/guia-instalacion.md §8).'
+}
+
 Write-Host 'Agregando PostgreSQL (sin pgAdmin, StackBuilder ni documentación)...' -ForegroundColor Cyan
 Expand-Archive $PostgresZip -DestinationPath $package -Force
 foreach ($extra in 'pgAdmin 4', 'StackBuilder', 'doc', 'symbols', 'include') {
@@ -76,6 +105,7 @@ if ($iscc) {
     $manifest = if ($UpdateBaseUrl) { $UpdateBaseUrl.TrimEnd('/') + "/$Channel.json" } else { '' }
     & $iscc "/DAppVersion=$Version" "/DPackageDir=$package" "/DLicenseServer=$LicenseServer" "/DUpdateManifest=$manifest" (Join-Path $root 'installer\BusinessPost.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación del instalador.' }
+    Sign @(Get-ChildItem $releases -Filter "BusinessPost-Setup-$Version.exe" | ForEach-Object FullName)
 } else {
     Write-Warning 'Inno Setup 6 no está instalado: instálelo (winget install JRSoftware.InnoSetup) para generar el .exe del instalador.'
 }

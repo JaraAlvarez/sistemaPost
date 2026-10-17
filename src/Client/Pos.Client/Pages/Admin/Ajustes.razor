@@ -1,6 +1,7 @@
 @page "/admin/ajustes"
 @inject ApiClient Api
 @inject SessionState Session
+@inject Bodegas Bodegas
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
@@ -25,7 +26,7 @@
             <MudSelectItem T="string" Value="@("POSTED")">Publicado</MudSelectItem>
             <MudSelectItem T="string" Value="@("CANCELLED")">Anulado</MudSelectItem>
         </MudSelect>
-        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowClass="cursor-pointer"
+        <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                   OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Ver(e.Item))">
             <HeaderContent>
                 <MudTh>Número</MudTh><MudTh>Creado</MudTh><MudTh>Bodega</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
@@ -33,7 +34,7 @@
             <RowTemplate>
                 <MudTd>@context.Str("number")</MudTd>
                 <MudTd>@Format.Date(context.Date("createdAt"))</MudTd>
-                <MudTd>@Bodega(context.Str("warehouseId"))</MudTd>
+                <MudTd>@Bodegas.Nombre(context.Str("warehouseId"))</MudTd>
                 <MudTd>@Estado(context.Str("status"))</MudTd>
                 @* El clic del botón sube a la fila (OnRowClick): así se navega una sola vez. *@
                 <MudTd><MudButton Size="Size.Small">Ver</MudButton></MudTd>
@@ -51,9 +52,9 @@
             <h2>Ajuste rápido</h2>
             <MudText Typo="Typo.body2">Entrada inmediata al costo promedio para un producto que está físicamente pero el sistema no tiene. Queda en la auditoría y en el reporte de ajustes.</MudText>
             <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
-                @foreach (var warehouse in Elegibles)
+                @foreach (var warehouse in Bodegas.Elegibles)
                 {
-                    <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                    <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(warehouse)</MudSelectItem>
                 }
             </MudSelect>
             @if (_producto.ValueKind == JsonValueKind.Object)
@@ -83,7 +84,7 @@
                     </MudSimpleTable>
                 }
             }
-            <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad que entra" Min="0" />
+            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_cantidad" Label="Cantidad que entra" Min="0" />
             <MudTextField T="string" @bind-Value="_notas" Label="Motivo (de 5 a 300 caracteres)" Immediate="true" Lines="2" />
             <div class="acciones">
                 <MudButton OnClick="@(() => _rapido = false)">Cancelar</MudButton>
@@ -95,7 +96,6 @@
 
 @code {
     private List<JsonElement> _items = [];
-    private List<JsonElement> _bodegas = [];
     private List<JsonElement> _resultados = [];
     private JsonElement _producto;
     private string _estado = "";
@@ -104,29 +104,20 @@
     private decimal _cantidad = 1;
     private bool _loading = true, _busy, _rapido;
 
-    private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
+    private static readonly string[] Estados = ["DRAFT", "PENDING_APPROVAL", "POSTED", "CANCELLED"];
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoQuery { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
-        await CargarBodegasAsync();
+        if (EstadoQuery is { } estado && Estados.Contains(estado, StringComparer.Ordinal))
+        {
+            _estado = estado;
+        }
+
+        await Bodegas.CargarAsync();
         await CargarAsync();
-    }
-
-    private async Task CargarBodegasAsync()
-    {
-        if (Session.Me is not { } me)
-        {
-            return;
-        }
-
-        try
-        {
-            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
-        }
     }
 
     private async Task CargarAsync()
@@ -148,16 +139,11 @@
     private async Task FiltrarAsync(string? estado)
     {
         _estado = estado ?? "";
+        Filtros.Actualizar(Navigation, new Dictionary<string, object?> { ["estado"] = _estado });
         await CargarAsync();
     }
 
     private void Ver(JsonElement adjustment) => Navigation.NavigateTo($"/admin/ajustes/{adjustment.GetProperty("id").GetGuid()}");
-
-    private string Bodega(string id)
-    {
-        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
-        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
-    }
 
     private static string Estado(string status) => status switch
     {
@@ -170,7 +156,7 @@
 
     private void NuevoRapido()
     {
-        _bodega = Elegibles.Where(b => b.Bool("allowsSales")).Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
+        _bodega = Bodegas.Primera(Bodegas.Elegibles.Where(b => b.Bool("allowsSales")));
         _producto = default;
         _notas = _buscar = null;
         _cantidad = 1;

@@ -51,6 +51,11 @@ var logger = loggerFactory.CreateLogger<DatabaseMigrator>();
 var appVersion = Assembly.GetExecutingAssembly()
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
 
+if (Pos.Shared.Precalentamiento.Pedido(args))
+{
+    return Pos.Shared.Precalentamiento.Ejecutar();
+}
+
 if (args.Length == 0)
 {
     Console.Error.WriteLine("Comandos: install | create-database | migrate | status | verify | verify-audit | verify-consistency | reset-owner | verify-stock | rebuild-stock | backup | verify-backup | restore | support-bundle");

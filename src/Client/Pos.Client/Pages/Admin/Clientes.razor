@@ -18,11 +18,11 @@
         }
     </Acciones>
     <ChildContent>
-        <MudTabs @bind-ActivePanelIndex="_tab">
+        <MudTabs ActivePanelIndex="_tab" ActivePanelIndexChanged="CambiarPestana">
             <MudTabPanel Text="Clientes">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Class="my-3">
                     <MudTextField T="string" @bind-Value="_search" Label="Buscar por nombre, cédula/NIT o celular" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                                  Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => BuscarAsync())" />
+                                  Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="@(_ => FiltrarAsync(_statusFilter))" />
                     <MudSelect T="string" Value="_statusFilter" ValueChanged="@(v => FiltrarAsync(v))" Label="Estado" Style="max-width: 200px">
                         <MudSelectItem T="string" Value="@("")">Todos</MudSelectItem>
                         <MudSelectItem T="string" Value="@("ACTIVE")">Activos</MudSelectItem>
@@ -30,7 +30,7 @@
                         <MudSelectItem T="string" Value="@("BLOCKED")">Bloqueados</MudSelectItem>
                     </MudSelect>
                 </MudStack>
-                <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" RowStyle="cursor: pointer"
+                <MudTable RowsPerPage="25" Items="_items" Dense="true" Hover="true" Striped="true" Class="fila-clic"
                           OnRowClick="@((TableRowClickEventArgs<JsonElement> e) => Abrir(e.Item))">
                     <HeaderContent>
                         <MudTh>Identificación</MudTh><MudTh>Nombre</MudTh><MudTh>Celular</MudTh><MudTh>Correo</MudTh><MudTh>Grupo</MudTh><MudTh>Estado</MudTh><MudTh>Autorizó datos</MudTh>
@@ -114,8 +114,27 @@
     private bool _loading = true, _busy, _grupoForm, _grupoActivo;
     private Guid? _grupoId, _grupoLista;
 
+    private static readonly string[] Estados = ["ACTIVE", "INACTIVE", "BLOCKED"];
+
+    [SupplyParameterFromQuery(Name = "q")]
+    public string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "estado")]
+    public string? EstadoQuery { get; set; }
+
+    /// <summary>"grupos" abre la pestaña de grupos.</summary>
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? Pestana { get; set; }
+
     protected override async Task OnInitializedAsync()
     {
+        _search = Q;
+        if (EstadoQuery is { } estado && Estados.Contains(estado, StringComparer.Ordinal))
+        {
+            _statusFilter = estado;
+        }
+
+        _tab = Pestana == "grupos" ? 1 : 0;
         await CargarGruposAsync();
         try
         {
@@ -151,7 +170,21 @@
     private Task FiltrarAsync(string status)
     {
         _statusFilter = status;
+        ActualizarFiltros();
         return BuscarAsync();
+    }
+
+    private void ActualizarFiltros() => Filtros.Actualizar(Navigation, new Dictionary<string, object?>
+    {
+        ["q"] = _search,
+        ["estado"] = _statusFilter,
+        ["tab"] = _tab == 1 ? "grupos" : null,
+    });
+
+    private void CambiarPestana(int tab)
+    {
+        _tab = tab;
+        ActualizarFiltros();
     }
 
     private void Abrir(JsonElement customer) => Navigation.NavigateTo($"/admin/clientes/{customer.GetProperty("partyId").GetGuid()}");

@@ -2,6 +2,7 @@
 @page "/admin/ajustes/{Id:guid}"
 @inject ApiClient Api
 @inject SessionState Session
+@inject Bodegas Bodegas
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject NavigationManager Navigation
@@ -45,9 +46,9 @@
                 <MudGrid>
                     <MudItem xs="12" md="6">
                         <MudSelect T="Guid?" @bind-Value="_bodega" Label="Bodega">
-                            @foreach (var warehouse in Elegibles)
+                            @foreach (var warehouse in Bodegas.Elegibles)
                             {
-                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@warehouse.Str("code") · @warehouse.Str("name")</MudSelectItem>
+                                <MudSelectItem T="Guid?" Value="@warehouse.GetProperty("id").GetGuid()">@Bodegas.Etiqueta(warehouse)</MudSelectItem>
                             }
                         </MudSelect>
                     </MudItem>
@@ -70,10 +71,10 @@
                         <MudStack Row="true" AlignItems="AlignItems.Center">
                             <MudTextField T="string" @bind-Value="_buscar" Label="Producto: nombre, SKU o código (Enter busca)" Immediate="true" OnKeyDown="BuscarTeclaAsync"
                                           Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" OnAdornmentClick="BuscarAsync" />
-                            <MudNumericField T="decimal" @bind-Value="_cantidad" Label="Cantidad" Style="max-width: 130px" />
+                            <MudNumericField Culture="@Format.Colombia" T="decimal" @bind-Value="_cantidad" Label="Cantidad" Style="max-width: 130px" />
                             @if (EsSaldoInicial)
                             {
-                                <MudNumericField T="decimal?" @bind-Value="_costo" Label="Costo unitario" Min="0" Style="max-width: 150px" />
+                                <MudNumericField Culture="@Format.Colombia" T="decimal?" @bind-Value="_costo" Label="Costo unitario" Min="0" Style="max-width: 150px" />
                             }
                         </MudStack>
                     </MudItem>
@@ -175,7 +176,6 @@
 </Pagina>
 
 @code {
-    private List<JsonElement> _bodegas = [];
     private List<JsonElement> _motivos = [];
     private List<JsonElement> _resultados = [];
     private readonly List<Linea> _lineas = [];
@@ -206,13 +206,11 @@
                 return null;
             }
 
-            var texto = $"{Estado(Status)} · Bodega {Bodega(_ajuste.Str("warehouseId"))} · Motivo: {NombreMotivo(_ajuste.Str("reasonId"), _ajuste.Str("reasonCode"))} · "
+            var texto = $"{Estado(Status)} · Bodega {Bodegas.Nombre(_ajuste.Str("warehouseId"))} · Motivo: {NombreMotivo(_ajuste.Str("reasonId"), _ajuste.Str("reasonCode"))} · "
                 + $"Fecha contable {Fecha(_ajuste.Str("businessDate"))}";
             return _ajuste.Date("postedAt") is { } posted ? $"{texto} · Publicado {Format.Date(posted)}" : texto;
         }
     }
-
-    private IEnumerable<JsonElement> Elegibles => _bodegas.Where(b => b.Str("status") == "Active" && b.Str("kind") != "InTransit").OrderBy(b => b.Str("kind") == "SalesFloor" ? 0 : 1);
 
     private JsonElement Motivo => _motivos.FirstOrDefault(r => _motivo is { } id && r.Prop("id").TryGetGuid(out var reasonId) && reasonId == id);
 
@@ -220,7 +218,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await CargarBodegasAsync();
+        await Bodegas.CargarAsync();
         try
         {
             _motivos = (await Api.GetAsync<JsonElement>("api/v1/inventory/reasons")).Items();
@@ -251,29 +249,6 @@
         }
     }
 
-    private async Task CargarBodegasAsync()
-    {
-        if (Session.Me is not { } me)
-        {
-            return;
-        }
-
-        try
-        {
-            _bodegas = (await Api.GetAsync<JsonElement>($"api/v1/organization/branches/{me.BranchId}")).Prop("warehouses").Items();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add($"No se pudieron cargar las bodegas: {ex.Texto}", Severity.Warning);
-        }
-    }
-
-    private string Bodega(string id)
-    {
-        var warehouse = _bodegas.FirstOrDefault(b => b.Str("id") == id);
-        return warehouse.ValueKind == JsonValueKind.Object ? $"{warehouse.Str("code")} · {warehouse.Str("name")}" : "—";
-    }
-
     private string NombreMotivo(string id, string code) => _motivos.FirstOrDefault(r => r.Str("id") == id).Str("name") is { Length: > 0 } name ? name : code;
 
     private static string Estado(string status) => status switch
@@ -297,7 +272,7 @@
 
     private void Nuevo()
     {
-        _bodega = Elegibles.Select(b => (Guid?)b.GetProperty("id").GetGuid()).FirstOrDefault();
+        _bodega = Bodegas.Primera(Bodegas.Elegibles);
         _motivo = null;
         _notas = _buscar = _lote = null;
         _cantidad = 1;

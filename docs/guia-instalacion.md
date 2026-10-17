@@ -77,3 +77,21 @@ servicios, sin contraseñas ni datos de clientes. Envíelo a soporte.
 | 6 | Publicar 1.0.1 en `updates/` y usar "instalar ahora" | Versión 1.0.1 activa, `UPDATE_APPLIED` en la auditoría |
 | 7 | Publicar una versión que no arranca | Vuelve sola a la anterior, `UPDATE_ROLLED_BACK` en la auditoría |
 | 8 | Desinstalar sin borrar datos y reinstalar | Los datos siguen ahí |
+
+## 8. Firma de código y primer arranque
+
+Windows Defender **retiene** cada `.exe` nuevo y sin firma mientras lo revisa en la nube, sin usar CPU. En pruebas (Fase 17-C) el servidor
+recién compilado tardó **más de 5 minutos** en arrancar con su `.exe` sin firma y 13 s con el mismo código cargado por `dotnet.exe`
+(firmado por Microsoft). En una tienda pasa en el **primer arranque después de instalar o actualizar**, y puede superar los 30 s que Windows
+da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a la versión anterior.
+
+- **Solución:** firmar los ejecutables con un certificado de firma de código (Authenticode, OV o EV) a nombre de la empresa:
+  `build-installer.ps1 … -CodeSigningThumbprint <huella>` firma los `Pos.*.exe`, `Pos.*.dll`, el actualizador y el instalador con sello de
+  tiempo. Un certificado EV además evita el aviso de SmartScreen al instalar.
+- **Precalentamiento (automático):** al descomprimir una versión nueva, el actualizador corre sus programas con `--precalentar` (cargan sus
+  archivos y terminan, sin abrir puertos ni tocar la base de datos) mientras la tienda sigue vendiendo con la versión anterior. En pruebas:
+  precalentar tomó 44 s y el arranque real después del cambio, **4 s** (sin precalentar: 4 min 23 s).
+- **Mientras no haya certificado:** después de instalar o actualizar, espere unos minutos al primer arranque y no reinicie el servicio a
+  mano; el instalador ya configura reinicios automáticos si falla.
+- **En desarrollo:** para evitar la espera después de cada compilación, arranque el servidor con
+  `dotnet src/Server/Pos.Server.Host/bin/Debug/net10.0/Pos.Server.Host.dll` en lugar del `.exe`.

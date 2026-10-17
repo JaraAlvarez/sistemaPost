@@ -5,12 +5,22 @@ using Microsoft.JSInterop;
 namespace Pos.Client.Services;
 
 /// <summary>
-/// Sesión de la pestaña (D15-04): el token vive solo en memoria (cerrar la pestaña cierra la sesión); la credencial del equipo emparejado se
-/// guarda en el almacenamiento del navegador de ESE equipo.
+/// Sesión de la pestaña (D17C-01, reemplaza D15-04): el token y el usuario se guardan en el almacenamiento DE LA PESTAÑA
+/// (<c>sessionStorage</c>): recargar (F5) no cierra la sesión; cerrar la pestaña sí, y no se comparte con otras pestañas ni queda en el
+/// disco. La credencial del equipo emparejado se guarda en el almacenamiento del navegador de ESE equipo.
 /// </summary>
-public sealed class SessionState(IJSRuntime js)
+public sealed class SessionState
 {
     private const string DeviceKey = "pos.device";
+    private const string SessionKey = "pos.session";
+
+    private readonly IJSRuntime js;
+
+    public SessionState(IJSRuntime js)
+    {
+        this.js = js;
+        Restaurar();
+    }
 
     public string? Token { get; private set; }
 
@@ -35,12 +45,14 @@ public sealed class SessionState(IJSRuntime js)
         ArgumentNullException.ThrowIfNull(login);
         Token = login.Token;
         Me = login.User;
+        Guardar();
         Changed?.Invoke();
     }
 
     public void Refresh(MeInfo me)
     {
         Me = me;
+        Guardar();
         Changed?.Invoke();
     }
 
@@ -48,7 +60,61 @@ public sealed class SessionState(IJSRuntime js)
     {
         Token = null;
         Me = null;
+        Guardar();
         Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Ruta local a la que se vuelve después de ingresar (<c>?volver=</c>); solo rutas de esta aplicación ("/admin/…", "/caja"), nunca
+    /// otro sitio.
+    /// </summary>
+    public static string? RutaSegura(string? ruta) =>
+        ruta is { Length: > 1 } r && r[0] == '/' && r[1] is not ('/' or '\\') && !r.Contains("://", StringComparison.Ordinal) ? r : null;
+
+    private sealed record Guardada(string Token, MeInfo Me);
+
+    private void Guardar()
+    {
+        if (js is not IJSInProcessRuntime local)
+        {
+            return;
+        }
+
+        if (Token is null || Me is null)
+        {
+            local.InvokeVoid("sessionStorage.removeItem", SessionKey);
+        }
+        else
+        {
+            local.InvokeVoid("sessionStorage.setItem", SessionKey, JsonSerializer.Serialize(new Guardada(Token, Me), ApiClient.Json));
+        }
+    }
+
+    private void Restaurar()
+    {
+        if (js is not IJSInProcessRuntime local)
+        {
+            return;
+        }
+
+        try
+        {
+            // La sesión es del equipo que la abrió (el servidor lo exige): al recargar, la credencial del equipo emparejado debe estar
+            // cargada antes de la primera petición, no solo en la pantalla de ingreso.
+            var device = local.Invoke<string?>("localStorage.getItem", DeviceKey);
+            Device = string.IsNullOrEmpty(device) ? null : JsonSerializer.Deserialize<DeviceCredential>(device, ApiClient.Json);
+
+            var json = local.Invoke<string?>("sessionStorage.getItem", SessionKey);
+            if (!string.IsNullOrEmpty(json) && JsonSerializer.Deserialize<Guardada>(json, ApiClient.Json) is { } guardada)
+            {
+                Token = guardada.Token;
+                Me = guardada.Me;
+            }
+        }
+        catch (JsonException)
+        {
+            // Formato viejo o dañado: se ingresa de nuevo.
+        }
     }
 
     public async Task LoadDeviceAsync()

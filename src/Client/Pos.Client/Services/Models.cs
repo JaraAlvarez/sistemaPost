@@ -72,3 +72,25 @@ public sealed record ReportInfo(string Code, string Name, string Group, string D
 public sealed record ReportResult(
     string Code, string Name, IReadOnlyList<ReportColumn> Columns, IReadOnlyList<Dictionary<string, JsonElement>> Rows, Dictionary<string, JsonElement> Totals,
     int TotalRows, int Page, int PageSize, bool Truncated, string? Note);
+
+/// <summary>Lo que resuelve el lector (<c>GET catalog/scan/{código}</c>): producto, presentación y precio de la sucursal.</summary>
+public sealed record ScanResult(
+    Guid ProductId,
+    string Sku,
+    string Name,
+    string ShortName,
+    Guid? PackagingId,
+    string? PackagingName,
+    decimal PackagingFactor,
+    string BaseUnitCode,
+    string SaleMode,
+    string Source,
+    decimal Quantity,
+    decimal? UnitPrice,
+    decimal? Amount,
+    bool PriceIncludesTax,
+    IReadOnlyList<ScanTax> Taxes,
+    bool IsSellable,
+    IReadOnlyList<string> NotSellableReasons);
+
+public sealed record ScanTax(string Code, string Kind, decimal? Rate, decimal? FixedAmount);

@@ -3,6 +3,7 @@
 @inject SessionState Session
 @inject IJSRuntime Js
 @inject ISnackbar Snackbar
+@inject AgentPrinter Printer
 
 <PageTitle>@Titulo · BusinessPost</PageTitle>
 
@@ -38,7 +39,7 @@
                             @foreach (var method in _medios.Where(m => !m.AffectsCashDrawer))
                             {
                                 <MudItem xs="6" sm="4">
-                                    <MudNumericField T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0"
+                                    <MudNumericField Culture="@Format.Colombia" T="decimal" Value="@_otros.GetValueOrDefault(method.Id)" ValueChanged="@(v => _otros[method.Id] = v)" Label="@method.Name" Min="0"
                                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
                                 </MudItem>
                             }
@@ -137,6 +138,8 @@
                     @if (_reporte is not null)
                     {
                         <MudStack Row="true" Justify="Justify.FlexEnd" Class="mb-2">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" Disabled="_imprimiendo" OnClick="ImprimirAsync"
+                                       title="Imprime en la impresora de tiquetes de la caja de esta jornada; necesita el agente de impresión en este equipo">Imprimir</MudButton>
                             <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download" OnClick="DescargarAsync">Descargar</MudButton>
                         </MudStack>
                         <div class="tiquete">@_reporte</div>
@@ -172,6 +175,7 @@
     private JsonElement _detalle;
     private bool _loading = true, _busy, _revisar, _cerrar, _iniciado;
     private string? _error, _reporte, _reporteError, _nota, _motivo;
+    private bool _imprimiendo;
     private Guid _cargado;
     private IReadOnlyList<Denomination> _denominaciones = [];
     private IReadOnlyList<PaymentMethod> _medios = [];
@@ -308,6 +312,21 @@
         }
 
         _busy = false;
+    }
+
+    /// <summary>Reimpresión del reporte X/Z en la impresora de la caja de la jornada (por el agente de impresión de este equipo).</summary>
+    private async Task ImprimirAsync()
+    {
+        if (_reporte is null || !Guid.TryParse(_detalle.Str("posTerminalId"), out var caja))
+        {
+            return;
+        }
+
+        _imprimiendo = true;
+        var titulo = $"{(Cerrada ? "Reporte Z" : "Reporte X")} {_detalle.Str("number")}";
+        var problema = await Printer.PrintTextAsync(caja, titulo, _reporte);
+        Snackbar.Add(problema ?? $"{titulo} enviado a la impresora.", problema is null ? Severity.Success : Severity.Warning);
+        _imprimiendo = false;
     }
 
     private async Task DescargarAsync()
