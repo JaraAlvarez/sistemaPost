@@ -89,3 +89,28 @@ El primer driver será **Toledo 8217** (lo emulan muchas marcas) + **CAS**; los 
 | B | Driver de báscula en el agente de caja (Toledo 8217 + CAS) + "Probar báscula" + simulador para pruebas |
 | C | "Pesar" en la caja, tara, kilo/libra |
 | D | Catálogo de básculas en el portal (imagen, referencia, guía) y galería en la tienda; asistente "Reemplazar báscula" |
+
+## 8. Estado al pausar (2026-10-17)
+
+> Pausada por decisión del dueño hasta comprar una báscula real. Rama `basculas` (sin publicar ni unir a `main`).
+
+**Hecho (parte B, en el agente de caja):**
+- Interfaz `IScaleDriver` + drivers **Toledo 8217** (pide "W"; respuesta `STX 00.700 CR` o `STX ? estado CR`; 9600 7E1),
+  **CAS 22 bytes** (`ST/US/OL,GS/NT,…peso…kg CR LF`; 9600 8N1, continuo) y **genérico** (número + unidad; estabilidad por software).
+  Fuentes de los formatos anotadas en `src/Terminal/Pos.Terminal.Agent/Scales/ScaleDrivers.cs`.
+- Configuración de una báscula por caja (puerto, velocidad, bits, paridad, parada, pedido/continuo, comando, tiempo de espera,
+  decimales; marca, modelo y código de catálogo para la parte D), guardada en `C:\ProgramData\BusinessPost\agent\scale.json`.
+- Endpoints: `GET /scale/status`, `GET /scale/weight`, `GET /scale/stream` (Server-Sent Events), `POST /scale/tare` (tara por software),
+  `PUT /scale/config`, `POST /scale/test`; `POST /scale/simulator` solo en desarrollo. CORS ahora admite PUT.
+- **Simulador** en memoria (Toledo 8217 y CAS): sin puertos virtuales ni cambios en el equipo.
+- `WeightUnits` (Pos.SharedKernel): kg → cantidad en KG, G, LB y **LB500** (libra de 500 g).
+
+**Pendiente:**
+- Parte B: guardar la báscula en el servidor (tabla `org.terminal_scales`, migración ≥ V2026.10.040) y enviarla al agente desde la caja.
+- Unidad `LB500` "Libra (500 g)" en `R__ref__units_of_measure.sql` (+ código DIAN en el mapeo de Factus).
+- Parte C completa: sección "Báscula" en Configuración → Cajas (probar, peso en vivo, tara), panel "Pesar" en la caja (agregar al
+  estabilizarse, tecla rápida, rechazos, respaldo digitando el peso), línea `SCALE_LIVE` en ventas y peso en el tiquete.
+- Guía "Báscula conectada" en `docs/guia-piloto.md`. Probar con una báscula real (cable serial/USB-serial y protocolo configurado).
+
+**Pruebas:** `Pos.Terminal.Agent.Tests` 107/107 correctas (incluye tramas válidas, inestables, cero, negativas, sobrepeso, basura,
+tramas cortadas, tiempo de espera y endpoints); `Pos.SharedKernel.UnitTests` 103/103. Agente compila en Release sin advertencias.
