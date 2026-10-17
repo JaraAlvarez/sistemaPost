@@ -14,7 +14,8 @@ internal sealed record Opciones(bool Desinstalar, bool Maqueta, string Paquete, 
 /// <c>{ id, ok, dato, mensaje, codigo }</c>; los avisos de la instalación llegan como <c>{ evento, … }</c>. La contraseña del portal y
 /// el enlace firmado se quedan en este proceso (memoria) y solo viajan al servidor local; nunca se guardan en disco.
 /// </summary>
-internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<string?> elegirBackup, Action<string> accionVentana) : IDisposable
+internal sealed class Puente(
+    Opciones opciones, Action<string> enviar, Func<string?> elegirBackup, Func<string, string?> elegirCarpeta, Action<string> accionVentana) : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
 
@@ -22,13 +23,12 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
     private readonly Lazy<IReadOnlyList<Municipio>> _municipios = new(LeerMunicipios);
     private readonly CancellationTokenSource _cierre = new();
     private Instalacion? _instalacion;
-    private string? _enlace;
-    private string? _correoEnlace;
+    // Enlace firmado del propietario, atado a la clave con la que se obtuvo (si cambia la clave, no sirve).
+    private volatile VinculoPropietario? _vinculo;
 
     // "Continuar con Google": la espera en curso (una a la vez) y la dirección para "Abrir el navegador otra vez".
     private CancellationTokenSource? _google;
     private string? _direccionGoogle;
-    private bool _enlaceDeGoogle;
 
     public bool Trabajando { get; private set; }
 
@@ -40,6 +40,7 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
         _google?.Dispose();
         _cierre.Dispose();
         _instalacion?.Dispose();
+        _nube.Dispose();
     }
 
     public async Task RecibirAsync(string json)
@@ -76,6 +77,7 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
                     pantalla = opciones.Maqueta ? opciones.Pantalla : null,
                     version = Sistema.Version,
                     nube = _nube.Disponible || opciones.Maqueta,
+                    modoInstalado = opciones.Maqueta || opciones.Desinstalar ? null : Sistema.ModoInstalado()?.ToString().ToLowerInvariant(),
                     desinstalacion = opciones.Desinstalar ? (opciones.Maqueta ? new { instalado = true, carpeta = @"C:\Program Files\BusinessPost", datos = Sistema.Datos, version = "1.1.0", equipoPrincipal = true } : Desinstalacion.Estado()) : null,
                 }, null, null);
 
@@ -103,27 +105,33 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
 
             case "cuentaPortal":
             {
+                var claveCuenta = Texto(datos, "clave") ?? string.Empty;
                 if (opciones.Maqueta)
                 {
                     await Task.Delay(700, ct);
-                    _enlace = "enlace-de-maqueta";
-                    _correoEnlace = Texto(datos, "correo")?.Trim().ToLowerInvariant();
-                    return (new { email = _correoEnlace, displayName = "Dueño de prueba" }, null, null);
+                    var correoMaqueta = Texto(datos, "correo")?.Trim().ToLowerInvariant() ?? "dueno@correo.co";
+                    _vinculo = new VinculoPropietario("enlace-de-maqueta", correoMaqueta, claveCuenta, deGoogle: false);
+                    return (new { email = correoMaqueta, displayName = "Dueño de prueba" }, null, null);
                 }
 
+                CancelarGoogle();
+                _vinculo = null;
                 var respuesta = await _nube.CuentaAsync(
-                    Texto(datos, "clave") ?? string.Empty, Texto(datos, "correo") ?? string.Empty, Texto(datos, "contrasena") ?? string.Empty, Texto(datos, "codigo"), ct);
-                if (!respuesta.Ok)
+                    claveCuenta, Texto(datos, "correo") ?? string.Empty, Texto(datos, "contrasena") ?? string.Empty, Texto(datos, "codigo"), ct);
+                if (respuesta is not { Ok: true, Dato: { Token.Length: > 0 } enlace })
                 {
-                    _enlace = null;
-                    return (null, respuesta.Mensaje, respuesta.Codigo);
+                    return (null, respuesta.Mensaje ?? "El servidor de licencias no devolvió la validación de tu cuenta. Intenta de nuevo.", respuesta.Codigo);
                 }
 
-                _enlace = respuesta.Dato!.Token;
-                _correoEnlace = respuesta.Dato.Email;
-                _enlaceDeGoogle = false;
-                return (new { email = respuesta.Dato.Email, displayName = respuesta.Dato.DisplayName }, null, null);
+                _vinculo = new VinculoPropietario(enlace.Token, enlace.Email, claveCuenta, deGoogle: false);
+                return (new { email = enlace.Email, displayName = enlace.DisplayName }, null, null);
             }
+
+            case "olvidarCuenta":
+                // La página cambió la clave de licencia: la cuenta validada con la clave anterior ya no sirve.
+                CancelarGoogle();
+                _vinculo = null;
+                return (null, null, null);
 
             case "googleIniciar":
                 return await IniciarGoogleAsync(Texto(datos, "clave") ?? string.Empty, ct);
@@ -194,10 +202,18 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
                     return (Path.Combine(Sistema.CarpetaBackupFinal(), "BusinessPost-20261017-1030-MANUAL.posbak"), null, null);
                 }
 
+                // El desinstalador corre como administrador: "Documentos" sería la carpeta del administrador. Se propone la del usuario
+                // que inició sesión y el dueño elige (la ruta completa se muestra al terminar).
+                var carpetaBackup = elegirCarpeta(Sistema.CarpetaBackupFinal());
+                if (carpetaBackup is null)
+                {
+                    return (null, null, null);
+                }
+
                 Trabajando = true;
                 try
                 {
-                    var backup = await Desinstalacion.BackupFinalAsync(ct);
+                    var backup = await Desinstalacion.BackupFinalAsync(carpetaBackup, ct);
                     return (backup.Dato, backup.Mensaje, null);
                 }
                 finally
@@ -221,13 +237,13 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
     private async Task<(object?, string?, string?)> IniciarGoogleAsync(string clave, CancellationToken ct)
     {
         CancelarGoogle();
-        _enlace = null;
+        _vinculo = null;
         if (opciones.Maqueta)
         {
             await Task.Delay(500, ct);
             Esperar((_, _) => Task.FromResult(new ResultadoConsulta(OwnerLinkRequestStatuses.Approved, 5,
-                new OwnerLinkResponse("enlace-de-maqueta", "dueno@gmail.com", "Dueño de prueba", DateTimeOffset.UtcNow.AddHours(2)))), TimeSpan.FromMinutes(10), TimeSpan.FromSeconds(5));
-            return (new { codigo = "K7QF-M2XP", venceEn = 600 }, null, null);
+                new OwnerLinkResponse("enlace-de-maqueta", "dueno@gmail.com", "Dueño de prueba", DateTimeOffset.UtcNow.AddHours(2)))), clave, TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(5));
+            return (new { codigo = "K7QF-M2XP", venceEn = 300 }, null, null);
         }
 
         var respuesta = await _nube.IniciarGoogleAsync(clave, ct);
@@ -236,40 +252,62 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
             return (null, respuesta.Mensaje, respuesta.Codigo);
         }
 
-        var inicio = respuesta.Dato!;
-        if (!IngresoGoogle.EsDireccionSegura(inicio.BrowserUrl, _nube.Servidor))
+        if (respuesta.Dato is not { } inicio || !IngresoGoogle.EsDireccionSegura(inicio.BrowserUrl, _nube.Servidor))
         {
-            return (null, "El servidor de licencias devolvió una dirección que no es la suya. Usa tu correo y contraseña del portal.", null);
+            return (null, "El servidor de licencias devolvió una respuesta que no es la esperada. Usa tu correo y contraseña del portal.", null);
         }
 
         _direccionGoogle = inicio.BrowserUrl;
         Sistema.AbrirComoUsuario(inicio.BrowserUrl);
         Esperar((_, token) => _nube.ConsultarGoogleAsync(inicio.RequestId, inicio.PollToken, token),
-            TimeSpan.FromSeconds(inicio.ExpiresIn), TimeSpan.FromSeconds(inicio.Interval));
+            clave, TimeSpan.FromSeconds(inicio.ExpiresIn), TimeSpan.FromSeconds(inicio.Interval));
         return (new { codigo = inicio.UserCode, venceEn = inicio.ExpiresIn }, null, null);
     }
 
-    /// <summary>Lanza la espera en segundo plano (el resultado llega a la página como aviso).</summary>
-    private void Esperar(Func<EsperaAutorizacion, CancellationToken, Task<ResultadoConsulta>> consultar, TimeSpan vigencia, TimeSpan intervalo)
+    /// <summary>
+    /// Lanza la espera en segundo plano (el resultado llega a la página como aviso). Cualquier falla inesperada termina la espera con un
+    /// aviso de error (con "Reintentar" en la página) en vez de dejar "Esperando autorización" para siempre.
+    /// </summary>
+    private void Esperar(Func<EsperaAutorizacion, CancellationToken, Task<ResultadoConsulta>> consultar, string clave, TimeSpan vigencia, TimeSpan intervalo)
     {
         var cancelacion = CancellationTokenSource.CreateLinkedTokenSource(_cierre.Token);
         _google = cancelacion;
         var espera = new EsperaAutorizacion(DateTimeOffset.UtcNow, vigencia, intervalo);
         _ = Task.Run(async () =>
         {
-            var estado = await espera.EjecutarAsync(token => consultar(espera, token), Task.Delay, () => DateTimeOffset.UtcNow, null, cancelacion.Token);
-            if (estado == EstadoEspera.Autorizada && !cancelacion.IsCancellationRequested)
+            try
             {
-                _enlace = espera.Enlace!.Token;
-                _correoEnlace = espera.Enlace.Email;
-                _enlaceDeGoogle = true;
-                Avisar(new { evento = "google", estado = "autorizada", email = espera.Enlace.Email, displayName = espera.Enlace.DisplayName });
-                return;
-            }
+                var estado = await espera.EjecutarAsync(token => consultar(espera, token), Task.Delay, () => DateTimeOffset.UtcNow, null, cancelacion.Token);
+                if (estado == EstadoEspera.Autorizada && espera.Enlace is { Token.Length: > 0 } enlace && !cancelacion.IsCancellationRequested)
+                {
+                    _vinculo = new VinculoPropietario(enlace.Token, enlace.Email, clave, deGoogle: true);
+                    Avisar(new { evento = "google", estado = "autorizada", email = enlace.Email, displayName = enlace.DisplayName });
+                    return;
+                }
 
-            if (estado != EstadoEspera.Cancelada)
+                if (estado != EstadoEspera.Cancelada && !cancelacion.IsCancellationRequested)
+                {
+                    Avisar(new { evento = "google", estado = estado.ToString().ToLowerInvariant(), mensaje = espera.Mensaje, reintentar = true });
+                }
+            }
+            catch (OperationCanceledException) when (cancelacion.IsCancellationRequested)
             {
-                Avisar(new { evento = "google", estado = estado.ToString().ToLowerInvariant(), mensaje = espera.Mensaje });
+                // Cancelada desde la página o se cerró la ventana.
+            }
+#pragma warning disable CA1031 // Cualquier falla de la espera se muestra en la página (antes quedaba "Esperando autorización" para siempre).
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                if (!cancelacion.IsCancellationRequested)
+                {
+                    Avisar(new
+                    {
+                        evento = "google",
+                        estado = "error",
+                        mensaje = $"No pudimos completar el ingreso con Google ({ex.Message}). Pulsa \"Reintentar\" o usa tu correo y contraseña.",
+                        reintentar = true,
+                    });
+                }
             }
         });
     }
@@ -285,25 +323,40 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
     private (object?, string?, string?) Instalar(JsonElement datos)
     {
         var solicitud = datos.Deserialize<SolicitudInstalacion>(Json)!;
-        if (solicitud.Propietario is { } conGoogle && _enlace is not null && _enlaceDeGoogle && !string.IsNullOrWhiteSpace(solicitud.Clave)
-            && IngresoGoogle.ValidarContrasenaLocal(conGoogle.Contrasena, conGoogle.Contrasena, _correoEnlace) is { } problema)
+        var conLicencia = !string.IsNullOrWhiteSpace(solicitud.Clave);
+        if (solicitud.Propietario is { } propietario && conLicencia)
         {
-            // Con Google no hay contraseña del portal: la contraseña LOCAL que eligió el dueño debe cumplir la política del portal.
-            return (null, problema, null);
-        }
+            // Con la clave, el Propietario SIEMPRE es la cuenta del portal validada con ESA clave (y de la empresa que se configura).
+            var vinculo = _vinculo;
+            if (vinculo is null)
+            {
+                return (null, "Valida otra vez tu cuenta del portal antes de instalar.", VinculoPropietario.CodigoInvalido);
+            }
 
-        if (solicitud.Propietario is { } propietario && _enlace is not null && !string.IsNullOrWhiteSpace(solicitud.Clave))
-        {
-            // Con la cuenta del portal: el usuario es el correo VALIDADO por la nube (no el que quede escrito en la página).
-            solicitud = solicitud with { Propietario = propietario with { Usuario = _correoEnlace ?? propietario.Usuario, Enlace = _enlace } };
+            if (vinculo.Revisar(solicitud.Clave, solicitud.Negocio?.Numero, DateTimeOffset.UtcNow) is { } invalido)
+            {
+                _vinculo = null;
+                return (null, invalido, VinculoPropietario.CodigoInvalido);
+            }
+
+            // Con Google no hay contraseña del portal: la contraseña LOCAL que eligió el dueño debe cumplir la política del portal y
+            // coincidir con su confirmación.
+            if (vinculo.DeGoogle && IngresoGoogle.ValidarContrasenaLocal(propietario.Contrasena, propietario.Confirmacion, vinculo.Correo) is { } problema)
+            {
+                return (null, problema, null);
+            }
+
+            // El usuario es el correo VALIDADO por la nube (no el que quede escrito en la página).
+            solicitud = solicitud with { Propietario = propietario with { Usuario = vinculo.Correo, Enlace = vinculo.Enlace } };
         }
         else if (solicitud.Propietario is { } local)
         {
             solicitud = solicitud with { Propietario = local with { Enlace = null } };
         }
 
+
         Trabajando = true;
-        _ = Task.Run(async () =>
+        Program.RegistrarTrabajo(Task.Run(async () =>
         {
             try
             {
@@ -331,7 +384,7 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
             {
                 Trabajando = false;
             }
-        });
+        }));
         return (null, null, null);
     }
 
@@ -339,7 +392,7 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
     {
         var solicitud = datos.Deserialize<SolicitudDesinstalacion>(Json)!;
         Trabajando = true;
-        _ = Task.Run(async () =>
+        Program.RegistrarTrabajo(Task.Run(async () =>
         {
             try
             {
@@ -372,7 +425,7 @@ internal sealed class Puente(Opciones opciones, Action<string> enviar, Func<stri
             {
                 Trabajando = false;
             }
-        });
+        }));
         return (null, null, null);
     }
 

@@ -105,6 +105,38 @@ public sealed partial class DatabaseMigrator(ScriptCatalog catalog, ILogger<Data
         }
     }
 
+    /// <summary>
+    /// Solo los scripts "always" (privilegios) de ESTA versión, sin migrar nada (IR2: después de volver al backup PRE_UPDATE, el migrador de
+    /// la versión anterior deja los privilegios exactos de su esquema). Exige que la BD esté exactamente en la versión de este catálogo.
+    /// </summary>
+    public async Task ApplyAlwaysAsync(string connectionString, string appVersion, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(appVersion);
+        await using var connection = await OpenAsync(connectionString, cancellationToken);
+        await ExecuteAsync(connection, $"SELECT pg_advisory_lock({AdvisoryLockKey})", null, cancellationToken);
+        try
+        {
+            var status = await GetStatusAsync(connection, cancellationToken);
+            ThrowIfInvalid(status);
+            if (status.PendingVersioned.Count > 0)
+            {
+                throw new MigrationException(
+                    MigrationException.PendingMigrations,
+                    $"La base de datos no está en la versión de esta aplicación ({status.DatabaseVersion} y se espera {status.ExpectedVersion}).");
+            }
+
+            await ExecuteAsync(connection, $"SET ROLE {OwnerRole}", null, cancellationToken);
+            foreach (var script in Catalog.Always)
+            {
+                await ApplyAsync(connection, script, appVersion, cancellationToken);
+            }
+        }
+        finally
+        {
+            await ExecuteAsync(connection, $"SELECT pg_advisory_unlock({AdvisoryLockKey})", null, CancellationToken.None);
+        }
+    }
+
     public async Task<MigrationStatus> GetStatusAsync(string connectionString, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(connectionString, cancellationToken);
@@ -168,8 +200,10 @@ public sealed partial class DatabaseMigrator(ScriptCatalog catalog, ILogger<Data
         }
     }
 
-    private async Task<MigrationStatus> GetStatusAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    /// <summary>Estado de las migraciones con una conexión ya abierta (basta leer <c>system.schema_migrations</c>; la usa el servidor al arrancar).</summary>
+    public async Task<MigrationStatus> GetStatusAsync(NpgsqlConnection connection, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(connection);
         await using var exists = new NpgsqlCommand("SELECT to_regclass('system.schema_migrations') IS NOT NULL", connection);
         var applied = (bool)(await exists.ExecuteScalarAsync(cancellationToken))!
             ? await ReadAppliedAsync(connection, cancellationToken)

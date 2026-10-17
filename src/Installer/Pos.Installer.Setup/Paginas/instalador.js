@@ -134,14 +134,31 @@ todas(".modo").forEach((m) => m.addEventListener("click", () => {
   S.modo = m.dataset.modo;
 }));
 
-$("btnEquipo").onclick = () => {
+const nombresModo = { unica: "la única caja (Caja Única)", principal: "el equipo principal (Multicaja)", adicional: "una caja adicional (Multicaja)" };
+
+// Un equipo ya instalado se actualiza en el MISMO modo; cambiarlo exige confirmarlo (el paquete quita lo que el modo anterior ya no usa).
+async function confirmarCambioDeModo() {
+  S.cambiarModo = false;
+  if (!S.modoInstalado || S.modo === S.modoInstalado) return true;
+  const si = await confirmar({
+    titulo: "¿Cambiar el modo de este equipo?",
+    texto: `Este equipo ya está instalado como ${nombresModo[S.modoInstalado]}. Si sigue, quedará como ${nombresModo[S.modo]}: se quitan los servicios y reglas del modo anterior que ya no se usen. Los datos de la tienda se conservan.`,
+    si: "Sí, cambiar el modo", no: "Mantener el modo actual", peligro: true,
+  });
+  if (si) S.cambiarModo = true;
+  return si;
+}
+
+$("btnEquipo").onclick = async () => {
+  if (!(await confirmarCambioDeModo())) return;
   S.recuperar = false;
   if (S.modo === "adicional") { ir("principal"); buscarPrincipal(); return; }
   ir("licencia");
 };
 
-$("lnkRecuperar").onclick = () => {
+$("lnkRecuperar").onclick = async () => {
   if (S.modo === "adicional") { todas(".modo")[0].click(); }
+  if (!(await confirmarCambioDeModo())) return;
   S.recuperar = true;
   ir("recuperar");
 };
@@ -199,9 +216,21 @@ $("clave").addEventListener("input", () => {
   aviso("errorLicencia", "");
   $("btnLicencia").disabled = true;
   S.vista = null;
+  olvidarCuentaSiCambiaClave();
   clearTimeout(temporizador);
   if (limpia.length >= 23) temporizador = setTimeout(vistaPrevia, 350);
 });
+
+// La cuenta del portal se valida CON la clave: si el dueño cambia la clave, la validación anterior ya no sirve (Puente.cs también lo revisa).
+function olvidarCuentaSiCambiaClave() {
+  if (!S.clave && !S.google && !(S.cuenta && S.cuenta.enlace)) return;
+  if (S.google === "esperando") cancelarGoogle();
+  S.clave = null;
+  S.google = null;
+  S.googleCuenta = null;
+  if (S.cuenta && S.cuenta.enlace) S.cuenta = null;
+  llamar("olvidarCuenta").catch(() => {});
+}
 
 async function vistaPrevia() {
   const clave = $("clave").value.trim();
@@ -229,13 +258,13 @@ function prepararCuenta() {
   const prueba = S.prueba;
   $("cuentaTitulo").textContent = prueba ? "Crea tu usuario de administrador" : "Entra con tu cuenta de BusinessPost";
   $("cuentaLead").textContent = prueba
-    ? "Con él administrarás la tienda: crear cajeros, cargar productos y ver reportes. Usa tu correo; la contraseña debe tener al menos 10 caracteres."
+    ? "Con él administrarás la tienda: crear cajeros, cargar productos y ver reportes. Usa tu correo; la contraseña debe tener al menos 8 caracteres."
     : "Es la misma cuenta de tu portal. Con ella administrarás la tienda: crear cajeros, cargar productos y ver reportes. Funciona también sin internet.";
   $("cuentaPortal").classList.toggle("oculto", prueba);
   $("campoNombre").classList.toggle("oculto", !prueba);
   $("campoConfirmar").classList.toggle("oculto", !prueba);
   $("campoTotp").classList.add("oculto");
-  $("cuentaContrasena").placeholder = prueba ? "Mínimo 10 caracteres" : "Tu contraseña del portal";
+  $("cuentaContrasena").placeholder = prueba ? "Mínimo 8 caracteres" : "Tu contraseña del portal";
   if (prueba && S.google === "esperando") cancelarGoogle();
   if (prueba) { S.google = null; S.googleCuenta = null; }
   vistaGoogle();
@@ -266,6 +295,7 @@ function cancelarGoogle() {
 $("btnGoogle").onclick = async () => {
   if (!S.clave) { aviso("avisoCuenta", "Primero escribe tu clave de licencia.", "error"); return; }
   aviso("avisoCuenta", "");
+  $("googleReintentar").classList.add("oculto");
   S.google = "esperando";
   $("googleCodigo").textContent = "····-····";
   vistaGoogle();
@@ -297,7 +327,11 @@ function alGoogle(m) {
   S.google = null;
   vistaGoogle();
   aviso("avisoCuenta", m.mensaje || "No se completó el ingreso con Google. Intenta de nuevo o usa tu correo y contraseña.", "error");
+  // Error, vencida o rechazada: "Reintentar" vuelve a pedir la autorización (la espera ya terminó; nada queda "esperando" para siempre).
+  $("googleReintentar").classList.toggle("oculto", !m.reintentar);
 }
+
+$("lnkGoogleReintentar").onclick = () => { $("googleReintentar").classList.add("oculto"); $("btnGoogle").click(); };
 
 // Misma regla que IngresoGoogle.ValidarContrasenaLocal (Puente.cs la vuelve a revisar).
 function problemaContrasenaLocal(contrasena, confirmacion, correo) {
@@ -317,7 +351,7 @@ $("btnCuenta").onclick = async () => {
     const contrasena = $("localContrasena").value;
     const problema = problemaContrasenaLocal(contrasena, $("localConfirmar").value, S.googleCuenta.email);
     if (problema) { aviso("avisoCuenta", problema, "error"); return; }
-    S.cuenta = { usuario: S.googleCuenta.email, nombre: S.googleCuenta.displayName, contrasena, enlace: true };
+    S.cuenta = { usuario: S.googleCuenta.email, nombre: S.googleCuenta.displayName, contrasena, confirmacion: $("localConfirmar").value, enlace: true };
     aviso("avisoCuenta", "");
     prepararNegocio();
     ir("negocio");
@@ -330,11 +364,17 @@ $("btnCuenta").onclick = async () => {
 
   if (S.prueba) {
     const nombre = $("cuentaNombre").value.trim();
-    const usuario = correo.split("@")[0];
     if (!nombre) { aviso("avisoCuenta", "Escribe tu nombre.", "error"); return; }
-    if (contrasena.length < 10) { aviso("avisoCuenta", "La contraseña debe tener al menos 10 caracteres.", "error"); return; }
-    if (new Set(contrasena).size <= 2 || (usuario.length >= 4 && contrasena.toLowerCase().includes(usuario))) {
-      aviso("avisoCuenta", "Esa contraseña es muy fácil de adivinar. Usa una frase o mezcla letras y números.", "error"); return;
+    // Misma regla y mismos textos que el servidor de la tienda, que es quien la valida (IdentityRules.CheckPassword con la longitud
+    // mínima por defecto, security.password_min_length = 8). La lista de contraseñas comunes la revisa el servidor.
+    if (contrasena.length < 8) { aviso("avisoCuenta", "La contraseña debe tener al menos 8 caracteres.", "error"); return; }
+    if (contrasena.length > 128) { aviso("avisoCuenta", "La contraseña admite hasta 128 caracteres.", "error"); return; }
+    // El usuario del propietario es el correo (como en el servidor: igual o contenido en la contraseña).
+    if (contrasena.toLowerCase() === correo || (correo.length >= 4 && contrasena.toLowerCase().includes(correo))) {
+      aviso("avisoCuenta", "La contraseña no puede contener el nombre de usuario.", "error"); return;
+    }
+    if (new Set(contrasena).size <= 2) {
+      aviso("avisoCuenta", "La contraseña es demasiado común o predecible.", "error"); return;
     }
     if (contrasena !== $("cuentaConfirmar").value) { aviso("avisoCuenta", "Las dos contraseñas no coinciden.", "error"); return; }
     S.cuenta = { usuario: correo, nombre, contrasena, enlace: null };
@@ -449,7 +489,7 @@ $("btnInstalar").onclick = () => {
       tipoDocumento: "NIT", numero, dv, regimen: $("regimen").value, municipio: municipioElegido, direccion: $("direccion").value.trim(),
       telefono: $("telefono").value.trim() || null, correo: correo || null, tipoNegocio: S.tipoNegocio,
     },
-    propietario: { usuario: S.cuenta.usuario, nombre: S.cuenta.nombre, contrasena: S.cuenta.contrasena, enlace: null },
+    propietario: { usuario: S.cuenta.usuario, nombre: S.cuenta.nombre, contrasena: S.cuenta.contrasena, confirmacion: S.cuenta.confirmacion || null, enlace: null },
   });
 };
 
@@ -458,11 +498,25 @@ let ultimoResumen = null;
 
 function instalar(solicitud) {
   S.instalando = true;
+  solicitud.cambiarModo = !!S.cambiarModo;
   ultimoResumen = solicitud;
   $("itemConfigurar").classList.toggle("oculto", solicitud.modo === "adicional" || !!solicitud.backup);
   ir("instalando");
   progreso({ etapa: 0, porcentaje: 0, nota: "Preparando…" });
-  llamar("instalar", solicitud).catch((e) => alAviso({ evento: "error", mensaje: e.message }));
+  llamar("instalar", solicitud).catch((e) => {
+    if (e.codigo === "INSTALADOR.CUENTA_INVALIDA") {
+      // La cuenta se validó con otra clave (o venció): se vuelve a "Tu cuenta" para validarla de nuevo, sin instalar nada.
+      S.instalando = false;
+      S.cuenta = null;
+      S.google = null;
+      S.googleCuenta = null;
+      prepararCuenta();
+      ir("cuenta");
+      aviso("avisoCuenta", e.message, "error");
+      return;
+    }
+    alAviso({ evento: "error", mensaje: e.message });
+  });
 }
 
 function progreso(m) {
@@ -562,6 +616,7 @@ $("btnBackupFinal").onclick = async () => {
   S.instalando = true;
   try {
     const ruta = await llamar("backupFinal");
+    if (!ruta) { ocupado(boton, false); return; } // Cerró la ventana de elegir carpeta.
     $("dBackupRuta").textContent = "Backup final guardado en: " + ruta;
     boton.textContent = "Listo ✓";
   } catch (e) { $("dBackupRuta").textContent = e.message; ocupado(boton, false); }
@@ -679,6 +734,9 @@ document.addEventListener("keydown", (e) => {
     S.desinstalar = inicio.modo === "desinstalar";
     S.maqueta = inicio.maqueta;
     S.nube = inicio.nube;
+    S.modoInstalado = inicio.modoInstalado || null;
+    const tarjeta = S.modoInstalado && document.querySelector(`.modo[data-modo="${S.modoInstalado}"]`);
+    if (tarjeta) tarjeta.click();
     $("version").textContent = `Versión ${inicio.version} · Hecho en Colombia para tu negocio`;
     if (S.desinstalar) prepararDesinstalar(inicio.desinstalacion); else ir("bienvenida");
     if (inicio.pantalla) maqueta(inicio.pantalla);
