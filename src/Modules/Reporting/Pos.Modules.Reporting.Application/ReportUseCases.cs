@@ -78,6 +78,12 @@ public static class ReportingErrors
 
     public static Error RangeTooLarge(int maxDays) =>
         Error.Validation("REPORTING.RANGE_TOO_LARGE", $"El rango de fechas no puede superar {maxDays} días.");
+
+    /// <summary>Un comparativo lee tres periodos: su rango se topa a la tercera parte de <c>reporting.max_range_days</c>.</summary>
+    public static Error ComparisonRangeTooLarge(int maxDays) =>
+        Error.Validation(
+            "REPORTING.RANGE_TOO_LARGE",
+            $"El comparativo lee tres periodos (el actual, el anterior y el del año pasado): el rango no puede superar {maxDays} días.");
 }
 
 // ------------------------------------------------------------------------------------------------ Puertos
@@ -188,6 +194,7 @@ public sealed class ReportEngine(
         }
 
         var (sqlArguments, shown) = parsed.Value;
+        var maxDays = await settings.GetAsync(ReportingSettings.MaxRangeDays, context, cancellationToken);
         if (sqlArguments.FirstOrDefault(a => a.Name == "from")?.Value is DateOnly from && sqlArguments.FirstOrDefault(a => a.Name == "to")?.Value is DateOnly to)
         {
             if (from > to)
@@ -195,7 +202,6 @@ public sealed class ReportEngine(
                 return ReportingErrors.InvalidParameter("from", "la fecha inicial es posterior a la final.");
             }
 
-            var maxDays = await settings.GetAsync(ReportingSettings.MaxRangeDays, context, cancellationToken);
             if (to.DayNumber - from.DayNumber + 1 > maxDays)
             {
                 return ReportingErrors.RangeTooLarge(maxDays);
@@ -219,7 +225,7 @@ public sealed class ReportEngine(
         ];
 
         var calculation = definition.Calculation;
-        var calculationContext = new ReportCalculationContext(today, all);
+        var calculationContext = new ReportCalculationContext(today, all, maxDays);
         if (calculation is not null)
         {
             var preparation = calculation.Prepare(calculationContext);
@@ -230,7 +236,7 @@ public sealed class ReportEngine(
 
             all.AddRange(preparation.Value.Arguments);
             shown.AddRange(preparation.Value.Shown);
-            calculationContext = new ReportCalculationContext(today, all);
+            calculationContext = new ReportCalculationContext(today, all, maxDays);
         }
 
         var queryColumns = definition.QueryColumns;
@@ -416,7 +422,7 @@ public sealed record ExportReportCommand(string Code, IReadOnlyDictionary<string
 
 public sealed record GetDashboardQuery : IQuery<DashboardDto>;
 
-internal sealed class ListReportsHandler(ReportEngine engine, IPermissionChecker permissions) : IQueryHandler<ListReportsQuery, IReadOnlyList<ReportInfoDto>>
+internal sealed class ListReportsHandler(ReportEngine engine, IPermissionChecker permissions, IClock clock) : IQueryHandler<ListReportsQuery, IReadOnlyList<ReportInfoDto>>
 {
     public async Task<Result<IReadOnlyList<ReportInfoDto>>> Handle(ListReportsQuery request, CancellationToken cancellationToken)
     {
@@ -427,7 +433,7 @@ internal sealed class ListReportsHandler(ReportEngine engine, IPermissionChecker
         }
 
         var includeCost = await engine.CanSeeCostsAsync(cancellationToken);
-        return ReportCatalog.All.Where(r => allowed[r.Permission]).Select(r => r.ToInfo(includeCost)).ToList();
+        return ReportCatalog.All.Where(r => allowed[r.Permission]).Select(r => r.ToInfo(includeCost, clock.Today)).ToList();
     }
 }
 

@@ -147,7 +147,7 @@ internal sealed class ReportExporter(IClock clock) : IReportExporter
         pdf.Info.Title = document.Title;
         var normal = pdf.Styles[StyleNames.Normal]!;
         normal.Font.Name = PdfFonts.Family;
-        normal.Font.Size = FontSize(document.Columns.Count);
+        normal.Font.Size = FontSize(document.Columns.Count, document.Group);
 
         var section = pdf.AddSection();
         section.PageSetup = pdf.DefaultPageSetup.Clone();
@@ -255,8 +255,12 @@ internal sealed class ReportExporter(IClock clock) : IReportExporter
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
     };
 
-    /// <summary>Letra de la tabla: 8 pt; 6 pt con más de 12 columnas; 5 pt con más de 15 (los comparativos tienen unas 22, pregunta 3).</summary>
-    internal static double FontSize(int columns) => columns > 15 ? 5 : columns > 12 ? 6 : 8;
+    /// <summary>
+    /// Letra de la tabla: 8 pt; 6 pt con más de 12 columnas. Solo en el grupo Análisis baja a 5 pt con más de 15 (los comparativos tienen
+    /// 22, pregunta 3); los reportes anchos de antes (antifraude, libro de ventas, conciliación) se quedan en 6 pt.
+    /// </summary>
+    internal static double FontSize(int columns, string group) =>
+        columns > 15 && group == ReportCatalog.Analysis ? 5 : columns > 12 ? 6 : 8;
 
     private static double Weight(ReportColumnType type) => type switch
     {

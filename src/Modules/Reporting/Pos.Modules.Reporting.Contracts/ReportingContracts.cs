@@ -45,13 +45,16 @@ public enum ReportColumnType
 }
 
 /// <summary>
-/// Presentación especial de una columna en la pantalla: variación (▲ verde / ▼ rojo), clase ABC (A verde, B ámbar, C gris) o celda
+/// Presentación especial de una columna en la pantalla: variación % o en puntos (▲ verde / ▼ rojo), clase ABC (A verde, B ámbar, C gris) o celda
 /// del mapa de calor (más oscura cuanto mayor el valor). No cambia el valor ni su formato en los archivos.
 /// </summary>
 public enum ReportColumnStyle
 {
     None,
     Variation,
+
+    /// <summary>Diferencia en puntos porcentuales (margen): ▲/▼ con la unidad "pp".</summary>
+    PointChange,
     AbcClass,
     Heat,
 }
@@ -85,13 +88,15 @@ public sealed record ReportParameterDto(string Name, string Label, ReportParamet
 
 public sealed record ReportColumnDto(string Key, string Label, ReportColumnType Type, bool HasTotal, ReportColumnStyle Style = ReportColumnStyle.None);
 
+/// <summary><see cref="Today"/>: fecha de negocio de hoy en el servidor, para resolver en la pantalla los valores "today-N".</summary>
 public sealed record ReportInfoDto(
     string Code,
     string Name,
     string Group,
     string Description,
     IReadOnlyList<ReportParameterDto> Parameters,
-    IReadOnlyList<ReportColumnDto> Columns);
+    IReadOnlyList<ReportColumnDto> Columns,
+    DateOnly? Today = null);
 
 /// <summary>Resultado en JSON: filas de la página pedida y totales de TODAS las filas.</summary>
 public sealed record ReportResultDto(

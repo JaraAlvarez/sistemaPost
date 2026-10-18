@@ -52,7 +52,7 @@ public class ReportEngineTests
         Enumerable.Range(0, 4).Select(i => Cell(report, i, AbcCalculation.CumulativeKey)).ShouldBe([70m, 90m, 100m, 100m]);
         Total(report, "net_sales").ShouldBe(950m);
         Total(report, AbcCalculation.ShareKey).ShouldBe(100m);
-        report.Parameters.ShouldContain(p => p.Key == "Corte A (% acumulado)" && p.Value == "80");
+        report.Parameters.ShouldContain(p => p.Key == "Corte A (% acumulado, número entero)" && p.Value == "80");
     }
 
     [Fact]
@@ -62,8 +62,36 @@ public class ReportEngineTests
         var result = await engine.ExecuteAsync("ABC_BY_SALES", Args(("cutA", "90"), ("cutB", "20")), Ct);
         result.IsFailure.ShouldBeTrue();
         result.Error.Code.ShouldBe("REPORTING.INVALID_PARAMETER");
+        result.Error.Message.ShouldStartWith("Parámetro 'cutB'");
         runner.Last.ShouldBeNull();
+
+        var badA = await engine.ExecuteAsync("ABC_BY_SALES", Args(("cutA", "0")), Ct);
+        badA.Error.Message.ShouldStartWith("Parámetro 'cutA'");
     }
+
+    [Fact]
+    public async Task El_rango_de_un_comparativo_se_topa_a_la_tercera_parte_del_maximo()
+    {
+        var (engine, runner) = Engine([ComparisonRow()], ReportingPermissions.SalesBasic, ReportingPermissions.SalesAdvanced);
+
+        // reporting.max_range_days = 366 por defecto → 122 días.
+        var ok = await engine.ExecuteAsync("COMPARE_BY_CASHIER", Args(("from", "2026-06-18"), ("to", "2026-10-17")), Ct);
+        ok.IsSuccess.ShouldBeTrue();
+
+        var tooLarge = await engine.ExecuteAsync("COMPARE_BY_DAY", Args(("from", "2026-06-17"), ("to", "2026-10-17")), Ct);
+        tooLarge.Error.Code.ShouldBe("REPORTING.RANGE_TOO_LARGE");
+        tooLarge.Error.Message.ShouldContain("122 días");
+        tooLarge.Error.Message.ShouldContain("tres periodos");
+
+        // Los demás reportes conservan el máximo completo.
+        (await engine.ExecuteAsync("ABC_BY_SALES", Args(("from", "2025-10-17"), ("to", "2026-10-17")), Ct)).IsSuccess.ShouldBeTrue();
+        ComparisonCalculation.MaxDays(366).ShouldBe(122);
+        ComparisonCalculation.MaxDays(2).ShouldBe(1);
+    }
+
+    [Fact]
+    public void El_catalogo_publica_la_fecha_de_negocio_de_hoy() =>
+        ReportCatalog.Find("COMPARE_BY_DAY")!.ToInfo(includeCost: false, Today).Today.ShouldBe(Today);
 
     [Fact]
     public async Task ABC_por_utilidad_exige_el_permiso_de_utilidad()

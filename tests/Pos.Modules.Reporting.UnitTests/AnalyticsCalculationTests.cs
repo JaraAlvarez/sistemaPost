@@ -71,6 +71,21 @@ public class AbcClassifierTests
     }
 
     [Fact]
+    public void A_igual_valor_se_hereda_la_clase_del_anterior()
+    {
+        // Sin la regla, el segundo 20 quedaría en B (antes de él ya van 80): hereda la A del primer 20.
+        Classes(60m, 20m, 20m).ShouldBe([AbcClass.A, AbcClass.A, AbcClass.A]);
+        // El segundo 5 hereda la B (antes de él van 95, que sin la regla sería C).
+        Classes(80m, 10m, 5m, 5m).ShouldBe([AbcClass.A, AbcClass.B, AbcClass.B, AbcClass.B]);
+        // Empate en desorden: también se agrupan.
+        Classes(20m, 60m, 20m).ShouldBe([AbcClass.A, AbcClass.A, AbcClass.A]);
+        // Los empates no cambian participación ni acumulado.
+        AbcClassifier.Classify([60m, 20m, 20m], AbcCutoffs.Default).Select(i => i.Cumulative).ShouldBe([60m, 80m, 100m]);
+        // Un valor distinto después de un empate vuelve a mirar el acumulado.
+        Classes(60m, 20m, 20m, 1m).ShouldBe([AbcClass.A, AbcClass.A, AbcClass.A, AbcClass.C]);
+    }
+
+    [Fact]
     public void Cortes_configurables()
     {
         AbcClassifier.Classify([50m, 30m, 20m], new AbcCutoffs(50m, 30m)).Select(i => i.Class).ShouldBe([AbcClass.A, AbcClass.B, AbcClass.C]);
@@ -86,6 +101,18 @@ public class AbcClassifierTests
     [InlineData(80, -1, false)]
     public void Validacion_de_los_cortes(int a, int b, bool valid) =>
         (new AbcCutoffs(a, b).Validate() is null).ShouldBe(valid);
+
+    [Theory]
+    [InlineData(0, 15, "cutA")]
+    [InlineData(100, 0, "cutA")]
+    [InlineData(80, 25, "cutB")]
+    [InlineData(80, -1, "cutB")]
+    public void El_error_nombra_el_corte_que_falla(int a, int b, string parameter)
+    {
+        var invalid = new AbcCutoffs(a, b).Validate().ShouldNotBeNull();
+        invalid.Parameter.ShouldBe(parameter);
+        invalid.Message.ShouldContain("número entero");
+    }
 }
 
 /// <summary>Periodos del comparativo: anterior, año pasado a 364 días y con las mismas fechas (29 de febrero, cruce de año).</summary>

@@ -34,8 +34,11 @@ public sealed record ReportColumn(
     public bool HasTotal => Total || Ratio is not null;
 }
 
-/// <summary>Lo que ve un cálculo: la fecha de hoy y los argumentos SQL ya validados (nombres en snake_case).</summary>
-public sealed record ReportCalculationContext(DateOnly Today, IReadOnlyList<SqlArgument> Arguments)
+/// <summary>
+/// Lo que ve un cálculo: la fecha de hoy, los argumentos SQL ya validados (nombres en snake_case) y el rango máximo de fechas
+/// (<c>reporting.max_range_days</c>).
+/// </summary>
+public sealed record ReportCalculationContext(DateOnly Today, IReadOnlyList<SqlArgument> Arguments, int MaxRangeDays = 366)
 {
     public object? Value(string sqlName) => Arguments.FirstOrDefault(a => a.Name == sqlName)?.Value;
 }
@@ -77,13 +80,14 @@ public sealed record ReportDefinition(
     string? Note = null,
     IReportCalculation? Calculation = null)
 {
-    public ReportInfoDto ToInfo(bool includeCost) => new(
+    public ReportInfoDto ToInfo(bool includeCost, DateOnly? today = null) => new(
         Code,
         Name,
         Group,
         Description,
         [.. Parameters.Select(p => new ReportParameterDto(p.Name, p.Label, p.Type, p.Required, p.DefaultValue))],
-        [.. VisibleColumns(includeCost).Select(c => c.ToDto())]);
+        [.. VisibleColumns(includeCost).Select(c => c.ToDto())],
+        today);
 
     /// <summary>Columnas publicadas: sin las ocultas y, sin permiso de costos, sin las de costo.</summary>
     public IReadOnlyList<ReportColumn> VisibleColumns(bool includeCost) => [.. Columns.Where(c => !c.Hidden && (includeCost || !c.IsCost))];

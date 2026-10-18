@@ -85,7 +85,7 @@
                                                 {
                                                     <MudChip T="string" Size="Size.Small" Color="@ColorAbc(value.GetString())" Class="ma-0">@value.GetString()</MudChip>
                                                 }
-                                                else if (column.Style == "Variation")
+                                                else if (EsVariacion(column))
                                                 {
                                                     <span style="@ColorVariacion(value)">@Variacion(value, column)</span>
                                                 }
@@ -99,7 +99,7 @@
                                 }
                                 @if (_result.Totals.Count > 0)
                                 {
-                                    <tr>@foreach (var column in _result.Columns) { <td class="num"><b>@(_result.Totals.TryGetValue(column.Key, out var total) ? (column.Style == "Variation" ? Variacion(total, column) : Format.Cell(total, column.Type)) : "")</b></td> }</tr>
+                                    <tr>@foreach (var column in _result.Columns) { <td class="num"><b>@(_result.Totals.TryGetValue(column.Key, out var total) ? (EsVariacion(column) ? Variacion(total, column) : Format.Cell(total, column.Type)) : "")</b></td> }</tr>
                                 }
                             </tbody>
                         </MudSimpleTable>
@@ -141,12 +141,15 @@
         _verMapa = true;
         foreach (var parameter in report.Parameters)
         {
-            _values[parameter.Name] = parameter.Type == "Date" ? FechaPorDefecto(parameter.DefaultValue) : parameter.DefaultValue;
+            _values[parameter.Name] = parameter.Type == "Date" ? FechaPorDefecto(parameter.DefaultValue, report.Today) : parameter.DefaultValue;
         }
     }
 
-    /// <summary>"today" y "today-N" (p. ej. los últimos 7 días de los comparativos) se muestran ya resueltos en el selector de fecha.</summary>
-    private static string? FechaPorDefecto(string? value)
+    /// <summary>
+    /// "today" y "today-N" (p. ej. los últimos 7 días de los comparativos) se muestran ya resueltos en el selector de fecha, con la fecha de
+    /// negocio del servidor (cerca de la medianoche el reloj del equipo puede ir en otro día).
+    /// </summary>
+    private static string? FechaPorDefecto(string? value, DateOnly? serverToday)
     {
         if (value is null || !value.StartsWith("today", StringComparison.OrdinalIgnoreCase))
         {
@@ -154,7 +157,8 @@
         }
 
         var offset = value.Length > 5 && int.TryParse(value[5..], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var o) ? o : 0;
-        return DateTime.Today.AddDays(offset).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var today = serverToday ?? DateOnly.FromDateTime(DateTime.Today);
+        return today.AddDays(offset).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     }
 
     private bool EsMapaDeCalor => _result?.Columns.Any(c => c.Style == "Heat") == true;
@@ -183,6 +187,8 @@
         return $"background-color: rgba(var(--mud-palette-primary-rgb), {alpha});" + (level >= 4 ? " color: var(--mud-palette-primary-text);" : string.Empty);
     }
 
+    private static bool EsVariacion(ReportColumn column) => column.Style is "Variation" or "PointChange";
+
     private static Color ColorAbc(string? clase) => clase switch
     {
         "A" => Color.Success,
@@ -205,7 +211,7 @@
         }
 
         var number = value.GetDecimal();
-        var unit = column.Label.Contains("pp", StringComparison.Ordinal) ? " pp" : " %";
+        var unit = column.Style == "PointChange" ? " pp" : " %";
         var arrow = number > 0 ? "▲ " : number < 0 ? "▼ " : "";
         return arrow + Math.Abs(number).ToString("0.##", Format.Colombia) + unit;
     }

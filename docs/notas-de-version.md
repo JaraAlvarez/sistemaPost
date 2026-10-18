@@ -1,5 +1,17 @@
 # Notas de versión
 
+## Rama `reportes-analisis` (pendiente de unir a `main`)
+
+### Nuevo
+- **Reportes → Análisis:** ABC de productos por venta y por utilidad, comparativos por día (año pasado = 364 días antes, mismo día de la
+  semana), por categoría y por cajero (año pasado = mismas fechas), y mapa de calor de ventas por hora y día de la semana. El rango de un
+  comparativo no puede pasar de la tercera parte de `reporting.max_range_days` (122 días con el valor por defecto).
+
+### Cambia
+- **Impuestos generados en ventas (`TAXES_SALES`):** la columna del valor se llama ahora **"Valor del impuesto"** (antes "Impuesto", el
+  mismo nombre de la columna del código). En Excel, CSV y PDF el encabezado cambia; en el Excel antes se perdía una de las dos columnas.
+  Quien tenga plantillas o macros que lean ese encabezado debe actualizarlas. La llave en JSON (`amount`) no cambia.
+
 ## Rama `pantallas-admin` (pendiente de unir a `main`)
 
 ### Nuevo

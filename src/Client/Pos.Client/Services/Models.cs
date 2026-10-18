@@ -76,10 +76,13 @@ public sealed record CashReport(string Kind, string Number, decimal ExpectedTota
 
 public sealed record ReportParameter(string Name, string Label, string Type, bool Required, string? DefaultValue);
 
-/// <summary><c>Style</c>: presentación especial (Variation, AbcClass, Heat; ver ReportColumnStyle).</summary>
+/// <summary><c>Style</c>: presentación especial (Variation, PointChange, AbcClass, Heat; ver ReportColumnStyle).</summary>
 public sealed record ReportColumn(string Key, string Label, string Type, bool HasTotal, string Style = "None");
 
-public sealed record ReportInfo(string Code, string Name, string Group, string Description, IReadOnlyList<ReportParameter> Parameters, IReadOnlyList<ReportColumn> Columns);
+/// <summary><c>Today</c>: fecha de negocio de hoy en el servidor (los valores "today-N" se resuelven con ella, no con el reloj del equipo).</summary>
+public sealed record ReportInfo(
+    string Code, string Name, string Group, string Description, IReadOnlyList<ReportParameter> Parameters, IReadOnlyList<ReportColumn> Columns,
+    DateOnly? Today = null);
 
 public sealed record ReportResult(
     string Code, string Name, IReadOnlyList<ReportColumn> Columns, IReadOnlyList<Dictionary<string, JsonElement>> Rows, Dictionary<string, JsonElement> Totals,

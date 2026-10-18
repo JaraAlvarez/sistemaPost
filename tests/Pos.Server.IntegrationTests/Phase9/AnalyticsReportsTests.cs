@@ -13,6 +13,8 @@ namespace Pos.Server.IntegrationTests.Phase9;
 /// Reportes de análisis (docs/fases/mejora-reportes-propuesta.md) con ventas reales: el ABC cuadra con "Ventas por producto", el
 /// comparativo refleja ventas movidas al periodo anterior y al año pasado (364 días en el comparativo por día, mismas fechas en
 /// categoría y cajero), el mapa de calor cuadra con "Ventas por hora", los costos se ocultan sin permiso y los archivos se generan.
+/// Con devoluciones, ventas anuladas, líneas eliminadas y productos que solo tienen devolución, todo cuadra con SALES_DAILY,
+/// SALES_BY_PRODUCT y PROFIT_BY_CASHIER.
 /// </summary>
 public class AnalyticsReportsTests
 {
@@ -71,9 +73,9 @@ public class AnalyticsReportsTests
         // ------------------------------------------------------------------ Ventas movidas al periodo anterior y al año pasado.
         var lastYear364 = today.AddDays(-364);
         var lastYearSameDate = today.AddYears(-1);
-        await MoveAsync(shop, yesterday, today.AddDays(-1));
-        await MoveAsync(shop, sale364, lastYear364);
-        await MoveAsync(shop, sameDateLastYear, lastYearSameDate);
+        await MoveAsync(shop, yesterday.Id, today.AddDays(-1));
+        await MoveAsync(shop, sale364.Id, lastYear364);
+        await MoveAsync(shop, sameDateLastYear.Id, lastYearSameDate);
 
         async Task<decimal> DailyNet(DateOnly date) => Total(await RunAsync(shop.Owner, "SALES_DAILY", date, date), "net_sales");
         var currentNet = await DailyNet(today);
@@ -152,6 +154,112 @@ public class AnalyticsReportsTests
             .ShouldFailWithAsync(HttpStatusCode.BadRequest, "REPORTING.INVALID_PARAMETER");
     }
 
+    [Fact]
+    public async Task Con_devoluciones_anuladas_y_lineas_eliminadas_el_ABC_y_los_comparativos_cuadran_con_los_reportes_base()
+    {
+        await using var factory = new CashServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        await shop.OpenSessionAsync();
+        var today = Phase5.PurchasingScenario.Today;
+        var yesterday = today.AddDays(-1);
+
+        // Venta con arroz y gaseosa; luego se devuelve (garantía) 1 arroz.
+        var main = await shop.StartAsync();
+        await shop.AddAsync(main.Id, shop.Rice, 3);
+        main = await shop.AddAsync(main.Id, shop.Soda, 2);
+        var mainSale = (await shop.CompleteAsync(main.Id, [Pay(shop.Cash, 50_000m)])).Sale;
+
+        // Venta con una línea eliminada antes de cobrar: la línea no cuenta.
+        var withVoidedLine = await shop.StartAsync();
+        withVoidedLine = await shop.AddAsync(withVoidedLine.Id, shop.Rice, 5);
+        withVoidedLine = await shop.AddAsync(withVoidedLine.Id, shop.Soda, 1);
+        var riceLine = withVoidedLine.Lines.Single(l => l.ProductId == shop.Rice);
+        withVoidedLine = await PostAsync<Pos.Modules.Sales.Contracts.SaleDto>(shop.Cashier, $"/api/v1/sales/{withVoidedLine.Id}/lines/{riceLine.Id}/void");
+        await shop.CompleteAsync(withVoidedLine.Id, [Pay(shop.Cash, withVoidedLine.Total)]);
+
+        // Venta anulada: no cuenta.
+        var voided = await SellAsync(shop, shop.Rice, 7);
+        await shop.AuthorizedAsync<Pos.Modules.Sales.Contracts.SaleReceiptDto>(HttpMethod.Post, $"/api/v1/sales/{voided.Id}/void", new { reason = "Error de digitación" });
+
+        // Yogurt vendido "ayer" y devuelto hoy: hoy el yogurt solo tiene devolución.
+        var yogurt = (await shop.CompleteAsync(
+            (await shop.AddAsync((await shop.StartAsync()).Id, shop.Yogurt, 2)).Id, [Pay(shop.Cash, 50_000m)])).Sale;
+        await MoveAsync(shop, yogurt.Id, yesterday);
+
+        var owner = factory.CreateClient();
+        await Phase3.SecurityScenario.PosLoginAsync(owner, "100", "4826");
+        foreach (var (sale, productId) in new[] { (mainSale, shop.Rice), (yogurt, shop.Yogurt) })
+        {
+            var line = sale.Lines.Single(l => l.ProductId == productId);
+            var refund = await RawAsync(owner, HttpMethod.Post, "/api/v1/exchanges/warranty-refund", new
+            {
+                originalSaleId = sale.Id, reason = "Producto defectuoso, garantía",
+                lines = new object[] { new { saleLineId = line.Id, quantity = 1m, destination = "Discard" } },
+            });
+            refund.StatusCode.ShouldBe(HttpStatusCode.OK, await refund.Content.ReadAsStringAsync(Ct));
+        }
+
+        var daily = await RunAsync(shop.Owner, "SALES_DAILY", today, today);
+        var byProduct = await RunAsync(shop.Owner, "SALES_BY_PRODUCT", today, today);
+        Total(daily, "tickets").ShouldBe(2m);
+        Total(daily, "voided_tickets").ShouldBe(1m);
+        Total(daily, "refunds").ShouldBeGreaterThan(0m);
+        Total(byProduct, "net_sales").ShouldBe(Total(daily, "net_sales"));
+
+        // ABC: cuadra con "Ventas por producto"; el yogurt (solo devolución) queda con venta negativa, en C y sin participación.
+        var abc = await RunAsync(shop.Owner, "ABC_BY_SALES", today, today);
+        Total(abc, "net_sales").ShouldBe(Total(byProduct, "net_sales"));
+        Total(abc, "quantity").ShouldBe(Total(byProduct, "quantity_sold") - Total(byProduct, "quantity_returned"));
+        var yogurtRow = abc.Rows.Single(r => Cell(r, "net_sales").GetDecimal() < 0);
+        Cell(yogurtRow, "quantity").GetDecimal().ShouldBe(-1m);
+        (Cell(yogurtRow, "abc_class").GetString(), Cell(yogurtRow, "abc_share").GetDecimal()).ShouldBe(("C", 0m));
+        foreach (var row in abc.Rows)
+        {
+            var sku = Cell(row, "sku").GetString();
+            Cell(row, "net_sales").GetDecimal().ShouldBe(Cell(byProduct.Rows.Single(p => Cell(p, "sku").GetString() == sku), "net_sales").GetDecimal());
+        }
+
+        var abcProfit = await RunAsync(shop.Owner, "ABC_BY_PROFIT", today, today);
+        var profitByProduct = await RunAsync(shop.Owner, "PROFIT_BY_PRODUCT", today, today);
+        (Total(abcProfit, "net_sales"), Total(abcProfit, "cost"), Total(abcProfit, "profit"))
+            .ShouldBe((Total(profitByProduct, "net_sales"), Total(profitByProduct, "cost"), Total(profitByProduct, "profit")));
+
+        // Comparativo por día: hoy y ayer cuadran con el resumen diario; el margen, con la utilidad por día.
+        var byDay = await RunAsync(shop.Owner, "COMPARE_BY_DAY", today, today);
+        var day = byDay.Rows.ShouldHaveSingleItem();
+        Cell(day, "cur_net").GetDecimal().ShouldBe(Total(daily, "net_sales"));
+        Cell(day, "cur_tickets").GetInt64().ShouldBe(2L);
+        Cell(day, "prev_net").GetDecimal().ShouldBe(Total(await RunAsync(shop.Owner, "SALES_DAILY", yesterday, yesterday), "net_sales"));
+        Cell(day, "prev_net").GetDecimal().ShouldBe(yogurt.Total);
+        Cell(day, "cur_margin").GetDecimal().ShouldBe(Total(await RunAsync(shop.Owner, "PROFIT_BY_DAY", today, today), "margin"), 0.02m);
+
+        // Por cajero: la devolución resta al cajero de la venta original; cuadra con la utilidad por cajero.
+        var byCashier = await RunAsync(shop.Owner, "COMPARE_BY_CASHIER", today, today);
+        var profitByCashier = await RunAsync(shop.Owner, "PROFIT_BY_CASHIER", today, today);
+        Total(byCashier, "cur_net").ShouldBe(Total(daily, "net_sales"));
+        foreach (var row in byCashier.Rows.Where(r => Cell(r, "cur_tickets").GetInt64() > 0))
+        {
+            var name = Cell(row, "cashier_name").GetString();
+            var profitRow = profitByCashier.Rows.Single(p => Cell(p, "cashier_name").GetString() == name);
+            Cell(row, "cur_margin").GetDecimal().ShouldBe(Cell(profitRow, "margin").GetDecimal(), 0.02m);
+        }
+
+        Total(byCashier, "cur_margin").ShouldBe(Total(profitByCashier, "margin"), 0.02m);
+
+        // Por categoría: cuadra con "Ventas por categoría".
+        var byCategory = await RunAsync(shop.Owner, "COMPARE_BY_CATEGORY", today, today);
+        Total(byCategory, "cur_net").ShouldBe(Total(await RunAsync(shop.Owner, "SALES_BY_CATEGORY", today, today), "net_sales"));
+        Total(byCategory, "prev_net").ShouldBe(Total(await RunAsync(shop.Owner, "SALES_BY_CATEGORY", yesterday, yesterday), "net_sales"));
+
+        // El rango del comparativo se topa a la tercera parte del máximo (122 días con 366).
+        await RawAsync(shop.Owner, HttpMethod.Get, $"/api/v1/reports/COMPARE_BY_DAY?from={Iso(today.AddDays(-122))}&to={Iso(today)}")
+            .ShouldFailWithAsync(HttpStatusCode.BadRequest, "REPORTING.RANGE_TOO_LARGE");
+        (await RunAsync(shop.Owner, "COMPARE_BY_DAY", today.AddDays(-121), today)).Rows.Count.ShouldBe(122);
+
+        // El catálogo publica la fecha de negocio de hoy (la pantalla resuelve today-N con ella).
+        (await GetAsync<List<ReportInfoDto>>(shop.Owner, "/api/v1/reports")).ShouldAllBe(r => r.Today == today);
+    }
+
     private static async Task<Pos.Modules.Sales.Contracts.SaleDto> SellAsync(SalesScenario shop, Guid product, decimal quantity)
     {
         var sale = await shop.StartAsync();
@@ -161,6 +269,6 @@ public class AnalyticsReportsTests
     }
 
     /// <summary>Lleva una venta (y por la vista, sus líneas) a otra fecha de negocio.</summary>
-    private static Task MoveAsync(SalesScenario shop, Pos.Modules.Sales.Contracts.SaleDto sale, DateOnly date) =>
-        shop.Catalog.ExecuteAsync($"UPDATE sales.sales SET business_date = '{Iso(date)}' WHERE id = '{sale.Id}'");
+    private static Task MoveAsync(SalesScenario shop, Guid saleId, DateOnly date) =>
+        shop.Catalog.ExecuteAsync($"UPDATE sales.sales SET business_date = '{Iso(date)}' WHERE id = '{saleId}'");
 }

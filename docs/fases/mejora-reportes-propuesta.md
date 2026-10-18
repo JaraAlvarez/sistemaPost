@@ -94,18 +94,33 @@ Se revisó el módulo Reporting de main (8a1cc3c) antes de escribir código. Dif
 
 - **Sin migraciones, vistas nuevas ni permisos nuevos.** Las vistas actuales (`reporting.sales`, `sale_lines`, `returns`, `return_lines`, `products`, `categories`, `users`) ya tienen todo lo necesario. Por eso no hizo falta la V2026.10.120 ni tocar `R__reporting__views` o `A__system__privileges`: el `GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO pos_app` cubriría cualquier vista futura. `ReportingSchemaTests` sigue esperando 37 vistas.
 - **Alcance por sucursal.** En main, los reportes no tienen filtro de sucursal. Siempre leen la empresa y la sucursal del nodo (`@company_id`, `@branch_id`, D9-13), y el permiso se verifica con el alcance del usuario en esa sucursal. Los reportes nuevos siguen la misma regla. No se agregó ningún parámetro de sucursal, así que no es posible consultar otra sucursal.
-- **Presentación de las columnas.** En lugar de una marca `Variation` en la columna, se agregó `ReportColumnStyle` (`None`, `Variation`, `AbcClass`, `Heat`) en los contratos. `ReportColumnDto` lo publica como parámetro opcional al final, y la pantalla lo usa para ▲/▼, el color de la clase y el mapa de calor. `HeatmapScale` (intensidad de 0 a 5) también quedó en los contratos, porque el cliente ya los referencia.
+- **Presentación de las columnas.** En lugar de una marca `Variation` en la columna, se agregó `ReportColumnStyle` (`None`, `Variation`, `PointChange`, `AbcClass`, `Heat`) en los contratos. `PointChange` es la variación del margen en puntos porcentuales; la pantalla ya no busca "pp" en la etiqueta. `ReportColumnDto` lo publica como parámetro opcional al final, y la pantalla lo usa para ▲/▼, el color de la clase y el mapa de calor. `HeatmapScale` (intensidad de 0 a 5) también quedó en los contratos, porque el cliente ya los referencia.
 - **`IReportCalculation`** tiene tres pasos: `Prepare` (valida, agrega argumentos SQL y parámetros que se muestran), `Apply` (llena las columnas `Computed` de cada fila) y `CompleteTotals` (rehace las variaciones, promedios y márgenes del total sobre las sumas, no suma variaciones). El motor calcula los totales con todas las columnas (incluidas las ocultas) y luego proyecta las visibles. Para los 39 reportes que ya existían, el resultado es el mismo (ahora son 45).
-- **Cortes del ABC** como parámetros del reporte (`cutA` = 80, `cutB` = 15). Con valores inválidos (A fuera de 1–99, o A + B > 100) responde `REPORTING.INVALID_PARAMETER`.
+- **Cortes del ABC** como parámetros del reporte (`cutA` = 80, `cutB` = 15, números enteros; así lo dice la etiqueta). Con valores inválidos responde `REPORTING.INVALID_PARAMETER` y nombra el corte que falla: `cutA` si A está fuera de 1–99, `cutB` si B es negativo o A + B > 100.
+- **Empates en el ABC:** a igual valor, un producto hereda la clase del anterior, para que dos productos que venden lo mismo nunca queden en clases distintas.
+- **Rango de los comparativos:** como leen tres periodos, su rango se topa a la tercera parte de `reporting.max_range_days` (122 días con 366). Si se pasa, responde `REPORTING.RANGE_TOO_LARGE` con un mensaje que lo explica. Los demás reportes conservan el máximo completo.
 - **Periodos mostrados.** El comparativo agrega a los parámetros del resultado y de los archivos el "Periodo anterior" y el "Año pasado", con sus fechas.
 - **Columnas del comparativo:** 20 visibles (venta neta, tiquetes, ticket promedio y margen; cada uno con actual, anterior, var., año pasado, var.) más la clave, y 9 ocultas (total, base y costo por periodo). Ticket promedio = total vendido ÷ tiquetes, igual que en "Resumen diario". Las 5 columnas de margen solo se ven con `inventory.cost.view` o `reporting.profit.view`.
   - En el comparativo por categoría, un tiquete con varias categorías cuenta en cada una. Por eso ahí no se totalizan los tiquetes ni el ticket promedio.
   - En el comparativo por cajero, las devoluciones restan al cajero de la venta original, como en "Utilidad por cajero".
-- **Valores por defecto:** últimos 7 días en los comparativos, 30 en el ABC y 28 en el mapa de calor. Ahora la pantalla resuelve `today-N` en el selector de fecha.
-- **PDF:** la letra baja a 5 pt con más de 15 columnas. Con 13 a 15 se mantiene en 6 pt, como ya estaba.
+- **Valores por defecto:** últimos 7 días en los comparativos, 30 en el ABC y 28 en el mapa de calor. `ReportInfoDto` publica la fecha de negocio de hoy del servidor (`Today`), y la pantalla resuelve `today-N` con ella, no con el reloj del equipo. Así se resuelve el riesgo "fecha del cliente y del servidor" de la §6.
+- **PDF:** solo en el grupo Análisis la letra baja a 5 pt con más de 15 columnas. Los reportes anchos de antes (ANTIFRAUD_BY_CASHIER, SALES_BOOK, FISCAL_RECONCILIATION) siguen en 6 pt.
 - **Mapa de calor:** se muestra la venta con impuestos de las ventas completadas, como en "Ventas por hora". Las filas son solo las horas con ventas. En la pantalla se puede elegir "Tabla" o "Mapa de calor".
-- **Corrección encontrada por las pruebas:** en `TAXES_SALES` dos columnas se llamaban "Impuesto". En Excel, la segunda pisaba a la primera. La del valor ahora se llama "Valor del impuesto". Una prueba del catálogo exige etiquetas únicas.
+- **Corrección encontrada por las pruebas:** en `TAXES_SALES` dos columnas se llamaban "Impuesto". En Excel, la segunda pisaba a la primera. La del valor ahora se llama "Valor del impuesto" (anotado en `docs/notas-de-version.md`). Una prueba del catálogo exige etiquetas únicas.
 - **Pruebas:**
   - `tests/Pos.Modules.Reporting.UnitTests` (en `Pos.slnx`): ABC, periodos (364 días, 29 de febrero, cruce de año), variaciones, mapa de calor, motor con un ejecutor falso, invariantes del catálogo, y PDF, Excel y CSV del comparativo. Para esto, `Pos.Modules.Reporting.Infrastructure` agrega `InternalsVisibleTo` a ese proyecto.
-  - Integración en `Phase9/AnalyticsReportsTests`.
-- **Pendiente (§6):** no se midió el rendimiento con unos 100.000 tiquetes.
+  - Integración en `Phase9/AnalyticsReportsTests`, con dos casos:
+    - ventas movidas al periodo anterior y al año pasado, y permisos;
+    - una devolución por garantía, una venta anulada, una línea eliminada y un producto que en el periodo solo tiene devolución. El ABC y los comparativos cuadran con SALES_DAILY, SALES_BY_PRODUCT, PROFIT_BY_PRODUCT, PROFIT_BY_CASHIER y SALES_BY_CATEGORY.
+- **Rendimiento (§6), medido:** `Phase9/AnalyticsReportsPerformanceTests` es una prueba explícita (`--explicit only`). Clona con SQL directo una venta real hasta 100.001 tiquetes y 300.003 líneas repartidos en 400 días. Resultados por la API (1ª / 2ª ejecución):
+
+  | Reporte | Rango | Tiempo |
+  |---|---|---|
+  | COMPARE_BY_DAY | 122 días | 0,33 / 0,23 s |
+  | COMPARE_BY_CATEGORY | 122 días | 0,48 / 0,56 s |
+  | COMPARE_BY_CASHIER | 122 días | 0,20 / 0,23 s |
+  | ABC_BY_SALES | 366 días | 0,08 / 0,08 s |
+  | ABC_BY_PROFIT | 366 días | 0,07 / 0,07 s |
+  | SALES_HEATMAP | 366 días | 0,05 / 0,05 s |
+
+  Según EXPLAIN ANALYZE, el comparativo por día ejecuta en 248 ms: las ventas usan `ix_sales__business_date` y las líneas se leen con un barrido completo de `sale_lines` (60 ms para 300.000 filas). Con tiempos tan lejos de los 10 s no hace falta índice ni migración. `sale_lines` no guarda la fecha; ya tiene índice por `sale_id` (`ux_sale_lines__line`), pero PostgreSQL prefiere el barrido cuando cae buena parte de la tabla. Si alguna tienda llega a millones de líneas, habría que evaluar una fecha de negocio en `sale_lines` con su índice (se propondría aparte). Limitación de la medición: los datos no tienen devoluciones.

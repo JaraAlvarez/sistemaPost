@@ -17,10 +17,10 @@ public sealed record AbcCutoffs(decimal A, decimal B)
 {
     public static AbcCutoffs Default { get; } = new(80m, 15m);
 
-    /// <summary>A entre 1 y 99; B entre 0 y lo que falte para 100.</summary>
-    public string? Validate() =>
-        A is < 1m or > 99m ? "el corte A debe estar entre 1 y 99."
-        : B < 0m || A + B > 100m ? "el corte B debe ser positivo y A + B no puede pasar de 100."
+    /// <summary>A entre 1 y 99; B entre 0 y lo que falte para 100. Devuelve el parámetro que falla (<c>cutA</c> o <c>cutB</c>) y el motivo.</summary>
+    public (string Parameter, string Message)? Validate() =>
+        A is < 1m or > 99m ? ("cutA", "el corte A debe ser un número entero entre 1 y 99.")
+        : B < 0m || A + B > 100m ? ("cutB", $"el corte B debe ser un número entero entre 0 y {Math.Max(100m - A, 0m):0} (A + B no puede pasar de 100).")
         : null;
 }
 
@@ -29,7 +29,8 @@ public sealed record AbcItem(decimal Share, decimal Cumulative, AbcClass Class);
 
 /// <summary>
 /// Clasificación ABC (Pareto). Se recorre de mayor a menor valor: un producto es A si el acumulado ANTES de él es menor que el corte A
-/// (así el que cruza el 80 % queda en A), B si es menor que A + B, y C el resto. Un valor ≤ 0 va a C con participación 0.
+/// (así el que cruza el 80 % queda en A), B si es menor que A + B, y C el resto. Un valor ≤ 0 va a C con participación 0. Empates: a igual
+/// valor, un producto hereda la clase del anterior (dos productos que venden lo mismo nunca quedan en clases distintas).
 /// La base es la suma de los valores positivos; el SQL la manda calculada con una función de ventana para que siga correcta aunque el
 /// reporte se corte por el límite de filas.
 /// </summary>
@@ -43,6 +44,8 @@ public static class AbcClassifier
         var order = Enumerable.Range(0, values.Count).OrderByDescending(i => values[i]).ThenBy(i => i).ToArray();
         var result = new AbcItem[values.Count];
         var cumulative = 0m;
+        decimal? previousValue = null;
+        var previousClass = AbcClass.A;
         foreach (var i in order)
         {
             var value = values[i];
@@ -53,7 +56,12 @@ public static class AbcClassifier
             }
 
             var share = value / total * 100m;
-            var @class = cumulative < cutoffs.A ? AbcClass.A : cumulative < cutoffs.A + cutoffs.B ? AbcClass.B : AbcClass.C;
+            var @class = value == previousValue ? previousClass
+                : cumulative < cutoffs.A ? AbcClass.A
+                : cumulative < cutoffs.A + cutoffs.B ? AbcClass.B
+                : AbcClass.C;
+            previousValue = value;
+            previousClass = @class;
             cumulative += share;
             result[i] = new AbcItem(share, Math.Min(cumulative, 100m), @class);
         }
@@ -171,7 +179,7 @@ internal sealed class AbcCalculation(string valueKey, string baseKey) : IReportC
     public Result<ReportPreparation> Prepare(ReportCalculationContext context)
     {
         var cutoffs = Cutoffs(context);
-        return cutoffs.Validate() is { } message ? ReportingErrors.InvalidParameter("cutA", message) : ReportPreparation.None;
+        return cutoffs.Validate() is { } invalid ? ReportingErrors.InvalidParameter(invalid.Parameter, invalid.Message) : ReportPreparation.None;
     }
 
     public void Apply(ReportCalculationContext context, IReadOnlyList<ReportColumn> columns, IReadOnlyList<object?[]> rows)
@@ -220,6 +228,13 @@ internal sealed class ComparisonCalculation(LastYearRule rule) : IReportCalculat
             return ReportingErrors.InvalidParameter("from", "el comparativo necesita las fechas desde y hasta.");
         }
 
+        // Se leen tres periodos del mismo largo: el rango se topa a la tercera parte del máximo (reporting.max_range_days).
+        var maxDays = MaxDays(context.MaxRangeDays);
+        if (to.DayNumber - from.DayNumber + 1 > maxDays)
+        {
+            return ReportingErrors.ComparisonRangeTooLarge(maxDays);
+        }
+
         var periods = ComparisonPeriods.For(from, to, rule);
         return new ReportPreparation(
             [
@@ -236,6 +251,9 @@ internal sealed class ComparisonCalculation(LastYearRule rule) : IReportCalculat
                     periods.LastYear.ToString()),
             ]);
     }
+
+    /// <summary>Días máximos del rango de un comparativo: la tercera parte de <c>reporting.max_range_days</c> (mínimo 1).</summary>
+    public static int MaxDays(int maxRangeDays) => Math.Max(maxRangeDays / 3, 1);
 
     public void Apply(ReportCalculationContext context, IReadOnlyList<ReportColumn> columns, IReadOnlyList<object?[]> rows)
     {

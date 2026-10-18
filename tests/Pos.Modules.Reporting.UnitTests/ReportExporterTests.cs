@@ -58,14 +58,27 @@ public class ReportExporterTests
     }
 
     [Theory]
-    [InlineData(5, 8)]
-    [InlineData(12, 8)]
-    [InlineData(13, 6)]
-    [InlineData(15, 6)]
-    [InlineData(16, 5)]
-    [InlineData(22, 5)]
-    public void Con_mas_de_15_columnas_la_letra_del_PDF_baja(int columns, double size) =>
-        ReportExporter.FontSize(columns).ShouldBe(size);
+    [InlineData(5, "Análisis", 8)]
+    [InlineData(12, "Análisis", 8)]
+    [InlineData(13, "Análisis", 6)]
+    [InlineData(15, "Análisis", 6)]
+    [InlineData(16, "Análisis", 5)]
+    [InlineData(22, "Análisis", 5)]
+    [InlineData(22, "Antifraude", 6)]
+    [InlineData(19, "Impuestos", 6)]
+    [InlineData(5, "Ventas", 8)]
+    public void Solo_el_grupo_Analisis_baja_a_5_pt_con_mas_de_15_columnas(int columns, string group, double size) =>
+        ReportExporter.FontSize(columns, group).ShouldBe(size);
+
+    [Theory]
+    [InlineData("ANTIFRAUD_BY_CASHIER")]
+    [InlineData("SALES_BOOK")]
+    [InlineData("FISCAL_RECONCILIATION")]
+    public void Los_reportes_anchos_de_antes_quedan_en_6_pt(string code)
+    {
+        var report = ReportCatalog.Find(code)!;
+        ReportExporter.FontSize(report.VisibleColumns(includeCost: true).Count, report.Group).ShouldBe(6);
+    }
 
     private sealed class FixedClock : IClock
     {

@@ -1216,8 +1216,8 @@ public static class ReportCatalog
     [
         From with { DefaultValue = "today-29" },
         To,
-        new("cutA", "Corte A (% acumulado)", ReportParameterType.Number, DefaultValue: "80"),
-        new("cutB", "Corte B (% siguiente)", ReportParameterType.Number, DefaultValue: "15"),
+        new("cutA", "Corte A (% acumulado, número entero)", ReportParameterType.Number, DefaultValue: "80"),
+        new("cutB", "Corte B (% siguiente, número entero)", ReportParameterType.Number, DefaultValue: "15"),
     ];
 
     private static ReportColumn[] AbcColumns(bool isCost) =>
@@ -1236,8 +1236,10 @@ public static class ReportCatalog
     /// </summary>
     private static ReportColumn[] ComparisonColumns(bool ticketsTotal)
     {
-        static ReportColumn Var(string key, string label, bool isCost = false) =>
-            new(key, label, T.Percent, Total: true, IsCost: isCost, Computed: true, Style: ReportColumnStyle.Variation);
+        static ReportColumn Var(string key, string label) =>
+            new(key, label, T.Percent, Total: true, Computed: true, Style: ReportColumnStyle.Variation);
+        static ReportColumn Points(string key, string label) =>
+            new(key, label, T.Percent, Total: true, IsCost: true, Computed: true, Style: ReportColumnStyle.PointChange);
 
         return
         [
@@ -1258,9 +1260,9 @@ public static class ReportCatalog
             Var("avg_vs_ly", "Var. % ticket vs. año pasado"),
             new("cur_margin", "Margen %", T.Percent, Total: true, IsCost: true, Computed: true),
             new("prev_margin", "Margen % anterior", T.Percent, Total: true, IsCost: true, Computed: true),
-            Var("margin_vs_prev", "Var. pp margen vs. anterior", isCost: true),
+            Points("margin_vs_prev", "Var. pp margen vs. anterior"),
             new("ly_margin", "Margen % año pasado", T.Percent, Total: true, IsCost: true, Computed: true),
-            Var("margin_vs_ly", "Var. pp margen vs. año pasado", isCost: true),
+            Points("margin_vs_ly", "Var. pp margen vs. año pasado"),
             .. ComparisonCalculation.Periods.SelectMany(p => new ReportColumn[]
             {
                 new($"{p}_total", $"Total vendido ({p})", T.Money, Total: true, Hidden: true),

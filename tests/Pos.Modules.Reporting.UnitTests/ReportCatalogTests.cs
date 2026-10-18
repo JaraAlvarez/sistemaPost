@@ -71,7 +71,8 @@ public class ReportCatalogTests
         var columns = ReportCatalog.Find(code)!.Columns;
         columns.Where(c => c.Key.Contains("margin", StringComparison.Ordinal) || c.Key.EndsWith("_cost", StringComparison.Ordinal) || c.Key.EndsWith("_base", StringComparison.Ordinal))
             .ShouldAllBe(c => c.IsCost);
-        columns.Where(c => c.Style == ReportColumnStyle.Variation).Count().ShouldBe(8);
+        columns.Count(c => c.Style == ReportColumnStyle.Variation).ShouldBe(6);
+        columns.Where(c => c.Style == ReportColumnStyle.PointChange).Select(c => c.Key).ShouldBe(["margin_vs_prev", "margin_vs_ly"]);
     }
 
     [Fact]
