@@ -37,8 +37,7 @@
         else if (!EsFactus(settings))
         {
             <MudAlert Severity="Severity.Warning" Class="mt-3">
-                <b>El adaptador de Factus no está habilitado en este servidor.</b> Por ahora se habilita por instalación (la activación por defecto
-                está pendiente de aprobación). En el servidor de la tienda abra <code>{DataRoot}\config\server.json</code> y agregue dentro de la
+                <b>El adaptador de Factus está deshabilitado en este servidor</b> (alguien lo prohibió con <code>"Provider": "NONE"</code>). En el servidor de la tienda abra <code>{DataRoot}\config\server.json</code> y agregue dentro de la
                 sección <code>"Pos"</code>:
                 <pre class="mt-1 mb-1">"Billing": { "Provider": "FACTUS" }</pre>
                 Reinicie el servicio de BusinessPost y vuelva a esta pantalla para conectar. Mientras tanto la facturación electrónica sigue apagada y

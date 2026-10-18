@@ -44,6 +44,30 @@ public enum ReportColumnType
     Boolean,
 }
 
+/// <summary>
+/// Presentación especial de una columna en la pantalla: variación % o en puntos (▲ verde / ▼ rojo), clase ABC (A verde, B ámbar, C gris) o celda
+/// del mapa de calor (más oscura cuanto mayor el valor). No cambia el valor ni su formato en los archivos.
+/// </summary>
+public enum ReportColumnStyle
+{
+    None,
+    Variation,
+
+    /// <summary>Diferencia en puntos porcentuales (margen): ▲/▼ con la unidad "pp".</summary>
+    PointChange,
+    AbcClass,
+    Heat,
+}
+
+/// <summary>Intensidad de una celda del mapa de calor: 0 (sin ventas) a <see cref="Levels"/> (la celda mayor).</summary>
+public static class HeatmapScale
+{
+    public const int Levels = 5;
+
+    public static int Level(decimal value, decimal max) =>
+        value <= 0m || max <= 0m ? 0 : (int)Math.Ceiling(Math.Min(value, max) / max * Levels);
+}
+
 /// <summary>Tipo de un parámetro del reporte (se recibe en la cadena de consulta).</summary>
 public enum ReportParameterType
 {
@@ -62,15 +86,17 @@ public enum ReportFormat
 
 public sealed record ReportParameterDto(string Name, string Label, ReportParameterType Type, bool Required, string? DefaultValue);
 
-public sealed record ReportColumnDto(string Key, string Label, ReportColumnType Type, bool HasTotal);
+public sealed record ReportColumnDto(string Key, string Label, ReportColumnType Type, bool HasTotal, ReportColumnStyle Style = ReportColumnStyle.None);
 
+/// <summary><see cref="Today"/>: fecha de negocio de hoy en el servidor, para resolver en la pantalla los valores "today-N".</summary>
 public sealed record ReportInfoDto(
     string Code,
     string Name,
     string Group,
     string Description,
     IReadOnlyList<ReportParameterDto> Parameters,
-    IReadOnlyList<ReportColumnDto> Columns);
+    IReadOnlyList<ReportColumnDto> Columns,
+    DateOnly? Today = null);
 
 /// <summary>Resultado en JSON: filas de la página pedida y totales de TODAS las filas.</summary>
 public sealed record ReportResultDto(

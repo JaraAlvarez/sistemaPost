@@ -32,8 +32,8 @@ public static class SalesErrors
 
     public static readonly Error ScaleReadingRequired = Error.Validation(
         "SALES.SCALE_READING_REQUIRED",
-        "El peso de la báscula debe llegar firmado por el agente de esta caja. Si la báscula es nueva o se cambió, vincúlela en el computador " +
-        "de la caja (Configuración → Cajas e impresoras → Báscula → Guardar).");
+        "El peso de la báscula debe llegar firmado por el agente de esta caja. Si la báscula es nueva, se cambió o se reinstaló el " +
+        "programa, vincúlela desde la caja: F1 → Vincular báscula (con supervisor).");
 
     public static readonly Error ScaleReadingReused = Error.Conflict(
         "SALES.SCALE_READING_REUSED", "Esa lectura de la báscula ya se usó en otra línea: vuelva a registrar el producto para pesarlo de nuevo.");
