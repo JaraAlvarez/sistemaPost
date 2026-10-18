@@ -29,16 +29,17 @@ conocimientos técnicos: siga los pasos en orden. Cada sección tiene tres parte
 
 ## 1. Facturación electrónica DIAN con Factus
 
-BusinessPost trae la facturación electrónica **lista pero apagada**. Mientras esté apagada, cada venta imprime un **comprobante
-interno** (el tiquete dice "No es factura"). Cuando la encienda, BusinessPost envía las facturas a la DIAN por medio de **Factus**, el
-proveedor tecnológico, y el tiquete pasa a decir **"Factura electrónica de venta"** con el número, el CUFE y el código QR de la DIAN.
+BusinessPost trae **Factus** (el proveedor tecnológico) como proveedor de fábrica, con la facturación electrónica **apagada**. Mientras
+esté apagada, cada venta imprime un **comprobante interno** (el tiquete dice "No es factura") y no se envía nada a la DIAN. Cuando usted
+**conecta** su cuenta de Factus desde la pantalla y la conexión queda **verificada**, BusinessPost envía las facturas a la DIAN por medio de
+Factus y el tiquete pasa a decir **"Factura electrónica de venta"** con el número, el CUFE y el código QR de la DIAN.
 
 **Comprobante interno o factura electrónica: ¿cuál es la diferencia?**
 
 | | Comprobante interno | Factura electrónica |
 |---|---|---|
 | Qué es | Un recibo de la tienda, sin valor ante la DIAN | Documento válido ante la DIAN, emitido por Factus |
-| Cuándo sale | Con el modo **Apagada** | Con el modo **Factura electrónica en cada venta** (o cuando el cliente la pide, ver abajo) |
+| Cuándo sale | Con Factus desconectado | Con el modo **Factura electrónica en cada venta** (o cuando el cliente la pide, ver abajo) |
 | Qué dice el tiquete | "No es factura" | "Factura electrónica de venta", número, CUFE y QR |
 | Necesita Internet | No | Para enviarse a la DIAN; si no hay, se envía después (contingencia) |
 | Costo | Ninguno | Cada factura y cada nota crédito consume un documento de su paquete de Factus |
@@ -56,61 +57,89 @@ proveedor tecnológico, y el tiquete pasa a decir **"Factura electrónica de ven
   producción son distintas. Guárdelas en un lugar seguro: BusinessPost no las vuelve a mostrar.
 - Los datos de cada sucursal completos en **Administración → Configuración → Sucursales y bodegas** (nombre, dirección, teléfono, correo,
   municipio). Si falta alguno, la factura sale sin los datos del establecimiento.
-- Que soporte de BusinessPost haya **activado el conector de Factus** en el servidor de su tienda. Es un ajuste técnico que se hace una
-  sola vez. Para saber si ya está hecho, abra **Ventas y caja → Facturación electrónica**, pestaña **Configuración**: debajo del botón
-  *Guardar modo y ambiente* debe decir **"adaptador activo: FACTUS"**.
-- Un usuario **dueño** o **administrador** (son los únicos que pueden cambiar la configuración de la facturación).
+- Internet en el servidor de la tienda en el momento de conectar (BusinessPost prueba las llaves con Factus).
+- Un usuario con el permiso de configurar la facturación electrónica (el **dueño** o el **administrador**).
 
-### Paso a paso: encender la facturación electrónica
+### Paso a paso: conectar Factus y encender la facturación electrónica
 
-**A. Escribir las credenciales**
+**A. Conectar en pruebas (sandbox)**
 
-1. Abra **Ventas y caja → Facturación electrónica**.
-2. Entre a la pestaña **Configuración**.
-3. En el cuadro **Credenciales de Factus** escriba el **Usuario (correo de Factus)**, la **Contraseña**, el **Client ID** y el
-   **Client secret**. Empiece con las credenciales de **pruebas (sandbox)**.
-4. Pulse **Guardar credenciales**. Debe aparecer el aviso verde "Configuradas el …". Por seguridad las credenciales nunca se vuelven a
-   mostrar: para cambiarlas hay que escribir las cuatro de nuevo.
+1. Abra **Ventas y caja → Facturación electrónica** y entre a la pestaña **Configuración**. La tarjeta
+   **Factus · facturación electrónica** dice **Desconectado** y "Conecte su cuenta de Factus".
+2. Escriba el **Usuario (correo de Factus)**, la **Contraseña**, el **Client ID** y el **Client secret** de **pruebas**.
+3. En **Ambiente** elija **Pruebas (sandbox)**.
+4. En **Modo de emisión al conectar** elija **Factura electrónica en cada venta** y marque
+   **"Tengo la cotización de Factus por volumen y el visto bueno de mi contador"** (o **Solo cuando el cliente pide factura (transición)**, ver abajo).
+5. Pulse **Conectar**. BusinessPost: (1) guarda las llaves **cifradas** con la facturación apagada; (2) prueba la conexión con Factus; y (3)
+   **solo si funciona**, trae los rangos de numeración y enciende el modo elegido. Debe aparecer "¡Conectado con Factus en pruebas
+   (sandbox)! … rango(s) de numeración traídos: asígnelos a cada sucursal en la pestaña Rangos." Si algo falla, aparece "No se pudo
+   conectar: …" con el motivo y la facturación sigue apagada.
 
-![Facturación electrónica · Configuración: modo de emisión, ambiente de pruebas y credenciales de Factus guardadas (nunca se vuelven a mostrar).](imagenes/uso/integ-11-facturacion-configurada.png)
+![Factus desconectado: los cuatro datos de Factus, el ambiente y el modo de emisión al conectar.](imagenes/uso/integ-07-facturacion-sin-configurar.png)
 
-**B. Elegir el ambiente de pruebas**
+![Datos de pruebas escritos (las llaves no se vuelven a mostrar después de guardarlas).](imagenes/uso/integ-08-facturacion-credenciales.png)
 
-5. En el cuadro **Modo de emisión y ambiente**, en **Ambiente del proveedor**, elija **Pruebas (sandbox)**.
-6. Deje el **Modo de emisión** en **Apagada: comprobante interno (como hoy)** por ahora.
-7. Pulse **Guardar modo y ambiente**.
+![Modo «Factura electrónica en cada venta»: la advertencia del volumen y la casilla de la cotización.](imagenes/uso/integ-10-facturacion-cada-venta-advertencia.png)
 
-**C. Traer y asignar los rangos de numeración**
+![Factus conectado en pruebas: modo, usuario y la última validación de la clave, con Volver a probar, Cambiar llaves y Desconectar.](imagenes/uso/integ-11-facturacion-configurada.png)
 
-8. Entre a la pestaña **Rangos de numeración**.
-9. Pulse **Sincronizar desde Factus**. Aparecen los rangos de su resolución con el prefijo, desde, hasta, el número actual, la
-   resolución, la vigencia, cuántos quedan disponibles y el porcentaje de uso. (BusinessPost los vuelve a sincronizar solo cada 24 horas.)
-10. En cada rango que vaya a usar, pulse **Asignar**.
-11. Elija la **Sucursal**. Si Factus le dio un rango por caja, elija también la **Caja (opcional)**; si no, deje **Toda la sucursal**.
-12. Pulse **Guardar**. Cada sucursal necesita un rango vigente de **factura** y otro de **nota crédito**.
+**B. Asignar los rangos de numeración**
+
+6. Entre a la pestaña **Rangos de numeración**. Aparecen los rangos de su resolución con el prefijo, desde, hasta, el número actual, la
+   resolución, la vigencia, cuántos quedan disponibles y el porcentaje de uso. Si no aparecen, pulse **Sincronizar desde Factus**.
+   (BusinessPost los vuelve a sincronizar solo cada 24 horas.)
+7. En cada rango que vaya a usar, pulse **Asignar**.
+8. Elija la **Sucursal**. Si Factus le dio un rango por caja, elija también la **Caja (opcional)**; si no, deje **Toda la sucursal**.
+9. Pulse **Guardar**. Cada sucursal necesita un rango vigente de **factura** y otro de **nota crédito**.
 
 ![Rangos de numeración: asignar el rango de factura a la sucursal.](imagenes/uso/integ-13-rango-asignar.png)
 
-**D. Probar en el sandbox**
+**C. Probar en el sandbox**
 
-13. Vuelva a **Configuración**, elija el modo **Factura electrónica en cada venta**, marque la casilla **"Tengo la cotización de Factus
-    por volumen y el visto bueno de mi contador"** y pulse **Guardar modo y ambiente**.
-14. Haga ventas de prueba en una caja: una a consumidor final en efectivo, una a un cliente con NIT y correo, una con productos con
+10. Haga ventas de prueba en una caja: una a consumidor final en efectivo, una a un cliente con NIT y correo, una con productos con
     IVA distintos, una con un producto pesado y una con dos medios de pago.
-15. Revise cada una en la pestaña **Documentos**: debe estar **Aceptado**, con número fiscal y CUFE. Compare los valores con el panel
+11. Revise cada una en la pestaña **Documentos**: debe estar **Aceptado**, con número fiscal y CUFE. Compare los valores con el panel
     del sandbox de Factus y anote cualquier diferencia, aunque sea de $1.
-16. Muéstrele a su contador las facturas de prueba antes de pasar a producción.
+12. Muéstrele a su contador las facturas de prueba antes de pasar a producción.
 
-**E. Pasar a producción**
+**D. Pasar a producción**
 
-17. En **Configuración**, escriba las **credenciales de producción** de Factus y pulse **Guardar credenciales**.
-18. Elija el ambiente **Producción (documentos reales ante la DIAN)** y el modo **Factura electrónica en cada venta**. Pulse
-    **Guardar modo y ambiente**.
-19. En **Rangos de numeración**, pulse **Sincronizar desde Factus** y **asigne** los rangos de producción a cada sucursal (o caja).
-20. Haga una venta real pequeña y verifique que quede **Aceptado** y que el tiquete traiga número, CUFE y QR.
+13. En la tarjeta Factus pulse **Desconectar** (las ventas vuelven un momento al comprobante interno).
+14. Escriba las **credenciales de producción**, elija el ambiente **Producción (documentos reales ante la DIAN)** y el modo
+    **Factura electrónica en cada venta** (con la casilla), y pulse **Conectar**.
+15. En **Rangos de numeración**, **asigne** los rangos de producción a cada sucursal (o caja). Pruebas y producción tienen
+    **cada uno sus rangos**: BusinessPost solo usa los del ambiente vigente y no deja asignar un rango de otro ambiente.
+16. Haga una venta real pequeña y verifique que quede **Aceptado** y que el tiquete traiga número, CUFE y QR.
 
-Arriba a la derecha de la pantalla siempre verá en qué modo está la facturación (por ejemplo, "Modo: …"). Para volver al comprobante
-interno, elija el modo **Apagada** y guarde. Los documentos ya enviados no cambian.
+Arriba a la derecha de la pantalla siempre verá en qué modo está la facturación (por ejemplo, "Modo: …").
+
+**Con Factus conectado**, la tarjeta muestra el ambiente, el modo, el usuario (en parte), "Clave validada: …" o "Última prueba: … ·
+motivo", y la fecha de los rangos sincronizados. Sus botones:
+
+| Botón | Qué hace |
+|---|---|
+| **Volver a probar** | Verifica otra vez las llaves con Factus: "La conexión con Factus funciona." o el motivo del problema. Un corte de Internet momentáneo no quita una verificación correcta; solo la quita que Factus rechace las llaves. |
+| **Cambiar llaves** | Escriba los cuatro datos nuevos y pulse **Probar y cambiar**: primero se prueban con Factus **sin guardarlas**; solo si Factus las acepta se guardan y la facturación sigue igual ("Llaves cambiadas: Factus las aceptó y la facturación sigue igual."). Si fallan, no cambia nada. Con las casillas vacías no hace nada. Sirve dentro del mismo ambiente. |
+| **Modo de emisión** → **Cambiar modo** | Cambia entre "solo cuando el cliente pide factura" y "en cada venta" (esta última pide la casilla de la cotización). |
+| **Desconectar** | Apaga la facturación electrónica: las ventas vuelven al comprobante interno. Las llaves quedan guardadas cifradas. Para cambiar de ambiente: Desconectar y Conectar. |
+
+![Cambiar llaves: se prueban con Factus antes de guardarlas.](imagenes/uso/integ-11b-facturacion-cambiar-llaves.png)
+
+Si falta sincronizar los rangos del ambiente actual, la tarjeta avisa "Faltan los rangos de numeración de …: hasta sincronizarlos no se
+envía nada (nunca se usan los de otro ambiente)" con el botón **Sincronizar rangos**.
+
+**Documentos retenidos (el atraso).** Si quedaron documentos electrónicos en cola **antes de conectar** (cuando no había proveedor
+conectado o con otras llaves), la tarjeta dice "N documento(s) electrónico(s) retenido(s)". **No se envían solos**:
+
+- **Enviar ahora** (con Factus conectado): confirme con el número de documentos. Factus no recibe la fecha de la venta, así que se emiten
+  **con la fecha de hoy**; fuera del plazo de la DIAN (consúltelo con su contador) o con datos viejos pueden ser rechazados.
+- **No enviar**: pide confirmar **dos veces** y es **irreversible**: quedan como **NO ENVIADOS**, con el comprobante interno, y la decisión
+  queda en la auditoría. En la conciliación aparecen en la columna **No enviadas**.
+- Los de **otro ambiente** nunca se envían en el actual (solo **No enviar**). Los que ya se intentaron enviar quedan **en revisión**:
+  consulte su estado en el panel de Factus; **No enviar** no los toca.
+
+Si después de una actualización la tarjeta dice que la facturación "quedó apagada al actualizar … porque estaba encendida sin una
+conexión verificada con Factus", conéctela de nuevo con **Conectar** (el Tablero también lo avisa).
 
 **Modo "Solo cuando el cliente pide factura (transición)"**
 
@@ -169,8 +198,8 @@ Cambio o garantía, Compra) para revisarlas.
 ### Revisión diaria (conciliación)
 
 1. Al cierre del día, abra la pestaña **Alertas y conciliación**.
-2. Revise las tarjetas: **Pendientes antiguos**, **Rechazados sin atender**, **Sin rango de numeración** y **Rangos por agotarse o
-   vencer**. Lo ideal es que todas estén en 0.
+2. Revise las tarjetas: **Pendientes antiguos**, **Rechazados sin atender**, **Sin rango de numeración** y
+   **Rangos por agotarse o vencer**. Lo ideal es que todas estén en 0.
 3. En **Conciliación diaria**, elija las fechas (máximo 92 días) y pulse **Consultar**. Compare las ventas con las facturas aceptadas.
    La columna **Sin documento** debe quedar en 0.
 4. Si necesita el reporte en Excel, CSV o PDF, use el enlace **Reporte «Conciliación de facturación electrónica»** (lleva a
@@ -182,15 +211,17 @@ Cambio o garantía, Compra) para revisarlas.
 
 | Síntoma | Qué hacer |
 |---|---|
-| La pestaña Configuración dice "Sin credenciales: la facturación electrónica no se puede encender" | Escriba las cuatro credenciales de Factus y pulse **Guardar credenciales** |
-| Debajo de *Guardar modo y ambiente* no dice "adaptador activo: FACTUS" | El conector de Factus no está activado en el servidor. Comuníquese con soporte de BusinessPost |
-| No puede pulsar **Guardar modo y ambiente** con el modo "en cada venta" | Marque la casilla de la cotización y el visto bueno del contador |
+| "No se pudo conectar: …" | Lea el motivo. Revise que copió bien los cuatro datos y que el **Ambiente** corresponde a esas credenciales (pruebas y producción son distintas). Revise el Internet del servidor |
+| El botón **Conectar** no se deja pulsar | Faltan datos: escriba los cuatro (usuario, contraseña, Client ID y Client secret) o, con el modo "en cada venta", marque la casilla de la cotización y el visto bueno del contador |
+| La tarjeta dice "El adaptador de Factus no está habilitado en este servidor" | Esa instalación tiene Factus deshabilitado a propósito. Comuníquese con soporte de BusinessPost |
+| "Faltan los rangos de numeración de …" | Pulse **Sincronizar rangos** y asigne los rangos del ambiente actual. Hasta entonces no se envía nada |
+| "N documento(s) electrónico(s) retenido(s)" | Decida con su contador: **Enviar ahora** (salen con la fecha de hoy) o **No enviar** (irreversible) |
 | "No hay rangos" en Rangos de numeración | Revise las credenciales y pulse **Sincronizar desde Factus**. Si sale "Última sincronización: …" en rojo, lea el mensaje y revise el Internet |
 | Un documento aparece **Rechazado** | Pestaña **Documentos** → **Ver** → lea el motivo del rechazo. Si el problema son los datos del cliente (NIT, dígito de verificación, nombre, correo, municipio), pulse **Corregir comprador**, corrija y pulse **Guardar y reenviar**. Si no, corrija la causa y pulse **Reintentar envío**. La venta no cambia |
 | Las facturas quedan pendientes y no salen, y Factus habla de "un documento pendiente por enviar a la DIAN" | Hay un documento rechazado que se canceló en el POS y sigue bloqueando a Factus. Entre al panel de Factus, elimine ese documento y luego pulse **Reintentar envío** (o espere el siguiente ciclo) |
 | Muchos documentos **En contingencia** | Revise el Internet del servidor de la tienda. Salen solos al volver la conexión |
 | Alerta "Sin rango de numeración" | Pestaña **Rangos de numeración** → **Asignar** un rango vigente a la sucursal |
-| Restauró la base de datos en otro computador y Factus no responde | Las credenciales se guardan cifradas para cada equipo: escríbalas de nuevo en **Configuración** |
+| Restauró la base de datos en otro computador y Factus no responde | Las credenciales se guardan cifradas para cada equipo: **Desconectar** y **Conectar** escribiendo los cuatro datos otra vez |
 | El cliente no recibió la factura en su correo | Revise en **Documentos → Ver** que esté **Aceptado** y que el correo del adquirente sea correcto. También puede abrir el PDF desde el enlace **Abrir el PDF** |
 
 ---
@@ -248,20 +279,31 @@ En la tarjeta conectada tiene tres botones:
    - si es un pago mixto, la caja le deja listo el valor que falta para cobrarlo con otro medio.
 8. Si Sistecrédito **no aprueba** o el cobro **vence**, la caja muestra el motivo. Pulse **Intentar de nuevo** o elija otro medio de pago.
 
-Para detener la espera, pulse **Cancelar** debajo del QR. Si el cliente igual aprueba después, el sistema lo detecta solo.
+Para detener la espera, pulse **Cancelar** debajo del QR. Si el cliente igual aprueba después, el sistema lo detecta solo y queda como
+cobro por revisar.
+
+**«No usar este crédito».** Un crédito que Sistecrédito ya aprobó no se quita del cobro con la **X** sin más: la X pide la **autorización
+del supervisor** para «No usar este crédito». Con ella, el crédito queda **en revisión** para que la administración lo reverse en el
+portal de Sistecrédito ("Crédito de Sistecrédito no usado: quedó en revisión para que la administración lo reverse. Cobre con otro
+medio."). Mientras la venta tenga un crédito aprobado sin usar, no puede quedar por debajo de ese valor ni cancelarse con F7: se completa
+con el crédito o se usa «No usar este crédito». En una **venta suspendida** con crédito aprobado, la lista de F9 muestra **No usar el
+crédito de Sistecrédito ($ …)**. El detalle para el cajero está en el **Manual de caja** (secciones 7 y 9).
 
 ![Cobro con Sistecrédito en la caja: tipo y número de documento del cliente y el botón Generar cobro (el código QR aparece al pulsarlo).](imagenes/uso/caja-28-cobro-sistecredito.png)
 
 **En el cierre de caja**, Sistecrédito sale como un medio aparte (no es efectivo), igual que el datáfono. Cuadre con las transacciones
-aprobadas del día en el portal de Sistecrédito.
+aprobadas del día en el portal de Sistecrédito. Los cobros del turno que quedaron **por revisar** (no usados en la venta, aprobados
+tarde…) se muestran aparte en la pantalla de cierre y en los reportes X y Z, en el bloque **SISTECREDITO A REVISAR**, con su estado (por
+revisar, no usado o revisado): **no son plata de la caja**.
 
 **Devoluciones:** el dinero se devuelve en el portal de Sistecrédito. Registrar la devolución o el cambio en la caja de BusinessPost
 está **Próximamente en la caja**: por ahora no tiene pantalla. Si necesita dejar constancia, comuníquese con soporte de BusinessPost.
 
 ### Cobros por revisar
 
-Si Sistecrédito aprobó un cobro pero la venta no se completó en la caja (por ejemplo, se canceló la venta o se cerró la pantalla), arriba
-de la administración aparece el aviso **"1 cobro de Sistecrédito por revisar"**. La plata del cliente no se pierde. Para resolverlo:
+Si Sistecrédito aprobó un cobro pero no se usó en una venta (por ejemplo, el supervisor autorizó «No usar este crédito», se canceló el
+cobro y el cliente igual aprobó, o se cerró la pantalla), arriba de la administración aparece el aviso **"1 cobro de Sistecrédito por
+revisar"**. La plata del cliente no se pierde. Para resolverlo:
 
 1. Pulse el aviso (lo lleva a **Administración → Configuración**) y abra la pestaña **Medios de pago**.
 2. En la tarjeta Sistecrédito, en **Cobros por revisar**, busque el cobro (fecha, transacción, cliente, valor y motivo).
@@ -280,6 +322,8 @@ de la administración aparece el aviso **"1 cobro de Sistecrédito por revisar"*
 | El QR no aparece ("Preparando el código QR de Sistecrédito…") | Espere unos segundos: la caja sigue consultando. Si dice "Sin conexión con Sistecrédito", revise el Internet o cobre con otro medio |
 | Sistecrédito no aprobó el cobro | Es una decisión de Sistecrédito sobre el crédito del cliente. Cobre con otro medio |
 | Aviso "cobro de Sistecrédito por revisar" | Siga los pasos de "Cobros por revisar" de esta sección |
+| En la caja, la X de un pago de Sistecrédito pide supervisor | El crédito ya está aprobado: es «No usar este crédito». Después revíselo en "Cobros por revisar" |
+| "…no puede quedar por debajo del crédito…" o la caja no deja cancelar la venta | La venta tiene un crédito aprobado: complétela con él o use «No usar este crédito» con el supervisor |
 
 ---
 
@@ -289,10 +333,14 @@ La báscula de mostrador se conecta al computador de la caja. Cuando el cajero r
 (escanea o escribe el código y pulsa Enter), BusinessPost **lee el peso solo** y agrega la línea (por ejemplo, 0,700 kg × $3.000/kg =
 $2.100). No hay que pulsar ningún botón para pesar. Las etiquetas impresas por una báscula etiquetadora siguen funcionando igual.
 
+Para que nadie pueda inventar un peso, el programa de la caja **firma** cada lectura y el servidor solo acepta pesos firmados por la
+caja que tiene **vinculada** esa báscula. Por eso, después de configurarla, la báscula se **vincula** una vez en la pantalla de venta de
+esa caja (paso 11). Además, después de cada pesada la báscula debe **volver a cero** antes de la siguiente.
+
 ### Antes de empezar
 
-- La función **Báscula y PLU** encendida. Viene encendida si al instalar eligió **Supermercado o minimercado** o **Fruver o
-  carnicería**. Para revisarla, abra **Administración → Configuración**, pestaña **Funciones del negocio** (lo puede cambiar el dueño o
+- La función **Báscula y PLU** encendida. Viene encendida si al instalar eligió **Supermercado o minimercado** o
+  **Fruver o carnicería**. Para revisarla, abra **Administración → Configuración**, pestaña **Funciones del negocio** (lo puede cambiar el dueño o
   el administrador). Con la función apagada:
   - en **Cajas e impresoras** no sale el botón **Báscula** (salvo en las cajas que ya tenían una báscula configurada);
   - en la ficha del producto no salen el **PLU de báscula**, **Se vende por báscula** ni la **Tara (g)** (salvo en los productos que ya
@@ -322,23 +370,44 @@ $2.100). No hay que pulsar ningún botón para pesar. Las etiquetas impresas por
    **Otra (genérica: número y unidad)**.
 6. En **Puerto** elija el puerto que anotó. Los valores del puerto serie se ponen solos según el protocolo; si su báscula usa otros,
    cámbielos en **Opciones avanzadas del puerto serie (técnico)**.
-7. Si quiere que el cajero pueda escribir el peso cuando la báscula no responda, marque **Si la báscula no responde, permitir digitar el
-   peso (con permiso o supervisor)**.
+7. Revise las esperas: **Espera peso estable (s)**, **Espera producto (s)** y **Peso mínimo (g)** (por defecto 20 g; por debajo de ese
+   peso la báscula cuenta como **vacía**, así una pequeña deriva no se cobra).
+   Si quiere que el cajero pueda escribir el peso cuando la báscula no responda, marque
+   **Si la báscula no responde, permitir digitar el peso (con permiso o supervisor)**.
 8. Pulse **Probar báscula** y ponga un peso conocido. En **Peso en vivo** debe verse el peso y la palabra **Estable** cuando quede quieto.
-   Pruebe **Tara** con una bandeja (debe descontarla) y **Quitar tara**. Luego pulse **Detener prueba**.
-9. Pulse **Guardar**.
+   Pruebe **Tara** con una bandeja (debe descontarla) y **Quitar tara**. Luego pulse **Detener prueba**. La prueba no cambia la báscula en
+   uso; **Probar báscula** solo se puede usar en el computador de esa caja (desde otro computador puede guardar, pero no probar).
+9. Pulse **Guardar**. Aparece "Báscula guardada. Para que la caja pueda pesar, vincúlela en la pantalla de venta de esa caja: F1 →
+   Vincular báscula (con un supervisor)." Debajo de la configuración, la ventana dice si la báscula ya está vinculada y desde cuándo.
 10. Marque los productos que se pesan: abra **Inventario → Productos y precios**, entre al producto, elija como **Unidad base** una
     unidad de peso (Kilogramo, Gramo o **Libra (500 g)**) y marque **Se vende por báscula (la caja lee el peso al registrarlo)**. Si se
     empaca en bolsa o bandeja, escriba su peso en **Tara (g)**. Guarde.
 
-![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas y la opción de digitar el peso. El peso en vivo aparece al pulsar Probar báscula con la báscula conectada.](imagenes/uso/integ-03-bascula.png)
+11. **Vincule la báscula** en el computador de la caja: abra la pantalla de venta, pulse **F1** y luego **Vincular báscula**. Si su usuario
+    no tiene el permiso de vincular la báscula, el supervisor autoriza con su código y su PIN. Debe aparecer "Báscula vinculada con esta
+    caja." El servidor solo acepta la vinculación desde la pantalla de venta de esa misma caja; queda en la auditoría y el Tablero lo
+    muestra unos días. Mientras no esté vinculada, el Tablero avisa "La báscula de la caja … no está vinculada" y la caja solo puede
+    digitar el peso.
+
+![Cajas e impresoras · Báscula: esperas, peso mínimo, digitar el peso, el aviso de la tecla de tara y el estado de la vinculación. «Probar báscula» solo funciona en el computador de esa caja.](imagenes/uso/integ-03-bascula.png)
+
+> **Importante:** **no use la tecla de tara de la báscula; use Ins en la caja.** Con la tara puesta en la báscula, muchas básculas
+> envían el peso neto sin avisarlo y la caja puede creer que la báscula quedó vacía.
+
+Hay que **volver a vincular** cuando se reinstala el programa de la caja, se cambia o se restaura el computador (la caja lo pide), y después
+de algunas actualizaciones. Si una vinculación quedó a medias, la caja pide **F1 → Completar vinculación** (sin supervisor).
 
 **En la caja:**
 
 - Producto en movimiento: la ventana dice **"Esperando peso estable…"**.
 - Báscula vacía: dice **"Ponga el producto en la báscula"**. Si no llega peso a tiempo, no se agrega nada.
+- Si la báscula no volvió a cero después de la pesada anterior: **"Retire el producto de la báscula"**. Si el aviso sigue con la báscula
+  vacía, **Reiniciar báscula (supervisor)** o **F1 → Reiniciar báscula** (con el permiso o la autorización del supervisor; queda en la
+  auditoría).
 - Los tiempos de espera se cambian en la ventana **Báscula** de la caja (**Espera peso estable (s)** y **Espera producto (s)**).
-- Tecla **Ins**: tara manual (una bolsa o bandeja que no está registrada en el producto). Tecla **Esc**: cancela la lectura.
+- Tecla **Ins**: tara manual (una bolsa o bandeja que no está registrada en el producto), solo para la siguiente pesada; se quita al
+  agregar la línea o al cancelar. Tecla **Esc**: cancela la lectura.
+- La cantidad de un producto pesado no se cambia con F4: se elimina la línea (Supr) y se vuelve a pesar.
 - Si la báscula no responde y la caja lo permite, aparece la ventana **Digitar el peso**: escriba el peso en kilos (ej. 0,700) y pulse
   **Agregar**. Puede pedir el permiso o la autorización del supervisor; la línea queda marcada **"Peso digitado"** en la venta y en el
   tiquete, y queda registrada en la auditoría.
@@ -353,6 +422,13 @@ $2.100). No hay que pulsar ningún botón para pesar. Las etiquetas impresas por
 | "El peso no supera la tara del producto…" | El peso en la báscula es menor o igual a la **Tara (g)** del producto. Ponga el producto o corrija la tara en la ficha del producto |
 | "No llegó peso a la báscula: no se agregó nada." | Ponga el producto antes y espere a que quede quieto. Si pasa seguido, aumente **Espera producto (s)** |
 | La caja no lee el peso de un producto | Verifique en la ficha del producto que la unidad base sea de peso y que esté marcado **Se vende por báscula** |
+| En la caja: "Báscula no vinculada: vincule con F1 → Vincular báscula" | Vincule en esa caja: **F1 → Vincular báscula**, con un supervisor (paso 11) |
+| "El servidor ya tiene la clave nueva; reinicie el programa de la caja y pulse F1 → Completar vinculación" | Reinicie el programa de la caja y pulse **F1 → Completar vinculación** |
+| "…vuelva a vincular la báscula (F1 → Vincular báscula)" | Se reinstaló el programa de la caja o se restauró el equipo: vincule otra vez |
+| "Actualice el programa de la caja (agente de BusinessPost): esta versión no puede vincular la báscula." | Actualice el programa del computador de la caja |
+| "La hora de la lectura de la báscula difiere en más de 5 minutos de la del servidor…" | Corrija la fecha y la hora de Windows en el computador de la caja |
+| "Quite la tara de la báscula (tecla de tara) para continuar" | Quite la tara en la báscula y use **Ins** en la caja |
+| "La báscula de esta caja está en prueba…: detenga la prueba para pesar." | En **Cajas e impresoras → Báscula** de ese computador pulse **Detener prueba** |
 | No aparece el botón **Báscula** en Cajas e impresoras, o la casilla **Se vende por báscula** en el producto | La función **Báscula y PLU** está apagada. Enciéndala en **Administración → Configuración**, pestaña **Funciones del negocio** |
 | Aviso "Esta función está apagada; los datos se conservan" en la ventana Báscula o en el producto | Igual que arriba: la configuración sigue guardada, pero la caja no lee la báscula hasta que encienda **Báscula y PLU** |
 
@@ -594,8 +670,8 @@ BusinessPost se **actualiza solo**. Cuando hay una versión nueva, el servidor l
 
 #### Paso a paso: revisar e instalar una actualización
 
-1. Cuando hay una versión lista, arriba de la administración aparece **"Nueva versión … disponible. Se instala sola a las 02:00, cuando
-   no hay turnos de caja abiertos."** No tiene que hacer nada más: se instala sola.
+1. Cuando hay una versión lista, arriba de la administración aparece
+   **"Nueva versión … disponible. Se instala sola a las 02:00, cuando no hay turnos de caja abiertos."** No tiene que hacer nada más: se instala sola.
 2. Para ver qué trae, pulse **Ver novedades** (o abra **Administración → Actualizaciones**). Ahí verá la **Versión instalada**, la
    versión nueva con sus novedades y el **Historial** de actualizaciones.
 3. Si quiere instalarla ya: cierre todos los turnos de caja y verifique que nadie esté vendiendo.

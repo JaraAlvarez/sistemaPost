@@ -18,9 +18,11 @@
 //
 // Uso (desde la raíz del repositorio):
 //   node tools/scripts/capturas-uso.mjs --tiquetes <carpeta de salida del agente> [--url http://localhost:5486/] [--fases todas]
-//   Fases, en este orden: asistente, datos, turno-cerrado, caja (incluye caja-fin), turno-abierto, admin, complementos, tiquetes, optimizar
+//   Fases, en este orden: asistente, datos, turno-cerrado, caja (incluye caja-fin), turno-abierto, admin, complementos, novedades, tiquetes, optimizar
 //   ("todas" = todas; "caja-fin" sola repite el final de la caja: báscula sin respuesta, 1366×768 y cierre).
 //   "complementos": Funciones del negocio, Reabastecimiento y Etiquetas (después de "admin"; basta con haber corrido asistente y datos).
+//   "novedades": Usuarios (detalle, restablecer PIN y contraseña), Cambiar PIN de caja y Configuración → Backups (basta con asistente y datos).
+//   --solo <regex> limita lo que "optimizar" copia a docs/imagenes/uso (para rehacer solo unas capturas sin tocar las demás).
 //   Para tomar solo esas sin rehacer las demás: --fases asistente,datos,complementos --crudas <carpeta aparte> (y optimice solo esas).
 //   Las fases dependen de las anteriores (la base debe estar en el estado que dejó la fase previa).
 //
@@ -42,13 +44,15 @@ const CRUDAS = resolve(argumento("--crudas", join(tmpdir(), "capturas-uso-crudas
 const TIQUETES = argumento("--tiquetes", "");
 const EDGE = argumento("--edge", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe");
 const FASES = argumento("--fases", "todas").split(",");
-const ORDEN = ["asistente", "datos", "turno-cerrado", "caja", "caja-fin", "turno-abierto", "admin", "complementos", "tiquetes", "optimizar"];
+const ORDEN = ["asistente", "datos", "turno-cerrado", "caja", "caja-fin", "turno-abierto", "admin", "complementos", "novedades", "tiquetes", "optimizar"];
+// --solo <expresión regular>: la fase "optimizar" solo copia a docs/ las capturas cuyo nombre coincide (p. ej. "^(caja-|adm-9[0-2])").
+const SOLO = argumento("--solo", "");
 const fase = (f) => FASES.includes("todas") || FASES.includes(f);
 mkdirSync(CRUDAS, { recursive: true });
 
 // Datos de la tienda de demostración (ficticios; los documentos y teléfonos no son de personas reales).
 const DUENO = { usuario: "dueno", clave: "Sup3rmercado-Seguro", codigo: "100", pin: "4826" };
-const ANA = { codigo: "601", pin: "2580" };
+const ANA = { codigo: "601", pin: "5824" };
 const JORGE = { codigo: "602", pin: "1470" };
 const SUPERVISOR = { codigo: "701", pin: "3690" };
 
@@ -175,6 +179,15 @@ async function ocultarDesarrollo() {
     for (const el of document.querySelectorAll("p, .mud-typography, td, tr, span, small")) {
       if (el.children.length === 0 && /adaptador activo|\\bFAKE\\b/.test(el.textContent)) { (el.closest("tr") && /Proveedor/.test(el.closest("tr").textContent) ? el.closest("tr") : el).style.visibility = "hidden"; }
     }
+    // Tarjeta Factus con el proveedor simulado del desarrollo: el aviso «usa el proveedor SIMULADO» no existe en una tienda real.
+    document.querySelectorAll(".mud-alert").forEach(a => { if (/proveedor SIMULADO/.test(a.textContent)) a.style.display = "none"; });
+    // Sin pg_dump en el equipo de desarrollo los backups fallan: en «Dónde se guardan los backups» se oculta la fila del último backup.
+    document.querySelectorAll(".mud-simple-table tr").forEach(tr => { if (/pg_dump\\.exe/.test(tr.textContent)) tr.style.display = "none"; });
+    // La carpeta de datos del servidor de desarrollo (temporal) se muestra como la de una instalación real (C:\\ProgramData\\BusinessPost).
+    const recorrido = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = recorrido.nextNode(); n; n = recorrido.nextNode()) {
+      if (/[A-Za-z]:\\\\.*\\\\data\\\\/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/[A-Za-z]:\\\\\\S*?\\\\data\\\\/g, "C:\\\\ProgramData\\\\BusinessPost\\\\");
+    }
   })()`);
   await espera(250);
 }
@@ -297,7 +310,7 @@ async function faseAsistente() {
   await evaluar(`(() => { const o = [...document.querySelectorAll("#municipios option")].find(o => o.value.includes("05001")); document.getElementById("municipioBuscar").value = o.value; })()`);
   await poner("address", "Calle 50 # 45-20"); await poner("phone", "604 555 1234"); await poner("email", "contacto@example.co");
   await poner("branchName", "Centro");
-  await poner("username", DUENO.usuario); await poner("displayName", "Dueño de la tienda"); await poner("password", DUENO.clave);
+  await poner("username", DUENO.usuario); await poner("displayName", "Dueño de la tienda"); await poner("password", DUENO.clave); await poner("passwordConfirm", DUENO.clave);
   await poner("posCode", DUENO.codigo); await poner("pin", DUENO.pin);
   await sinFoco();
   await foto("conf-01-asistente-empresa");
@@ -480,20 +493,25 @@ async function faseDatos() {
   await clic("Cambiar", "button", { ms: 1500 }); await foto("conf-14-parametro-cambiar");
   await evaluar(`[...document.querySelectorAll(".panel button, .mud-dialog button")].find(b => /Cancelar/.test(b.textContent))?.click()`); await espera(800);
 
-  // Facturación electrónica: credenciales, modo "en cada venta" en pruebas, rangos de la DIAN y asignación a la sucursal.
+  // Facturación electrónica: tarjeta «Factus» (Conectar: guarda las llaves, verifica, trae los rangos y enciende), modo "en cada venta" en
+  // pruebas, rangos de la DIAN y asignación a la sucursal. Con el proveedor SIMULADO la verificación no sale a Internet.
   await ruta("admin/facturacion");
   await foto("integ-07-facturacion-sin-configurar");
   await escribir("Usuario (correo de Factus)", "facturacion@example.co"); await escribir("Contraseña", "clave-de-ejemplo");
-  await escribir("Client ID", "cliente-de-ejemplo"); await escribir("Client secret", "secreto-de-ejemplo"); await sinFoco();
+  await escribir("Client ID", "cliente-de-ejemplo"); await escribir("Client secret", "secreto-de-ejemplo");
+  await elegir("Ambiente", "Pruebas"); await sinFoco();
   await foto("integ-08-facturacion-credenciales");
-  await clic("Guardar credenciales", "button", { ms: 2000 });
-  await elegir("Modo de emisión", null); await foto("integ-09-facturacion-modos-de-emision");
+  await elegir("Modo de emisión al conectar", null); await foto("integ-09-facturacion-modos-de-emision");
   await evaluar(`[...document.querySelectorAll(".mud-popover-open .mud-list-item")].find(e => e.textContent.trim().startsWith("Factura electrónica en cada venta")).click()`); await espera(600);
-  await elegir("Ambiente del proveedor", "Pruebas"); await sinFoco();
+  await sinFoco();
   await foto("integ-10-facturacion-cada-venta-advertencia");
   await marcar("Tengo la cotización");
-  await clic("Guardar modo y ambiente", "button", { ms: 2500 });
-  await foto("integ-11-facturacion-configurada");
+  await clic("Conectar", "button", { ms: 6000 });
+  await arriba(); await foto("integ-11-facturacion-configurada");
+  await clic("Cambiar llaves", "button", { ms: 1200 });
+  await evaluar(`document.querySelectorAll(".mud-snackbar").forEach(e => e.remove())`);
+  await foto("integ-11b-facturacion-cambiar-llaves");
+  await clic("Cancelar", "button", { ms: 800 });
   await clic("Rangos de numeración", ".mud-tab", { ms: 1500 });
   await clic("Sincronizar desde Factus", "button", { ms: 3000 });
   await foto("integ-12-rangos-sincronizados");
@@ -513,6 +531,15 @@ const CANASTAS = [
   [["CAR-203", 1.3], ["LAC-002", 2], ["LAC-005", 1]], [["ABA-008", 1], ["LAC-001", 2]], [["BEB-001", 1], ["BEB-003", 2], ["ABA-012", 2]],
 ];
 const MEDIOS = ["EFECTIVO", "EFECTIVO", "DEBITO", "EFECTIVO", "NEQUI", "CREDITO", "EFECTIVO", "MIXTO", "EFECTIVO", "DAVIPLATA", "EFECTIVO", "TRANSFERENCIA", "EFECTIVO", "EFECTIVO"];
+/** Hace la acción; si el servidor pide autorización (403), la pide al supervisor y la repite con el permiso de una sola vez. */
+async function conSupervisor(caja, accion, motivo, tipo = null) {
+  try { return await accion(undefined); } catch (e) {
+    if (e.status !== 403 || !e.data?.permission) throw e;
+    const g = await caja.post("auth/authorizations", { supervisorCode: SUPERVISOR.codigo, supervisorPin: SUPERVISOR.pin, permissionCode: e.data.permission, action: e.data.action,
+      targetId: e.data.targetId, targetType: e.data.targetType ?? tipo, reason: motivo });
+    return accion({ "X-Authorization-Grant": g.grantId });
+  }
+}
 async function turnoApi(cajero, ventas, cerrar) {
   const owner = await Pos.login();
   const caja = await Pos.caja(cajero);
@@ -528,7 +555,9 @@ async function turnoApi(cajero, ventas, cerrar) {
     const venta = await caja.post("sales");
     for (const [sku, q] of CANASTAS[i % CANASTAS.length]) {
       const p = productos.find((x) => x.sku === sku);
-      await caja.post(`sales/${venta.id}/lines`, p.baseUnitCode === "KG" ? { productId: p.id, weightKg: q, weightSource: "SCALE" } : { code: p.primaryBarcode, quantity: q });
+      // Por la API no hay lectura firmada de la báscula (Fase 7-C): los productos por peso entran como peso digitado, con supervisor.
+      if (p.baseUnitCode === "KG") await conSupervisor(caja, (h) => caja.post(`sales/${venta.id}/lines/manual-weight`, { productId: p.id, weightKg: q }, h), "Peso digitado en la carga de datos");
+      else await caja.post(`sales/${venta.id}/lines`, { code: p.primaryBarcode, quantity: q });
     }
     if (i % 5 === 2 && clientes.length) await caja.put(`sales/${venta.id}/customer`, { partyId: clientes[i % clientes.length].partyId });
     const total = (await caja.get(`sales/${venta.id}`)).amountDue;
@@ -543,11 +572,7 @@ async function turnoApi(cajero, ventas, cerrar) {
   await caja.post("expenses/from-cash", { categoryId: (await owner.get("expenses/categories")).find((c) => c.name === "Aseo y cafetería").id, description: "Bolsas de basura y jabón para el baño",
     amount: 18500, taxAmount: 0, paymentMethodId: M("EFECTIVO"), partyId: null, cashSessionId: sesion.id, reference: null, businessDate: null });
   const retiro = { amount: 300000, reason: "Sangría a la caja fuerte" };
-  try { await caja.post(`cash/sessions/${sesion.id}/withdrawals`, retiro); } catch (e) {
-    if (e.status !== 403) throw e;
-    const g = await caja.post("auth/authorizations", { supervisorCode: SUPERVISOR.codigo, supervisorPin: SUPERVISOR.pin, permissionCode: e.data.permission, action: e.data.action, targetId: e.data.targetId, targetType: e.data.targetType ?? "CashSession", reason: "Sangría autorizada" });
-    await caja.post(`cash/sessions/${sesion.id}/withdrawals`, retiro, { "X-Authorization-Grant": g.grantId });
-  }
+  await conSupervisor(caja, (h) => caja.post(`cash/sessions/${sesion.id}/withdrawals`, retiro, h), "Sangría autorizada", "CashSession");
   const x = await owner.get(`cash/sessions/${sesion.id}/report-x`);
   await caja.post(`cash/sessions/${sesion.id}/start-closing`);
   const count = x.totals.filter((t) => t.expected > 0 || t.code === "EFECTIVO").map((t) => ({ paymentMethodId: t.paymentMethodId, amount: t.code === "EFECTIVO" ? t.expected - 2000 : t.expected }));
@@ -571,6 +596,14 @@ async function teclaCaja(key, donde, comprobar) {
     await tecla(key, 1500);
     if (!(await evaluar(comprobar))) throw new Error(`${key} no funcionó en ${donde}`);
   }
+}
+/** Espera la ventana «Digitar el peso», escribe el peso (y toma la foto), agrega con Enter y, si se pide, autoriza el supervisor. */
+async function pesoDigitado(peso, motivo, nombreFoto) {
+  for (let i = 0; i < 20 && (await evaluar(`document.querySelector(".panel h2")?.textContent`)) !== "Digitar el peso"; i++) await espera(1000);
+  await enfocar("Peso en kilos"); await reemplazar(peso);
+  if (nombreFoto) await fotoCaja(nombreFoto);
+  await tecla("Enter", 2000);
+  if (await evaluar(`!!document.getElementById("t-supervisor")`)) { await supervisor(motivo); await clic("Autorizar", ".panel button", { ms: 2000 }); }
 }
 async function faseCaja() {
   const owner = await Pos.login();
@@ -601,8 +634,11 @@ async function faseCaja() {
   await fotoCaja("bascula-ponga-el-producto");
   await bascula({ weightKg: 1.256, stable: false }); await espera(800);
   await fotoCaja("bascula-esperando-peso-estable");
-  await bascula({ weightKg: 1.256, stable: true }); await espera(3500); await bascula({ weightKg: 0 });
-  await fotoCaja("venta-con-producto-pesado");
+  // La báscula simulada nunca firma sus lecturas (Fase 7-C, BB7): con peso estable la caja dice «Báscula no vinculada» y, como la caja
+  // permite digitar el peso, abre «Digitar el peso» con ese mensaje. El peso digitado pide la autorización del supervisor.
+  await bascula({ weightKg: 1.256, stable: true });
+  await pesoDigitado("1,256", "La báscula aún no está vinculada", "bascula-no-vinculada");
+  await bascula({ weightKg: 0 });
   await tecla("F5", 1000); await teclear("detergente"); await espera(1600);
   await fotoCaja("consulta-de-precio-lista");
   await tecla("ArrowDown"); await tecla("Enter", 1500);
@@ -667,8 +703,10 @@ async function faseCaja() {
   await fotoCaja("linea-anulada");
   await tecla("F8", 1800);
   await fotoCaja("venta-suspendida");
+  await bascula({ weightKg: 0.84, stable: true });
   await escanear(CODIGO["LAC-003"]); await escanear("FRU-104", 1500);
-  await bascula({ weightKg: 0.84, stable: true }); await espera(3500); await bascula({ weightKg: 0 });
+  await pesoDigitado("0,84", "La báscula aún no está vinculada", null);
+  await bascula({ weightKg: 0 });
   await teclaCaja("F10", "cobro de la venta 6", `!!document.querySelector("#t-cobro")`);
   await enfocar("Recibido en Efectivo"); await reemplazar("20000"); await tecla("F10", 3500);
   await tecla("F9", 1500);
@@ -684,6 +722,30 @@ async function faseCaja() {
   await tecla("F1", 1200);
   await fotoCaja("ayuda-atajos");
   await tecla("Escape", 800);
+  await paso(basculaRetireYVincular);
+}
+/**
+ * Retorno a cero: el agente anota una pesada aceptada (como si la caja hubiera agregado la línea) y la báscula sigue con peso, así que
+ * la caja pide «Retire el producto de la báscula» con el botón «Reiniciar báscula (supervisor)». Luego F1 → Vincular báscula, que
+ * pide la autorización del supervisor (se cancela: la báscula simulada no firma sus pesos).
+ */
+async function basculaRetireYVincular() {
+  await bascula({ weightKg: 0.84, stable: true }); await espera(600);
+  await evaluar(`(async () => { const r = await (await fetch(${J(AGENTE)} + "scale/weight")).json();
+    await fetch(${J(AGENTE)} + "scale/accepted", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ readingId: r.readingId }) }); })()`);
+  await escanear("FRU-104", 2500);
+  await esperarTexto("Retire el producto de la báscula", 8000);
+  await foto("caja-44-bascula-retire-el-producto");
+  await clic("Reiniciar báscula (supervisor)", ".panel button", { ms: 1800 });
+  await foto("caja-45-reiniciar-bascula-supervisor");
+  await supervisor("Se retiró el producto anterior");
+  await clic("Autorizar", ".panel button", { ms: 2000 });
+  await foto("caja-46-bascula-reiniciada");
+  await bascula({ weightKg: 0 }); await espera(800);
+  await tecla("F1", 1200);
+  await clic("Vincular báscula", ".panel button", { ms: 2000 });
+  if (await evaluar(`!!document.getElementById("t-supervisor")`)) { await foto("caja-47-vincular-bascula-supervisor"); await clic("Cancelar", ".panel button", { ms: 800 }); }
+  await tecla("Escape", 600);
 }
 async function faseCajaFin() {
   nCaja = 34;
@@ -989,25 +1051,7 @@ async function faseAdmin() {
   await paso(async () => {
     await ruta("admin/sincronizacion"); await foto("integ-18-sincronizacion");
   });
-  // Administración
-  await paso(async () => {
-    await ruta("admin/usuarios"); await foto("adm-90-usuarios-lista");
-  });
-  await paso(async () => {
-    await clic("Nuevo usuario", "button", { ms: 1500 });
-  });
-  await paso(async () => {
-    await escribir("Usuario", "maria.caja"); await escribir("Nombre completo", "María Gómez"); await escribir("Código de caja", "603");
-  });
-  await paso(async () => {
-    await sinFoco(); await foto("adm-91-usuario-nuevo");
-  });
-  await paso(async () => {
-    await elegir("Rol", null); await foto("adm-92-usuario-nuevo-roles");
-  });
-  await paso(async () => {
-    await tecla("Escape", 500); await cerrarPanel();
-  });
+  // Administración (los usuarios, adm-90 a adm-92, se toman en la fase "novedades")
   await paso(async () => {
     await ruta("admin/auditoria"); await foto("adm-94-auditoria");
   });
@@ -1107,16 +1151,18 @@ function faseOptimizar() {
   mkdirSync(SALIDA, { recursive: true });
   const py = `import os, sys
 from PIL import Image
-src, dst = sys.argv[1], sys.argv[2]
+import re
+src, dst, solo = sys.argv[1], sys.argv[2], sys.argv[3]
 total = 0
 for f in sorted(os.listdir(src)):
     if not f.endswith(".png") or f.startswith("x-"): continue
+    if solo and not re.search(solo, f): continue
     im = Image.open(os.path.join(src, f)).convert("RGB")
     q = im.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     q.save(os.path.join(dst, f), optimize=True)
     total += os.path.getsize(os.path.join(dst, f))
 print(f"{len([f for f in os.listdir(dst) if f.endswith('.png')])} imágenes, {total/1024/1024:.2f} MB")`;
-  const r = spawnSync("python", ["-c", py, CRUDAS, SALIDA], { encoding: "utf8" });
+  const r = spawnSync("python", ["-c", py, CRUDAS, SALIDA, SOLO], { encoding: "utf8" });
   if (r.status !== 0) throw new Error("No se pudieron optimizar los PNG (¿Python con Pillow?): " + r.stderr);
   console.log("  " + r.stdout.trim());
 }
@@ -1159,9 +1205,88 @@ async function faseComplementos() {
   });
 }
 
+// ══════════════ Novedades: Usuarios (detalle, PIN, contraseña), Cambiar PIN de caja y Configuración → Backups (basta con asistente y datos) ══════════════
+async function faseNovedades() {
+  // Laura (administradora, sin código de caja) cambia su contraseña inicial por la API para poder entrar y definir su PIN.
+  // (Si la fase ya corrió antes, la clave ya está cambiada y el ingreso con la inicial falla: se sigue.)
+  try {
+    const laura = await Pos.login("laura.admin", "Clave-Inicial-2026");
+    await laura.post("auth/change-password", { currentPassword: "Clave-Inicial-2026", newPassword: "Laura-Admin-Tienda-26" });
+  } catch (e) { console.warn("  (clave de Laura ya cambiada:", e.message.slice(0, 80) + ")"); }
+  await entrarAdministracion(false);
+  await ruta("admin", 4000);
+  await paso(async () => { await ruta("admin/usuarios", 4000); await foto("adm-90-usuarios-lista"); });
+  await paso(async () => {
+    await clic("Nuevo usuario", "button", { ms: 1500 });
+    await escribir("Usuario", "maria.caja"); await escribir("Nombre completo", "María Gómez");
+    await evaluar(`(() => { const r = [...document.querySelectorAll(".seleccion-roles > div")].find(d => d.textContent.includes("Cajero") && !d.textContent.includes("Supervisor")); r?.querySelector("input[type=checkbox]")?.click(); })()`); await espera(500);
+    await escribir("Código de caja", "603"); await sinFoco();
+    await foto("adm-91-usuario-nuevo");
+    await evaluar(`document.querySelector(".panel").scrollTop = 1e6`); await espera(400);
+    await foto("adm-92-usuario-nuevo-roles");
+    await cerrarPanel();
+  });
+  await paso(async () => {
+    await clicFila("ana.cajera", 1800);
+    await foto("adm-91b-usuario-detalle");
+    await evaluar(`document.querySelector(".panel").scrollTop = 1e6`); await espera(400);
+    await foto("adm-91c-usuario-detalle-continuacion");
+    await clic("Restablecer PIN", ".panel button", { ms: 900 });
+    await escribir("PIN nuevo", "7391"); await escribir("Repita el PIN", "7391"); await sinFoco();
+    await evaluar(`document.querySelector(".panel").scrollTop = 1e6`); await espera(400);
+    await foto("adm-91d-usuario-restablecer-pin");
+    await clic("Cancelar", ".panel button", { ms: 600 });
+    await clic("Restablecer contraseña", ".panel button", { ms: 900 });
+    await clic("Generar", ".panel button", { ms: 600 });
+    // La contraseña temporal generada se tapa en la imagen (los manuales no muestran contraseñas reales).
+    await evaluar(`(() => { const l = [...document.querySelectorAll("label")].find(e => e.textContent.trim().startsWith("Contraseña temporal")); const i = l?.closest(".mud-input-control")?.querySelector("input"); if (i) i.value = i.value.replace(/[A-Za-z0-9]/g, "•"); })()`);
+    await evaluar(`document.querySelector(".panel").scrollTop = 1e6`); await espera(400);
+    await foto("adm-91e-usuario-restablecer-contrasena");
+    await cerrarPanel(); await cerrarPanel();
+  });
+  await paso(async () => { await ruta("cambiar-pin", 3500); await foto("adm-05b-cambiar-pin"); });
+  await paso(async () => {
+    await ruta("admin/configuracion", 4000);
+    await clic("Backups", ".mud-tab", { ms: 2500 });
+    await foto("adm-97b-backups-destinos");
+    await clic("Agregar disco externo", "button", { ms: 1200 });
+    await escribir("Carpeta", "E:\\BackupsTienda"); await escribir("Etiqueta del disco", "RESPALDO"); await sinFoco();
+    await clic("Comprobar carpeta", "button", { ms: 4000 });
+    await abajo(); await foto("adm-97c-backups-disco-externo");
+    await clic("Cancelar", "button", { ms: 600 });
+    await clic("Agregar carpeta de red", "button", { ms: 1200 });
+    await escribir("Carpeta", "\\\\192.168.1.20\\respaldos\\tienda"); await sinFoco();
+    await abajo(); await foto("adm-97d-backups-carpeta-de-red");
+    await clic("Cancelar", "button", { ms: 600 });
+  });
+  await paso(async () => { await ruta("admin/backups", 3500); await foto("adm-97-backups", { desarrollo: true }); });
+  await paso(async () => {
+    // Báscula de la caja (después de "caja" queda una Toledo 8217 en COM7): sin avisos encima y con el estado de la vinculación a la vista.
+    await ruta("admin/cajas", 3500);
+    await clic("Báscula", "button", { ms: 2000 });
+    await evaluar(`document.querySelectorAll(".mud-snackbar").forEach(e => e.remove()); document.querySelector(".panel").scrollTop = 170`);
+    await foto("integ-03-bascula");
+    await cerrarPanel();
+  });
+  await paso(async () => {
+    await ruta("admin/facturacion", 4000);
+    await clic("Cambiar llaves", "button", { ms: 1200 });
+    await evaluar(`document.querySelectorAll(".mud-snackbar").forEach(e => e.remove())`);
+    await foto("integ-11b-facturacion-cambiar-llaves");
+    await clic("Cancelar", "button", { ms: 600 });
+  });
+  // Laura no tiene código de caja ni PIN: la página le pide su contraseña y que elija el código.
+  await paso(async () => {
+    await salirDeLaSesion();
+    await clic("Administración"); await escribir("Usuario", "laura.admin"); await escribir("Contraseña", "Laura-Admin-Tienda-26");
+    await clic("Entrar", "button", { ms: 5000 });
+    await ruta("cambiar-pin", 3500); await foto("adm-05c-definir-pin");
+  });
+}
+
 // ═════════════════════════════════════ Orden de las fases ═════════════════════════════════════
 try {
-  const navegadorNecesario = ORDEN.slice(0, 9).some((f) => fase(f) && f !== "turno-cerrado" && f !== "turno-abierto");
+  const navegadorNecesario = ORDEN.slice(0, 10).some((f) => fase(f) && f !== "turno-cerrado" && f !== "turno-abierto");
   if (navegadorNecesario) await abrirEdge();
   if (fase("asistente")) { console.log("Fase asistente"); await faseAsistente(); }
   if (fase("datos")) { console.log("Fase datos"); await faseDatos(); }
@@ -1172,6 +1297,7 @@ try {
   if (fase("admin")) { console.log("Fase administración"); await faseAdmin(); }
   if (fase("tiquetes")) { console.log("Fase tiquetes"); await faseTiquetes(); }
   if (fase("complementos")) { console.log("Fase complementos"); await faseComplementos(); }
+  if (fase("novedades")) { console.log("Fase novedades"); await faseNovedades(); }
   if (fase("optimizar")) { console.log("Fase optimizar"); faseOptimizar(); }
   if (fallidas.length) console.warn(`${fallidas.length} paso(s) de la administración no se capturaron: ${fallidas.join(" | ")}`);
   if (avisosError.length) console.warn(`La interfaz mostró "Ocurrió un error inesperado" ${avisosError.length} vez/veces (se recargó): ${avisosError.join("; ")}`);

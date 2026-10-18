@@ -219,13 +219,16 @@ Si un cobro aprobado no terminó en venta, aparece en **Cobros por revisar** par
 Necesita la función **Báscula y PLU** encendida (viene así en Supermercado y en Fruver o carnicería). Si está apagada, la caja no
 lee la báscula y en el producto no salen el PLU, "Se vende por báscula" ni la tara.
 
-![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas y la opción de digitar el peso. El peso en vivo aparece al pulsar Probar báscula con la báscula conectada.](imagenes/uso/integ-03-bascula.png)
+![Cajas e impresoras · Báscula: esperas, peso mínimo, digitar el peso, el aviso de la tecla de tara y el estado de la vinculación. «Probar báscula» solo funciona en el computador de esa caja.](imagenes/uso/integ-03-bascula.png)
 
 - **Báscula etiquetadora** (sección de carnes o fruver): imprime una etiqueta con el peso o el precio y la caja la lee como un
   código de barras. En el producto se registra el **PLU de báscula**.
 - **Báscula conectada a la caja** (cable serial o USB-serial): se configura en **Administración → Cajas e impresoras**, botón **Báscula** de cada caja (Toledo 8217, CAS
-  o genérica) y se prueba con el **peso en vivo**. En la caja, al registrar un producto marcado **"Se vende por báscula"**, el
-  sistema lee el peso solo, espera a que esté estable y descuenta la **tara** del producto. **Ins** hace tara manual.
+  o genérica), se prueba con el **peso en vivo** y se **vincula** en la pantalla de venta de esa caja (**F1 → Vincular báscula**, con un
+  supervisor): cada peso llega firmado por la caja, así nadie puede inventarlo. En la caja, al registrar un producto marcado
+  **"Se vende por báscula"**, el sistema lee el peso solo, espera a que esté estable y descuenta la **tara** del producto. **Ins** hace tara manual
+  (no use la tecla de tara de la báscula). Después de cada pesada la báscula debe volver a cero: nunca se cobra el peso del producto
+  anterior.
 - Si la báscula no responde, se puede digitar el peso solo con permiso o con autorización del supervisor; en la caja la línea queda
   marcada "Peso digitado" y en el tiquete el peso sale seguido de " (digitado)".
 - Unidades de peso: kilogramo, gramo, libra internacional y **Libra (500 g)**, la de uso en Colombia.
@@ -294,8 +297,8 @@ Mientras tanto, antes de cobrar el cajero puede **quitar líneas (Supr)** o **ca
 1. Cada cajero **cierra su turno al terminar** (botón **Cerrar turno** en la caja). Nunca deje un turno abierto de un día para
    otro: el sistema alerta los turnos abiertos por más de 14 horas.
 2. El conteo es **a ciegas**: pida a los cajeros que cuenten con calma y por denominaciones.
-3. Si la diferencia supera $5.000 (valor que usted puede cambiar), el cajero debe escribir una observación y el turno queda **Por
-   revisar**.
+3. Si la diferencia supera $5.000 (valor que usted puede cambiar), el cajero debe escribir una observación y el turno queda
+   **Por revisar**.
 4. El supervisor entra a **Turnos de caja**, filtra **Por revisar**, abre cada turno y pulsa **Revisar** para dejar su revisión.
    Si un cajero se fue sin cerrar, el supervisor usa **Cerrar como supervisor**.
 5. Guarde o archive el **Reporte Z** de cada turno.
@@ -322,8 +325,8 @@ En lugar de cerrar la tienda un día para contar todo, cuente **un poco cada sem
 1. **Inventario → Conteos → Nuevo conteo**, alcance **Parcial (categorías o productos)**.
 2. Elija una o dos categorías por semana. Empiece por las de **más valor** o **más robo** (licores, aseo, cuidado personal, carnes).
 3. Cuente con el lector o digitando el código; si quiere, anote la **ubicación** (góndola, bodega).
-4. Revise las diferencias antes de aprobar el conteo. Los ajustes grandes (desde $500.000 a costo) necesitan la **aprobación de
-   otro usuario**.
+4. Revise las diferencias antes de aprobar el conteo. Los ajustes grandes (desde $500.000 a costo) necesitan la
+   **aprobación de otro usuario**.
 5. Haga un **conteo completo** una o dos veces al año.
 
 > Por defecto, en un conteo los productos **no contados se excluyen** (no se ponen en cero). Si quiere lo contrario, cambie el
@@ -441,8 +444,8 @@ están en su ficha (**Productos y precios → Datos**) y solo se ven si la funci
   **Categorías de ejemplo:** Abarrotes, Lácteos y huevos, Bebidas, Frutas y verduras, Carnes, Aseo y hogar, Cuidado personal.
 - Marque **Maneja lotes** y **Maneja fecha de vencimiento** en lácteos, carnes frías, panadería y medicamentos de venta libre.
 - Use **báscula** para fruver y carnes (etiquetadora en la sección o conectada a la caja).
-- Ponga el **mínimo** y el **máximo** en los productos de alta rotación y haga el pedido con **Inventario → Reabastecimiento →
-  Pedido sugerido**, que arma las órdenes de compra por proveedor.
+- Ponga el **mínimo** y el **máximo** en los productos de alta rotación y haga el pedido con
+  **Inventario → Reabastecimiento → Pedido sugerido**, que arma las órdenes de compra por proveedor.
 - Use **promociones** semanales y **listas de precios** para clientes mayoristas o tenderos.
 - Si vende cable, tela u otros productos por fracción, encienda **Venta por metro o fracción**.
 - Multicaja: mire **Ventas por hora** y **Ventas por caja** para saber cuántas cajas abrir en las horas pico.

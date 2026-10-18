@@ -11,7 +11,7 @@ Sistecrédito, use el **Manual de integraciones y facturación**.
 
 > **Importante:** cada persona ve en el menú solo lo que su rol le permite. Si una opción de este manual no le aparece, pídale al
 > propietario o al administrador que revise su rol en **Administración → Usuarios**. Algunas opciones dependen además de las
-> **funciones del negocio** (por ejemplo, Promociones o Compras): vea la sección 21.
+> **funciones del negocio** (por ejemplo, Promociones o Compras): vea la sección 22.
 
 ## Contenido
 
@@ -33,15 +33,16 @@ Sistecrédito, use el **Manual de integraciones y facturación**.
 16. Etiquetas de góndola
 17. Turnos de caja: reportes X y Z
 18. Gastos
-19. Reportes
-20. Usuarios
-21. Configuración
-22. Cajas e impresoras
-23. Auditoría
-24. Licencia
-25. Backups
-26. Actualizaciones y sincronización
-27. Preguntas frecuentes
+19. Facturación electrónica: conectar Factus
+20. Reportes
+21. Usuarios
+22. Configuración
+23. Cajas e impresoras
+24. Auditoría
+25. Licencia
+26. Backups
+27. Actualizaciones y sincronización
+28. Preguntas frecuentes
 
 ---
 
@@ -73,7 +74,8 @@ A la izquierda está el menú, organizado en grupos:
 | **Administración** | Usuarios, Configuración, Cajas e impresoras, Auditoría, Licencia, Sincronización, Backups, Actualizaciones. |
 
 En la barra de arriba: el botón **☰** contrae el menú para dejar solo los iconos, el botón de luna o sol cambia entre **modo claro y
-oscuro**, y a la derecha está su nombre, con las opciones **Cambiar contraseña** y **Salir**.
+oscuro**, y a la derecha está su nombre. Al pulsarlo se abre el menú del usuario: **Cambiar contraseña**, **Cambiar PIN de caja**, **Modo
+claro**, **Modo oscuro**, **Como el sistema** y **Salir**.
 
 ![El menú contraído: solo los iconos.](imagenes/uso/adm-07-menu-compacto.png)
 
@@ -81,11 +83,29 @@ oscuro**, y a la derecha está su nombre, con las opciones **Cambiar contraseña
 
 ### Cambiar su contraseña
 
-En el menú de su nombre, elija **Cambiar contraseña**. Escriba la contraseña actual y dos veces la nueva. El sistema exige al menos 8
-caracteres (valor del parámetro de longitud mínima, que se puede subir), que no contenga su usuario y que no sea una de sus últimas 5
-contraseñas. Use 10 o más (esta pantalla ya pide 10): una frase fácil de recordar.
+En el menú de su nombre, elija **Cambiar contraseña**. Escriba la contraseña actual y dos veces la nueva. La pantalla le dice el mínimo
+de caracteres que exige su empresa (8 de fábrica; el parámetro de longitud mínima lo puede subir). La nueva no puede contener su nombre
+de usuario, ni ser una contraseña común (como 12345678 o «colombia»), ni una de sus últimas contraseñas. Use una frase fácil de recordar.
+Si escribe mal la contraseña actual varias veces, su usuario se bloquea unos minutos, igual que al entrar.
 
 ![Cambiar contraseña.](imagenes/uso/adm-05-cambiar-contrasena.png)
+
+### Cambiar su PIN de caja
+
+El PIN es el que usa para entrar a la caja y para autorizar como supervisor. En el menú de su nombre, elija **Cambiar PIN de caja**:
+
+- **Si ya tiene PIN:** escriba el **PIN actual**, el **nuevo PIN** y repítalo, y pulse **Cambiar PIN**. Aparece "PIN de caja cambiado."
+- **Si todavía no tiene PIN** (por ejemplo, el propietario que instaló el sistema con su cuenta del portal): la página dice "Defina su PIN
+  de caja". Confirme su **contraseña**, elija su **código de caja** si no tiene uno (3 a 6 dígitos, que no use otro usuario) y escriba el
+  PIN dos veces. Pulse **Guardar PIN**: "PIN de caja guardado. Ya puede entrar a la caja con su código y su PIN."
+
+El PIN tiene exactamente los dígitos que fija la empresa y no puede ser una secuencia (1234), un mismo dígito repetido (1111), un PIN muy
+común (1212, 2580…) ni igual a su código de caja. Al cambiarlo se cierran sus otras sesiones de caja abiertas. Su código de caja no se
+cambia aquí: lo cambia otro administrador en **Usuarios** (sección 21).
+
+![Cambiar PIN de caja (ya tiene PIN): PIN actual y nuevo PIN.](imagenes/uso/adm-05b-cambiar-pin.png)
+
+![Definir el PIN de caja por primera vez: contraseña, código de caja y PIN.](imagenes/uso/adm-05c-definir-pin.png)
 
 > **Consejo:** la administración se cierra sola después de un rato sin uso. Aun así, pulse **Salir** si deja el computador, sobre
 > todo si está en la caja: así nadie hace cambios con su usuario.
@@ -101,7 +121,8 @@ por hora** y los **más vendidos**. Con **Ver reportes** salta al catálogo de r
 
 Más abajo, el bloque **Operación** reúne lo pendiente: productos bajo el mínimo, lotes por vencer, ventas anuladas hoy, turnos
 abiertos y cierres con diferencia sin revisar. Cuando hay algo urgente, aparece el recuadro **Requiere atención**; cada aviso lleva a
-su pantalla.
+su pantalla. Ahí aparecen también, por ejemplo, "La báscula de la caja … no está vinculada", "La clave de la báscula de la caja … cambió"
+(durante unos días después de vincularla) y "La facturación electrónica quedó apagada: conéctela en Facturación → Configuración".
 
 ![Tablero (abajo): los diez más vendidos y el bloque Operación.](imagenes/uso/adm-03-tablero-continuacion.png)
 
@@ -723,6 +744,12 @@ supervisor a mitad del día.
 | **X (parcial)** | En cualquier momento del turno | Muestra lo acumulado. No cierra nada. |
 | **Z (cierre)** | Al cerrar el turno | Cierra el turno, se imprime solo y lleva un código de control. |
 
+Si en el turno hubo cobros de Sistecrédito que no se usaron en una venta (por ejemplo, con «No usar este crédito») o que Sistecrédito
+aprobó tarde, los reportes X y Z traen el bloque **SISTECREDITO A REVISAR**: cuántos son, el total y cada uno con el documento del
+cliente (oculto en parte) y su estado (**por revisar**, **no usado** o **revisado**). No es plata de la caja: revíselos y revérselos en el
+portal de Sistecrédito, y márquelos como revisados en **Configuración → Medios de pago**, tarjeta Sistecrédito, **Cobros por revisar**
+(el detalle está en el Manual de integraciones y facturación).
+
 ### Revisar una diferencia
 
 1. Abra el turno **Por revisar** y lea la nota del cajero.
@@ -762,7 +789,72 @@ En la pestaña **Categorías** puede crear las suyas con **Nueva categoría**. U
 
 > **Consejo:** guarde la factura de cada gasto y escriba su número en la referencia. A fin de mes, su contador se lo agradecerá.
 
-## 19. Reportes
+## 19. Facturación electrónica: conectar Factus
+
+**Para qué sirve:** que las ventas salgan como **factura electrónica** ante la DIAN, por medio de **Factus**. Está en **Ventas y caja →
+Facturación electrónica**, con las pestañas **Configuración**, **Rangos de numeración**, **Documentos** y **Alertas y conciliación**.
+Arriba a la derecha siempre dice en qué modo está ("Modo: …"). Conectar y cambiar la configuración lo hace quien tiene el permiso de
+configurar la facturación electrónica (el propietario o el administrador).
+
+BusinessPost trae **Factus** como proveedor de fábrica, pero la facturación **nace apagada**: mientras no conecte su cuenta y la conexión
+quede **verificada**, no se envía nada a la DIAN y cada venta sale con comprobante interno. Lo que debe tener a mano (contrato, resolución,
+credenciales) y la revisión diaria están en el **Manual de integraciones y facturación**.
+
+### Conectar
+
+1. Abra la pestaña **Configuración**. La tarjeta **Factus · facturación electrónica** dice **Desconectado**.
+2. Escriba los cuatro datos que le entregó Factus: **Usuario (correo de Factus)**, **Contraseña**, **Client ID** y **Client secret**.
+3. Elija el **Ambiente**: **Pruebas (sandbox)** o **Producción (documentos reales ante la DIAN)**. Pruebas y producción tienen
+   credenciales distintas.
+4. Elija el **Modo de emisión al conectar**: **Solo cuando el cliente pide factura (transición)** o **Factura electrónica en cada venta**.
+   Para el segundo, marque **Tengo la cotización de Factus por volumen y el visto bueno de mi contador**.
+5. Pulse **Conectar**. BusinessPost guarda las llaves cifradas con la facturación apagada, prueba la conexión con Factus y,
+   **solo si funciona**, trae los rangos de numeración y enciende el modo elegido: "¡Conectado con Factus en …! … rango(s) de numeración traídos:
+   asígnelos a cada sucursal en la pestaña Rangos." Si no funciona, dice "No se pudo conectar: …" y la facturación sigue apagada.
+6. En **Rangos de numeración**, asigne a cada sucursal (o caja) su rango con **Asignar**.
+
+![Factus desconectado: los cuatro datos, el ambiente y el modo de emisión.](imagenes/uso/integ-07-facturacion-sin-configurar.png)
+
+![Factus conectado: ambiente, modo, usuario y la última validación de la clave.](imagenes/uso/integ-11-facturacion-configurada.png)
+
+Las llaves nunca se vuelven a mostrar ni quedan en la auditoría: la tarjeta solo muestra el usuario en parte. Si ya hay llaves guardadas,
+puede dejar los cuatro datos vacíos y volver a pulsar **Conectar** para cambiar solo el ambiente o el modo.
+
+### Con Factus conectado
+
+| Botón | Qué hace |
+|---|---|
+| **Volver a probar** | Verifica otra vez las llaves con Factus: "La conexión con Factus funciona." (o el motivo del problema). Se puede repetir cada pocos segundos. |
+| **Cambiar llaves** | Prueba las llaves nuevas **sin guardarlas**; solo si Factus las acepta se guardan y la facturación sigue igual ("Llaves cambiadas…"). Si fallan, no cambia nada ("No se cambiaron las llaves: …"). Con las casillas vacías no hace nada. |
+| **Modo de emisión** y **Cambiar modo** | Pasa de "solo cuando el cliente pide factura" a "en cada venta" (con la casilla de la cotización) o al revés. |
+| **Desconectar** | Apaga la facturación electrónica: las ventas vuelven al comprobante interno. Las llaves quedan guardadas cifradas. |
+
+![Cambiar llaves: se prueban con Factus antes de guardarlas.](imagenes/uso/integ-11b-facturacion-cambiar-llaves.png)
+
+Para pasar de pruebas a producción (o al revés): **Desconectar** y **Conectar** otra vez con las llaves y el ambiente nuevos.
+
+**Rangos por ambiente.** Pruebas y producción tienen cada uno sus rangos de numeración: BusinessPost solo usa los del ambiente vigente y
+no deja asignar un rango de otro ambiente. Si faltan los del ambiente actual, la tarjeta avisa "Faltan los rangos de numeración de …:
+hasta sincronizarlos no se envía nada (nunca se usan los de otro ambiente)" con el botón **Sincronizar rangos**.
+
+### Documentos retenidos: enviar o no enviar el atraso
+
+Si quedaron documentos electrónicos en cola **antes de conectar** (cuando no había proveedor conectado o con otras llaves), la tarjeta
+muestra "N documento(s) electrónico(s) retenido(s)". **No se envían solos**; usted decide:
+
+- **Enviar ahora** (solo con Factus conectado): pide confirmar con el número de documentos. Factus no recibe la fecha de la venta, así
+  que se emiten **con la fecha de hoy**. La DIAN fija un plazo para transmitir (consúltelo con su contador): fuera de él o con datos
+  viejos pueden ser rechazados.
+- **No enviar**: pide confirmar **dos veces** y **no se puede deshacer**. Los documentos quedan como **NO ENVIADOS**, con el comprobante
+  interno, y la decisión queda en la auditoría con su usuario.
+
+Los documentos de **otro ambiente** nunca se envían en el actual: solo se pueden marcar como no enviados. Los que ya se intentaron enviar
+quedan **en revisión** ("consulte su estado en el panel de Factus") y **No enviar** no los toca.
+
+> **Importante:** si después de una actualización la tarjeta dice "La facturación electrónica quedó apagada al actualizar … porque estaba
+> encendida sin una conexión verificada con Factus", conéctela otra vez con **Conectar**. El Tablero también lo avisa.
+
+## 20. Reportes
 
 **Para qué sirve:** responder preguntas de su negocio con cifras: cuánto vendió, cuánto ganó, qué se vende, qué no rota, quién dio
 descuentos, cuánto debe.
@@ -803,56 +895,108 @@ gastos, Caja, Antifraude y Auditoría).
 | Cada mes | **Impuestos generados en ventas**, **Impuestos de compras** y **Libro de ventas diario** | Para su contador. |
 | Cada mes | **Gastos por categoría** y **Compras por proveedor** | Controlar gastos y negociar con proveedores. |
 
-## 20. Usuarios
+## 21. Usuarios
 
 **Para qué sirve:** que cada persona entre con su propio usuario y vea solo lo que necesita.
+
+La lista muestra el **usuario** (el suyo dice **Usted**), el nombre, los **roles** (los que valen en una sola sucursal dicen "(una
+sucursal)"), el **código de caja** ("· sin PIN" si tiene código pero no PIN), el estado y el último ingreso. Cada fila tiene **Detalle** y,
+según el estado, **Desbloquear**, **Inactivar** o **Activar**.
 
 ![Administración → Usuarios.](imagenes/uso/adm-90-usuarios-lista.png)
 
 ### Crear un usuario
 
 1. Pulse **Nuevo usuario**.
-2. Escriba el **usuario**, el **nombre completo** y una **contraseña inicial** (la persona la cambia al entrar).
-3. Elija el **rol**.
-4. Si va a vender, escriba el **código de caja** (3 a 6 dígitos) y el **PIN** (4 a 6 dígitos).
-5. Pulse **Crear**.
+2. Escriba el **usuario** (minúsculas, dígitos, punto o guion; o un correo), el **nombre completo** y una **contraseña inicial** (la
+   persona la cambia la primera vez que entra).
+3. Marque **uno o varios roles**. Cada rol muestra su descripción.
+4. Si va a vender, escriba el **código de caja** (3 a 6 dígitos) y el **PIN** (exactamente los dígitos que fija la empresa). Si da código
+   de caja, el PIN es obligatorio.
+5. Pulse **Crear**. Aparece "Usuario creado. Deberá cambiar la contraseña la primera vez que entre."
 
-![Nuevo usuario.](imagenes/uso/adm-91-usuario-nuevo.png)
+![Nuevo usuario: usuario, nombre, contraseña inicial y roles.](imagenes/uso/adm-91-usuario-nuevo.png)
 
-![La lista de roles.](imagenes/uso/adm-92-usuario-nuevo-roles.png)
+![Nuevo usuario (abajo): los roles con su descripción, el código de caja y el PIN.](imagenes/uso/adm-92-usuario-nuevo-roles.png)
 
 | Rol | Puede |
 |---|---|
 | **Propietario** | Todo. Es el único que activa la licencia y maneja el código de recuperación. |
 | **Administrador** | Toda la operación y la configuración, salvo lo exclusivo del propietario. |
-| **Supervisor de caja** | Vender y autorizar descuentos, cancelaciones, peso digitado y lotes vencidos; revisar y cerrar turnos; ver reportes de caja. |
+| **Supervisor de caja** | Vender y autorizar descuentos, cancelaciones, peso digitado, reiniciar o vincular la báscula y lotes vencidos; revisar y cerrar turnos; ver reportes de caja. |
 | **Cajero** | Vender, reimprimir y crear clientes rápidos. Quitar una línea antes de cobrar depende del permiso de anular líneas (si no lo tiene, pide supervisor). |
 | **Inventario** | Productos, existencias, conteos, ajustes, traslados e importación; también registra compras y define mínimos y máximos. |
 | **Compras** | Proveedores, órdenes, facturas de compra, cuentas por pagar, y definir mínimos y máximos. |
 | **Contador** | Consultar reportes, impuestos y auditoría, y exportarlos. No modifica nada. |
 | **Encargado de promociones** | Crear, simular, activar y terminar promociones. |
 
-Los roles vienen listos; todavía no se pueden editar desde la pantalla.
+Los roles vienen listos; sus permisos todavía no se editan desde la pantalla. Un rol creado por soporte para su empresa aparece con la
+marca "rol propio".
+
+### Detalle del usuario
+
+Pulse el usuario o **Detalle**. Arriba se ve el estado, si **debe cambiar la contraseña al entrar** y el último ingreso. Cada bloque se
+guarda por separado y solo aparece si su usuario tiene el permiso que pide:
+
+- **Datos:** nombre completo y correo. Pulse **Guardar datos**.
+- **Roles:** las casillas de los roles. Pulse **Guardar roles** ("Roles guardados. Se aplican desde su siguiente acción."). Si la persona
+  tiene roles solo en una sucursal, se muestran aparte y se conservan al guardar. Quitar el rol **Propietario** pide confirmación.
+- **Caja:** el código de caja y si tiene PIN. **Restablecer PIN** (o **Asignar código y PIN** si no tiene): escriba el código de caja (3 a
+  6 dígitos, único), el PIN nuevo y repítalo, y pulse **Restablecer PIN**. Aparece "PIN de … restablecido. Entra a la caja con el código
+  …". Sus sesiones de caja abiertas se cierran.
+- **Contraseña:** **Restablecer contraseña** abre el campo **Contraseña temporal**: escríbala o pulse **Generar** (crea una al azar, fácil
+  de leer y con la longitud mínima de la empresa). Pulse **Restablecer contraseña** y confirme. La persona deberá cambiarla al entrar y sus
+  sesiones abiertas se cierran ya. Entréguele la contraseña temporal en persona.
+
+![Detalle del usuario: estado, datos y roles.](imagenes/uso/adm-91b-usuario-detalle.png)
+
+![Detalle del usuario (abajo): caja y contraseña.](imagenes/uso/adm-91c-usuario-detalle-continuacion.png)
+
+![Restablecer el PIN de caja de otro usuario.](imagenes/uso/adm-91d-usuario-restablecer-pin.png)
+
+![Restablecer la contraseña con una contraseña temporal (tapada en la imagen).](imagenes/uso/adm-91e-usuario-restablecer-contrasena.png)
+
+En **su propio usuario** el detalle avisa que sus roles y su estado los cambia otro administrador; su contraseña y su PIN se cambian desde
+el menú de su nombre (**Cambiar contraseña** y **Cambiar PIN de caja**, sección 1).
+
+### Quién puede gestionar a quién
+
+- Solo puede gestionar (editar, cambiar roles, restablecer PIN o contraseña, inactivar, activar o desbloquear) a quien
+  **no tiene más permisos que usted**. Un administrador no puede gestionar al propietario.
+- Solo puede asignar roles cuyos permisos usted también tiene.
+- Nadie cambia sus propios roles, permisos o estado.
+- Siempre debe quedar **un Propietario activo**, y al menos un Propietario o Administrador activo.
+
+Los mensajes que puede ver:
+
+| Mensaje | Qué significa |
+|---|---|
+| "No puede gestionar a un usuario que tiene permisos que usted no tiene (por ejemplo, el Propietario)." | La persona tiene más permisos que usted. Si su rol es una copia personalizada (por ejemplo «Gerente»), puede que le falten permisos que una versión nueva agregó a los roles de sistema: pida al Propietario que se los agregue. |
+| "No puede conceder permisos que usted no tiene." | Intentó asignar un rol con permisos que usted no tiene. |
+| "No puede cambiar sus propios roles, permisos o estado." | Pídaselo a otro administrador. |
+| "Debe quedar al menos un Propietario activo: asigne el rol Propietario a otro usuario antes de quitárselo a este." | Primero dele el rol Propietario a otra persona. |
+| "Debe quedar al menos un Propietario o Administrador activo." | No se puede inactivar o degradar al último. |
+| "Para su propio PIN use «Cambiar PIN de caja» en su menú de usuario." / "Para su propia contraseña use 'cambiar contraseña'." | Lo suyo se cambia desde el menú de su nombre. |
+| "Ya existe un cajero con ese código." | Elija otro código de caja. |
+| "El PIN no puede ser una secuencia ni repetir el mismo dígito." / "Ese PIN es demasiado común (como 1212 o 2580): elija otro." / "El PIN no puede ser igual al código de caja." | Elija otro PIN. |
+| "Demasiados intentos fallidos: espere unos minutos o pida a un administrador que lo desbloquee." | Al cambiar su contraseña o su PIN escribió mal el actual varias veces. |
 
 ### Inactivar, activar y desbloquear
 
-En la lista de usuarios, cada fila tiene sus botones:
+En la lista de usuarios, cada fila tiene sus botones (no aparecen en su propio usuario):
 
 - **Inactivar:** para quien ya no trabaja en el negocio. Hágalo el mismo día. Ya no podrá entrar a la caja ni a la administración.
 - **Activar:** devuelve el acceso a un usuario inactivo.
 - **Desbloquear:** tras varios intentos fallidos, el usuario queda bloqueado unos minutos; desde aquí se desbloquea antes.
 
-> **Importante:** por ahora no hay pantalla para cambiar el rol, el código de caja o el PIN de un usuario que ya existe, ni para
-> restablecerle la contraseña: llegará próximamente. Revise bien esos datos al crearlo. Mientras tanto, si una persona olvidó su
-> contraseña o necesita otro rol, comuníquese con el soporte de BusinessPost.
-
 **Buenas prácticas**
 
 - Nunca comparta el usuario del propietario.
+- Tenga al menos dos personas con el rol Propietario o Administrador, para que una pueda ayudar a la otra.
 - Uno o dos supervisores por turno, no más.
 - Revise cada mes que todos los usuarios activos sigan trabajando con usted y que su rol sea el correcto.
 
-## 21. Configuración
+## 22. Configuración
 
 En **Administración → Configuración** están los datos de base del negocio. Su uso se explica paso a paso en el manual de **Puesta en
 marcha**; aquí, un resumen:
@@ -863,6 +1007,7 @@ marcha**; aquí, un resumen:
 | **Funciones del negocio** | Tipo de negocio e interruptores de Báscula y PLU, Lotes y vencimientos, Venta por metro o fracción, Precio abierto, Promociones y Compras y proveedores. Apagar una función la oculta, no borra datos. |
 | **Sucursales y bodegas** | Sedes y sus bodegas. Cada sucursal nueva trae PISO (piso de venta), AVERIAS y TRANSITO; otras, como una bodega trasera, las crea usted. |
 | **Medios de pago** | Medios que ve el cajero al cobrar, y la conexión con Sistecrédito. |
+| **Backups** | Dónde se guardan las copias: disco externo o carpeta de red (sección 26). |
 | **Parámetros** | Reglas del sistema: tope de diferencia en cierres, redondeo del efectivo, aprobación de ajustes, alertas de vencimiento, backups. |
 
 ![Configuración → Funciones del negocio: el tipo de negocio y un interruptor por función.](imagenes/uso/conf-15-funciones-del-negocio.png)
@@ -872,7 +1017,7 @@ marcha**; aquí, un resumen:
 > **Importante:** cambiar el tipo de negocio deja los interruptores en los valores recomendados para ese tipo. Cada cambio de
 > configuración queda en la Auditoría.
 
-## 22. Cajas e impresoras
+## 23. Cajas e impresoras
 
 **Para qué sirve:** administrar las cajas de cada sucursal, su impresora de tiquetes y su báscula.
 
@@ -883,7 +1028,7 @@ marcha**; aquí, un resumen:
 | **Nueva caja** | Crea otra caja en una sucursal. |
 | **Editar** | Cambia el nombre o la bodega de la que vende la caja. |
 | **Impresora** | Conexión, ancho del papel, página de códigos, corte y cajón monedero. |
-| **Báscula** | Marca, puerto y prueba de la báscula (con la función Báscula y PLU encendida). |
+| **Báscula** | Marca, puerto, peso mínimo y prueba de la báscula (con la función Báscula y PLU encendida). La báscula se **vincula** después en la pantalla de venta de esa caja: **F1 → Vincular báscula**, con un supervisor. |
 | **Inactivar** | Deja la caja fuera de uso. |
 | **Bloquear** | Impide vender en esa caja hasta que la desbloquee. |
 | **Emparejar equipo** (solo Multicaja) | Muestra el código para unir el computador de esa caja: en el equipo nuevo se abre BusinessPost, se elige **Emparejar este equipo** y se escribe el código. |
@@ -894,7 +1039,7 @@ todo y no se emparejan otros.
 
 La configuración de la impresora y de la báscula está explicada en el **Manual de integraciones y facturación**.
 
-## 23. Auditoría
+## 24. Auditoría
 
 **Para qué sirve:** saber quién hizo qué y cuándo. Cada descuento, línea quitada, venta cancelada, cambio de precio, ajuste,
 cambio de configuración o ingreso queda registrado con su severidad (información, advertencia o crítica).
@@ -908,7 +1053,7 @@ Pulse **Verificar la integridad** para comprobar que nadie alteró la bitácora.
 > **Consejo:** verifique la integridad una vez al mes y revise los eventos críticos. Si algo no le cuadra, la auditoría le dice
 > exactamente quién y cuándo.
 
-## 24. Licencia
+## 25. Licencia
 
 **Para qué sirve:** ver el estado de su licencia (edición, clave, vigencia y última verificación) y activarla.
 
@@ -925,7 +1070,7 @@ tarjeta o Bancolombia) y, después de pagar, **Ya pagué, verificar**. El detall
 
 > **Importante:** pague la mensualidad a tiempo. La licencia se verifica sola una vez al día cuando hay Internet.
 
-## 25. Backups
+## 26. Backups
 
 **Para qué sirve:** tener copias de seguridad de toda su información por si el computador se daña, se pierde o se lo roban.
 
@@ -938,16 +1083,75 @@ BusinessPost hace copias **solo**, sin que nadie se acuerde:
 | Después de los cierres de caja | Una copia tras cada cierre |
 | Cada semana | Una restauración de prueba para comprobar que las copias sirven |
 
-En **Administración → Backups** verá el historial con el resultado de cada copia y el botón **Respaldar ahora**, para hacer una copia
-en el momento (por ejemplo, antes de una actualización). Si el último backup verificado es muy antiguo, la pantalla y el Tablero lo
-avisan.
+### Historial (Administración → Backups)
 
-> **Importante:** el **código de recuperación** que anotó en la instalación es la llave para abrir las copias en otro equipo.
-> Guárdelo fuera del local. La restauración la hace un técnico desde el servidor, nunca desde el navegador.
+En **Administración → Backups** verá el **Historial** de las copias (fecha, tipo, resultado —**Correcto y verificado**, **Correcto** o
+**Falló** con el motivo—, tamaño y a qué destinos se copió) y el botón **Respaldar ahora**, para hacer una copia en el momento (por
+ejemplo, antes de una actualización): "Backup en cola: aparecerá en el historial en unos minutos."
 
-Elegir el destino de las copias (disco USB, otro equipo o la nube) desde esta pantalla llegará próximamente.
+Arriba aparecen los avisos: "Falta confirmar el código de recuperación…" (con **Generar el código**), "El último backup verificado es
+muy antiguo" y "… destino(s) de backup fallando". El Tablero también los muestra.
 
-## 26. Actualizaciones y sincronización
+![Administración → Backups: historial de las copias.](imagenes/uso/adm-97-backups.png)
+
+> **Importante:** el **código de recuperación** es la llave para abrir las copias en otro equipo. Si la pantalla le pide generarlo, se
+> muestra **una sola vez**: imprímalo, guárdelo **fuera del local** y escríbalo de nuevo para confirmarlo. La restauración la hace un
+> técnico desde el servidor, nunca desde el navegador.
+
+### Dónde se guardan (Configuración → Backups)
+
+Cada copia se crea primero en la **carpeta del servidor**, que es fija, y desde ahí se copia a los **destinos** activos. Para tener una
+copia fuera del computador, agregue un **disco externo** o una **carpeta de red** en **Administración → Configuración**, pestaña
+**Backups**. Agregar o cambiar destinos lo hace quien tiene el permiso de configurar los destinos de los backups (el propietario o el
+administrador).
+
+La pestaña muestra la carpeta del servidor, el **último backup** (con el resultado de cada copia) y el último correcto, con los botones
+**Respaldar ahora**, **Actualizar** y **Ver historial**. Debajo, la tabla de **Destinos**: nombre, tipo (carpeta del servidor, disco
+externo, carpeta de red o nube), carpeta, qué copias recibe, cuántas conserva (diarias, semanales y mensuales) y el estado (**Activo**,
+**Inactivo** o **Fallando**, con la fecha de la última copia). En los discos y carpetas de red están **Cambiar** y **Probar**.
+
+![Configuración → Backups: carpeta del servidor, último backup y destinos.](imagenes/uso/adm-97b-backups-destinos.png)
+
+**Agregar un disco externo**
+
+1. Conecte el disco al **computador servidor** de la tienda.
+2. Pulse **Agregar disco externo**.
+3. Escriba un **Nombre** y la **Carpeta** con la letra del disco (por ejemplo `E:\BackupsTienda`). Debe ser **otro disco**, no el del
+   servidor, y debe existir la carpeta o su carpeta superior (la carpeta final se crea en la primera copia).
+4. Si quiere, escriba la **Etiqueta del disco**: así no se copia a otro disco que quede con la misma letra.
+5. En **Copiar los backups** marque cuáles recibe: **Programados (cada pocas horas)**, **Nocturno**, **Al cerrar caja** y **Manuales**.
+6. Deje **Activo** marcado y elija cuántas copias conserva: **Diarios**, **Semanales** y **Mensuales**.
+7. Pulse **Comprobar carpeta**. La comprobación la hace el servidor: escribe, lee y borra un archivo pequeño (no crea carpetas) y dice si
+   la carpeta sirve.
+8. Pulse **Guardar** ("Destino «…» guardado."). Al guardar un destino activo se comprueba otra vez.
+
+Si después retira el disco, no es un error: las copias quedan **pendientes** y se hacen al conectarlo.
+
+![Agregar disco externo: carpeta, etiqueta, qué copias recibe y cuántas conserva, con el resultado de «Comprobar carpeta».](imagenes/uso/adm-97c-backups-disco-externo.png)
+
+**Agregar una carpeta de red**
+
+Igual que el disco, con **Agregar carpeta de red** y una ruta de red `\\equipo\carpeta` (no use letras mapeadas como `Z:`). Tenga en
+cuenta:
+
+- Debe ser **otro equipo de la red de la tienda** (dirección privada 10.x, 172.16–31.x o 192.168.x). No se aceptan direcciones de Internet
+  ni el mismo computador servidor.
+- El servicio de BusinessPost entra a la red con la **cuenta del equipo servidor** (no con su usuario de Windows): dé permiso de escritura
+  a esa cuenta en la carpeta compartida. En un NAS o equipo **sin dominio** esa cuenta no existe y la copia puede fallar: use un disco
+  externo o pida ayuda a soporte.
+- **Seguridad:** las copias van cifradas, pero quien tenga acceso a la carpeta puede borrarlas. Dé permiso solo a la cuenta del equipo
+  servidor y no la comparta con «Todos».
+
+![Agregar carpeta de red: la ruta y los avisos de la cuenta del equipo y de seguridad.](imagenes/uso/adm-97d-backups-carpeta-de-red.png)
+
+**Buenas prácticas**
+
+- Tenga al menos un destino **fuera del computador servidor** (disco externo o carpeta de red) y, si es un disco, llévese uno a casa de
+  vez en cuando.
+- Use **Probar** después de cambiar el disco o la carpeta de red.
+- Revise una vez por semana que el último resultado sea correcto y que no haya destinos **Fallando**.
+
+## 27. Actualizaciones y sincronización
 
 ### Actualizaciones
 
@@ -966,7 +1170,7 @@ En **Administración → Sincronización** ve lo que está pendiente de subir a 
 memoria y cargarla en el portal desde otro equipo. Desde el portal de BusinessPost ve sus ventas, cierres y existencias desde
 cualquier lugar. El detalle está en el **Manual de integraciones y facturación**.
 
-## 27. Preguntas frecuentes
+## 28. Preguntas frecuentes
 
 **¿Cómo anulo una venta que ya se cobró o hago una devolución?**
 Todavía no se puede desde la pantalla: las devoluciones, los cambios de mercancía y la anulación de una venta cobrada llegarán
@@ -991,10 +1195,15 @@ Un supervisor abre el turno en **Turnos de caja** y usa **Cerrar como supervisor
 **Un usuario quedó bloqueado.**
 Después de varios intentos fallidos el usuario se bloquea por unos minutos. En **Usuarios** puede **Desbloquearlo** antes.
 
+**Una persona olvidó su contraseña o su PIN de caja.**
+En **Usuarios**, abra su **Detalle** y use **Restablecer contraseña** (con una contraseña temporal que cambiará al entrar) o **Restablecer
+PIN**. Solo puede hacerlo con quien no tiene más permisos que usted.
+
 **Olvidé la contraseña del propietario.**
 Si instaló con su cuenta del portal, el usuario propietario es el correo del portal y su contraseña es la que usaba en el portal
-al instalar. Si aun así no puede entrar, comuníquese con el soporte de BusinessPost. Por eso conviene que haya al menos un
-administrador además del propietario.
+al instalar. Si hay otro Propietario, él puede restablecerle la contraseña en **Usuarios** (un administrador no puede, porque el
+propietario tiene más permisos). Si aun así no puede entrar, comuníquese con el soporte de BusinessPost. Por eso conviene que haya más
+de una persona con el rol Propietario.
 
 **¿Puedo borrar un producto, un cliente o un proveedor?**
 No se borran para no perder el historial: se **inactivan**. Inactivos no estorban en la operación diaria.

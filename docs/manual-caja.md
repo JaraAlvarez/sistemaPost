@@ -56,6 +56,25 @@ La barra inferior recuerda las dos teclas más útiles: `F5` consultar precio y 
 > **Importante:** el código y el PIN son personales. Cada venta, cada turno y cada conteo de la caja quedan a su nombre. No los preste ni
 > los anote en la caja.
 
+### Cambiar su PIN de caja
+
+El PIN se cambia en la administración, en el menú de su nombre (arriba a la derecha) → **Cambiar PIN de caja**:
+
+- Si ya tiene PIN, escriba el **PIN actual**, el **nuevo PIN** y repítalo, y pulse **Cambiar PIN**.
+- Si todavía no tiene PIN (por ejemplo, el propietario que instaló el sistema), la página dice "Defina su PIN de caja": confirme su
+  **contraseña**, elija su **código de caja** si no tiene uno (3 a 6 dígitos, que nadie más use) y escriba el PIN dos veces. Pulse
+  **Guardar PIN**.
+
+El PIN tiene exactamente la cantidad de dígitos que fijó la empresa (la página lo dice) y no puede ser una secuencia (1234), un mismo
+dígito repetido (1111), un PIN muy común (1212, 2580…) ni igual a su código de caja. Al cambiarlo, se cierran sus otras sesiones de caja
+abiertas. Si se equivoca varias veces con el PIN actual, se bloquea unos minutos como al entrar. El código de caja no se cambia aquí: lo
+cambia un administrador en **Usuarios** (Restablecer PIN).
+
+![Cambiar PIN de caja: PIN actual, nuevo PIN y repetirlo.](imagenes/uso/adm-05b-cambiar-pin.png)
+
+Si usted solo entra a la caja (no a la administración) u olvidó su PIN, pídale al administrador que se lo **restablezca** en
+**Administración → Usuarios**.
+
 Si alguien entró por la pestaña **Administración** y pulsa **Ir a la caja**, BusinessPost muestra "Para vender, entre como cajero": pulse
 **Entrar con código de caja** para salir y volver a entrar con el código y el PIN de cajero.
 
@@ -165,7 +184,8 @@ La acción se completa sola y queda registrada con el nombre de quien autorizó.
 ![Descuento aplicado: la línea muestra «Descuento manual».](imagenes/uso/caja-20-venta-con-cliente-y-descuento.png)
 
 La misma ventana de autorización aparece en cualquier acción que su usuario no pueda hacer solo: cancelar una venta, anular una línea,
-vender un lote vencido o digitar un peso, según los permisos que le haya dado el administrador. Si el PIN es incorrecto, la caja lo
+vender un lote vencido, digitar un peso, reiniciar o vincular la báscula, o no usar un crédito de Sistecrédito ya aprobado, según los
+permisos que le haya dado el administrador. Si el PIN es incorrecto, la caja lo
 avisa y borra el PIN para escribirlo de nuevo. **Cancelar** (o Esc) cierra la ventana sin hacer la acción.
 
 ## 7. Cobrar (F10)
@@ -243,9 +263,31 @@ administrador). Se necesita **Internet en el momento del cobro**; si no hay, cob
 6. Si Sistecrédito **no aprueba** o el cobro vence, la caja muestra el motivo: pulse **Intentar de nuevo** o elija otro medio.
 
 Para dejar de esperar, pulse **Cancelar** debajo del QR. Si el cliente igual aprueba después, el sistema lo detecta y la administración lo
-revisa.
+revisa ("Cobro cancelado: la administración debe revisarlo").
+
+Sistecrédito cobra **pesos enteros**: si el total tiene centavos (productos por peso), la caja propone el valor sin centavos y avisa
+"Sistecrédito cobra pesos enteros: … los centavos van con otro medio de pago".
 
 ![Sistecrédito: tipo y número de documento del cliente y el botón Generar cobro.](imagenes/uso/caja-28-cobro-sistecredito.png)
+
+**Un crédito aprobado no se quita con la X sin más: «No usar este crédito».** Cuando Sistecrédito aprueba, el pago queda en la lista de
+pagos del cobro. Como el cliente ya quedó con ese crédito, la **X** de un pago de Sistecrédito aprobado no lo borra: abre
+**Autorización de supervisor** para **«No usar este crédito»**. Con la autorización, el crédito queda **en revisión** para que la
+administración lo reverse en el portal de Sistecrédito, y la caja dice "Crédito de Sistecrédito no usado: quedó en revisión para que la
+administración lo reverse. Cobre con otro medio." Si Sistecrédito ya no reporta aprobado ese pago, la X lo quita directamente.
+
+Mientras la venta tenga un crédito aprobado sin usar:
+
+- **No puede quedar por debajo del crédito.** Si quita productos, baja cantidades o da un descuento y el total quedaría menor que el
+  crédito, la caja lo rechaza: "Esta venta tiene un crédito de Sistecrédito ya aprobado por … y quedaría en …: no puede quedar por debajo
+  del crédito. Primero use «No usar este crédito» (con autorización de supervisor) o reabra el cobro." Agregar productos sí se puede.
+- **No se puede cancelar con F7.** La caja dice "Esta venta tiene un crédito de Sistecrédito ya aprobado por …: primero use «No usar este
+  crédito» (con autorización de supervisor) o complete la venta con él."
+- **Si cierra el cobro y lo vuelve a abrir**, la caja revisa los pagos ("Revisando los pagos con Sistecrédito de esta venta: un momento.")
+  y recupera el crédito aprobado ("Se recuperó el pago ya aprobado con Sistecrédito por …: cobre solo lo que falta.") o el cobro que seguía
+  esperando al cliente ("Hay un cobro con Sistecrédito esperando al cliente: se sigue consultando.").
+- **Si la administración desactivó Sistecrédito** con un crédito ya aprobado, la caja avisa "Esta venta tiene un crédito de Sistecrédito
+  aprobado por …, pero Sistecrédito está inactivo." con el botón **No usar este crédito** (con supervisor).
 
 ### Reimprimir el tiquete
 
@@ -280,6 +322,11 @@ Cuando un cliente olvidó algo y va a buscarlo, suspenda su venta para atender a
 
 ![La venta recuperada vuelve con sus líneas.](imagenes/uso/caja-32-venta-recuperada.png)
 
+**Ventas suspendidas con un crédito de Sistecrédito.** Si la venta suspendida ya tiene un crédito de Sistecrédito aprobado, en la lista de
+F9, debajo de la venta, aparece el botón **No usar el crédito de Sistecrédito ($ …)**: pide la autorización del supervisor y deja el
+crédito en revisión. Si al recuperar la venta su total quedó por debajo del crédito (por ejemplo, porque terminó una promoción), la caja
+lo explica y ofrece **No usar este crédito** en el mismo aviso; después de autorizarlo, la venta se recupera.
+
 > **Importante:** no cierre el turno con ventas suspendidas olvidadas: recupérelas y cóbrelas o cancélelas.
 
 ## 10. Cancelar la venta (F7)
@@ -305,8 +352,13 @@ Al terminar su turno:
    muestra cuánto debería haber; compara cuando usted confirma.
 4. Escriba el total de cada uno de los **demás medios** (tarjetas, Nequi, Sistecrédito…): súmelos con los vouchers del datáfono y los
    comprobantes del día.
-5. Si sabe de una diferencia, explíquela en **Nota sobre la diferencia** (por ejemplo, "faltaron $ 2.000 en monedas").
-6. Pulse **Confirmar cierre**. Si quiere seguir vendiendo, pulse **Volver a vender**.
+5. Si en el turno hubo cobros de Sistecrédito que no se usaron en una venta (o que Sistecrédito aprobó tarde), aparece el aviso
+   "Cobros con Sistecrédito de este turno que la administración debe revisar (no usados en la venta, aprobados tarde…): no son plata de
+   la caja", con los valores y el documento del cliente (oculto en parte), separados en
+   **Por revisar y reversar en el portal de Sistecrédito** y **Ya revisados por la administración**. No los sume en el total de Sistecrédito: solo cuente los créditos que sí
+   pagaron ventas.
+6. Si sabe de una diferencia, explíquela en **Nota sobre la diferencia** (por ejemplo, "faltaron $ 2.000 en monedas").
+7. Pulse **Confirmar cierre**. Si quiere seguir vendiendo, pulse **Volver a vender**.
 
 ![Cerrar turno: conteo ciego del efectivo por valor.](imagenes/uso/caja-39-cerrar-turno.png)
 
@@ -320,6 +372,10 @@ impresora."). Guarde el reporte impreso con el efectivo. Si la impresora falló,
 ![Reporte Z en pantalla al cerrar el turno.](imagenes/uso/caja-42-reporte-z.png)
 
 ![Final del reporte Z con el código de control y los botones Reimprimir Z y Terminar.](imagenes/uso/caja-43-reporte-z-continuacion.png)
+
+Si hubo cobros de Sistecrédito por revisar, el reporte Z (y el reporte X que se consulta en la administración) trae el bloque
+**SISTECREDITO A REVISAR**, con cuántos son, el total y cada uno con el documento del cliente y su estado (**por revisar**, **no usado** o
+**revisado**), y la nota "No es plata de la caja: la administración lo revisa y lo reversa en el portal de Sistecrédito".
 
 Si un turno quedó abierto (por ejemplo, el cajero se fue sin cerrar), un supervisor lo puede cerrar desde la administración.
 
@@ -341,49 +397,136 @@ Hay dos formas de vender por peso:
 
 - **Etiqueta de báscula:** la báscula etiquetadora imprime una etiqueta con código de barras (empieza por 20 a 28) que ya trae el peso o el
   precio. Se escanea como cualquier producto; la línea queda con la etiqueta **Etiqueta**.
-- **Báscula conectada a la caja:** la báscula de mostrador está conectada al computador de la caja y BusinessPost lee el peso solo.
+- **Báscula conectada a la caja:** la báscula de mostrador está conectada al computador de la caja y BusinessPost lee el peso solo. Lo
+  que sigue es para esta forma.
 
-**Cómo se pesa con la báscula conectada.** No hay botón "Pesar":
+#### Vincular la báscula con la caja (una sola vez, con un supervisor)
+
+Para que el servidor de la tienda acepte los pesos, el programa de la caja **firma** cada lectura de la báscula. Por eso la báscula de
+cada caja se **vincula** una vez, en la pantalla de venta de esa misma caja. Mientras no esté vinculada, al entrar la caja avisa
+"Báscula no vinculada: vincule con F1 → Vincular báscula (con un supervisor). Mientras tanto el servidor no acepta sus pesos." y, al
+registrar un producto de báscula, solo deja digitar el peso (si la caja lo permite).
+
+1. En la caja, pulse **F1**. Debajo de la lista de atajos aparecen los botones **Vincular báscula** (o **Volver a vincular báscula** si
+   ya estaba vinculada) y **Reiniciar báscula**.
+2. Pulse **Vincular báscula**. Si su usuario no tiene el permiso de vincular la báscula, aparece **Autorización de supervisor**: el
+   supervisor escribe su código y su PIN y pulsa **Autorizar**.
+3. Aparece "Báscula vinculada con esta caja." Desde ese momento la caja pesa normalmente.
+
+![F1 → Vincular báscula: la caja pide la autorización del supervisor.](imagenes/uso/caja-47-vincular-bascula-supervisor.png)
+
+> **Importante:** vincule siempre **en el computador de esa caja**: el servidor solo acepta la vinculación desde la pantalla de venta de
+> esa caja. Queda en la auditoría y el Tablero de la administración lo muestra unos días ("La clave de la báscula de la caja … cambió").
+
+Si la vinculación se interrumpe (por ejemplo, se cortó la red justo al final), la caja dice "El servidor ya tiene la clave nueva;
+reinicie el programa de la caja y pulse F1 → Completar vinculación". Al volver a entrar también avisa "La vinculación de la báscula quedó
+a medias: pulse F1 → Completar vinculación". Pulse **F1 → Completar vinculación**: solo confirma lo que ya quedó registrado, sin
+supervisor.
+
+Hay que **volver a vincular** cuando la caja lo pide, por ejemplo después de reinstalar el programa de la caja, cambiar el computador o
+restaurarlo: la caja dice "…vuelva a vincular la báscula (F1 → Vincular báscula)" o "…vuelva a vincular la báscula (F1)". Después de
+algunas actualizaciones de BusinessPost también hay que vincular de nuevo cada caja.
+
+#### Cómo se pesa
+
+No hay botón "Pesar":
 
 1. Ponga el producto en la báscula.
 2. Escanee o escriba el código del producto (o búsquelo por nombre) y pulse **Enter**.
-3. BusinessPost lee el peso en ese momento y agrega la línea con el peso, el precio por kilo y la etiqueta **Báscula**.
+3. Se abre una ventana con el nombre del producto, el peso en vivo y un aviso. En cuanto el peso queda **estable**, BusinessPost lee el
+   peso y agrega la línea con el peso, el precio por kilo y la etiqueta **Báscula**.
 
-Mientras lee, se abre una ventana con el nombre del producto, el peso en vivo y un aviso:
+Con el cobro u otra ventana abierta no se empieza a pesar: la caja dice, por ejemplo, "… se vende por báscula: cierre el cobro (Esc)
+antes de pesarlo". Con los productos de báscula no escriba cantidad con `3*`: deje que la báscula pese. **Esc** (o **Cancelar**) cierra
+la ventana sin agregar nada.
 
-- **"Ponga el producto en la báscula"**: la báscula está en cero. La caja espera unos segundos; si no llega peso, dice "No llegó peso a la
-  báscula: no se agregó nada".
-- **"Esperando peso estable…"**: el producto se está moviendo. En cuanto el peso se queda quieto, la línea se agrega sola. Si no se queda
-  quieto, dice "El peso no se quedó quieto: no se agregó. Vuelva a registrar el producto".
-- **"Retire el producto de la báscula"**: después de cada pesada **la báscula debe volver a cero** antes de pesar el siguiente producto.
-  Retire el producto anterior y la lectura sigue sola. Si la báscula no queda vacía, dice "La báscula no quedó vacía después de la pesada
-  anterior: no se agregó. Retire el producto y vuelva a registrarlo".
-- **Sobrepeso o peso negativo**: aviso claro; no se agrega nada.
+Los avisos de la ventana:
 
-**Esc** cancela la lectura sin agregar nada.
+| Aviso | Qué pasa y qué hacer |
+|---|---|
+| **"Ponga el producto en la báscula"** | La báscula está en cero. La caja espera unos segundos; si no llega peso, dice "No llegó peso a la báscula: no se agregó nada". |
+| **"Esperando peso estable…"** | El producto se está moviendo. Cuando el peso se queda quieto, la línea se agrega sola. Si no se queda quieto, dice "El peso no se quedó quieto: no se agregó. Vuelva a registrar el producto". |
+| **"Retire el producto de la báscula"** | Después de cada pesada la báscula debe **volver a cero** antes de pesar el siguiente producto (vea abajo). |
+| **"Quite la tara de la báscula (tecla de tara) para continuar"** | Alguien puso la tara con la tecla de la báscula. Quítela en la báscula y use **Ins** en la caja. |
+| "El peso no supera la tara del producto (… g): ponga el producto en la báscula." | El peso es menor o igual que la tara del producto: ponga el producto. |
+| Sobrepeso o peso negativo | La ventana muestra el aviso de la báscula; no se agrega nada. |
 
 ![Producto de báscula registrado con la báscula en cero: «Ponga el producto en la báscula».](imagenes/uso/caja-09-bascula-ponga-el-producto.png)
 
 ![El peso se está moviendo: «Esperando peso estable…».](imagenes/uso/caja-10-bascula-esperando-peso-estable.png)
 
-![La línea se agregó sola con 1,256 kg y la etiqueta «Báscula».](imagenes/uso/caja-11-venta-con-producto-pesado.png)
+> En el equipo de pruebas de estos manuales no hay una báscula real vinculada, así que no hay imagen de una línea agregada por la báscula:
+> se ve igual que las demás, con el peso en kilos y la etiqueta **Báscula**.
 
-**Tara.** Si el producto se empaca siempre en la misma bolsa o bandeja, el administrador le pone su **tara** y la caja la descuenta sola
-(la ventana muestra "tara … g"). Para una bolsa o bandeja distinta, póngala vacía en la báscula y pulse **Ins**: aparece "Tara tomada:
-… kg." y ese peso se descuenta de la siguiente pesada, en lugar de la tara del producto. Esa tara manual se quita sola al agregar la
-línea o al cancelar con Esc. Si la báscula no responde, Ins avisa el problema.
+#### Retorno a cero: "Retire el producto de la báscula"
 
-**Corregir un producto pesado.** La cantidad de un producto pesado no se cambia con F4: anule la línea con **Supr** y vuelva a pesarlo.
-Con los productos de báscula no escriba cantidad con `3*`: deje que la báscula pese.
+Después de cada pesada, la siguiente solo vale si la báscula **quedó vacía** (marca cero o menos del **peso mínimo** que configuró el
+administrador). Cambiar un producto por otro sin vaciar la báscula no sirve: la caja muestra **"Retire el producto de la báscula"** y
+espera. Retire todo lo que haya sobre la báscula y la lectura sigue sola. Si la báscula no queda vacía a tiempo, dice "La báscula no quedó
+vacía después de la pesada anterior: no se agregó. Retire el producto y vuelva a registrarlo".
 
-**Peso digitado.** Si la báscula no responde (apagada, desconectada o con el cable suelto) y la caja lo permite, se abre **Digitar el
-peso** con el mensaje del problema. Escriba el peso **en kilos** (por ejemplo 0,700) y pulse **Enter** o **Agregar**. Digitar el peso
-necesita el permiso "Digitar el peso" o la autorización del supervisor; la línea queda marcada **Peso digitado** en la caja y en el
-tiquete, y queda en la auditoría. Si la caja no permite digitar el peso, el mensaje dice "Avise al administrador".
+Esta regla también la revisa el servidor de la tienda: recargar la pantalla o empezar otra venta no la salta. Así nunca se cobra el peso
+del producto anterior.
 
-![La báscula no responde: la caja permite digitar el peso con autorización.](imagenes/uso/caja-35-peso-digitado.png)
+![La báscula no volvió a cero: «Retire el producto de la báscula», con el botón Reiniciar báscula (supervisor).](imagenes/uso/caja-44-bascula-retire-el-producto.png)
+
+**Reiniciar báscula.** Si el aviso no se quita aunque la báscula ya está vacía, pulse **Reiniciar báscula (supervisor)** en la ventana, o
+**F1 → Reiniciar báscula**. Necesita el permiso de reiniciar la báscula o la autorización del supervisor, y queda en la auditoría.
+Aparece "Báscula reiniciada: ya puede pesar el siguiente producto".
+
+![Reiniciar báscula: autorización del supervisor.](imagenes/uso/caja-45-reiniciar-bascula-supervisor.png)
+
+![Báscula reiniciada: la caja queda lista para pesar.](imagenes/uso/caja-46-bascula-reiniciada.png)
+
+**Eliminar una pesada para volver a pesar.** Si se equivocó, seleccione la línea y pulse **Supr**. La caja avisa una de estas:
+
+- "Pesada eliminada: puede volver a pesar el producto." (era la última pesada de la caja);
+- "Pesada eliminada. La última pesada de la caja era otra: retire el producto de la báscula antes de pesar el siguiente.";
+- "Pesada eliminada. No se pudo confirmar la báscula con el servidor: si al pesar pide retirar el producto, retírelo."
+
+#### Tara
+
+- **Tara del producto:** si el producto se empaca siempre en la misma bolsa o bandeja, el administrador le pone su **tara** y la caja la
+  descuenta sola (la ventana muestra "tara … g"). Se descuenta una sola vez.
+- **Tara manual con Ins:** para una bolsa o bandeja distinta, póngala vacía en la báscula y pulse **Ins**: aparece "Tara tomada: … kg."
+  Ese peso se descuenta de la **siguiente pesada**, en lugar de la tara del producto. La tara manual se quita sola al **agregar la línea**
+  o al **cancelar** la ventana (Esc o Cancelar); también la quita pulsar **Ins** con la báscula vacía ("Tara quitada."). Si la báscula
+  no responde, Ins avisa el problema.
+
+> **Importante:** **no use la tecla de tara de la báscula; use Ins en la caja.** Con la tara puesta en la báscula, muchas básculas
+> envían el peso neto sin avisarlo y la caja puede creer que la báscula quedó vacía. Si la báscula sí lo avisa, la caja muestra "Quite
+> la tara de la báscula (tecla de tara) para continuar".
+
+#### Corregir un producto pesado (F4)
+
+La cantidad de un producto pesado (por báscula, por etiqueta o con peso digitado) **no se cambia con F4**: la caja dice "La cantidad de
+un producto pesado no se cambia: elimine la línea (Supr) y vuelva a pesarlo".
+
+#### Peso digitado
+
+Si la báscula no responde (apagada, desconectada o con el cable suelto) o todavía no está vinculada, y la caja lo permite, se abre
+**Digitar el peso** con el mensaje del problema. Escriba el peso **en kilos** (por ejemplo 0,700) y pulse **Enter** o **Agregar**.
+Digitar el peso necesita el permiso "Digitar el peso" o la autorización del supervisor; la línea queda marcada **Peso digitado** en la caja
+y en el tiquete, y queda en la auditoría. Si la caja no permite digitar el peso, el mensaje termina en "Avise al administrador" y no se
+agrega nada.
+
+![La báscula no está vinculada: la caja permite digitar el peso con autorización.](imagenes/uso/caja-11-bascula-no-vinculada.png)
+
+![La báscula no responde (COM7): Digitar el peso.](imagenes/uso/caja-35-peso-digitado.png)
 
 ![La línea queda marcada «Peso digitado».](imagenes/uso/caja-36-venta-1366x768.png)
+
+#### Otros mensajes de la báscula
+
+| Mensaje | Qué hacer |
+|---|---|
+| "La hora de la lectura de la báscula difiere en más de 5 minutos de la del servidor: vuelva a registrar el producto. Si se repite, revise la fecha y hora del computador de la caja." | Vuelva a registrar el producto. Si se repite, avise al administrador para corregir la fecha y la hora de Windows en la caja. |
+| "La lectura de la báscula está fuera de orden (…): vuelva a registrar el producto." | Vuelva a registrar el producto. |
+| "Esa lectura de la báscula ya se usó en otra línea…" u "Otra pesada de esta caja se registró al mismo tiempo…" | Vuelva a registrar el producto. |
+| "El agente de la báscula volvió a un arranque anterior (se reinstaló o se restauró el equipo): vuelva a vincular la báscula (F1 → Vincular báscula)." | Vincule de nuevo con **F1 → Vincular báscula** (con supervisor). |
+| "La pantalla de la caja está desactualizada: recárguela (Ctrl+F5) para pesar con la báscula." | Normalmente la caja se recarga sola; si no, pulse **Ctrl+F5**. |
+| "La báscula de esta caja está en prueba (Configuración → Cajas e impresoras): detenga la prueba para pesar." | Alguien está probando la báscula en la administración de ese computador: pulse **Detener prueba** allí. |
+| "Actualice el programa de la caja (agente de BusinessPost): esta versión no puede vincular la báscula." | El programa de la caja es de una versión anterior: avise al administrador. |
 
 ### Droguería: lotes y vencimientos
 
@@ -424,7 +567,10 @@ La caja funciona con lo básico de este manual: escanear o buscar, cantidades, c
 
 En cualquier momento, **F1** muestra la lista de atajos en pantalla.
 
-![F1: atajos de la caja (con báscula activa aparecen Enter para pesar e Ins).](imagenes/uso/caja-34-ayuda-atajos.png)
+![F1: atajos de la caja. Con báscula activa aparecen Enter para pesar, Ins y los botones Vincular báscula y Reiniciar báscula.](imagenes/uso/caja-34-ayuda-atajos.png)
+
+Con báscula conectada y activa, la ventana de F1 tiene además los botones **Vincular báscula** (o **Volver a vincular báscula**),
+**Reiniciar báscula** y, si una vinculación quedó a medias, **Completar vinculación** (sección 12).
 
 | Tecla | Qué hace | Cuándo funciona |
 |---|---|---|
@@ -432,11 +578,11 @@ En cualquier momento, **F1** muestra la lista de atajos en pantalla.
 | `3*código` o `3*nombre` y Enter | Registra varias unidades (también con decimales: `1,5*código`) | En el escáner |
 | `↑` `↓` | Eligen el producto en la lista de sugerencias; sin lista, mueven la línea seleccionada | En el escáner |
 | `Enter` (con la lista abierta) | Agrega el producto elegido | Lista de sugerencias |
-| `Esc` | Cierra la lista de sugerencias, la ventana abierta o vuelve del panel (cobro, cliente, suspendidas); cancela la lectura de la báscula | Siempre (no cierra la pantalla de cierre de turno) |
-| `F1` | Abre o cierra la ayuda de atajos | Sin ventana abierta (también sin turno) |
+| `Esc` | Cierra la lista de sugerencias, la ventana abierta o vuelve del panel (cobro, cliente, suspendidas); cancela la lectura de la báscula y quita la tara manual de esa pesada | Siempre (no cierra la pantalla de cierre de turno) |
+| `F1` | Abre o cierra la ayuda de atajos; con báscula, ahí están Vincular báscula, Reiniciar báscula y Completar vinculación | Sin ventana abierta (también sin turno) |
 | `F2` | Vuelve al escáner | Sin ventana abierta |
 | `F3` | Cliente de la venta | Con turno abierto |
-| `F4` | Cambiar la cantidad de la línea seleccionada (Enter aplica) | Con una línea seleccionada |
+| `F4` | Cambiar la cantidad de la línea seleccionada (Enter aplica). No sirve en productos pesados | Con una línea seleccionada |
 | `F5` | Consultar precio sin vender | Sin ventana abierta (también sin turno) |
 | `F6` | Descuento a la línea o a toda la venta | Con productos en la venta |
 | `F7` | Cancelar la venta | Con una venta en curso |
@@ -445,7 +591,7 @@ En cualquier momento, **F1** muestra la lista de atajos en pantalla.
 | `F10` | Abre el cobro; dentro del cobro, confirma el cobro | Con productos en la venta / en el cobro |
 | `Enter` | Confirma el cobro | En el campo "Recibido en …" |
 | `Supr` | Anular la línea seleccionada | Con una línea seleccionada |
-| `Ins` | Tara manual de la báscula (bolsa o bandeja) | Solo con báscula conectada |
+| `Ins` | Tara manual de la báscula (bolsa o bandeja) para la siguiente pesada; con la báscula vacía, la quita | Con báscula activa, sin ventana abierta o con la ventana de la pesada |
 | `Enter` | Aplicar la cantidad, agregar el peso digitado o autorizar | Ventanas Cambiar cantidad, Digitar el peso y Autorización de supervisor |
 
 Si empieza a escribir o a escanear con el cursor en otra parte, la caja devuelve el cursor al escáner sola y no se pierde la lectura.
@@ -461,15 +607,21 @@ Si empieza a escribir o a escanear con el cursor en otra parte, la caja devuelve
 | "Escriba el motivo del descuento" | El motivo es obligatorio en todo descuento. |
 | "Escriba la referencia del pago (número de aprobación del datáfono)" | Escriba el número de aprobación del voucher en **Referencia** antes de agregar el pago. |
 | El botón **Confirmar cobro** no se ve completo (pantallas pequeñas) | Pulse **F10**: confirma el cobro igual. |
-| Después de pesar un producto, **F10 no abre el cobro** o aparece "Ocurrió un error inesperado en la pantalla" | Pulse **Recargar** en el aviso o la tecla **Ctrl+F5**. La venta en curso no se pierde. Si se repite, avise al administrador. |
+| Aparece "Ocurrió un error inesperado en la pantalla" | Pulse **Recargar** en el aviso o la tecla **Ctrl+F5**. La venta en curso no se pierde. Si se repite, avise al administrador. |
 | "No se pudo leer la báscula (COM…)" (a veces con un texto técnico en inglés, como "Could not find file 'COM7'") | La báscula está apagada, desconectada o en otro puerto. Revise que esté encendida y el cable. Mientras tanto puede digitar el peso con autorización (sección 12). |
-| "La báscula de esta caja no está vinculada" | La báscula se cambió o es nueva: el administrador debe guardarla de nuevo en el computador de la caja (Configuración → Cajas e impresoras → Báscula). Mientras tanto, digite el peso si la caja lo permite. |
-| La lectura de la báscula se queda en "Retire el producto de la báscula" | Quite todo lo que haya sobre la báscula hasta que marque cero. Si registró mal la última pesada, anúlela con Supr y vuelva a pesar. |
+| "Báscula no vinculada: vincule con F1 → Vincular báscula" | En esa caja pulse **F1 → Vincular báscula** con la autorización del supervisor (sección 12). Mientras tanto, digite el peso si la caja lo permite. |
+| "La vinculación de la báscula quedó a medias" o "…pulse F1 → Completar vinculación" | Pulse **F1 → Completar vinculación** (no necesita supervisor). |
+| La lectura de la báscula se queda en "Retire el producto de la báscula" | Quite todo lo que haya sobre la báscula hasta que marque cero. Si ya está vacía y el aviso sigue, pulse **Reiniciar báscula (supervisor)**. Si registró mal la última pesada, anúlela con Supr y vuelva a pesar. |
+| "Quite la tara de la báscula (tecla de tara) para continuar" | Quite la tara en la báscula; para bolsas o bandejas use **Ins** en la caja. |
+| "La hora de la lectura de la báscula difiere en más de 5 minutos…" | Vuelva a registrar el producto. Si se repite, el administrador debe corregir la fecha y la hora del computador de la caja. |
+| "…vuelva a vincular la báscula (F1 → Vincular báscula)" | El programa de la caja se reinstaló o el equipo se restauró: vincule otra vez con F1 (con supervisor). |
 | "Hay productos sin precio" al cobrar | Hay una línea en $ 0 (precio abierto). Anúlela con Supr y avise al administrador (sección 12, ferretería). |
 | El tiquete no se imprimió | La venta sí quedó cobrada. Revise papel, tapa y cable de la impresora y pulse **Reimprimir**. Si aparece un aviso de la impresora, avise al administrador. |
 | El reporte Z no se imprimió | Pulse **Reimprimir Z** antes de pulsar Terminar. El administrador también puede imprimirlo desde **Turnos de caja**. |
 | "Su usuario no puede buscar clientes" | Pida ayuda al supervisor. |
 | Sistecrédito no genera el cobro | Sistecrédito necesita Internet en el momento del cobro. Cobre con otro medio. |
+| La X no quita un pago de Sistecrédito y pide supervisor | El crédito ya está aprobado: es «No usar este crédito» (sección 7). Con la autorización queda en revisión para la administración. |
+| "…no puede quedar por debajo del crédito" o no deja cancelar la venta | La venta tiene un crédito de Sistecrédito aprobado. Complete la venta con él o use «No usar este crédito» con el supervisor. |
 | "Cobre, suspenda o cancele la venta en curso antes de cerrar" | Termine la venta que está en pantalla antes de cerrar el turno. |
 | "No hay un medio de pago en efectivo activo" al abrir el turno | El administrador debe activar el medio Efectivo en la configuración. |
 | El supervisor escribió mal el PIN | La caja avisa y borra el PIN: escríbalo de nuevo. |
@@ -497,11 +649,14 @@ Recorte esta página y péguela junto a la caja.
 | `F9` | Recuperar una venta suspendida |
 | `F10` | Cobrar / confirmar el cobro |
 | `Supr` | Anular la línea seleccionada |
-| `Ins` | Tara manual de la báscula |
+| `Ins` | Tara manual de la báscula (solo para la siguiente pesada) |
 | `Esc` | Cerrar, volver o cancelar la lectura de la báscula |
+| `F1` → Vincular báscula | Vincular la báscula con esta caja (con supervisor) |
+| `F1` → Reiniciar báscula | Si sigue "Retire el producto" con la báscula vacía (con supervisor) |
 
 **Cobro rápido:** `F10` → escriba lo recibido → `Enter`. **Pago mixto:** medio → valor → mismo medio otra vez → siguiente medio → valor → ese medio otra vez → `F10`.
 
-**Báscula:** producto en la báscula → código → `Enter`. Antes del siguiente, la báscula debe volver a cero.
+**Báscula:** producto en la báscula → código → `Enter`. Antes del siguiente, retire el producto: la báscula debe volver a cero. No use
+la tecla de tara de la báscula: use `Ins`. Un producto pesado no se corrige con `F4`: `Supr` y vuelva a pesar.
 
 **Cierre:** Cerrar turno → contar el efectivo por valor → demás medios → Confirmar cierre → guardar el reporte Z con el efectivo.

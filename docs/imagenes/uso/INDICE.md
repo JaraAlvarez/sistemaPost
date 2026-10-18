@@ -1,6 +1,6 @@
 # Índice de capturas de los manuales de uso
 
-171 capturas reales de BusinessPost (versión 0.1.0, Caja Única) para escribir: (1) Guía de puesta en marcha, (2) Manual de
+185 capturas reales de BusinessPost (versión 0.1.0, Caja Única) para escribir: (1) Guía de puesta en marcha, (2) Manual de
 administración, (3) Manual de caja, (4) Integraciones y facturación y (5) Beneficios y buenas prácticas.
 
 - **Tienda de ejemplo** (datos ficticios): *Supermercado La Economía SAS*, NIT 900.000.000-5, sucursal **Centro** (S01), caja **C01**,
@@ -14,7 +14,7 @@ administración, (3) Manual de caja, (4) Integraciones y facturación y (5) Bene
   (por eso aplica la promoción «Lácteos 10 % fin de semana»).
 - **Facturación electrónica** encendida en modo «Factura electrónica en cada venta», ambiente de pruebas, rango **SETP** asignado a
   Centro: cada venta sale con número fiscal SETP99000xxxx, CUFE y QR (proveedor fiscal simulado del entorno de desarrollo, ver notas).
-- Tamaño: 1280×800 (las `caja-36…38` a 1366×768; los tiquetes `integ-19/20` a su tamaño). PNG de 256 colores, 6,8 MB en total.
+- Tamaño: 1280×800 (las `caja-36…38` a 1366×768; los tiquetes `integ-19/20` a su tamaño). PNG de 256 colores, 7,8 MB en total.
 - **Regenerar**: `node tools/scripts/capturas-uso.mjs --tiquetes <carpeta del agente>` (requisitos y fases en el encabezado del script).
   Las capturas dependen del orden: la numeración de cada prefijo es el orden de lectura sugerido.
 
@@ -63,6 +63,27 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
    Etiquetas, la lista «Categoría (incluye sus subcategorías)» muestra la ruta interna de la categoría (identificadores) en lugar del
    nombre (`Pages/Admin/Etiquetas.razor`, opción `@category.Path`); por eso `adm-57` se armó buscando productos uno por uno.
 10. Todas las ventas se hicieron dentro de la misma hora (gráfico «Ventas por hora» con una sola barra).
+11. **Retoma con main (33de5b0, báscula firmada, usuarios, backups y Factus):** se volvieron a tomar todas las `caja-`, `integ-03…14`,
+    `adm-90…92` y las nuevas `adm-05b/05c`, `adm-91b…91e`, `adm-97b…97d`, `integ-11b` y `caja-44…47` (fases `asistente`, `datos`,
+    `caja` y la nueva `novedades`, con `--solo` para copiar solo esas). Contenedor PostgreSQL propio en el puerto 5494. Cambios:
+    - La **báscula simulada nunca firma** sus lecturas (Fase 7-C): con peso estable la caja dice «Báscula no vinculada…» y abre
+      «Digitar el peso» (`caja-11`), así que ya no hay captura de una línea agregada por la báscula (antes `caja-11-venta-con-producto-
+      pesado`, borrada). `caja-09/10` siguen siendo reales (cero e inestable no necesitan firma). `caja-44` («Retire el producto de la
+      báscula») se logró avisando al agente una pesada aceptada con la lectura del simulador; `caja-45/46` son «Reiniciar báscula» con
+      supervisor; `caja-47` es F1 → «Vincular báscula» pidiendo supervisor (se canceló: el simulador no puede firmar). La báscula
+      vinculada pesando de verdad necesita el agente con una báscula real: no hay captura.
+    - El PIN de Ana pasó a 5824 (2580 ahora es un «PIN común» y el servidor lo rechaza). El asistente pide la contraseña dos veces.
+    - Por la API (`turnoApi`) los productos por peso entran como **peso digitado** con supervisor (sin lectura firmada no hay SCALE).
+    - La carpeta de datos temporal del servidor de desarrollo se muestra como `C:\ProgramData\BusinessPost\…` (`adm-97b…d`) y en
+      `adm-97b` se ocultó la fila «Último backup» (fallo de pg_dump del equipo de desarrollo, nota 7). `adm-97` no se cambió.
+    - En la tarjeta Factus se oculta el aviso «Este servidor usa el proveedor SIMULADO (desarrollo)». La contraseña temporal de
+      `adm-91e` está tapada con puntos.
+    - No se pudo capturar (sin Internet ni llaves reales): un crédito de Sistecrédito aprobado (la X → «No usar este crédito», el aviso
+      de créditos por revisar en el cierre y el bloque SISTECREDITO A REVISAR del reporte Z) ni los documentos retenidos de Factus
+      («Enviar ahora» / «No enviar»). Los manuales los describen sin imagen.
+    - **Textos del producto para revisar** (no se cambiaron): el error `SALES.SCALE_READING_REQUIRED` todavía dice «vincúlela … →
+      Báscula → Guardar» (ahora se vincula con F1 en la caja); la tarjeta Factus, cuando el adaptador es NONE, dice que la activación por
+      defecto «está pendiente de aprobación» (ya se aprobó: FACTUS es el de fábrica).
 
 ## Puesta en marcha y configuración (`conf-`)
 
@@ -92,6 +113,8 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 | adm-02-tablero.png | Tablero | Saludo, ventas netas, tiquetes, ticket promedio, utilidad bruta, ventas por hora, más vendidos | Tablero | «Buenas tardes, Dueño», «Ver reportes» |
 | adm-03-tablero-continuacion.png | Tablero (abajo) | Top 10 y bloque «Operación»: productos bajo el mínimo (3), lotes por vencer, anulados hoy, turnos abiertos | Tablero | «0 cierre(s) con diferencia sin revisar» |
 | adm-05-cambiar-contrasena.png | Cambiar contraseña | Contraseña actual, nueva y repetición | `/cambiar-clave` (menú del usuario → Cambiar contraseña) | «Mínimo 10 caracteres» |
+| adm-05b-cambiar-pin.png | Cambie su PIN de caja | El propietario (ya tiene PIN): PIN actual, código de caja 100, nuevo PIN y repetirlo | `/cambiar-pin` (menú del usuario → Cambiar PIN de caja) | «Cambiar PIN», «Exactamente 4 dígitos, sin secuencias…» |
+| adm-05c-definir-pin.png | Defina su PIN de caja | Laura Administradora (sin código ni PIN): su contraseña, código de caja, nuevo PIN | igual, con un usuario sin PIN | «Aún no tiene PIN de caja…», «Guardar PIN» |
 | adm-06-tablero-modo-oscuro.png | Tablero en modo oscuro | Mismo tablero con el tema oscuro | botón luna/sol de la barra superior | |
 | adm-07-menu-compacto.png | Menú contraído | Menú lateral solo con iconos | botón ☰ de la barra superior | |
 | adm-08-caja-desde-la-administracion.png | «Para vender, entre como cajero» | Lo que se ve al pulsar «Ir a la caja» con sesión de administración | botón «Ir a la caja» | «Entrar con código de caja», «Volver a la administración» |
@@ -172,14 +195,21 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 | adm-86-reporte-utilidad-por-producto.png | Utilidad por producto | | igual | |
 | adm-87-reporte-inventario-valorizado.png | Inventario valorizado | Por bodega y producto | igual | «Cuadra con el kardex» |
 | adm-88-reporte-cierres-de-caja.png | Cierres de caja | | igual | |
-| adm-90-usuarios-lista.png | Usuarios | 6 usuarios, estado, último ingreso | Administración → Usuarios | «Nuevo usuario», «Inactivar» |
-| adm-91-usuario-nuevo.png | Nuevo usuario | Usuario, nombre, contraseña inicial, rol, código y PIN de caja | «Nuevo usuario» | «Contraseña inicial (la cambia al entrar)» |
-| adm-92-usuario-nuevo-roles.png | Roles | Contador, Administrador, Cajero, Supervisor de caja, Inventario, Propietario (y más con desplazamiento: Compras, Encargado de promociones) | lista «Rol» | |
+| adm-90-usuarios-lista.png | Usuarios | 6 usuarios con roles, código de caja, estado, último ingreso; «Usted» en el propio | Administración → Usuarios | «Nuevo usuario», «Detalle», «Inactivar» |
+| adm-91-usuario-nuevo.png | Nuevo usuario | Usuario, nombre, contraseña inicial y los roles como casillas (Cajero marcado) | «Nuevo usuario» | «Contraseña inicial (la cambia al entrar)» |
+| adm-92-usuario-nuevo-roles.png | Nuevo usuario (abajo) | Roles con su descripción, código de caja 603 y PIN | igual, desplazado | «Si da código de caja, el PIN es obligatorio.» |
+| adm-91b-usuario-detalle.png | Detalle del usuario | Ana Cajera: estado, «Debe cambiar la contraseña al entrar», último ingreso, datos y roles | «Detalle» o el nombre de usuario | «Guardar datos» |
+| adm-91c-usuario-detalle-continuacion.png | Detalle (abajo) | Roles, regla de jerarquía, Caja (código 601, PIN asignado) y Contraseña | igual, desplazado | «Guardar roles», «Restablecer PIN», «Restablecer contraseña» |
+| adm-91d-usuario-restablecer-pin.png | Restablecer PIN | Código de caja, PIN nuevo y repetirlo | «Restablecer PIN» | «Sin secuencias (1234), repeticiones (1111)…» |
+| adm-91e-usuario-restablecer-contrasena.png | Restablecer contraseña | Contraseña temporal generada (tapada) | «Restablecer contraseña» → «Generar» | «Al entrar deberá cambiarla; sus sesiones abiertas se cierran ya.» |
 | adm-93-cajas-lista.png | Cajas e impresoras | Caja C01 con Editar/Impresora/Báscula/Inactivar/Bloquear | Administración → Cajas e impresoras | «Edición Caja Única: este equipo hace todo; no se emparejan otros equipos.» |
 | adm-94-auditoria.png | Auditoría | Bitácora de acciones | Administración → Auditoría | «Verificar la integridad» |
 | adm-95-auditoria-verificada.png | Auditoría verificada | Resultado de la verificación | «Verificar la integridad» | «La bitácora está íntegra.» |
 | adm-96-licencia.png | Licencia | Estado demostración, 30 días, campo de clave | Administración → Licencia | «Activar» (sin la tarjeta «Pagar mensualidad», ver abajo) |
 | adm-97-backups.png | Backups | Botón y alerta; historial con fallos de desarrollo (nota 7) | Administración → Backups | «Respaldar ahora» |
+| adm-97b-backups-destinos.png | Dónde se guardan los backups | Carpeta del servidor (fija) y tabla de destinos | Configuración → pestaña «Backups» | «Agregar disco externo», «Agregar carpeta de red» |
+| adm-97c-backups-disco-externo.png | Nuevo destino · Disco externo | E:\BackupsTienda, etiqueta RESPALDO, copias y retención, resultado de «Comprobar carpeta» (la unidad no existe en el equipo de pruebas) | «Agregar disco externo» | «La unidad E:\ no está conectada o no está lista.» |
+| adm-97d-backups-carpeta-de-red.png | Nuevo destino · Carpeta de red | \\192.168.1.20\respaldos\tienda y los avisos de cuenta del equipo y seguridad | «Agregar carpeta de red» | «LocalSystem», «Seguridad: los backups van cifrados…» |
 | adm-98-actualizaciones.png | Actualizaciones | Versión instalada y estado | Administración → Actualizaciones | |
 
 ## Caja (`caja-`) — orden del flujo de Ana Cajera
@@ -196,7 +226,7 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 | caja-08-busqueda-por-nombre.png | Búsqueda por nombre | Lista bajo el escáner al escribir «leche» | escribir el nombre | ↑ ↓ eligen, Enter agrega |
 | caja-09-bascula-ponga-el-producto.png | Báscula | Producto de peso registrado, báscula en cero | escanear/registrar Tomate | «Ponga el producto en la báscula» |
 | caja-10-bascula-esperando-peso-estable.png | Báscula | Peso moviéndose | | «Esperando peso estable…» |
-| caja-11-venta-con-producto-pesado.png | Venta | Línea 1,256 kg con etiqueta «Báscula» | se agrega sola al quedar estable | |
+| caja-11-bascula-no-vinculada.png | Digitar el peso | Peso estable pero la báscula no está vinculada: la caja abre «Digitar el peso» | registrar Tomate con peso estable | «Báscula no vinculada: vincule con F1 → Vincular báscula (con la autorización de un supervisor).» |
 | caja-12-consulta-de-precio-lista.png | Consultar precio | Lista al escribir «detergente» | F5 | «No se agrega a la venta» |
 | caja-13-consulta-de-precio.png | Consultar precio | Precio grande, IVA, existencias | ↓ Enter | «Existencias: 35 und» |
 | caja-14-cliente-buscar.png | Cliente de la venta | Búsqueda «rios» y resultado | F3 | «Consumidor final», «Cédula, NIT, nombre o celular» |
@@ -219,7 +249,7 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 | caja-31-ventas-suspendidas.png | Ventas suspendidas | Lista para recuperar | F9 | |
 | caja-32-venta-recuperada.png | Venta recuperada | La venta vuelve con sus líneas | clic en la suspendida | |
 | caja-33-cancelar-venta.png | Cancelar venta | Confirmación (luego pide supervisor) | F7 | «¿Cancelar la venta?», «Sí, cancelar venta» |
-| caja-34-ayuda-atajos.png | Atajos de la caja | Lista completa con báscula activa | F1 | «Atajos de la caja», «Entendido» |
+| caja-34-ayuda-atajos.png | Atajos de la caja | Lista completa con báscula activa y los botones de la báscula | F1 | «Vincular báscula», «Reiniciar báscula», «Entendido» |
 | caja-35-peso-digitado.png | Digitar el peso | La báscula no responde; peso a mano (pide supervisor) | registrar producto de peso | «No se pudo leer la báscula (COM7)…», «peso digitado» |
 | caja-36-venta-1366x768.png | Venta a 1366×768 | Línea «Peso digitado» | | |
 | caja-37-cobro-1366x768.png | Cobro a 1366×768 | Botón confirmar cortado abajo (usar F10) | F10 | |
@@ -229,6 +259,10 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 | caja-41-cerrar-turno-conteo-continuacion.png | Cerrar turno (abajo) | Otros medios, nota de diferencia | | «Volver a vender», «Confirmar cierre» |
 | caja-42-reporte-z.png | Reporte Z | Reporte Z en pantalla (se imprime solo) | «Confirmar cierre» | «Turno cerrado · Reporte Z (cierre)», «Reporte Z enviado a la impresora.» |
 | caja-43-reporte-z-continuacion.png | Reporte Z (abajo) | Código de control y botones | | «Reimprimir Z», «Terminar» |
+| caja-44-bascula-retire-el-producto.png | Báscula | La báscula no volvió a cero después de una pesada | registrar Banano con peso en la báscula | «Retire el producto de la báscula», «Reiniciar báscula (supervisor)» |
+| caja-45-reiniciar-bascula-supervisor.png | Autorización de supervisor | Reiniciar báscula sin el permiso | «Reiniciar báscula (supervisor)» | «Autorización de supervisor» |
+| caja-46-bascula-reiniciada.png | Venta vacía | Aviso de báscula reiniciada | después de autorizar | «Báscula reiniciada: ya puede pesar el siguiente producto.» |
+| caja-47-vincular-bascula-supervisor.png | Autorización de supervisor | Vincular báscula sin el permiso | F1 → «Vincular báscula» | «…(organization.scale.link)» |
 
 ## Integraciones y facturación (`integ-`)
 
@@ -236,15 +270,16 @@ Sistecrédito, facturación electrónica, nube, tiquetes).
 |---|---|---|---|---|
 | integ-01-impresora-archivo.png | Impresora de tiquetes | Valores por defecto: conexión Archivo, 80 mm, PC850, corte, cajón pin 2 | Cajas e impresoras → «Impresora» | «La caja aún no tiene impresora configurada» |
 | integ-02-impresora-red.png | Impresora de red | Conexión «Red», 192.168.1.50:9100 | igual | Conexiones: Archivo, Red, Impresora instalada en Windows, Puerto serie/USB (COMx) |
-| integ-03-bascula.png | Báscula de la caja | Toledo 8217, Mettler Toledo, esperas, permitir digitar el peso, peso en vivo | Cajas e impresoras → «Báscula» | «Probar báscula», «Tara», «Quitar tara», marcas: Toledo 8217, CAS, genérica |
+| integ-03-bascula.png | Báscula de la caja | Toledo 8217 (desplazada): esperas, peso mínimo 20 g, digitar el peso, aviso de la tecla de tara, «aún no está vinculada» y el aviso de que «Probar báscula» solo se usa en el computador de la caja | Cajas e impresoras → «Báscula» | «No use la tecla de tara de la báscula; use Ins en la caja.» |
 | integ-04-sistecredito-sin-conectar.png | Sistecrédito sin conectar | Explicación y las 3 llaves + ambiente | Configuración → Medios de pago (abajo) | «Conecte su cuenta de aliado» |
 | integ-05-sistecredito-llaves-escritas.png | Sistecrédito | Llaves escritas (ocultas) antes de «Conectar» | igual | «Conectar» |
 | integ-06-sistecredito-conectado.png | Sistecrédito conectado | Activo en la caja, Producción, llave terminada en la01 | igual | «Volver a probar», «Cambiar llaves», «Desconectar» |
-| integ-07-facturacion-sin-configurar.png | Facturación electrónica | Modo apagado, sin credenciales | Ventas y caja → Facturación electrónica | «Sin credenciales: la facturación electrónica no se puede encender.» |
-| integ-08-facturacion-credenciales.png | Credenciales de Factus | Usuario, contraseña, Client ID, Client secret (de ejemplo) | igual | «Guardar credenciales» |
-| integ-09-facturacion-modos-de-emision.png | Modos de emisión | Apagada / Solo cuando el cliente pide factura / En cada venta | lista «Modo de emisión» | |
+| integ-07-facturacion-sin-configurar.png | Facturación electrónica | Tarjeta Factus «Desconectado», modo apagada | Ventas y caja → Facturación electrónica | «Conecte su cuenta de Factus», «Conectar» |
+| integ-08-facturacion-credenciales.png | Datos de Factus | Usuario, contraseña, Client ID, Client secret (de ejemplo), ambiente Pruebas | igual | «Pruebas y producción tienen credenciales distintas…» |
+| integ-09-facturacion-modos-de-emision.png | Modos de emisión | Solo cuando el cliente pide factura / En cada venta | lista «Modo de emisión al conectar» | |
 | integ-10-facturacion-cada-venta-advertencia.png | Advertencia | Aviso de costo por volumen y casilla de visto bueno | elegir «en cada venta» | «Tengo la cotización de Factus por volumen y el visto bueno de mi contador» |
-| integ-11-facturacion-configurada.png | Facturación encendida | Modo factura en cada venta, pruebas | «Guardar modo y ambiente» | «Modo: factura en cada venta» |
+| integ-11-facturacion-configurada.png | Factus conectado | Pruebas (sandbox), factura en cada venta, usuario en parte, clave validada, rangos sincronizados | «Conectar» | «¡Conectado con Factus en pruebas (sandbox)!…», «Volver a probar», «Cambiar llaves», «Desconectar» |
+| integ-11b-facturacion-cambiar-llaves.png | Cambiar llaves | Cuatro datos nuevos; se prueban antes de guardar | «Cambiar llaves» | «Probar y cambiar» |
 | integ-12-rangos-sincronizados.png | Rangos de numeración | NA, NC, SETP (factura), DS (documento soporte) | pestaña Rangos → «Sincronizar desde Factus» | «4 rango(s) sincronizado(s) desde el proveedor.» |
 | integ-13-rango-asignar.png | Asignar rango | Rango SETP a la sucursal Centro | «Asignar» en la fila SETP | |
 | integ-14-rango-asignado.png | Rango asignado | Columna «Asignado a: Centro» (tabla desplazada a la derecha) | | «Rango asignado.» |
@@ -312,4 +347,4 @@ La barra inferior de la caja muestra solo «F5 consultar precio» y «F1 todos l
 | Factura rechazada / corregir comprador / contingencia | El proveedor simulado acepta todo en esta corrida. |
 | Venta «Sin conexión» con el servidor | No se simuló la caída de red. |
 | Documento soporte (compras a proveedores que no facturan) | Los tres proveedores facturan. |
-| Roles y permisos (editar un rol) | No hay pantalla: los roles se eligen al crear el usuario (`adm-92`). |
+| Roles y permisos (editar un rol) | No hay pantalla: los roles se marcan al crear el usuario (`adm-91/92`) o en su detalle (`adm-91b`). |

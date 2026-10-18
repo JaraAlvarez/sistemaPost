@@ -433,8 +433,8 @@ oficina que solo usa la administración).
 ### Impresora de tiquetes
 
 1. Pulse **Impresora** en la fila de la caja.
-2. En **Conexión** elija cómo está conectada: **Red** (escriba la dirección, por ejemplo 192.168.1.50:9100), **Impresora instalada en
-   Windows** (escriba su nombre exacto) o **Puerto serie o USB virtual** (por ejemplo, COM3). La opción **Archivo** no imprime en
+2. En **Conexión** elija cómo está conectada: **Red** (escriba la dirección, por ejemplo 192.168.1.50:9100),
+   **Impresora instalada en Windows** (escriba su nombre exacto) o **Puerto serie o USB virtual** (por ejemplo, COM3). La opción **Archivo** no imprime en
    papel: es solo para pruebas.
 3. Elija el **ancho del papel** (80 mm o 58 mm) y deje la página de códigos **PC850** para que salgan las tildes y la ñ.
 4. Si tiene cajón monedero, márquelo y elija el pin (casi siempre el **Pin 2**).
@@ -449,30 +449,35 @@ La prueba de la impresora es la venta de prueba (sección 14): debe imprimirse e
 ### Báscula (si vende por peso)
 
 Si su báscula va conectada al computador de la caja, pulse **Báscula**, marque que la caja tiene báscula, elija la marca y el
-puerto, y use **Probar báscula** con un peso conocido: debe verse el peso en vivo y la palabra "Estable". El detalle está en el
-**Manual de integraciones y facturación**.
+puerto, y use **Probar báscula** con un peso conocido (en el computador de esa caja): debe verse el peso en vivo y la palabra
+"Estable". Pulse **Guardar**. Después, en la pantalla de venta de esa caja, pulse **F1 → Vincular báscula** con la autorización de un
+supervisor: sin esa vinculación el servidor no acepta los pesos y la caja solo puede digitarlos. El detalle está en el **Manual de
+integraciones y facturación**.
 
-![Cajas e impresoras · Báscula: marca y protocolo, puerto, esperas y la opción de digitar el peso. El peso en vivo aparece al pulsar Probar báscula con la báscula conectada.](imagenes/uso/integ-03-bascula.png)
+![Cajas e impresoras · Báscula: esperas, peso mínimo, digitar el peso, el aviso de la tecla de tara y el estado de la vinculación. «Probar báscula» solo funciona en el computador de esa caja.](imagenes/uso/integ-03-bascula.png)
 
 ## 13. Facturación electrónica
 
-Si su negocio debe facturar electrónicamente, configure la facturación en **Ventas y caja → Facturación electrónica** con su cuenta
-de Factus: credenciales, modo de emisión (apagada, solo cuando el cliente la pide, o en cada venta), ambiente de pruebas y rangos de
-numeración asignados a cada sucursal. El paso a paso completo está en el **Manual de integraciones y facturación**.
+Si su negocio debe facturar electrónicamente, conecte su cuenta de **Factus** (el proveedor de fábrica) en **Ventas y caja →
+Facturación electrónica**, pestaña **Configuración**: escriba los cuatro datos de Factus, elija el ambiente de pruebas y el modo de
+emisión (solo cuando el cliente la pide, o en cada venta) y pulse **Conectar**. BusinessPost prueba la conexión y, solo si funciona,
+trae los rangos de numeración y enciende la facturación; luego asigne los rangos a cada sucursal. El paso a paso completo está en el
+**Manual de integraciones y facturación**.
 
 ![Facturación electrónica configurada: modo factura en cada venta, ambiente de pruebas.](imagenes/uso/integ-11-facturacion-configurada.png)
 
-> **Importante:** haga la venta de prueba con la facturación en **ambiente de pruebas** o apagada. En **producción** cada venta genera
+> **Importante:** haga la venta de prueba con la facturación en **ambiente de pruebas** o desconectada. En **producción** cada venta genera
 > una factura real ante la DIAN.
 
 ### Antes del Día 1: pasar a producción
 
 Cuando las facturas de prueba estén bien y su contador las haya revisado, el día antes de abrir:
 
-1. En **Facturación electrónica → Configuración**, escriba las **credenciales de producción** de Factus y pulse **Guardar
-   credenciales**.
-2. Elija el ambiente **Producción (documentos reales ante la DIAN)** y el modo que va a usar. Pulse **Guardar modo y ambiente**.
-3. En **Rangos de numeración**, pulse **Sincronizar desde Factus** y **asigne** los rangos de producción a cada sucursal (o caja).
+1. En **Facturación electrónica → Configuración**, pulse **Desconectar** en la tarjeta de Factus.
+2. Escriba las **credenciales de producción** de Factus, elija el ambiente **Producción (documentos reales ante la DIAN)** y el modo que
+   va a usar, y pulse **Conectar**.
+3. En **Rangos de numeración**, **asigne** los rangos de producción a cada sucursal (o caja). Si no aparecen, pulse
+   **Sincronizar desde Factus**.
 4. Haga una venta real pequeña y verifique en **Documentos** que quede **Aceptado**, y que el tiquete traiga número, CUFE y QR.
 
 ## 14. Primera venta de prueba
@@ -509,9 +514,11 @@ turno**.
 
 ![Venta con productos escaneados y promociones aplicadas.](imagenes/uso/caja-07-venta-con-productos-y-promociones.png)
 
-2. Si tiene báscula, registre un producto por peso: la caja lee el peso sola cuando está estable.
+2. Si tiene báscula, registre un producto por peso: la caja lee el peso sola cuando está estable. Antes, la báscula debe estar
+   **vinculada** con la caja (**F1 → Vincular báscula**, con un supervisor); si no, la caja avisa "Báscula no vinculada" y solo deja
+   digitar el peso. Retire el producto de la báscula antes de pesar el siguiente.
 
-![Producto pesado agregado a la venta.](imagenes/uso/caja-11-venta-con-producto-pesado.png)
+![Producto de báscula con la báscula en cero: «Ponga el producto en la báscula».](imagenes/uso/caja-09-bascula-ponga-el-producto.png)
 
 3. Pulse **F10** para cobrar. Escriba el valor recibido: la caja calcula el cambio.
 
@@ -538,8 +545,8 @@ electrónicamente, el número de la factura y el código QR.
 Al final de la prueba (y de cada turno real), el cajero cierra su turno:
 
 1. En la caja, pulse **Cerrar turno**.
-2. Cuente el efectivo por billetes y monedas y escriba el total de los demás medios (datáfono, transferencias). El sistema **no le
-   muestra lo esperado**: compara al confirmar. Así el conteo es honesto.
+2. Cuente el efectivo por billetes y monedas y escriba el total de los demás medios (datáfono, transferencias). El sistema
+   **no le muestra lo esperado**: compara al confirmar. Así el conteo es honesto.
 
 ![Cerrar turno: conteo del efectivo por billetes y monedas.](imagenes/uso/caja-40-cerrar-turno-conteo.png)
 
