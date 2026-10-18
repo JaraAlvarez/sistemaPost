@@ -31,6 +31,9 @@ public sealed class LicensingOptions
 
     /// <summary>Clave privada de firma.</summary>
     public SigningOptions Signing { get; set; } = new();
+
+    /// <summary>Demo por equipo (docs/fases/fase-demo-por-equipo.md).</summary>
+    public DemoDevicesOptions DemoDevices { get; set; } = new();
 }
 
 public sealed class SigningOptions

@@ -1,0 +1,98 @@
+@page "/demos"
+@attribute [Authorize(Policy = CloudPermissions.LicensingView)]
+@inherits PortalPageBase
+@inject IDialogService Dialogs
+
+<PageTitle>Demo por equipo · BusinessPost</PageTitle>
+<PageHeader Title="Demo por equipo" Section="Licenciamiento"
+            Description="Primer inicio de la prueba gratuita de cada equipo sin licencia (reconocido por su huella). Reinstalar no la reinicia. Si un reloj atrasado al instalar dejó la demo vencida, o el equipo es un clon, soporte puede reiniciarla: busque el código que muestra la tienda en el aviso." />
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
+}
+
+<MudPaper Elevation="0" Class="bp-card mb-4">
+    <div class="bp-toolbar" style="border-bottom: none">
+        <MudTextField T="string" @bind-Value="_code" Placeholder="Código del equipo (p. ej. 3F2A-9B10)" Variant="Variant.Outlined" Margin="Margin.Dense"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true" DebounceInterval="400"
+                      OnDebounceIntervalElapsed="@(_ => LoadAsync())" Clearable="true" OnClearButtonClick="@(_ => LoadAsync())" aria-label="Buscar por código del equipo" />
+        @if (_rows is not null)
+        {
+            <span class="bp-toolbar-count" role="status">@_rows.Count equipos</span>
+        }
+    </div>
+</MudPaper>
+
+<MudPaper Elevation="0" Class="bp-card">
+    @if (_rows is null)
+    {
+        <TableSkeleton />
+    }
+    else if (_rows.Count == 0)
+    {
+        <EmptyState Title="Ningún equipo coincide." Icon="@Icons.Material.Outlined.SearchOff" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead>
+                    <tr>
+                        <th scope="col">Código</th><th scope="col">Inicio de la demo</th><th scope="col">Primer registro</th><th scope="col">Última vez</th>
+                        <th scope="col">Consultas</th><th scope="col">Estado</th><th scope="col"><span class="visualmente-oculto">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in _rows)
+                    {
+                        <tr>
+                            <td><code>@d.SupportCode</code></td>
+                            <td>@Date(d.FirstStartedAt)</td>
+                            <td>@Date(d.RegisteredAt)</td>
+                            <td>@Date(d.LastSeenAt)</td>
+                            <td>@d.Requests</td>
+                            <td>
+                                @if (d.Status == "RESET")
+                                {
+                                    <StatusChip Text="Reiniciada" Color="Color.Info" /> <span class="texto-secundario" title="@d.ResetReason">@Date(d.ResetAt)</span>
+                                }
+                                else
+                                {
+                                    <StatusChip Text="Activa" Color="Color.Default" />
+                                }
+                            </td>
+                            <td class="text-right">
+                                <AuthorizeView Policy="@CloudPermissions.DemoReset">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Outlined.RestartAlt" Disabled="Busy"
+                                               OnClick="@(() => ResetAsync(d))">Reiniciar la demo de este equipo</MudButton>
+                                </AuthorizeView>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
+
+@code {
+    private IReadOnlyList<DemoDeviceDto>? _rows;
+    private string? _code;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _rows = await LoadAsync(new ListDemoDevicesQuery(_code)) ?? [];
+
+    private async Task ResetAsync(DemoDeviceDto device)
+    {
+        var reason = await Dialogs.ConfirmWithReasonAsync(
+            "Reiniciar la demo de este equipo", $"¿Reiniciar la demo del equipo {device.SupportCode}?", "Reiniciar la demo",
+            "Motivo (reloj atrasado al instalar, equipo clonado…)", Color.Warning,
+            detail: "La prueba gratuita de este equipo empieza de nuevo hoy (30 días). La tienda anula su marca local en la siguiente consulta. Queda en la auditoría.");
+        if (reason is not null && await RunAsync(new ResetDemoDeviceCommand(device.Id, reason), "Demo reiniciada: la tienda la verá en su próxima consulta (al arrancar o en 24 h)."))
+        {
+            await LoadAsync();
+        }
+    }
+}

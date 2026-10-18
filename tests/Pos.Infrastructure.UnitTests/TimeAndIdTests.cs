@@ -62,7 +62,7 @@ public class LicenseRestrictionBehaviorTests
 
     private sealed class Gate(bool restricted) : ILicenseGate
     {
-        public LicenseGateState Current { get; } = new(restricted, false, restricted ? "Licencia vencida." : null);
+        public LicenseGateState Current { get; } = new(Restricted: restricted, Demo: false, Reason: restricted ? "Licencia vencida." : null);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class LicenseRestrictionBehaviorTests
 
     private sealed class WindowGate(bool closed) : ILicenseGate
     {
-        public LicenseGateState Current { get; } = new(true, false, "Licencia vencida.", closed);
+        public LicenseGateState Current { get; } = new(Restricted: true, Demo: false, Reason: "Licencia vencida.", SalesWindowClosed: closed);
     }
 
     [Fact]

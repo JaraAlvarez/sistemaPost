@@ -17,6 +17,16 @@ public sealed class ReinstalledDeviceServerFactory : LicenseServerFactory
     internal override IDeviceDemoMark DemoMark { get; } = new MemoryDeviceDemoMark(Fingerprint, DateTimeOffset.UtcNow.AddDays(-40));
 }
 
+/// <summary>
+/// Equipo instalado con el reloj atrasado más de un año: la marca dice que la demo empezó hace 400 días, pero el programa de esa instalación
+/// se compiló hace 2 días. No es creíble: la demo cuenta desde la compilación.
+/// </summary>
+public sealed class BackdatedClockServerFactory : LicenseServerFactory
+{
+    internal override IDeviceDemoMark DemoMark { get; } =
+        new MemoryDeviceDemoMark(Fingerprint, DateTimeOffset.UtcNow.AddDays(-400), firstBuild: DateTimeOffset.UtcNow.AddDays(-2));
+}
+
 /// <summary>Demo por equipo (docs/fases/fase-demo-por-equipo.md): reinstalar borrando los datos no reinicia la prueba gratuita.</summary>
 public class DemoPorEquipoTests
 {
@@ -57,7 +67,7 @@ public class DemoPorEquipoTests
         (await GetAsync<SetupStatusDto>(shop.Owner, "/api/v1/setup/status")).DemoEnded.ShouldBeTrue();
 
         // Y la marca local queda guardada para cuando no haya Internet.
-        factory.DemoMark.Read(LicenseServerFactory.Fingerprint).ShouldNotBeNull().ShouldBeLessThan(DateTimeOffset.UtcNow.AddDays(-30));
+        factory.DemoMark.Read(LicenseServerFactory.Fingerprint).ShouldNotBeNull().StartedAt.ShouldBeLessThan(DateTimeOffset.UtcNow.AddDays(-30));
     }
 
     [Fact]
@@ -69,6 +79,36 @@ public class DemoPorEquipoTests
         factory.Cloud.DemoStartedAt = DateTimeOffset.UtcNow; // respuesta (válida o no) que "empezaría hoy"
         (await SendAsync<bool>(factory, new RegisterDemoDeviceCommand())).ShouldBeTrue();
         (await RefreshAsync(factory)).State.ShouldBe(LicenseStates.Restricted);
+    }
+
+    [Fact]
+    public async Task Un_reloj_atrasado_al_instalar_no_deja_la_demo_quemada()
+    {
+        await using var factory = new BackdatedClockServerFactory();
+        await OwnerClientAsync(factory);
+
+        var status = await RefreshAsync(factory);
+        status.State.ShouldBe(LicenseStates.Demo);
+        status.DaysLeft.ShouldBe(28);
+    }
+
+    [Fact]
+    public async Task Si_soporte_reinicia_la_demo_la_tienda_anula_su_marca_local()
+    {
+        await using var factory = new ReinstalledDeviceServerFactory();
+        await OwnerClientAsync(factory);
+        (await RefreshAsync(factory)).State.ShouldBe(LicenseStates.Restricted);
+
+        // Soporte pulsa "Reiniciar la demo de este equipo": la nube responde el inicio de hoy con reset.
+        factory.Cloud.DemoStartedAt = DateTimeOffset.UtcNow;
+        factory.Cloud.DemoReset = true;
+        (await SendAsync<bool>(factory, new RegisterDemoDeviceCommand())).ShouldBeTrue();
+        factory.Cloud.LastBuildDate.ShouldNotBeNull().ShouldBeLessThanOrEqualTo(DateTimeOffset.UtcNow);
+
+        var status = await RefreshAsync(factory);
+        status.State.ShouldBe(LicenseStates.Demo);
+        status.DaysLeft.ShouldBe(30);
+        factory.DemoMark.Read(LicenseServerFactory.Fingerprint).ShouldNotBeNull().StartedAt.ShouldBeGreaterThan(DateTimeOffset.UtcNow.AddMinutes(-5));
     }
 
     private static async Task<LicenseStatusDto> RefreshAsync(LicenseServerFactory factory) => await SendAsync<LicenseStatusDto>(factory, new RefreshLicenseCommand());

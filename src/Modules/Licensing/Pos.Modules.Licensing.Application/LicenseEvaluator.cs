@@ -139,10 +139,11 @@ public static class LicenseEvaluator
         var demoEnds = record.DemoStartedAt.AddDays(DemoDays);
         var claims = verification is { IsValid: true } ? verification.Claims : null;
 
-        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null, string? noticeCode = null)
+        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null, string? noticeCode = null, string? noticeText = null)
         {
             int? days = until is { } u ? Math.Max(0, (int)Math.Ceiling((u - now).TotalDays)) : null;
-            return new LicenseEvaluation(state, reason, days, claims, effectiveNow, rollback, demoEnds, Notices(state, reason, days, claims, noticeCode));
+            return new LicenseEvaluation(
+                state, reason, days, claims, effectiveNow, rollback, demoEnds, Notices(state, noticeText ?? reason, days, claims, noticeCode));
         }
 
         if (rollback)
@@ -175,7 +176,8 @@ public static class LicenseEvaluator
 
             return now <= demoEnds
                 ? Result(LicenseStates.Demo, "Modo demostración: el sistema funciona completo y los documentos impresos dicen \"DEMOSTRACIÓN\". Active la licencia con su clave.", demoEnds)
-                : Result(LicenseStates.Restricted, DemoEndedMessage, noticeCode: DemoEndedCode);
+                : Result(LicenseStates.Restricted, DemoEndedMessage, noticeCode: DemoEndedCode,
+                    noticeText: device is null ? null : $"{DemoEndedMessage} Si cree que es un error, comuníquese con soporte e indique el código del equipo {DemoDeviceIdentity.SupportCode(device)}.");
         }
 
         if (claims is null)

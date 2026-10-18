@@ -4,7 +4,8 @@ using static Pos.Cloud.Database.Tests.CloudSeed;
 namespace Pos.Cloud.Database.Tests;
 
 /// <summary>
-/// Nada se borra en la nube (L-09): el rol de la aplicación no tiene DELETE en ninguna tabla; los eventos de suscripción, los
+/// Nada se borra en la nube (L-09): el rol de la aplicación no tiene DELETE en ninguna tabla (salvo la limpieza de la demo por equipo);
+/// los eventos de suscripción, los
 /// check-ins y la auditoría son de solo inserción (privilegios + disparadores que bloquean incluso al dueño).
 /// </summary>
 public class PrivilegeAndAppendOnlyTests(CloudPostgresFixture postgres)
@@ -22,7 +23,9 @@ public class PrivilegeAndAppendOnlyTests(CloudPostgresFixture postgres)
               AND (has_table_privilege('pos_app', c.oid, 'DELETE') OR has_table_privilege('pos_app', c.oid, 'TRUNCATE'))
             """);
 
-        deletable.ShouldBeEmpty();
+        // Única excepción en estos esquemas: la limpieza de la demo por equipo (docs/fases/fase-demo-por-equipo.md), solo DELETE.
+        deletable.ShouldBe(["licensing.demo_devices"]);
+        (await db.ScalarAsync<bool>("SELECT has_table_privilege('pos_app', 'licensing.demo_devices', 'TRUNCATE')")).ShouldBeFalse();
     }
 
     [Fact]

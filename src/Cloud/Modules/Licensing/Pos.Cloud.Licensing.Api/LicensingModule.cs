@@ -118,8 +118,8 @@ public sealed class LicensingModule : IModule
             .WithSummary("Claves públicas de confianza por kid (JWK OKP Ed25519)");
 
         // Demo por equipo (docs/fases/fase-demo-por-equipo.md): anónimo (la tienda aún no tiene clave), con el límite por IP del grupo.
-        pos.MapPost("/demo-devices", async (DemoDeviceRequest request, IDispatcher d, CancellationToken ct) =>
-                ToHttp(await d.Send(new RegisterDemoDeviceCommand(request), ct)))
+        pos.MapPost("/demo-devices", async (DemoDeviceRequest request, HttpContext http, IDispatcher d, CancellationToken ct) =>
+                ToHttp(await d.Send(new RegisterDemoDeviceCommand(request, http.Connection.RemoteIpAddress), ct)))
             .WithSummary("Registra la huella del equipo sin licencia y devuelve, firmado, el primer inicio de su demostración");
 
         // Instalador premium (Fase 13-B, D13B-08 y D13B-09).
@@ -155,6 +155,13 @@ public sealed class LicensingModule : IModule
 
         admin.MapGet("/dashboard", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetDashboardQuery(), ct)).ToHttpResult())
             .RequireAuthorization(CloudPermissions.DashboardView);
+
+        // Demo por equipo: soporte busca el equipo por el código que muestra la tienda y reinicia su demo (solo superadministrador).
+        admin.MapGet("/demo-devices", async (string? code, IDispatcher d, CancellationToken ct) => (await d.Send(new ListDemoDevicesQuery(code), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.LicensingView);
+        admin.MapPost("/demo-devices/{id:guid}/reset", async (Guid id, ReasonRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new ResetDemoDeviceCommand(id, r.Reason), ct)).ToHttpResult())
+            .RequireAuthorization(CloudPermissions.DemoReset);
 
         admin.MapGet("/accounts", async (string? search, IDispatcher d, CancellationToken ct) => (await d.Send(new ListAccountsQuery(search), ct)).ToHttpResult())
             .RequireAuthorization(CloudPermissions.LicensingView);

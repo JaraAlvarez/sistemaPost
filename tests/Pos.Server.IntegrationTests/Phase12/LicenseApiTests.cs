@@ -48,6 +48,12 @@ internal sealed class FakeLicenseCloud : HttpMessageHandler
 
     public int DemoRequests { get; private set; }
 
+    /// <summary>Soporte reinició la demo de este equipo en el portal.</summary>
+    public bool DemoReset { get; set; }
+
+    /// <summary>Última fecha de compilación que mandó la tienda.</summary>
+    public DateTimeOffset? LastBuildDate { get; private set; }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var path = request.RequestUri!.AbsolutePath;
@@ -64,10 +70,11 @@ internal sealed class FakeLicenseCloud : HttpMessageHandler
         {
             var demo = JsonSerializer.Deserialize<DemoDeviceRequest>(body, Web)!;
             DemoRequests++;
+            LastBuildDate = demo.BuildDate;
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(
-                    new DemoDeviceResponse(DemoToken.Sign(new DemoClaims { DeviceFingerprint = demo.Fingerprint, StartedAt = demoStart, IssuedAt = DateTimeOffset.UtcNow }, Key)),
+                    new DemoDeviceResponse(DemoToken.Sign(new DemoClaims { DeviceFingerprint = demo.Fingerprint, StartedAt = demoStart, IssuedAt = DateTimeOffset.UtcNow, Reset = DemoReset }, Key)),
                     options: Web),
             };
         }

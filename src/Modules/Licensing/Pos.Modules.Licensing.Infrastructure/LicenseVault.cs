@@ -158,6 +158,9 @@ internal sealed partial class LicenseVault
     /// <summary>Desde cuándo está restringida según el archivo (la ventana de 24 h no se reinicia volviendo a escribir una fila vieja).</summary>
     public DateTimeOffset? RestrictedSince => Read(s => s.RestrictedSince);
 
+    /// <summary>Compilación más antigua del programa que vio este equipo (piso de un inicio de demo creíble).</summary>
+    public DateTimeOffset? FirstBuild => Read(s => s.FirstBuild);
+
     public bool Revoked => Read(s => s.Revoked);
 
     public bool ReactivationRequired => Read(s => s.ReactivationRequired);
@@ -216,6 +219,9 @@ internal sealed partial class LicenseVault
             ReactivationRequired = s.ReactivationRequired || reactivationRequired,
             Deactivated = s.Deactivated || deactivated,
         });
+
+    /// <summary>Anota la compilación del programa en uso (se conserva la más antigua).</summary>
+    public void NoteBuild(DateTimeOffset build) => Update(s => s with { FirstBuild = Min(s.FirstBuild, build) });
 
     /// <summary>Restringida desde (se conserva el primero) o <c>null</c> cuando dejó de estarlo.</summary>
     public void SetRestrictedSince(DateTimeOffset? since) =>
@@ -356,5 +362,6 @@ internal sealed partial class LicenseVault
         [property: JsonPropertyName("restrictedSince")] DateTimeOffset? RestrictedSince = null,
         [property: JsonPropertyName("revoked")] bool Revoked = false,
         [property: JsonPropertyName("reactivation")] bool ReactivationRequired = false,
-        [property: JsonPropertyName("deactivated")] bool Deactivated = false);
+        [property: JsonPropertyName("deactivated")] bool Deactivated = false,
+        [property: JsonPropertyName("firstBuild")] DateTimeOffset? FirstBuild = null);
 }

@@ -112,8 +112,8 @@ public interface ILicenseStateStore
 
     Task RaiseMaxObservedAsync(DateTimeOffset value, CancellationToken cancellationToken);
 
-    /// <summary>Adelanta el inicio de la demo al que firmó la nube para este equipo (nunca lo atrasa).</summary>
-    Task AdoptDemoStartAsync(DateTimeOffset startedAt, CancellationToken cancellationToken);
+    /// <summary>Guarda el registro firmado de la demo de este equipo (la lectura lo verifica y decide; nunca alarga la demo, salvo reinicio de soporte).</summary>
+    Task SaveDemoTokenAsync(string token, CancellationToken cancellationToken);
 
     Task RecordCheckinAsync(LicenseCheckinDto checkin, CancellationToken cancellationToken);
 
@@ -169,7 +169,9 @@ public interface ILicenseKeys
 }
 
 /// <summary>Parámetros de la evaluación que fija la instalación (N1). Solo pueden ACORTAR el máximo del producto.</summary>
-public sealed record LicensePolicy(int MaxOfflineDays = LicenseEvaluator.DefaultMaxOfflineDays)
+/// <param name="MaxOfflineDays">Máximo de días sin check-in (N1).</param>
+/// <param name="BuildDate">Fecha de compilación del programa: ningún inicio de demo anterior es creíble (reloj atrasado al instalar).</param>
+public sealed record LicensePolicy(int MaxOfflineDays = LicenseEvaluator.DefaultMaxOfflineDays, DateTimeOffset? BuildDate = null)
 {
     public static readonly LicensePolicy Default = new();
 }
@@ -197,8 +199,12 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
 
     // Sin cálculo reciente se restringe, pero se CONSERVA la última decisión de venta (si ya no se podía vender, sigue sin poderse).
     LicenseGateState ILicenseGate.Current => _snapshot is { } s
-        ? (_time.GetElapsedTime(s.At) > StaleAfter ? new LicenseGateState(true, s.Gate.Demo, StaleReason, s.Gate.SalesWindowClosed, s.Gate.DemoEnded) : s.Gate)
-        : (_time.GetElapsedTime(_startedAt) > StaleAfter ? new LicenseGateState(true, false, StaleReason) : LicenseGateState.Unrestricted);
+        ? (_time.GetElapsedTime(s.At) > StaleAfter
+            ? new LicenseGateState(Restricted: true, Demo: s.Gate.Demo, Reason: StaleReason, SalesWindowClosed: s.Gate.SalesWindowClosed, DemoEnded: s.Gate.DemoEnded)
+            : s.Gate)
+        : (_time.GetElapsedTime(_startedAt) > StaleAfter
+            ? new LicenseGateState(Restricted: true, Demo: false, Reason: StaleReason)
+            : LicenseGateState.Unrestricted);
 
     public LicenseSummaryDto Summary => _snapshot is { } s
         ? new LicenseSummaryDto(s.Evaluation.State, s.Evaluation.DaysLeft, s.Evaluation.Notices, s.PaymentUrl)
@@ -213,8 +219,11 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
         _snapshot = new Snapshot(
             evaluation,
             new LicenseGateState(
-                evaluation.Restricted, evaluation.State == LicenseStates.Demo, evaluation.Restricted ? evaluation.Reason : null,
-                evaluation.Restricted && salesWindowClosed, evaluation.Notices.Any(n => n.Code == LicenseEvaluator.DemoEndedCode)),
+                Restricted: evaluation.Restricted,
+                Demo: evaluation.State == LicenseStates.Demo,
+                Reason: evaluation.Restricted ? evaluation.Reason : null,
+                SalesWindowClosed: evaluation.Restricted && salesWindowClosed,
+                DemoEnded: evaluation.Notices.Any(n => n.Code == LicenseEvaluator.DemoEndedCode)),
             paymentUrl,
             _time.GetTimestamp());
     }
@@ -454,20 +463,18 @@ public sealed class LicenseService(
             return false;
         }
 
-        var response = await cloud.RegisterDemoAsync(new DemoDeviceRequest(fingerprint.ToString(), record.DemoStartedAt), cancellationToken);
+        var response = await cloud.RegisterDemoAsync(
+            new DemoDeviceRequest(fingerprint.ToString(), record.DemoStartedAt, _policy.BuildDate), cancellationToken);
         if (response is null || DemoToken.Verify(response.Token, keys.Ring) is not { IsValid: true, Claims: { } claims }
-            || !DeviceFingerprint.TryParse(claims.DeviceFingerprint, out var registered) || !registered.Matches(fingerprint))
+            || !DeviceFingerprint.TryParse(claims.DeviceFingerprint, out var registered) || !DemoDeviceIdentity.SameDevice(registered, fingerprint))
         {
             return false;
         }
 
-        // Solo se ADELANTA el inicio: ni una respuesta falsa ni un reloj de la nube raro pueden alargar la demo.
-        if (claims.StartedAt < record.DemoStartedAt)
-        {
-            await store.AdoptDemoStartAsync(claims.StartedAt, cancellationToken);
-            await RefreshAsync(persist: true, cancellationToken);
-        }
-
+        // Se guarda el token firmado; al leer, solo ADELANTA el inicio (ni una respuesta vieja ni un reloj de la nube raro alargan la demo),
+        // salvo que soporte haya reiniciado la demo de este equipo (reset).
+        await store.SaveDemoTokenAsync(response.Token, cancellationToken);
+        await RefreshAsync(persist: true, cancellationToken);
         return true;
     }
 

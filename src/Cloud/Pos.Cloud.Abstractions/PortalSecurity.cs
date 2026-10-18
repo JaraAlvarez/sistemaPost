@@ -38,6 +38,9 @@ public static class CloudPermissions
     public const string LicenseManage = "licensing.license.manage";
 
     public const string DeviceRelease = "licensing.device.release";
+
+    /// <summary>"Reiniciar la demo de este equipo" (demo por equipo; solo superadministrador, auditado).</summary>
+    public const string DemoReset = "licensing.demo.reset";
     public const string SigningKeyView = "licensing.signing_key.view";
 
     /// <summary>Publicar una clave de reserva y revocar una clave comprometida desde el portal (solo superadministrador).</summary>
@@ -79,7 +82,7 @@ public static class CloudPermissions
 
     private static readonly HashSet<string> SuperadminPermissions =
     [
-        DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease,
+        DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease, DemoReset,
         SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload, SyncPackageReview, PaymentView, PaymentManage,
         PriceManage, DownloadView,
     ];

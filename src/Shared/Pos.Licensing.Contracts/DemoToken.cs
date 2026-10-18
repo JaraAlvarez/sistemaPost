@@ -12,7 +12,11 @@ namespace Pos.Licensing.Contracts;
 /// </summary>
 /// <param name="Fingerprint">Huella del equipo (<see cref="DeviceFingerprint"/>, solo hashes).</param>
 /// <param name="LocalStartedAt">Inicio de la demo que conoce el POS (puede ser más reciente si se reinstaló borrando los datos).</param>
-public sealed record DemoDeviceRequest(string Fingerprint, DateTimeOffset? LocalStartedAt);
+/// <param name="BuildDate">
+/// Fecha de compilación del POS: la demo no pudo empezar antes de que existiera el programa, así que un inicio anterior (reloj atrasado al
+/// instalar) no es creíble y la nube no lo registra.
+/// </param>
+public sealed record DemoDeviceRequest(string Fingerprint, DateTimeOffset? LocalStartedAt, DateTimeOffset? BuildDate = null);
 
 /// <summary>Respuesta: el token firmado (<see cref="DemoToken"/>) con el primer inicio de la demo de este equipo.</summary>
 public sealed record DemoDeviceResponse(string Token);
@@ -35,6 +39,13 @@ public sealed record DemoClaims
 
     [JsonPropertyName("iat")]
     public required DateTimeOffset IssuedAt { get; init; }
+
+    /// <summary>
+    /// Soporte reinició la demo de este equipo ("Reiniciar la demo de este equipo" en el portal): el POS anula sus marcas locales y usa
+    /// <see cref="StartedAt"/> aunque sea posterior a lo que recuerda (p. ej. un reloj atrasado al instalar dejó la demo vencida).
+    /// </summary>
+    [JsonPropertyName("reset")]
+    public bool Reset { get; init; }
 }
 
 public enum DemoTokenStatus

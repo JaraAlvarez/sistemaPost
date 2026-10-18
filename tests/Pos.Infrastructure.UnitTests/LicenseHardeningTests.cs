@@ -402,9 +402,14 @@ public sealed class LicenseHardeningTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task AdoptDemoStartAsync(DateTimeOffset startedAt, CancellationToken cancellationToken)
+        /// <summary>Como el almacén real (sin verificar la firma): el token solo adelanta el inicio, salvo un reinicio de soporte.</summary>
+        public Task SaveDemoTokenAsync(string token, CancellationToken cancellationToken)
         {
-            Record = Record with { DemoStartedAt = startedAt < Record.DemoStartedAt ? startedAt : Record.DemoStartedAt };
+            var payload = System.Text.Json.JsonSerializer.Deserialize<DemoClaims>(System.Buffers.Text.Base64Url.DecodeFromChars(token.Split('.')[1]))!;
+            Record = Record with
+            {
+                DemoStartedAt = payload.Reset || payload.StartedAt < Record.DemoStartedAt ? payload.StartedAt : Record.DemoStartedAt,
+            };
             return Task.CompletedTask;
         }
 

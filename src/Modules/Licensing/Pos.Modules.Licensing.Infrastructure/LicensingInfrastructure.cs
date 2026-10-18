@@ -182,23 +182,10 @@ internal sealed class WindowsDeviceIdentity : IDeviceIdentity
     private static DeviceFingerprint? ReadWindows()
     {
         var fingerprint = DeviceFingerprint.FromHardware(
-            BoardUuid(Safe(() => Wmi("SELECT UUID FROM Win32_ComputerSystemProduct", "UUID"))),
+            Safe(() => Wmi("SELECT UUID FROM Win32_ComputerSystemProduct", "UUID")),
             Safe(SystemDiskSerial),
             Safe(() => Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography")?.GetValue("MachineGuid") as string));
         return fingerprint.IsUsable ? fingerprint : null;
-    }
-
-    /// <summary>
-    /// UUIDs genéricos que dejan muchos fabricantes (todo ceros, todo F, el de ejemplo de la especificación SMBIOS): no identifican el
-    /// equipo, así que cuentan como "no disponible" (docs/fases/fase-demo-por-equipo.md §3).
-    /// </summary>
-    internal static string? BoardUuid(string? uuid)
-    {
-        var compact = uuid?.Replace("-", string.Empty, StringComparison.Ordinal).Trim().ToUpperInvariant();
-        return string.IsNullOrEmpty(compact) || compact.All(c => c == '0') || compact.All(c => c == 'F')
-            || compact == "03000200040005000006000700080009"
-                ? null
-                : uuid;
     }
 
     [SupportedOSPlatform("windows")]
@@ -414,7 +401,7 @@ public static class LicensingInfrastructureRegistration
         // La configuración se lee al construir los servicios (la de las pruebas y la del instalador llegan después del registro).
         services.AddSingleton(sp => Read(
             sp.GetRequiredService<IConfiguration>(), LicensingDevelopment.Enabled(sp.GetRequiredService<IHostEnvironment>())));
-        services.AddSingleton(sp => new LicensePolicy(sp.GetRequiredService<LicensingOptions>().MaxOfflineDays));
+        services.AddSingleton(sp => new LicensePolicy(sp.GetRequiredService<LicensingOptions>().MaxOfflineDays, LicenseBuild.Date));
         services.AddSingleton(sp => new LicenseStateCache(sp.GetService<TimeProvider>()));
         services.AddSingleton<ILicenseGate>(sp => sp.GetRequiredService<LicenseStateCache>());
         services.AddSingleton<ILicenseStatus>(sp => sp.GetRequiredService<LicenseStateCache>());

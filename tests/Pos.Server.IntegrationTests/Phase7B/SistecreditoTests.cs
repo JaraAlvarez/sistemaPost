@@ -281,7 +281,7 @@ public sealed class SwitchableLicenseGate : ILicenseGate
 {
     public bool Restricted { get; set; }
 
-    public LicenseGateState Current => Restricted ? new LicenseGateState(true, false, "Licencia restringida en la prueba.") : LicenseGateState.Unrestricted;
+    public LicenseGateState Current => Restricted ? new LicenseGateState(Restricted: true, Demo: false, Reason: "Licencia restringida en la prueba.") : LicenseGateState.Unrestricted;
 }
 
 /// <summary>Sistecrédito simulado: crea transacciones, devuelve la URL de pago y el estado que la prueba fija.</summary>

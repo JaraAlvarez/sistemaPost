@@ -149,6 +149,9 @@ internal sealed class LicensingModelContributor : ICloudModelContributor
             b.Property(x => x.BoardHash).HasMaxLength(32);
             b.Property(x => x.DiskHash).HasMaxLength(32);
             b.Property(x => x.MachineHash).HasMaxLength(32);
+            b.Property(x => x.RegisteredIp).HasColumnType("inet");
+            b.Property(x => x.Status).HasMaxLength(10);
+            b.Property(x => x.ResetReason).HasMaxLength(300);
         });
 
         // "Continuar con Google" del instalador (V2026.10.010).
