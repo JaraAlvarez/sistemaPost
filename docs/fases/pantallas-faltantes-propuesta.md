@@ -43,7 +43,7 @@ Un disco externo desconectado después no es error: la copia queda pendiente com
 **Cómo funcionaba:** el adaptador lo fijaba `Pos:Billing:Provider` en `server.json` (`NONE` por defecto); modo, ambiente y credenciales
 (cifradas con DPAPI, nunca se devuelven) ya se guardaban por API; encender exigía credenciales pero no que funcionaran.
 
-**Decisión — Propuesta, pendiente de aprobación del usuario (adenda A del ADR-0059):** el adaptador por defecto pasaría a ser **FACTUS**.
+**Decisión — Aprobada por el usuario el 2026-10-17 (adenda A del ADR-0059):** el adaptador por defecto es **FACTUS**.
 **Ronda 3 (PB2): mientras no se apruebe, el código mantiene `NONE` por defecto** (`BillingOptions.DefaultProvider`, una sola línea para
 cambiarlo) y la tarjeta Factus explica cómo habilitarlo en `server.json`. Lo
 que apaga la facturación electrónica es el modo `OFF` (por defecto, en la BD). `NONE` sigue para prohibirla en una instalación y `FAKE`
