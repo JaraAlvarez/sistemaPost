@@ -154,14 +154,25 @@ internal sealed class UpdateUserHandler(IIdentityStore store, PrivilegeGuard gua
 // ───────────────────────────── Estado ─────────────────────────────
 
 /// <summary>Activar o desactivar. Desactivar revoca sus sesiones (RN-SEC-07) y nunca deja la empresa sin administrador (RN-SEC-04).</summary>
-public sealed record SetUserActiveCommand(Guid UserId, bool Active) : ICommand;
+/// <remarks>
+/// Con la licencia restringida solo se puede DESACTIVAR (R10: quitar el acceso a alguien que se fue no puede esperar a la licencia);
+/// activar sigue bloqueado como cualquier administración.
+/// </remarks>
+public sealed record SetUserActiveCommand(Guid UserId, bool Active) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class SetUserActiveHandler(
-    IIdentityStore store, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current, IAuditWriter audit, Pos.Modules.Cash.Contracts.ICashRegister cash)
+    IIdentityStore store, PrivilegeGuard guard, ISessionStore sessions, ICurrentUser current, IAuditWriter audit, Pos.Modules.Cash.Contracts.ICashRegister cash,
+    ILicenseGate license)
     : ICommandHandler<SetUserActiveCommand>
 {
     public async Task<Result> Handle(SetUserActiveCommand request, CancellationToken cancellationToken)
     {
+        if (request.Active && license.Current is { Restricted: true } restricted)
+        {
+            return Error.BusinessRule(LicenseGateErrors.Restricted.Code,
+                restricted.Reason is null ? LicenseGateErrors.Restricted.Message : $"{restricted.Reason} {LicenseGateErrors.Restricted.Message}");
+        }
+
         var user = await store.GetUserAsync(request.UserId, cancellationToken);
         if (user is not { IsHuman: true })
         {

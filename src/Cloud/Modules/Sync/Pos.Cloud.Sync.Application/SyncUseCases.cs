@@ -175,7 +175,8 @@ public static class SyncErrors
     public static readonly Error WrongSigner = Error.Validation(
         "SYNC.WRONG_SIGNER",
         "El paquete no está firmado con la clave registrada de esa tienda: puede haber sido fabricado o alterado. No se cargó nada. Si es de la " +
-        "tienda (p. ej. la reinstalaron o cambió de equipo), reinicie su clave o espere a que sincronice en línea y vuelva a cargar el MISMO archivo.");
+        "tienda (p. ej. la reinstalaron o cambió de equipo), use \"Reiniciar clave\" en Tiendas (la tienda vuelve a registrar su clave al " +
+        "sincronizar en línea) y vuelva a cargar el MISMO archivo.");
     public static readonly Error TooManyUploads = Error.Conflict(
         "SYNC.TOO_MANY_UPLOADS", "Demasiados paquetes cargados en poco tiempo. Espere unos minutos e intente de nuevo.");
     public static readonly Error BatchNotFound = Error.NotFound("SYNC.BATCH_NOT_FOUND", "El lote no existe.");

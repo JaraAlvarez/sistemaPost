@@ -49,6 +49,10 @@ using Pos.Server.Migrator;
 //                    6 = falló el backup previo obligatorio, 7 = inconsistencias en verify-consistency.
 //                    install (actualización): 3 = la migración falló y los datos quedaron como antes (se restauró el backup PRE_UPDATE),
 //                    8 = la migración falló y NO se pudo volver atrás (restaurar con soporte; el instalador no arranca el servidor).
+//                    migrate de un actualizador anterior a la 1.2.0 (--no-backup --data-root sin registro en curso; ver LegacyMigrateGuard):
+//                    6 = falló el backup, 8 = soporte, 9 = falló y se restauró el backup PRE_UPDATE (la BD a medio migrar queda como
+//                    pos_failed_<fecha>), 10 = esta versión ya falló sobre estos datos (no se reintenta; --retry-failed lo fuerza),
+//                    11 = el servicio del servidor está corriendo (no se tocó nada). --no-guard omite la protección: solo soporte.
 
 using var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole(o => o.SingleLine = true));
 var logger = loggerFactory.CreateLogger<DatabaseMigrator>();
@@ -87,10 +91,17 @@ try
         case "migrate":
             // RN-BAK-03: backup obligatorio antes de aplicar migraciones pendientes (--no-backup solo en desarrollo).
             bool hasSchema;
+            string? databaseVersion;
             await using (var probe = new NpgsqlConnection(Connection(options)))
             {
                 await probe.OpenAsync();
-                hasSchema = await DatabaseMigrator.GetDatabaseVersionAsync(probe) is not null;
+                databaseVersion = await DatabaseMigrator.GetDatabaseVersionAsync(probe);
+                hasSchema = databaseVersion is not null;
+            }
+
+            if (hasSchema && Pos.Infrastructure.Backup.LegacyMigrateGuard.IsLegacyInvocation(options, BackupCommands.DataRoot(options)))
+            {
+                return await LegacyMigrateAsync(options, migrator, appVersion, databaseVersion);
             }
 
             if (!options.ContainsKey("no-backup") && hasSchema && !(await migrator.GetStatusAsync(Connection(options))).IsUpToDate)
@@ -279,6 +290,92 @@ catch (ArgumentException ex)
 {
     Console.Error.WriteLine(ex.Message);
     return 2;
+}
+
+// Integración 1.2.0 (ALTA 1): "migrate --no-backup --data-root D" del actualizador 1.0.x/1.1.0 (sin el registro en curso del actualizador
+// nuevo). Ese actualizador, si falla, solo vuelve a arrancar el servidor anterior: aquí se hace el backup PRE_UPDATE (con el servidor ya
+// detenido) y, si una migración falla, se restaura, server.json pasa a la BD restaurada y la BD a medio migrar se renombra a
+// pos_failed_<fecha>. Códigos: 0, 6 (backup), 8 (soporte), 9 (restaurado), 10 (ya falló: no se reintenta) y 11 (el servidor está
+// corriendo: también para un "migrate --no-backup --data-root" a mano).
+static async Task<int> LegacyMigrateAsync(Dictionary<string, string> options, DatabaseMigrator migrator, string appVersion, string? databaseVersion)
+{
+    var dataRoot = BackupCommands.DataRoot(options);
+    if (!options.ContainsKey("pg-bin") && BackupCommands.ConfigValue(dataRoot, "Backup", "PgBinPath") is { Length: > 0 } configuredPgBin)
+    {
+        options["pg-bin"] = configuredPgBin; // El actualizador viejo no pasa --pg-bin a migrate.
+    }
+
+    var connection = Connection(options);
+    var activeDatabase = new NpgsqlConnectionStringBuilder(connection).Database;
+    var pending = await migrator.GetStatusAsync(connection);
+    Console.WriteLine("Actualización pedida por un actualizador anterior a la 1.2.0: el migrador hace el backup previo y, si falla, la vuelta atrás.");
+    var serverService = Path.GetFileName(dataRoot.TrimEnd(Path.DirectorySeparatorChar)) + "-Server";
+    var result = await Pos.Infrastructure.Backup.LegacyMigrateGuard.RunAsync(
+        dataRoot,
+        appVersion,
+        databaseVersion,
+        pending.PendingVersioned.Count > 0,
+        options.ContainsKey("retry-failed"),
+        ServiceRunning(serverService),
+        ct => BackupCommands.BackupAsync(options, "PRE_UPDATE", appVersion, connection, ct),
+        async ct =>
+        {
+            var report = await migrator.MigrateAsync(connection, appVersion, ct);
+            Console.WriteLine($"Versión de esquema: {report.SchemaVersion} ({report.AppliedScripts.Count} scripts aplicados).");
+        },
+        (file, ct) => BackupCommands.RestorePreUpdateAsync(options, file, ct),
+        activeDatabase is { Length: > 0 } && BackupCommands.ConfigSecret(dataRoot, "SuperuserConnectionString") is { } superuser
+            ? ct => Pos.Infrastructure.Backup.LegacyMigrateGuard.RenameAbandonedAsync(superuser, activeDatabase, DateTimeOffset.UtcNow, ct)
+            : null,
+        TimeProvider.System,
+        CancellationToken.None);
+    switch (result.Outcome)
+    {
+        case Pos.Infrastructure.Backup.LegacyMigrateOutcome.ServerRunning:
+            Console.Error.WriteLine($"No se migró: el servicio {serverService} está corriendo. Deténgalo antes (o use Instalar ahora o el instalador, " +
+                "que lo detienen solos). La base de datos no se tocó.");
+            break;
+        case Pos.Infrastructure.Backup.LegacyMigrateOutcome.BackupFailed:
+            Console.Error.WriteLine($"No se migró: falló el backup previo obligatorio ({result.Error?.Message}). La base de datos no se tocó.");
+            break;
+        case Pos.Infrastructure.Backup.LegacyMigrateOutcome.FailedRestored:
+            Console.Error.WriteLine($"Falló la migración a {appVersion} ({result.Error?.Message}). Se volvió a los datos de antes de actualizar " +
+                $"(BD '{result.RestoredDatabase}'): la versión anterior puede seguir atendiendo. Esta versión no se vuelve a intentar sola: " +
+                "instálela con el instalador cuando soporte lo indique.");
+            Console.Error.WriteLine(result.AbandonedDatabase is { } abandoned
+                ? $"La base a medio migrar quedó como '{abandoned}' para revisión de soporte (no la borre)."
+                : $"No se pudo renombrar la base a medio migrar '{activeDatabase}' ({result.AbandonError?.Message}): queda con su nombre para revisión.");
+            break;
+        case Pos.Infrastructure.Backup.LegacyMigrateOutcome.FailedNeedsSupport:
+            Console.Error.WriteLine($"Falló la migración a {appVersion} y NO se pudo volver a los datos de antes ({result.Error?.Message}). " +
+                $"El backup previo es {result.BackupFile ?? "(no hay)"}: restaurar con soporte.");
+            break;
+        case Pos.Infrastructure.Backup.LegacyMigrateOutcome.AlreadyFailed:
+            Console.Error.WriteLine($"La versión {appVersion} ya falló sobre estos datos: no se vuelve a intentar (la base de datos no se tocó). " +
+                $"Detalle en {Path.Combine(dataRoot, "updates", Pos.Infrastructure.Backup.LegacyMigrateGuard.FailureFile)}; instálela con el instalador.");
+            break;
+    }
+
+    return result.ExitCode;
+}
+
+// ¿El servicio está en marcha (o arrancando o deteniéndose)? Fuera de Windows o si no existe, no.
+static bool ServiceRunning(string name)
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        return false;
+    }
+
+    try
+    {
+        using var service = new System.ServiceProcess.ServiceController(name);
+        return service.Status != System.ServiceProcess.ServiceControllerStatus.Stopped;
+    }
+    catch (InvalidOperationException)
+    {
+        return false; // No existe el servicio.
+    }
 }
 
 static Dictionary<string, string> ParseOptions(string[] arguments)

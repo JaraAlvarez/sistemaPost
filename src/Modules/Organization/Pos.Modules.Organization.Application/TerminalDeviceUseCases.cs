@@ -195,7 +195,8 @@ internal sealed class ListScaleKeyChangesHandler(
     }
 }
 
-public sealed record SetTerminalScaleCommand(Guid PosTerminalId, ScaleConfiguration Configuration) : ICommand<TerminalScaleDto>;
+/// <remarks>Permitido con la licencia restringida (R10): sin la báscula configurada no se pueden vender productos por peso.</remarks>
+public sealed record SetTerminalScaleCommand(Guid PosTerminalId, ScaleConfiguration Configuration) : ICommand<TerminalScaleDto>, IAllowedWhenRestricted;
 
 internal sealed class SetTerminalScaleHandler(IOrganizationStore store, IIdGenerator ids) : ICommandHandler<SetTerminalScaleCommand, TerminalScaleDto>
 {

@@ -128,6 +128,26 @@ public sealed class DemoPorEquipoTests : IDisposable
         DemoDeviceIdentity.Normalize(generic).AvailableComponents.ShouldBe(1);
     }
 
+    [Fact]
+    public void Una_demo_vencida_bloquea_abrir_caja_tambien_con_el_archivo_ilegible_y_lo_avisa()
+    {
+        var installed = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero);
+        var record = new LicenseRecord(Guid.CreateVersion7(), null, null, null, null, null, false, false, false, 0, installed.AddDays(40), installed);
+
+        foreach (var variant in new[] { record, record with { VaultUnavailable = "No se pudo leer el archivo de la licencia." }, record with { Tampered = true } })
+        {
+            var evaluation = LicenseEvaluator.Evaluate(variant, null, Device, DeviceRoles.AllInOne, installed.AddDays(40));
+            evaluation.State.ShouldBe(LicenseStates.Restricted);
+            evaluation.Recoverable.ShouldBeFalse();
+            evaluation.Notices.ShouldContain(n => n.Code == LicenseEvaluator.DemoEndedCode && n.Text.Contains(DemoDeviceIdentity.SupportCode(Device)));
+
+            var cache = new LicenseStateCache();
+            cache.Update(evaluation, recoverableRestriction: evaluation.Recoverable);
+            var gate = ((Pos.Application.Abstractions.Licensing.ILicenseGate)cache).Current;
+            (gate.Restricted, gate.DemoEnded, gate.AllowsOpeningSessions).ShouldBe((true, true, false));
+        }
+    }
+
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private RegistryDeviceDemoMark Mark() => new(Registry.CurrentUser, _subKey, restrictAccess: false, NullLogger<RegistryDeviceDemoMark>.Instance);
 }

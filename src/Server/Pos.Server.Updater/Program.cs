@@ -32,7 +32,13 @@ var dataRoot = builder.Configuration["Pos:DataRoot"] is { Length: > 0 } root
     : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), product);
 // ALTA 1: antes de leer la configuración y de restringir la carpeta (eso cambia los dueños), se descartan los archivos de control que no
 // son de SYSTEM ni de los Administradores: los pudo dejar un usuario normal mientras la carpeta no tenía la ACL.
+// Integración 1.2.0 (8): como las claves de desarrollo (DevelopmentKeysCompiledIn), el entorno lo cambia cualquier administrador de
+// Windows; en Release estas revisiones van SIEMPRE en Windows y solo una compilación Debug fuera de producción las omite.
+#if DEBUG
 var checkOwners = OperatingSystem.IsWindows() && builder.Environment.IsProduction();
+#else
+var checkOwners = OperatingSystem.IsWindows();
+#endif
 var startupWarnings = checkOwners ? UpdaterSecurity.PurgeUntrustedControlFiles(dataRoot) : [];
 foreach (var name in new[] { "server.json", "updater.json" })
 {
@@ -60,7 +66,7 @@ string? securityProblem = installRoot is null
     : null;
 installRoot ??= Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, ".."));
 var settings = UpdaterSettings.From(builder.Configuration, product, dataRoot, installRoot, builder.Environment.IsProduction());
-if (OperatingSystem.IsWindows() && builder.Environment.IsProduction())
+if (checkOwners)
 {
     // B1: también la carpeta del actualizador y la de la versión activa (los programas que corren como servicios).
     securityProblem ??= new[] { installRoot, Path.Combine(installRoot, "app"), Path.Combine(installRoot, "updater"), Path.Combine(installRoot, "app", "current") }

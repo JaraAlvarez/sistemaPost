@@ -43,6 +43,8 @@ public class DemoPorEquipoTests
 
         var setup = await GetAsync<SetupStatusDto>(owner, "/api/v1/setup/status");
         setup.DemoEnded.ShouldBeTrue();
+        var gate = factory.Services.GetRequiredService<Pos.Application.Abstractions.Licensing.ILicenseGate>().Current;
+        (gate.DemoEnded, gate.AllowsOpeningSessions).ShouldBe((true, false)); // la demo vencida no deja abrir caja
 
         // Restringida: no se administra; activar la licencia sí está permitido.
         await RawAsync(owner, HttpMethod.Post, "/api/v1/catalog/categories", new { name = "Nueva", sortOrder = 0 })
