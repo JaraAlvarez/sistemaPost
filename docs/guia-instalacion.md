@@ -256,8 +256,15 @@ mismas etapas de §3.1) y `Resultado: OK | SIN_RESPUESTA | ERROR <paso>`. Los re
 > sin clave valida a cualquier usuario Cliente y elige la empresa de su cuenta con licencia vigente) → `POST /api/v1/setup/owner` con el
 > enlace (si la empresa es provisional toma su NIT, razón social y tipo de negocio) → login → `POST /api/v1/license/activate` con la
 > clave o con el **enlace** (`ownerLinkToken`, claim `lic`). El Tablero avisa "Complete los datos de su empresa" mientras
-> `CompanyDto.DataPending`. Pendiente: "Continuar con Google" en el primer ingreso y pasar a equipo principal al activar una licencia
-> Multicaja (hoy la instalación queda como única caja). Lo de abajo describe el flujo anterior (1.2.0).
+> `CompanyDto.DataPending`. **"Continuar con Google" en el primer ingreso:** `POST /api/v1/setup/owner/google/start|poll` (local, sin
+> Propietario) → nube `POST /v1/owner-link-requests` con la clave **opcional** (sin clave: `license_id`/`organization_id` vacíos y
+> `account_id` de quien autoriza, V2026.10.017) → la página `/cuenta/vincular-instalador` del portal; si la persona no tiene cuenta y
+> entra con Google desde esa página, `RegisterGoogleCustomerCommand` crea una cuenta de cliente directa (`accounts.self_registered_at`)
+> y su usuario Cliente; el portal la lista en **Registros nuevos** (`/registros`). Cualquier usuario activo del portal (también un
+> superadministrador) puede autorizar una tienda sin clave. La contraseña de un Propietario con enlace debe tener 12+ caracteres.
+> Roles de sistema nuevos: **Contabilidad** (`ACCOUNTING`) y **Cartera** (`COLLECTIONS`); `SystemRoleSynchronizer` los crea en las
+> empresas existentes al arrancar. Pendiente: pasar a equipo principal al activar una licencia Multicaja (hoy la instalación queda
+> como única caja). Lo de abajo describe el flujo anterior (1.2.0).
 
 Cuando el paquete termina, el premium espera `http://localhost:5480/health/live` (hasta 10 minutos) y, por la API local:
 `POST /api/v1/setup` (empresa con los datos de la licencia y de "Tu negocio", sucursal **S01 · Principal**, caja **C01 · Caja 1** y

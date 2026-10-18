@@ -347,6 +347,58 @@ internal sealed class PortalExternalLoginHandler(PortalAuthServices auth, IAudit
     }
 }
 
+/// <summary>
+/// Registro propio con Google en el primer ingreso a una tienda (instalador 1.2.1): una persona SIN cuenta en el portal entra con Google
+/// desde la página que autoriza la tienda. Solo con el correo VERIFICADO por Google y si ese correo no es de nadie: se crea una cuenta de
+/// cliente (registro nuevo, posible cliente) y su usuario Cliente, y empieza la sesión. Nunca desde el ingreso normal del portal.
+/// </summary>
+public sealed record RegisterGoogleCustomerCommand(
+    string? Email, string? DisplayName, bool EmailVerified, SessionChannel Channel, IPAddress? IpAddress, string? UserAgent)
+    : ICommand<Outcome<PortalSessionDto>>;
+
+internal sealed class RegisterGoogleCustomerHandler(PortalAuthServices auth, ICustomerSelfRegistration registration, IAuditWriter audit)
+    : ICommandHandler<RegisterGoogleCustomerCommand, Outcome<PortalSessionDto>>
+{
+    public async Task<Result<Outcome<PortalSessionDto>>> Handle(RegisterGoogleCustomerCommand request, CancellationToken cancellationToken)
+    {
+        var email = PortalUser.NormalizeEmail(request.Email);
+        if (!request.EmailVerified || !PortalUser.IsValidEmail(email) || await auth.Store.FindUserByEmailAsync(email, cancellationToken) is not null)
+        {
+            return Outcome.Fail<PortalSessionDto>(PortalIdentityErrors.ExternalLoginRejected);
+        }
+
+        var name = string.IsNullOrWhiteSpace(request.DisplayName) ? email.Split('@')[0] : request.DisplayName.Trim();
+        name = name.Length > 120 ? name[..120] : name;
+        var account = await registration.RegisterAsync(name, email, cancellationToken);
+        if (account.IsFailure)
+        {
+            return Outcome.Fail<PortalSessionDto>(account.Error);
+        }
+
+        // La cuenta se guarda antes que el usuario (su llave foránea apunta a ella).
+        await auth.Store.SaveAsync(cancellationToken);
+        var now = auth.Clock.UtcNow;
+        var created = PortalUser.CreateGoogleCustomer(
+            auth.Ids.NewId(), email, name, account.Value,
+            await auth.Hasher.HashAsync(TemporaryPasswords.Create(), SecretKind.Password, cancellationToken), now);
+        if (created.IsFailure)
+        {
+            return Outcome.Fail<PortalSessionDto>(created.Error);
+        }
+
+        var user = created.Value;
+        auth.Store.Add(user);
+        await audit.WriteAsync(
+            new AuditEntry("portal", "PORTAL_USER_SELF_REGISTERED", nameof(PortalUser), user.Id, user.AuditLabel,
+                $"Registro nuevo con Google desde el primer ingreso a una tienda: {user.Email} (desde {request.IpAddress?.ToString() ?? "IP desconocida"}).",
+                Severity: AuditSeverity.Warning),
+            cancellationToken);
+        await auth.Store.SaveAsync(cancellationToken);
+        var (session, token) = await auth.StartActiveSessionAsync(user, request.Channel, SessionAuthMethod.Google, request.IpAddress, request.UserAgent, cancellationToken);
+        return Outcome.Ok(new PortalSessionDto(token, session.Id, session.ExpiresAt, PortalAuthServices.Me(user, session)));
+    }
+}
+
 /// <summary>Proveedores externos de identidad admitidos.</summary>
 public static class PortalExternalProviders
 {

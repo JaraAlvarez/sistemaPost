@@ -137,6 +137,7 @@ INSERT INTO audit.action_types (code, module, name, default_severity) VALUES
     ('SESSION_REVOKED', 'identity', 'Sesión cerrada por un administrador', 'WARNING'),
     ('SUPERVISOR_AUTHORIZATION_GRANTED', 'identity', 'Autorización de supervisor', 'INFO'),
     ('SYSTEM_ROLE_UPDATED', 'identity', 'Rol de sistema actualizado', 'INFO'),
+    ('SYSTEM_ROLE_CREATED', 'identity', 'Rol de sistema nuevo de la versión creado', 'INFO'),
     ('USER_CREATED', 'identity', 'Usuario · creado', 'INFO'),
     ('USER_DELETED', 'identity', 'Usuario · eliminado', 'WARNING'),
     ('USER_LOCKED', 'identity', 'Usuario bloqueado por intentos fallidos', 'WARNING'),

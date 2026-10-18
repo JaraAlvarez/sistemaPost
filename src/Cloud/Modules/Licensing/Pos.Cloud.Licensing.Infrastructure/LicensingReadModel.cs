@@ -30,6 +30,14 @@ internal sealed class LicensingReadModel(CloudDbContext context) : ILicensingRea
         return account is null ? null : ToDto(account, (await OrganizationCountsAsync([id], cancellationToken)).GetValueOrDefault(id));
     }
 
+    public async Task<IReadOnlyList<SelfRegisteredAccountDto>> ListSelfRegisteredAccountsAsync(CancellationToken cancellationToken) =>
+        await context.Set<Account>().AsNoTracking()
+            .Where(a => a.SelfRegisteredAt != null)
+            .OrderByDescending(a => a.SelfRegisteredAt)
+            .Take(500)
+            .Select(a => new SelfRegisteredAccountDto(a.Id, a.Name, a.ContactEmail, a.SelfRegisteredAt!.Value, a.FirstStoreLinkedAt))
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<OrganizationRowDto>> ListOrganizationsAsync(Guid? accountId, string? search, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var query = context.Set<Organization>().AsNoTracking();

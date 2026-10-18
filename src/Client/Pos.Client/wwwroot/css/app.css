@@ -357,6 +357,10 @@ html[data-tema="oscuro"] .arranque-nombre span { color: #8B9CFF; }
 .acceso .mud-tabs-tabbar { border-bottom: 1px solid var(--mud-palette-lines-default); }
 .acceso .mud-button-root.mud-button-size-large { min-height: 52px; font-size: 1rem; }
 .acceso-equipo { display: flex; align-items: center; gap: 8px; margin-top: 20px; font-size: .82rem; color: var(--mud-palette-text-secondary); }
+/* Primer ingreso (instalador 1.2.1): "Continuar con Google" y el código para comparar en el navegador. */
+.primer-google { text-transform: none; background: #fff; }
+.primer-codigo { font: 700 26px/1.3 Consolas, ui-monospace, monospace; letter-spacing: .08em; padding: 12px; border: 2px dashed var(--mud-palette-primary);
+  border-radius: 12px; text-align: center; user-select: text; }
 @media (max-width: 900px) {
     .acceso { grid-template-columns: 1fr; }
     .acceso-marca { display: none; }

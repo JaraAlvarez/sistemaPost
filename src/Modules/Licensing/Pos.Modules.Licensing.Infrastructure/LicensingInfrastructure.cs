@@ -129,6 +129,56 @@ internal sealed partial class LicenseCloudClient(HttpClient? http, ILogger<Licen
         }
     }
 
+    public async Task<(OwnerLinkRequestStarted? Started, string? Code, string? Message)> StartOwnerLinkRequestAsync(
+        OwnerLinkRequestStart request, CancellationToken cancellationToken)
+    {
+        var (started, code, message) = await SendAsync<OwnerLinkRequestStarted>(LicensingRoutes.OwnerLinkRequests, request, cancellationToken);
+        // La página abre esta dirección en el navegador: solo HTTPS (http solo en localhost, desarrollo) y del mismo servidor de licencias.
+        if (started is not null && !SameServer(started.BrowserUrl))
+        {
+            return (null, "LICENSE.HTTP_200", "El servidor de licencias devolvió una dirección que no es la esperada.");
+        }
+
+        return (started, code, message);
+    }
+
+    public Task<(OwnerLinkPollResponse? Poll, string? Code, string? Message)> PollOwnerLinkRequestAsync(
+        Guid requestId, OwnerLinkPoll request, CancellationToken cancellationToken) =>
+        SendAsync<OwnerLinkPollResponse>(LicensingRoutes.OwnerLinkRequestPoll(requestId), request, cancellationToken);
+
+    private bool SameServer(string? url) =>
+        http?.BaseAddress is { } server && Uri.TryCreate(url, UriKind.Absolute, out var target)
+        && string.Equals(target.Host, server.Host, StringComparison.OrdinalIgnoreCase) && target.Port == server.Port
+        && (target.Scheme == Uri.UriSchemeHttps || (target.Scheme == Uri.UriSchemeHttp && target.IsLoopback && server.IsLoopback));
+
+    private async Task<(T? Value, string? Code, string? Message)> SendAsync<T>(string route, object body, CancellationToken cancellationToken)
+        where T : class
+    {
+        if (http is null)
+        {
+            return (null, null, null);
+        }
+
+        try
+        {
+            using var response = await http.PostAsJsonAsync(route.TrimStart('/'), body, Json, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken) is { } value
+                    ? (value, null, null)
+                    : (null, "LICENSE.HTTP_200", "El servidor de licencias no devolvió una respuesta válida.");
+            }
+
+            var problem = await ReadProblemAsync(response, cancellationToken);
+            return (null, problem?.Code ?? $"LICENSE.HTTP_{(int)response.StatusCode}", problem?.Detail ?? problem?.Title);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException && !cancellationToken.IsCancellationRequested)
+        {
+            LogUnreachable(logger, route, ex.Message);
+            return (null, null, null);
+        }
+    }
+
     private async Task<CloudResult> PostAsync<T>(string route, T body, CancellationToken cancellationToken)
     {
         if (http is null)

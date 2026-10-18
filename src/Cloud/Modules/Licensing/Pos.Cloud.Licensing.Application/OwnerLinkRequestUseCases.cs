@@ -14,9 +14,15 @@ namespace Pos.Cloud.Licensing.Application;
 internal static class OwnerLinkIssuer
 {
     public static async Task<(OwnerLinkResponse Response, Guid TokenId)> IssueAsync(
-        ILicenseTokenSigner signer, IAuditWriter audit, IIdGenerator ids, DateTimeOffset now, License? license, Organization? organization,
-        string email, string displayName, string via, CancellationToken cancellationToken)
+        ILicensingStore store, ILicenseTokenSigner signer, IAuditWriter audit, IIdGenerator ids, DateTimeOffset now, License? license,
+        Organization? organization, Guid? accountId, string email, string displayName, string via, CancellationToken cancellationToken)
     {
+        // "Registros nuevos" del portal: la cuenta ya dejó una tienda con Propietario.
+        if (accountId is { } id && await store.GetAccountAsync(id, cancellationToken) is { } account)
+        {
+            account.MarkStoreLinked(now);
+        }
+
         // Sin empresa (cuenta del portal recién creada): el enlace no lleva NIT y la tienda queda en la prueba con sus datos provisionales.
         var claims = new OwnerLinkClaims
         {
@@ -75,6 +81,24 @@ internal sealed class StartOwnerLinkRequestHandler(
             return LicenseApiErrors.SigningUnavailable;
         }
 
+        var now = clock.UtcNow;
+        string browserUrl;
+        if (string.IsNullOrWhiteSpace(command.Request?.LicenseKey))
+        {
+            // Primer ingreso a una tienda sin clave (instalador 1.2.1): la empresa sale de la cuenta del usuario que autorice; si no tiene
+            // cuenta en el portal, al entrar con Google se registra sola (cliente nuevo, en prueba).
+            var token = InstallerSignInRules.NewPollToken();
+            var keyless = InstallerSignInRequest.Create(ids.NewId(), null, null, token, command.IpAddress, now);
+            store.Add(keyless);
+            await audit.WriteAsync(
+                new AuditEntry("licensing", "OWNER_LINK_REQUEST_CREATED", nameof(InstallerSignInRequest), keyless.Id, null,
+                    $"Una tienda nueva pidió entrar con la cuenta del portal en el navegador (código {keyless.UserCode}, sin clave) desde {command.IpAddress?.ToString() ?? "IP desconocida"}."),
+                cancellationToken);
+            browserUrl = $"{command.PublicBaseUrl.TrimEnd('/')}{PortalPath}?r={keyless.Id:D}";
+            return new OwnerLinkRequestStarted(
+                keyless.Id, token, browserUrl, keyless.UserCode, (int)InstallerSignInRules.Lifetime.TotalSeconds, keyless.PollIntervalSeconds);
+        }
+
         var resolved = await InstallerKeys.ResolveAsync(store, throttle, ids, clock, command.Request?.LicenseKey, cancellationToken);
         if (resolved.IsFailure)
         {
@@ -82,7 +106,6 @@ internal sealed class StartOwnerLinkRequestHandler(
         }
 
         var (license, _, organization) = resolved.Value;
-        var now = clock.UtcNow;
         await store.LockLicenseAsync(license.Id, cancellationToken);
         if (await store.CountOpenOwnerLinkRequestsAsync(license.Id, now, cancellationToken) >= InstallerSignInRules.MaxOpenPerLicense)
         {
@@ -97,7 +120,7 @@ internal sealed class StartOwnerLinkRequestHandler(
                 $"{organization.LegalName}: el instalador pidió entrar con la cuenta del portal en el navegador (código {request.UserCode}, licencia {license.KeyPrefix}…) desde {command.IpAddress?.ToString() ?? "IP desconocida"}."),
             cancellationToken);
 
-        var browserUrl = $"{command.PublicBaseUrl.TrimEnd('/')}{PortalPath}?r={request.Id:D}";
+        browserUrl = $"{command.PublicBaseUrl.TrimEnd('/')}{PortalPath}?r={request.Id:D}";
         return new OwnerLinkRequestStarted(
             request.Id, pollToken, browserUrl, request.UserCode, (int)InstallerSignInRules.Lifetime.TotalSeconds, request.PollIntervalSeconds);
     }
@@ -159,10 +182,22 @@ internal sealed class PollOwnerLinkRequestHandler(
                 return Outcome.Ok(new OwnerLinkPollResponse(OwnerLinkRequestStatuses.Denied, request.PollIntervalSeconds));
         }
 
+        if (request.WithoutKey)
+        {
+            // Sin clave: la empresa de la cuenta de quien autorizó (con licencia vigente, si la tiene); sin cuenta, la tienda sigue en prueba.
+            var (ownOrganization, ownLicense) = await AccountStores.ChooseAsync(store, request.AccountId, now, ids, cancellationToken);
+            var own = await OwnerLinkIssuer.IssueAsync(
+                store, signer, audit, ids, now, ownLicense, ownOrganization, request.AccountId, request.ApprovedEmail!, request.ApprovedDisplayName!,
+                $"con \"Continuar con Google\" en el primer ingreso a la tienda (código {request.UserCode}; recogido desde {command.IpAddress?.ToString() ?? "IP desconocida"})",
+                cancellationToken);
+            request.Consume(own.TokenId, now);
+            return Outcome.Ok(new OwnerLinkPollResponse(OwnerLinkRequestStatuses.Approved, request.PollIntervalSeconds, own.Response));
+        }
+
         // Autorizada: la licencia, la empresa y la suscripción deben seguir vigentes al entregar el enlace (la suscripción pudo
         // vencer o suspenderse entre la solicitud y la autorización).
-        var license = await store.GetLicenseAsync(request.LicenseId, cancellationToken);
-        var organization = await store.GetOrganizationAsync(request.OrganizationId, cancellationToken);
+        var license = await store.GetLicenseAsync(request.LicenseId!.Value, cancellationToken);
+        var organization = await store.GetOrganizationAsync(request.OrganizationId!.Value, cancellationToken);
         if (license is not { IsActive: true } || organization is not { Status: RecordStatus.Active })
         {
             return Outcome.Fail<OwnerLinkPollResponse>(LicenseApiErrors.KeyInvalid);
@@ -176,7 +211,7 @@ internal sealed class PollOwnerLinkRequestHandler(
         }
 
         var link = await OwnerLinkIssuer.IssueAsync(
-            signer, audit, ids, now, license, organization, request.ApprovedEmail!, request.ApprovedDisplayName!,
+            store, signer, audit, ids, now, license, organization, organization.AccountId, request.ApprovedEmail!, request.ApprovedDisplayName!,
             $"con \"Continuar con Google\" del instalador (código {request.UserCode}, autorizado en el portal; recogido desde {command.IpAddress?.ToString() ?? "IP desconocida"})",
             cancellationToken);
         request.Consume(link.TokenId, now);
@@ -265,14 +300,17 @@ internal sealed class DecideOwnerLinkRequestHandler(
         }
 
         var request = await store.GetOwnerLinkRequestForUpdateAsync(command.RequestId, cancellationToken);
-        var organization = request is null ? null : await store.GetOrganizationAsync(request.OrganizationId, cancellationToken);
-        if (request is null || organization is null)
+        var organization = request?.OrganizationId is { } organizationId ? await store.GetOrganizationAsync(organizationId, cancellationToken) : null;
+        if (request is null || (organization is null && !request.WithoutKey))
         {
             return Outcome.Ok(new OwnerLinkRequestView(OwnerLinkRequestPageState.Unavailable));
         }
 
+        // Sin clave (tienda nueva): cualquier usuario activo del portal puede quedar como Propietario (un cliente con su empresa o, sin
+        // cuenta de cliente, en prueba); con clave, solo un cliente de la cuenta dueña de la empresa.
+        var label = organization?.AuditLabel ?? "una tienda nueva";
         var check = await customers.VerifySignedInAsync(
-            userId, user.SessionId, organization.AccountId, organization.AuditLabel, deciding, command.IpAddress, cancellationToken);
+            userId, user.SessionId, organization?.AccountId, label, deciding, command.IpAddress, cancellationToken);
         if (check.Result == PortalCustomerCheck.ReauthenticationRequired)
         {
             return Outcome.Ok(new OwnerLinkRequestView(OwnerLinkRequestPageState.ReauthenticationRequired));
@@ -290,7 +328,7 @@ internal sealed class DecideOwnerLinkRequestHandler(
         {
             message = approve
                 ? await TryApproveAsync(request, organization, userId, check, command, now, cancellationToken)
-                : await DenyAsync(request, organization, userId, check.Email!, command.IpAddress, now, cancellationToken);
+                : await DenyAsync(request, organization, label, userId, check.Email!, command.IpAddress, now, cancellationToken);
         }
 
         var state = request.Status switch
@@ -308,15 +346,17 @@ internal sealed class DecideOwnerLinkRequestHandler(
             message = OwnerLinkRequestMessages.CanceledByWrongCodes;
         }
         return Outcome.Ok(new OwnerLinkRequestView(
-            state, organization.LegalName, organization.NitNumber.ToString(), request.ExpiresAt, request.CreatedAt, request.CreatedIp?.ToString(),
+            state, organization?.LegalName, organization?.NitNumber.ToString(), request.ExpiresAt, request.CreatedAt, request.CreatedIp?.ToString(),
             check.TotpRequired, message));
     }
 
     /// <summary>Autoriza si el código escrito coincide y (si aplica) el TOTP es correcto. Devuelve el aviso para la página o <c>null</c>.</summary>
     private async Task<string?> TryApproveAsync(
-        InstallerSignInRequest request, Organization organization, Guid userId, PortalCustomerVerification check, DecideOwnerLinkRequestCommand command,
+        InstallerSignInRequest request, Organization? organization, Guid userId, PortalCustomerVerification check, DecideOwnerLinkRequestCommand command,
         DateTimeOffset now, CancellationToken cancellationToken)
     {
+        var label = organization?.AuditLabel ?? "una tienda nueva";
+        var name = organization?.LegalName ?? "una tienda nueva";
         var ip = command.IpAddress?.ToString() ?? "IP desconocida";
         switch (request.CheckUserCode(command.UserCode, userId, command.IpAddress, now))
         {
@@ -326,8 +366,8 @@ internal sealed class DecideOwnerLinkRequestHandler(
                 return $"El código no coincide con el del instalador. Escríbalo tal como aparece en la ventana del instalador (le quedan {request.CodeAttemptsLeft} intentos).";
             case InstallerSignInCodeCheck.Exhausted:
                 await audit.WriteAsync(
-                    new AuditEntry("licensing", "OWNER_LINK_REQUEST_DENIED", nameof(Organization), organization.Id, organization.AuditLabel,
-                        $"Solicitud del instalador para {organization.LegalName} (código {request.UserCode}) cancelada: {check.Email} escribió {InstallerSignInRules.MaxCodeAttempts} códigos incorrectos desde {ip}.",
+                    new AuditEntry("licensing", "OWNER_LINK_REQUEST_DENIED", nameof(Organization), organization?.Id, organization?.AuditLabel,
+                        $"Solicitud del instalador para {name} (código {request.UserCode}) cancelada: {check.Email} escribió {InstallerSignInRules.MaxCodeAttempts} códigos incorrectos desde {ip}.",
                         Severity: AuditSeverity.Warning),
                     cancellationToken);
                 // PN3: la página muestra "cancelada"; el aviso explica por qué y qué hacer.
@@ -336,7 +376,7 @@ internal sealed class DecideOwnerLinkRequestHandler(
                 return null;
         }
 
-        switch (await customers.VerifySignedInTotpAsync(userId, command.TotpCode, organization.AuditLabel, command.IpAddress, cancellationToken))
+        switch (await customers.VerifySignedInTotpAsync(userId, command.TotpCode, label, command.IpAddress, cancellationToken))
         {
             case PortalCustomerCheck.Valid:
                 break;
@@ -350,22 +390,23 @@ internal sealed class DecideOwnerLinkRequestHandler(
                     : "El código de verificación no es correcto.";
         }
 
-        var approved = request.Approve(userId, check.Email!, check.DisplayName!, command.IpAddress, now);
+        var approved = request.Approve(userId, check.Email!, check.DisplayName!, command.IpAddress, now, check.AccountId);
         if (approved.IsFailure)
         {
             return approved.Error.Message;
         }
 
         await audit.WriteAsync(
-            new AuditEntry("licensing", "OWNER_LINK_REQUEST_APPROVED", nameof(Organization), organization.Id, organization.AuditLabel,
-                $"{check.Email} autorizó en el portal la instalación de BusinessPost para {organization.LegalName} (código {request.UserCode} escrito por el dueño) desde {ip}; la solicitud se creó desde {request.CreatedIp?.ToString() ?? "IP desconocida"}.",
+            new AuditEntry("licensing", "OWNER_LINK_REQUEST_APPROVED", nameof(Organization), organization?.Id, organization?.AuditLabel,
+                $"{check.Email} autorizó en el portal la instalación de BusinessPost para {name} (código {request.UserCode} escrito por el dueño) desde {ip}; la solicitud se creó desde {request.CreatedIp?.ToString() ?? "IP desconocida"}.",
                 Severity: AuditSeverity.Warning),
             cancellationToken);
         return null;
     }
 
     private async Task<string?> DenyAsync(
-        InstallerSignInRequest request, Organization organization, Guid userId, string email, IPAddress? ipAddress, DateTimeOffset now, CancellationToken cancellationToken)
+        InstallerSignInRequest request, Organization? organization, string label, Guid userId, string email, IPAddress? ipAddress, DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
         var denied = request.Deny(userId, ipAddress, now);
         if (denied.IsFailure)
@@ -374,8 +415,8 @@ internal sealed class DecideOwnerLinkRequestHandler(
         }
 
         await audit.WriteAsync(
-            new AuditEntry("licensing", "OWNER_LINK_REQUEST_DENIED", nameof(Organization), organization.Id, organization.AuditLabel,
-                $"{email} canceló en el portal la solicitud del instalador para {organization.LegalName} (código {request.UserCode}) desde {ipAddress?.ToString() ?? "IP desconocida"}.",
+            new AuditEntry("licensing", "OWNER_LINK_REQUEST_DENIED", nameof(Organization), organization?.Id, organization?.AuditLabel ?? label,
+                $"{email} canceló en el portal la solicitud del instalador para {organization?.LegalName ?? label} (código {request.UserCode}) desde {ipAddress?.ToString() ?? "IP desconocida"}.",
                 Severity: AuditSeverity.Info),
             cancellationToken);
         return null;

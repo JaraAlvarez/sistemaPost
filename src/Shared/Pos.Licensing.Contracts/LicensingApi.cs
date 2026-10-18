@@ -154,7 +154,8 @@ public sealed record OwnerLinkResponse(
     bool HasLicense = false);
 
 /// <summary>"Continuar con Google" desde el instalador: la clave identifica la empresa (misma búsqueda y límites que la vista previa).</summary>
-public sealed record OwnerLinkRequestStart(string LicenseKey);
+/// <param name="LicenseKey">Clave de licencia; sin ella (primer ingreso a una tienda nueva) la empresa sale de la cuenta de quien autorice.</param>
+public sealed record OwnerLinkRequestStart(string? LicenseKey);
 
 /// <summary>Solicitud creada.</summary>
 /// <param name="RequestId">Identificador de la solicitud (va en la dirección del navegador y en la ruta de consulta).</param>

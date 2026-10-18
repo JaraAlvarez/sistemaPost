@@ -133,14 +133,31 @@ public sealed class IdentityPermissionCatalog : IPermissionCatalogProvider
 }
 
 /// <summary>Al actualizar el producto, los roles de sistema reciben los permisos nuevos de su definición.</summary>
-public sealed class SystemRoleSynchronizer(IIdentityStore store, IAuditWriter audit)
+public sealed class SystemRoleSynchronizer(IIdentityStore store, IAuditWriter audit, IIdGenerator ids)
 {
     public async Task<int> SynchronizeAsync(CancellationToken cancellationToken)
     {
         var catalog = await store.ListActivePermissionCodesAsync(cancellationToken);
         var definitions = SystemRoles.Build(catalog).ToDictionary(d => d.Code, StringComparer.Ordinal);
         var changes = 0;
-        foreach (var role in await store.GetSystemRolesAsync(cancellationToken))
+        var existing = await store.GetSystemRolesAsync(cancellationToken);
+
+        // Roles de sistema nuevos de esta versión (p. ej. Contabilidad y Cartera, 1.2.1): se crean en cada empresa que no los tiene.
+        foreach (var company in existing.GroupBy(r => r.CompanyId))
+        {
+            foreach (var definition in definitions.Values.Where(d => company.All(r => r.Code != d.Code)))
+            {
+                var created = Role.CreateSystem(ids.NewId(), company.Key, definition);
+                store.Add(created);
+                changes++;
+                await audit.WriteAsync(
+                    new AuditEntry("identity", "SYSTEM_ROLE_CREATED", nameof(Role), created.Id, created.AuditLabel,
+                        $"Rol de sistema nuevo de esta versión: {definition.Name} ({definition.Code}), con {definition.Permissions.Count} permisos."),
+                    cancellationToken);
+            }
+        }
+
+        foreach (var role in existing)
         {
             if (!definitions.TryGetValue(role.Code, out var definition))
             {

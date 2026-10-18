@@ -26,9 +26,18 @@
     <EditForm Model="Input" method="post" OnSubmit="DecideAsync" FormName="vincular-instalador" class="auth-form">
         @if (_view is { State: OwnerLinkRequestPageState.Pending })
         {
-            <p class="auth-lead">
-                ¿Autorizar la instalación de BusinessPost para <strong>@_view.LegalName</strong> (NIT @FormatNit(_view.Nit))?
-            </p>
+            @if (_view.LegalName is null)
+            {
+                @* Primer ingreso a una tienda nueva sin clave (instalador 1.2.1): queda como Propietario con su cuenta; si su empresa tiene
+                   licencia se activa sola, si no, la tienda arranca en la prueba de 30 días. *@
+                <p class="auth-lead">¿Entrar a su tienda nueva de BusinessPost como <strong>Propietario</strong>?</p>
+            }
+            else
+            {
+                <p class="auth-lead">
+                    ¿Autorizar la instalación de BusinessPost para <strong>@_view.LegalName</strong> (NIT @FormatNit(_view.Nit))?
+                </p>
+            }
             <AuthAlert Warning="true">
                 Solo continúe si USTED está instalando BusinessPost en este momento. Si alguien le envió este enlace o le dictó un código por
                 teléfono o mensaje, no lo escriba: pulse Cancelar.
@@ -40,7 +49,7 @@
             }
 
             <div class="auth-field">
-                <label for="usercode">Código que muestra el instalador</label>
+                <label for="usercode">Código que muestra BusinessPost (o el instalador)</label>
                 <InputText id="usercode" type="text" class="auth-code" @bind-Value="Input.Code" autocomplete="off" maxlength="12" placeholder="XXXX-XXXX" />
             </div>
             @if (_view.TotpRequired)
@@ -64,7 +73,7 @@
 {
     case OwnerLinkRequestPageState.Approved:
     case OwnerLinkRequestPageState.Used:
-        <p class="auth-lead"><strong>Listo: la instalación quedó autorizada.</strong> Vuelva al instalador; ya puede continuar. Puede cerrar esta pestaña.</p>
+        <p class="auth-lead"><strong>Listo: la instalación quedó autorizada.</strong> Vuelva a BusinessPost (o al instalador); ya puede continuar. Puede cerrar esta pestaña.</p>
         break;
 
     case OwnerLinkRequestPageState.Denied:
