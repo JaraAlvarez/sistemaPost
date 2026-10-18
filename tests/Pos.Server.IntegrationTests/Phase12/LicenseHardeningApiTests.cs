@@ -46,6 +46,41 @@ public class LicenseHardeningApiTests
         (await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/check")).State.ShouldBe(LicenseStates.Valid);
     }
 
+    /// <summary>
+    /// Integración 1.2.0 (ALTA 2): después de una vuelta atrás o de restaurar un backup la licencia queda RESTRINGIDA "alterada" sin ninguna
+    /// jornada abierta. Dentro de las 24 h se puede ABRIR la caja y vender (antes la ventana no servía: abrir jornada estaba bloqueado);
+    /// pasadas las 24 h, ni abrir ni vender. Con otro motivo (pago, vencimiento) abrir sigue bloqueado.
+    /// </summary>
+    [Fact]
+    public async Task Con_el_estado_alterado_y_sin_jornada_se_puede_abrir_caja_y_vender_solo_dentro_de_las_24_horas()
+    {
+        await using var factory = new LicenseServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/activate", new { licenseKey = FakeLicenseCloud.ValidKey });
+        await RefreshAsync(factory);
+
+        // Vuelta atrás del actualizador: la fila vuelve sin firma y no hay ninguna jornada abierta.
+        await ExecuteAsync(factory, "UPDATE licensing.license_state SET state_mac = NULL");
+        (await RefreshAsync(factory)).State.ShouldBe(LicenseStates.Restricted);
+        var gate = factory.Services.GetRequiredService<ILicenseGate>().Current;
+        (gate.Restricted, gate.SalesWindowClosed, gate.AllowsOpeningSessions).ShouldBe((true, false, true));
+
+        await shop.OpenSessionAsync();
+        var sale = await shop.StartAsync();
+        sale = await shop.AddAsync(sale.Id, shop.Rice, 1);
+        (await shop.CompleteAsync(sale.Id, [Pay(shop.Cash, 5_000m)])).ShouldNotBeNull();
+
+        // Pasadas las 24 h desde que quedó restringida: ni abrir otra jornada ni vender; administrar sigue bloqueado.
+        factory.Services.GetRequiredService<LicenseVault>().SetRestrictedSince(DateTimeOffset.UtcNow.AddHours(-25));
+        await ExecuteAsync(factory, "UPDATE licensing.license_state SET restricted_since = now() - interval '25 hours'");
+        await RefreshAsync(factory);
+        factory.Services.GetRequiredService<ILicenseGate>().Current.SalesWindowClosed.ShouldBeTrue();
+        await RawAsync(shop.Cashier, HttpMethod.Post, "/api/v1/cash/sessions", new { openingFloat = 0m })
+            .ShouldFailWithAsync(System.Net.HttpStatusCode.UnprocessableEntity, "LICENSE.RESTRICTED");
+        await RawAsync(shop.Cashier, HttpMethod.Post, "/api/v1/sales", null)
+            .ShouldFailWithAsync(System.Net.HttpStatusCode.UnprocessableEntity, "LICENSE.RESTRICTED");
+    }
+
     [Fact]
     public async Task Restaurar_una_bd_sin_firma_en_demo_sigue_en_demo()
     {

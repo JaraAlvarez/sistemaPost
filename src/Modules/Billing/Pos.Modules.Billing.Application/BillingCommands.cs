@@ -358,7 +358,7 @@ internal sealed class VerifyBillingConnectionHandler(
 /// <c>Environment</c> se prueban en el ambiente vigente. Fuera de la transacción (la llamada al proveedor puede tardar).
 /// </summary>
 public sealed record VerifyCandidateCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret, string? Environment = null)
-    : ICommand<FiscalConnectionVerificationDto>, ISelfTransactedCommand
+    : ICommand<FiscalConnectionVerificationDto>, ISelfTransactedCommand, IAllowedWhenRestricted
 {
     public override string ToString() => $"VerifyCandidateCredentialsCommand {{ Environment = {Environment}, Llaves = *** }}";
 }
@@ -412,7 +412,7 @@ internal sealed class VerifyCandidateCredentialsHandler(
 /// En el mismo ambiente NO se mueve el corte del atraso (N1): lo que está en cola sigue saliendo.
 /// </summary>
 public sealed record RotateProviderCredentialsCommand(string Username, string Password, string ClientId, string ClientSecret)
-    : ICommand<FiscalConnectionVerificationDto>, ISelfTransactedCommand
+    : ICommand<FiscalConnectionVerificationDto>, ISelfTransactedCommand, IAllowedWhenRestricted
 {
     public override string ToString() => "RotateProviderCredentialsCommand { *** }";
 }
@@ -630,7 +630,8 @@ internal sealed class ListFiscalRangesHandler(
 /// Asigna un rango a una sucursal (y opcionalmente a una caja) o lo desasigna (sin sucursal). El rango que ocupaba ese lugar para
 /// el mismo tipo de documento se desasigna.
 /// </summary>
-public sealed record AssignFiscalRangeCommand(Guid RangeId, Guid? BranchId, Guid? PosTerminalId) : ICommand<FiscalRangeDto>;
+/// <remarks>Permitido con la licencia restringida (R10): sin un rango asignado la caja no puede facturar ante la DIAN.</remarks>
+public sealed record AssignFiscalRangeCommand(Guid RangeId, Guid? BranchId, Guid? PosTerminalId) : ICommand<FiscalRangeDto>, IAllowedWhenRestricted;
 
 internal sealed class AssignFiscalRangeHandler(
     IFiscalRangeStore ranges, IBillingSettingsStore store, ISettingsReader settings, IInstallationContext installation, IAuditWriter audit,

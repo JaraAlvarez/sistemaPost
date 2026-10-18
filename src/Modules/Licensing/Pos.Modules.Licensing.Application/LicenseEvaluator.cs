@@ -49,8 +49,10 @@ public sealed record LicenseEvaluation(
     DateTimeOffset EffectiveNow,
     bool ClockRollback,
     DateTimeOffset DemoEndsAt,
-    IReadOnlyList<LicenseNoticeDto> Notices)
+    IReadOnlyList<LicenseNoticeDto> Notices,
+    bool Recoverable = false)
 {
+    // Recoverable (integración 1.2.0): restringida por el estado local alterado o el archivo ilegible, no por pago ni revocación.
     public bool Restricted => LicenseStates.IsRestricted(State);
 }
 
@@ -131,22 +133,30 @@ public static class LicenseEvaluator
         var demoEnds = record.DemoStartedAt.AddDays(DemoDays);
         var claims = verification is { IsValid: true } ? verification.Claims : null;
 
-        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null)
+        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null, bool recoverable = false)
         {
             int? days = until is { } u ? Math.Max(0, (int)Math.Ceiling((u - now).TotalDays)) : null;
-            return new LicenseEvaluation(state, reason, days, claims, effectiveNow, rollback, demoEnds, Notices(state, reason, days, claims));
+            return new LicenseEvaluation(
+                State: state, Reason: reason, DaysLeft: days, Claims: claims, EffectiveNow: effectiveNow, ClockRollback: rollback,
+                DemoEndsAt: demoEnds, Notices: Notices(state, reason, days, claims), Recoverable: recoverable);
         }
 
         if (rollback)
         {
-            return Result(LicenseStates.Restricted,
+            return Result(state: LicenseStates.Restricted, reason:
                 $"El reloj del equipo está atrasado (marca {effectiveNow:yyyy-MM-dd HH:mm} UTC y ya se vio {record.MaxObservedUtc:yyyy-MM-dd HH:mm} UTC). Corrija la fecha y la hora de Windows y verifique la licencia.");
         }
 
         // Sin poder leer el archivo protegido no se puede comprobar nada: restringida (ventana normal de 24 h) con un mensaje propio.
+        // Ronda de integración 1.2.0: recuperable (se puede abrir caja en la ventana) SOLO si todo lo demás daría vigente, gracia o demo
+        // vigente; si el token, los claims, la suscripción, la revocación, la liberación, la demo vencida o los días sin conexión
+        // restringen, manda ese motivo y no es recuperable. "Alterado" no se puede juzgar sin el archivo: no cuenta aquí.
         if (record.VaultUnavailable is { } unavailable)
         {
-            return Result(LicenseStates.Restricted, unavailable);
+            var rest = Evaluate(record with { VaultUnavailable = null, Tampered = false }, verification, device, localDeviceRole, localNow, maxOfflineDays);
+            return rest.State is LicenseStates.Valid or LicenseStates.ValidOffline or LicenseStates.Grace or LicenseStates.Demo
+                ? Result(state: LicenseStates.Restricted, reason: unavailable, recoverable: true)
+                : rest with { Recoverable = false };
         }
 
         // En demostración un estado alterado no restringe: la demo se evalúa con la marca y el inicio que guarda el archivo protegido
@@ -154,65 +164,67 @@ public static class LicenseEvaluator
         // confirmada (o revocada): entonces borrar el token de la BD no puede devolverlo a la demo.
         if (record.Token is null && record.Tampered && record.HadConfirmedLicense)
         {
-            return Result(LicenseStates.Restricted,
-                "Los datos de la licencia guardados en este equipo no cuadran con su firma y este equipo ya tuvo una licencia activada. Active la licencia con su clave.");
+            return Result(state: LicenseStates.Restricted, reason:
+                "Los datos de la licencia guardados en este equipo no cuadran con su firma y este equipo ya tuvo una licencia activada. Active la licencia con su clave.",
+                recoverable: true);
         }
 
         if (record.Token is null)
         {
             if (record.Deactivated)
             {
-                return Result(LicenseStates.Restricted, "Este equipo fue liberado de la licencia. Active la licencia con la clave para seguir administrando.");
+                return Result(state: LicenseStates.Restricted, reason: "Este equipo fue liberado de la licencia. Active la licencia con la clave para seguir administrando.");
             }
 
             return now <= demoEnds
-                ? Result(LicenseStates.Demo, "Modo demostración: el sistema funciona completo y los documentos impresos dicen \"DEMOSTRACIÓN\". Active la licencia con su clave.", demoEnds)
-                : Result(LicenseStates.Restricted, "Terminó la demostración de 30 días. Active la licencia con su clave.");
+                ? Result(state: LicenseStates.Demo, reason: "Modo demostración: el sistema funciona completo y los documentos impresos dicen \"DEMOSTRACIÓN\". Active la licencia con su clave.", until: demoEnds)
+                : Result(state: LicenseStates.Restricted, reason: "Terminó la demostración de 30 días. Active la licencia con su clave.");
         }
 
         if (claims is null)
         {
-            return Result(LicenseStates.Restricted,
+            return Result(state: LicenseStates.Restricted, reason:
                 $"La licencia guardada no es válida ({verification?.Status.ToString() ?? "sin verificar"}). Verifique la licencia o actívela de nuevo con la clave.");
         }
 
         if (record.ReactivationRequired || claims.InstallationId != record.NodeId || device is null
             || !DeviceFingerprint.TryParse(claims.DeviceFingerprint, out var tokenDevice) || !device.Matches(tokenDevice))
         {
-            return Result(LicenseStates.ReactivationRequired,
+            return Result(state: LicenseStates.ReactivationRequired, reason:
                 "La licencia no corresponde a este equipo (cambio de computador o backup restaurado en otro equipo). Actívela de nuevo con la clave; si el equipo anterior sigue activo, soporte lo libera.");
         }
 
         if (record.Tampered)
         {
-            return Result(LicenseStates.Restricted,
-                "Los datos de la licencia guardados en este equipo no cuadran con su firma (se modificaron fuera del sistema, se restauró un backup anterior o se perdió el archivo de la licencia). Verifique la licencia con conexión a Internet.");
+            return Result(state: LicenseStates.Restricted, reason:
+                "Los datos de la licencia guardados en este equipo no cuadran con su firma (se modificaron fuera del sistema, se restauró un backup anterior o se perdió el archivo de la licencia). Verifique la licencia con conexión a Internet.",
+                recoverable: true);
         }
 
         if (!string.Equals(claims.DeviceRole, localDeviceRole, StringComparison.Ordinal))
         {
-            return Result(LicenseStates.Restricted, "La licencia fue activada para otro tipo de instalación (Caja Única o Multicaja). Actívela de nuevo con la clave.");
+            return Result(state: LicenseStates.Restricted, reason: "La licencia fue activada para otro tipo de instalación (Caja Única o Multicaja). Actívela de nuevo con la clave.");
         }
 
         if (record.CompanyNit is not null && !SameNit(claims.OrganizationNit, record.CompanyNit))
         {
-            return Result(LicenseStates.Restricted,
+            return Result(state: LicenseStates.Restricted, reason:
                 $"La licencia es de otra empresa (NIT {claims.OrganizationNit}) y la configurada en este equipo tiene el NIT {record.CompanyNit}. Comuníquese con su proveedor.");
         }
 
         if (record.Revoked)
         {
-            return Result(LicenseStates.Restricted, "La licencia fue revocada. Comuníquese con su proveedor.");
+            return Result(state: LicenseStates.Restricted, reason: "La licencia fue revocada. Comuníquese con su proveedor.");
         }
 
         switch (claims.SubscriptionStatus)
         {
             case SubscriptionStatuses.Suspended:
-                return Result(LicenseStates.Restricted, "La suscripción está suspendida. Comuníquese con su proveedor.");
+                return Result(state: LicenseStates.Restricted, reason: "La suscripción está suspendida. Comuníquese con su proveedor.");
             case SubscriptionStatuses.Cancelled:
-                return Result(LicenseStates.Restricted, "La suscripción fue cancelada. Comuníquese con su proveedor.");
+                return Result(state: LicenseStates.Restricted, reason: "La suscripción fue cancelada. Comuníquese con su proveedor.");
             case SubscriptionStatuses.Expired:
-                return Result(LicenseStates.Restricted, "La suscripción venció y terminaron los días de gracia. Renueve con su proveedor.");
+                return Result(state: LicenseStates.Restricted, reason: "La suscripción venció y terminaron los días de gracia. Renueve con su proveedor.");
         }
 
         // N1: el iat va firmado, así que editar la BD no alarga el tiempo sin conexión. Las instalaciones que ya existían cuentan desde
@@ -221,7 +233,7 @@ public static class LicenseEvaluator
         var offlineDeadline = offlineFrom.AddDays(maxOfflineDays);
         if (now > offlineDeadline)
         {
-            return Result(LicenseStates.Restricted,
+            return Result(state: LicenseStates.Restricted, reason:
                 $"La licencia no se ha podido verificar con el servidor de licencias en más de {maxOfflineDays} días (desde el {offlineFrom:yyyy-MM-dd}). Conecte el equipo a Internet y verifique la licencia.");
         }
 
@@ -244,19 +256,19 @@ public static class LicenseEvaluator
         {
             var online = record.LastCheckinAt is { } last && now - last <= OfflineAfter;
             return WarnOffline(online
-                ? Result(LicenseStates.Valid, "Licencia vigente.", claims.ValidUntil)
-                : Result(LicenseStates.ValidOffline,
+                ? Result(state: LicenseStates.Valid, reason: "Licencia vigente.", until: claims.ValidUntil)
+                : Result(state: LicenseStates.ValidOffline, reason:
                     $"Licencia vigente; no se ha podido verificar con el servidor de licencias recientemente (sin Internet). Todo funciona con normalidad, pero conéctese antes del {offlineDeadline:yyyy-MM-dd} o la licencia quedará restringida.",
-                    claims.ValidUntil));
+                    until: claims.ValidUntil));
         }
 
         if (now <= claims.GraceUntil)
         {
-            return WarnOffline(Result(LicenseStates.Grace,
-                $"El periodo pagado venció el {claims.ValidUntil:yyyy-MM-dd}. Quedan días de gracia: renueve para evitar la restricción.", claims.GraceUntil));
+            return WarnOffline(Result(state: LicenseStates.Grace, reason:
+                $"El periodo pagado venció el {claims.ValidUntil:yyyy-MM-dd}. Quedan días de gracia: renueve para evitar la restricción.", until: claims.GraceUntil));
         }
 
-        return Result(LicenseStates.Restricted, "Venció el periodo pagado y terminaron los días de gracia. Renueve con su proveedor y verifique la licencia.");
+        return Result(state: LicenseStates.Restricted, reason: "Venció el periodo pagado y terminaron los días de gracia. Renueve con su proveedor y verifique la licencia.");
     }
 
     private static (string Number, string? Dv) SplitNit(string value)

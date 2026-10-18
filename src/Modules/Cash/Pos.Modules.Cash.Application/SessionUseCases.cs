@@ -118,7 +118,12 @@ public sealed class OpenSalesGuard(IEnumerable<IOpenSalesProbe> probes)
 /// Caja Única). Registra el fondo inicial (OPENING_FLOAT en efectivo) y, si se envía, el conteo de apertura (debe
 /// sumar el fondo). Una jornada sin cerrar por caja y una abierta por cajero (RN-CSH-01; lo garantiza la BD).
 /// </summary>
-public sealed record OpenSessionCommand(decimal OpeningFloat, IReadOnlyList<CountLineRequest>? OpeningCount) : ICommand<CashSessionDto>;
+/// <remarks>
+/// Con la licencia restringida solo se abre si el motivo es el estado alterado o el archivo ilegible y dentro de la ventana de 24 h
+/// (<see cref="Pos.Application.Abstractions.Licensing.IRestrictedSessionOpening"/>, integración 1.2.0).
+/// </remarks>
+public sealed record OpenSessionCommand(decimal OpeningFloat, IReadOnlyList<CountLineRequest>? OpeningCount)
+    : ICommand<CashSessionDto>, Pos.Application.Abstractions.Licensing.IRestrictedSessionOpening;
 
 internal sealed class OpenSessionHandler(
     ICurrentUser current,

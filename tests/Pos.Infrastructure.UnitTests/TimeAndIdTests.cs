@@ -62,7 +62,7 @@ public class LicenseRestrictionBehaviorTests
 
     private sealed class Gate(bool restricted) : ILicenseGate
     {
-        public LicenseGateState Current { get; } = new(restricted, false, restricted ? "Licencia vencida." : null);
+        public LicenseGateState Current { get; } = new(Restricted: restricted, Demo: false, Reason: restricted ? "Licencia vencida." : null);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class LicenseRestrictionBehaviorTests
 
     private sealed class WindowGate(bool closed) : ILicenseGate
     {
-        public LicenseGateState Current { get; } = new(true, false, "Licencia vencida.", closed);
+        public LicenseGateState Current { get; } = new(Restricted: true, Demo: false, Reason: "Licencia vencida.", SalesWindowClosed: closed);
     }
 
     [Fact]
@@ -109,6 +109,53 @@ public class LicenseRestrictionBehaviorTests
 
         // Cerrar la jornada (permitido sin ventana) sigue pasando.
         (await new LicenseRestrictionBehavior<SaleCommand, Result>(new WindowGate(true)).Handle(new SaleCommand(), Next, ct)).IsSuccess.ShouldBeTrue();
+    }
+
+    private sealed record OpenCommand : ICommand, IRestrictedSessionOpening;
+
+    private sealed class StateGate(LicenseGateState state) : ILicenseGate
+    {
+        public LicenseGateState Current { get; } = state;
+    }
+
+    /// <summary>
+    /// Integración 1.2.0: abrir jornada con la licencia restringida solo si la restricción es recuperable (estado alterado o archivo
+    /// ilegible) y dentro de la ventana de 24 h; sin restricción, siempre.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false, false, true, null)]
+    [InlineData(true, true, false, true, null)]
+    [InlineData(true, true, true, false, "LICENSE.RESTRICTED")]
+    [InlineData(true, false, false, false, "LICENSE.RESTRICTED")]
+    [InlineData(true, false, true, false, "LICENSE.RESTRICTED")]
+    public async Task Abrir_jornada_solo_con_restriccion_recuperable_y_dentro_de_la_ventana(
+        bool restricted, bool allowsOpening, bool windowClosed, bool passes, string? code)
+    {
+        var calls = 0;
+        Task<Result> Next()
+        {
+            calls++;
+            return Task.FromResult(Result.Success());
+        }
+
+        var gate = new StateGate(new LicenseGateState(
+            Restricted: restricted, Demo: false, Reason: restricted ? "Licencia restringida." : null, SalesWindowClosed: windowClosed,
+            AllowsOpeningSessions: allowsOpening));
+        var result = await new LicenseRestrictionBehavior<OpenCommand, Result>(gate).Handle(new OpenCommand(), Next, TestContext.Current.CancellationToken);
+
+        result.IsSuccess.ShouldBe(passes);
+        calls.ShouldBe(passes ? 1 : 0);
+        if (code is not null)
+        {
+            result.Error.Code.ShouldBe(code);
+        }
+
+        // AllowsOpeningSessions no abre la administración: un comando sin marca sigue bloqueado.
+        if (restricted)
+        {
+            (await new LicenseRestrictionBehavior<AdminCommand, Result>(gate).Handle(new AdminCommand(), Next, TestContext.Current.CancellationToken))
+                .IsSuccess.ShouldBeFalse();
+        }
     }
 }
 

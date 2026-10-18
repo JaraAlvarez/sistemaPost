@@ -250,6 +250,16 @@ docker image prune -f
 paquetes `POSSYNC1`), pero una tienda nueva puede depender de la nube nueva (p. ej. paquetes `POSSYNC2` firmados, cabeceras de la clave de
 firma). Actualice el contenedor, verifique `/health` y el portal, y solo entonces publique el manifiesto de la versión de las tiendas (§16).
 
+**Para la 1.2.0 de las tiendas:** la nube en producción está en la migración `V2026.10.009`. Antes de instalar la 1.2.0 en cualquier
+tienda, despliegue la nube nueva: aplica `V2026.10.010` a `V2026.10.015` sobre la 009 (solicitudes del instalador "Continuar con Google",
+tipo de negocio, código del instalador, claves de firma de las tiendas, endurecimiento de pagos y limpieza de sync). Compruebe en
+`system.schema_migrations` de la nube que la 015 quedó aplicada y que `/health` y el portal responden. Recién entonces instale la 1.2.0 en
+las tiendas, con el instalador (las tiendas en 1.0.x o 1.1.0 no se actualizan con el manifiesto; ver docs/notas-de-version.md).
+
+Nota: el encabezado de `V2026.10.011__licensing__business_profile.sql` dice por error "V2026.10.010". Es solo el comentario: la versión
+que se registra sale del nombre del archivo (011). El archivo NO se corrige, porque cambiaría su checksum y el migrador rechazaría las
+bases (de desarrollo y de producción) que ya lo aplicaron.
+
 Las migraciones son solo hacia adelante: para volver atrás, restaure el respaldo previo con la versión anterior del código
 (`git checkout <tag>`, `docker compose build`, `restore.sh`). Actualice PostgreSQL y Caddy con `docker compose pull && docker compose up -d`
 (solo versiones menores de PostgreSQL 18; un cambio de versión mayor se hace con volcado y restauración).

@@ -263,6 +263,112 @@ public sealed class LicenseHardeningTests : IDisposable
         (gate.Current.Restricted, gate.Current.SalesWindowClosed).ShouldBe((true, false));
     }
 
+    // ------------------------------------------------------------------------------------------------ Integración 1.2.0: abrir jornada
+
+    private const string VaultMessage = "No se pudo leer el archivo de la licencia; reinicie el servicio.";
+
+    /// <summary>
+    /// Con el archivo ilegible solo es recuperable (se puede abrir caja) si todo lo demás daría vigente, gracia o demo vigente; cualquier
+    /// otra restricción manda su motivo y no abre.
+    /// </summary>
+    [Fact]
+    public void Con_el_archivo_ilegible_solo_se_abre_caja_si_lo_demas_esta_vigente()
+    {
+        var valid = Evaluate(Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { VaultUnavailable = VaultMessage }, Today);
+        (valid.State, valid.Recoverable).ShouldBe((LicenseStates.Restricted, true));
+        valid.Reason.ShouldBe(VaultMessage);
+
+        var demo = Evaluate(Record(token: null) with { VaultUnavailable = VaultMessage }, Installed.AddDays(3));
+        (demo.State, demo.Recoverable).ShouldBe((LicenseStates.Restricted, true));
+
+        // Demo vencida + archivo ilegible: no abre.
+        var demoEnded = Evaluate(Record(token: null) with { VaultUnavailable = VaultMessage }, Installed.AddDays(31));
+        (demoEnded.State, demoEnded.Recoverable).ShouldBe((LicenseStates.Restricted, false));
+        demoEnded.Reason.ShouldContain("Terminó la demostración");
+
+        // Suspendida + archivo ilegible: no abre (aunque además figure alterada: sin el archivo eso no se puede juzgar).
+        var suspended = Evaluate(
+            Record(Token(SubscriptionStatuses.Suspended, issuedAt: Today), lastCheckin: Today, maxObserved: Today)
+                with { VaultUnavailable = VaultMessage, Tampered = true },
+            Today);
+        (suspended.State, suspended.Recoverable).ShouldBe((LicenseStates.Restricted, false));
+        suspended.Reason.ShouldContain("suspendida");
+
+        // Revocada o liberada + archivo ilegible: tampoco.
+        Evaluate(Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { VaultUnavailable = VaultMessage, Revoked = true }, Today)
+            .Recoverable.ShouldBeFalse();
+        Evaluate(Record(token: null) with { VaultUnavailable = VaultMessage, Deactivated = true }, Installed.AddDays(3)).Recoverable.ShouldBeFalse();
+    }
+
+    public static TheoryData<string> NoRecuperables => ["SUSPENDIDA", "VENCIDA", "DEMO_TERMINADA", "RELOJ_ATRASADO", "DESACTIVADA"];
+
+    /// <summary>Con licencia suspendida, vencida, demo terminada, reloj atrasado o equipo liberado no se puede abrir caja.</summary>
+    [Theory]
+    [MemberData(nameof(NoRecuperables))]
+    public void Con_una_restriccion_que_no_es_recuperable_no_se_abre_caja(string caso)
+    {
+        var (record, now) = caso switch
+        {
+            "SUSPENDIDA" => (Record(Token(SubscriptionStatuses.Suspended, issuedAt: Today), lastCheckin: Today, maxObserved: Today), Today),
+            "VENCIDA" => (Record(Token(SubscriptionStatuses.Expired, issuedAt: Today), lastCheckin: Today, maxObserved: Today), Today),
+            "DEMO_TERMINADA" => (Record(token: null), Installed.AddDays(31)),
+            "RELOJ_ATRASADO" => (Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today.AddDays(3)), Today),
+            _ => (Record(token: null) with { Deactivated = true }, Installed.AddDays(3)),
+        };
+        var evaluation = Evaluate(record, now);
+        evaluation.State.ShouldBe(LicenseStates.Restricted);
+        evaluation.Recoverable.ShouldBeFalse();
+
+        var cache = new LicenseStateCache(new MonotonicTime());
+        cache.Update(evaluation, recoverableRestriction: evaluation.Recoverable);
+        var gate = ((ILicenseGate)cache).Current;
+        (gate.Restricted, gate.AllowsOpeningSessions).ShouldBe((true, false));
+    }
+
+    /// <summary>Con el archivo ilegible restricted_since no puede ser posterior al arranque del proceso (reloj monótono).</summary>
+    [Fact]
+    public async Task Con_el_archivo_ilegible_la_ventana_no_se_alarga_borrando_restricted_since()
+    {
+        var time = new MonotonicTime();
+        var cache = new LicenseStateCache(time);
+        _store.Record = Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { VaultUnavailable = VaultMessage };
+        var service = new LicenseService(
+            _store, _cloud, new FakeDevice(), new FakeKeys(new LicenseKeyRing([_key.PublicKey])), cache, new FakeInstallation(), new NullAudit(),
+            new NullAnchor(), _clock);
+
+        // El proceso lleva 20 h arriba: la ventana cuenta desde el arranque, no desde ahora.
+        time.Advance(TimeSpan.FromHours(20));
+        await service.RefreshAsync(persist: true, Ct);
+        _store.Record.RestrictedSince.ShouldBe(Today.AddHours(-20));
+        ((ILicenseGate)cache).Current.AllowsOpeningSessions.ShouldBeTrue();
+
+        // Borrar la fecha de la fila (o adelantarla) no la mueve.
+        _store.Record = _store.Record with { RestrictedSince = null };
+        await service.RefreshAsync(persist: true, Ct);
+        _store.Record.RestrictedSince.ShouldBe(Today.AddHours(-20));
+        _store.Record = _store.Record with { RestrictedSince = Today };
+        _clock.UtcNow = Today.AddHours(5);
+        time.Advance(TimeSpan.FromHours(5));
+        await service.RefreshAsync(persist: true, Ct);
+        _store.Record.RestrictedSince.ShouldBe(Today.AddHours(-20));
+        var gate = ((ILicenseGate)cache).Current;
+        (gate.SalesWindowClosed, gate.AllowsOpeningSessions).ShouldBe((true, true));
+    }
+
+    [Fact]
+    public void Sin_calculo_reciente_no_se_abren_jornadas()
+    {
+        var time = new MonotonicTime();
+        var cache = new LicenseStateCache(time);
+        var tampered = Evaluate(Record(Token(issuedAt: Today), lastCheckin: Today, maxObserved: Today) with { Tampered = true }, Today);
+        cache.Update(tampered, recoverableRestriction: tampered.Recoverable);
+        ((ILicenseGate)cache).Current.AllowsOpeningSessions.ShouldBeTrue();
+
+        time.Advance(TimeSpan.FromHours(2));
+        var stale = ((ILicenseGate)cache).Current;
+        (stale.Restricted, stale.Reason, stale.AllowsOpeningSessions).ShouldBe((true, LicenseStateCache.StaleReason, false));
+    }
+
     [Fact]
     public void Si_el_calculo_falla_mas_de_una_hora_el_filtro_restringe()
     {

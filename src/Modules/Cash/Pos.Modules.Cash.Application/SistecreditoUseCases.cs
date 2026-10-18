@@ -323,7 +323,8 @@ internal sealed class SaveSistecreditoSettingsHandler(
 }
 
 /// <summary>Apaga Sistecrédito (las llaves se conservan cifradas) e inactiva su medio de pago.</summary>
-public sealed record DisableSistecreditoCommand : ICommand<SistecreditoSettingsDto>;
+/// <remarks>Permitido con la licencia restringida (R10): apagar un medio de pago nunca abre una venta.</remarks>
+public sealed record DisableSistecreditoCommand : ICommand<SistecreditoSettingsDto>, IAllowedWhenRestricted;
 
 internal sealed class DisableSistecreditoHandler(ISistecreditoStore store, SistecreditoSettingsViews views, IInstallationContext installation, IAuditWriter audit)
     : ICommandHandler<DisableSistecreditoCommand, SistecreditoSettingsDto>
@@ -853,7 +854,8 @@ internal sealed class ListSistecreditoPaymentsHandler(ISistecreditoStore store) 
 }
 
 /// <summary>La administración cierra un caso "Requiere revisión" con una nota (p. ej. "Reversado en el portal de Sistecrédito").</summary>
-public sealed record ResolveSistecreditoReviewCommand(Guid AttemptId, string Note) : ICommand<SistecreditoPaymentDto>;
+/// <remarks>Permitido con la licencia restringida (R10): resolver un pago en revisión es cerrar lo ya vendido.</remarks>
+public sealed record ResolveSistecreditoReviewCommand(Guid AttemptId, string Note) : ICommand<SistecreditoPaymentDto>, IAllowedWhenRestricted;
 
 internal sealed class ResolveSistecreditoReviewHandler(ISistecreditoStore store, IActorContext actor, IAuditWriter audit, IClock clock)
     : ICommandHandler<ResolveSistecreditoReviewCommand, SistecreditoPaymentDto>
