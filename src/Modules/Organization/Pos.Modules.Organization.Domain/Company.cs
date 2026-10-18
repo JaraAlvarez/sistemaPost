@@ -46,6 +46,16 @@ public sealed class Company : AggregateRoot<Guid>, ISyncVersioned, IHasAuditLabe
 {
     public const string NitType = "NIT";
 
+    /// <summary>
+    /// NIT provisional (DV 0) con el que el instalador premium crea la empresa en la prueba, sin preguntar los datos de la empresa
+    /// (instalador 1.2.1). Mientras la empresa lo tenga, el NIT SÍ se puede cambiar en Configuración (es el único caso) y el Tablero pide
+    /// completar los datos.
+    /// </summary>
+    public const string ProvisionalNit = "0";
+
+    /// <summary>Dirección provisional del instalador premium: la empresa tiene datos por completar.</summary>
+    public const string ProvisionalAddress = "Por completar";
+
     private readonly List<FiscalResponsibility> _fiscalResponsibilities = [];
 
     private Company(Guid id)
@@ -125,8 +135,17 @@ public sealed class Company : AggregateRoot<Guid>, ISyncVersioned, IHasAuditLabe
         EnabledFeatures = BusinessProfiles.Format(features);
     }
 
-    /// <summary>Actualiza los datos. La identificación (tipo, número y DV) no se cambia: define a la empresa.</summary>
-    public Result Update(CompanyData data) => Apply(data, identityChangeAllowed: false);
+    /// <summary>¿La identificación es la provisional del instalador (se puede cambiar una vez por la real)?</summary>
+    public bool HasProvisionalIdentification => IdentificationType == NitType && IdentificationNumber == ProvisionalNit;
+
+    /// <summary>¿Faltan datos de la empresa (NIT o dirección provisionales)? Son necesarios para facturar.</summary>
+    public bool DataPending => HasProvisionalIdentification || string.Equals(Address, ProvisionalAddress, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Actualiza los datos. La identificación (tipo, número y DV) no se cambia: define a la empresa. Excepción: la provisional del
+    /// instalador, que se reemplaza por la real (con ella no se han emitido facturas electrónicas: falta la habilitación con la DIAN).
+    /// </summary>
+    public Result Update(CompanyData data) => Apply(data, identityChangeAllowed: HasProvisionalIdentification);
 
     private Result Apply(CompanyData data, bool identityChangeAllowed)
     {

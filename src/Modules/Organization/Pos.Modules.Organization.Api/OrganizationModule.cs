@@ -33,6 +33,7 @@ public sealed class OrganizationModule : IModule
         OrganizationInfrastructureRegistration.Register(services);
         services.AddScoped<IOrganizationQueries, OrganizationQueries>();
         services.AddScoped<IBusinessFeatures, BusinessFeaturesReader>();
+        services.AddScoped<IProvisionalCompany, Application.Business.ProvisionalCompany>();
         services.AddSingleton<ISettingDefinitionProvider, GeneralSettingsProvider>();
         services.AddSingleton<IPermissionCatalogProvider, OrganizationPermissionCatalog>();
         services.AddScoped<ICompanyInitializer, DocumentSeriesInitializer>();

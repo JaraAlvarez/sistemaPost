@@ -550,6 +550,9 @@ public sealed class LicenseHardeningTests : IDisposable
         /// <summary>Huella con la que responde la nube (otra = respuesta de otro equipo).</summary>
         public string? DemoFingerprint { get; set; }
 
+        public Task<(OwnerLinkResponse? Link, string? Code, string? Message)> OwnerLinkAsync(OwnerLinkRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<(OwnerLinkResponse?, string?, string?)>((null, null, null));
+
         public Task<DemoDeviceResponse?> RegisterDemoAsync(DemoDeviceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(DemoStartedAt is { } start
                 ? new DemoDeviceResponse(DemoToken.Sign(new DemoClaims

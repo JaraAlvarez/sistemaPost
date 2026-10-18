@@ -25,7 +25,6 @@ public sealed record SolicitudInstalacion(
 internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisposable
 {
     private readonly ServidorLocal _servidor = new();
-    private string? _codigo;
 
     public string? Registro { get; private set; }
 
@@ -146,9 +145,33 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
         await ConfigurarAsync(solicitud, cancellationToken);
     }
 
-    /// <summary>Paso 6 en la página: la tienda queda configurada y se muestra el código de recuperación.</summary>
+    /// <summary>
+    /// Solicitud con la que se configura la tienda (el paquete ya quedó instalado). Si la configuración falla, la página la reintenta con
+    /// <see cref="ReintentarConfiguracionAsync"/> sin reinstalar nada (antes el dueño terminaba en "No pudimos terminar" y, al abrir
+    /// BusinessPost, el asistente web le pedía todo otra vez).
+    /// </summary>
+    public SolicitudInstalacion? Pendiente { get; private set; }
+
+    /// <summary>Reintenta solo la configuración de la tienda (el paquete ya quedó instalado).</summary>
+    public Task ReintentarConfiguracionAsync(CancellationToken cancellationToken)
+    {
+        if (Pendiente is not { } pendiente)
+        {
+            Fallo("No hay una configuración pendiente.", Registro);
+            return Task.CompletedTask;
+        }
+
+        return ConfigurarAsync(pendiente, cancellationToken);
+    }
+
+    /// <summary>
+    /// Paso "Configurando tu negocio" (instalador 1.2.1): la tienda queda configurada como SUPERMERCADO con datos provisionales de la
+    /// empresa, la sucursal "Principal" y la "Caja 1", SIN Propietario y en prueba. El primer ingreso a BusinessPost crea al Propietario
+    /// con la cuenta del portal (y activa la licencia si la tiene); los datos de la empresa se completan en Configuración.
+    /// </summary>
     private async Task ConfigurarAsync(SolicitudInstalacion solicitud, CancellationToken cancellationToken)
     {
+        Pendiente = solicitud;
         avisar(new { evento = "progreso", etapa = (int)Etapa.ConfigurandoNegocio, porcentaje = 90, nota = "Dejando lista tu tienda…" });
         // /health/ready (no /health/live): en una actualización el servidor responde enseguida, pero con 503 mientras migra la base.
         var espera = await _servidor.EsperarListoAsync(TimeSpan.FromMinutes(20),
@@ -156,89 +179,41 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
             null, cancellationToken);
         if (espera != EsperaServidor.Listo)
         {
-            Fallo(espera == EsperaServidor.SinBaseDeDatos
-                ? "BusinessPost quedó instalado, pero la base de datos todavía no está lista. Espera unos minutos y abre BusinessPost; si sigue " +
-                  "sin abrir, reinicia el computador o comunícate con soporte y comparte el registro."
-                : "BusinessPost quedó instalado, pero todavía no responde en este equipo. Reinicia el computador y abre BusinessPost: el " +
-                  "asistente te pedirá los datos de tu negocio.", Registro);
+            FalloReintentable(espera == EsperaServidor.SinBaseDeDatos
+                ? "BusinessPost quedó instalado, pero la base de datos todavía no está lista. Espera unos minutos y pulsa Reintentar; si sigue " +
+                  "igual, reinicia el computador o comunícate con soporte y comparte el registro."
+                : "BusinessPost quedó instalado, pero todavía no responde en este equipo. Espera unos minutos y pulsa Reintentar (o reinicia el " +
+                  "computador y vuelve a abrir el instalador).", Registro);
             return;
         }
 
         var configurado = await _servidor.ConfiguradoAsync(cancellationToken);
         if (!configurado.Ok)
         {
-            Fallo($"BusinessPost quedó instalado, pero no pudimos revisar si la tienda ya estaba configurada ({configurado.Mensaje}). Abre " +
-                  "BusinessPost en unos minutos: si falta, el asistente te pedirá los datos de tu negocio.", Registro);
+            FalloReintentable($"BusinessPost quedó instalado, pero no pudimos revisar si la tienda ya estaba configurada ({configurado.Mensaje}).", Registro);
             return;
         }
 
         if (configurado.Dato)
         {
             // Reinstalación sobre los datos conservados: la tienda ya estaba configurada.
+            Pendiente = null;
             Terminar(solicitud, "Tu tienda ya estaba configurada en este equipo: conservamos tus datos, usuarios y licencia.", licenciaActiva: null);
             return;
         }
 
-        var configurada = await _servidor.ConfigurarAsync(solicitud.Negocio!, solicitud.Propietario!, cancellationToken);
+        var configurada = await _servidor.ConfigurarAsync(solicitud.Negocio!, null, cancellationToken);
         if (!configurada.Ok)
         {
-            Fallo($"No pudimos guardar los datos de tu negocio: {configurada.Mensaje}", Registro);
+            FalloReintentable($"No pudimos dejar lista tu tienda: {configurada.Mensaje}", Registro);
             return;
         }
 
-        avisar(new { evento = "progreso", etapa = (int)Etapa.ConfigurandoNegocio, porcentaje = 94, nota = "Activando tu licencia…" });
-        var entrada = await _servidor.EntrarAsync(solicitud.Propietario!.Usuario.Trim().ToLowerInvariant(), solicitud.Propietario.Contrasena, cancellationToken);
-        if (!entrada.Ok)
-        {
-            Fallo($"La tienda quedó configurada, pero no pudimos entrar con tu usuario: {entrada.Mensaje}", Registro);
-            return;
-        }
-
-        string? avisoLicencia = null;
-        bool? licenciaActiva = null;
-        if (!string.IsNullOrWhiteSpace(solicitud.Clave))
-        {
-            var activada = await _servidor.ActivarLicenciaAsync(solicitud.Clave, cancellationToken);
-            licenciaActiva = activada.Ok;
-            avisoLicencia = activada.Ok ? null
-                : $"La licencia no se pudo activar ahora ({activada.Mensaje}). BusinessPost funciona en prueba; actívala luego en Administración → Licencia.";
-        }
-
-        var codigo = await _servidor.GenerarCodigoAsync(cancellationToken);
-        if (!codigo.Ok)
-        {
-            Terminar(solicitud, $"No pudimos crear el código de recuperación de los backups ({codigo.Mensaje}). Créalo en Administración → Backups.", licenciaActiva);
-            return;
-        }
-
-        _codigo = codigo.Dato;
-        _ultimaSolicitud = solicitud;
-        _licenciaActiva = licenciaActiva;
-        avisar(new { evento = "codigo", codigo = codigo.Dato, aviso = avisoLicencia, porcentaje = 98 });
+        Pendiente = null;
+        Terminar(solicitud, null, licenciaActiva: null);
     }
 
-    private SolicitudInstalacion? _ultimaSolicitud;
     private IReadOnlyList<string> _avisosPaquete = [];
-    private bool? _licenciaActiva;
-
-    /// <summary>El dueño confirmó que guardó el código: se confirma en el servidor y termina.</summary>
-    public async Task<string?> ConfirmarCodigoAsync(CancellationToken cancellationToken)
-    {
-        if (_codigo is null || _ultimaSolicitud is null)
-        {
-            return "No hay un código pendiente.";
-        }
-
-        var confirmado = await _servidor.ConfirmarCodigoAsync(_codigo, cancellationToken);
-        if (!confirmado.Ok)
-        {
-            return confirmado.Mensaje;
-        }
-
-        _codigo = null;
-        Terminar(_ultimaSolicitud, null, _licenciaActiva);
-        return null;
-    }
 
     private void Terminar(SolicitudInstalacion solicitud, string? aviso, bool? licenciaActiva) =>
         avisar(new
@@ -254,6 +229,9 @@ internal sealed class Instalacion(string paquete, Action<object> avisar) : IDisp
     public void Dispose() => _servidor.Dispose();
 
     private void Fallo(string mensaje, string? registro) => avisar(new { evento = "error", mensaje, registro });
+
+    /// <summary>El paquete ya se instaló: la página ofrece "Reintentar" (solo la configuración) en vez de mandar al asistente web.</summary>
+    private void FalloReintentable(string mensaje, string? registro) => avisar(new { evento = "error", mensaje, registro, reintentar = true });
 
     private void Avanzar(RegistroInno lector) =>
         avisar(new

@@ -148,6 +148,9 @@ public interface ILicenseCloud
 
     /// <summary>Registro de la demo por equipo; <c>null</c> si no hubo respuesta válida (sin conexión, error).</summary>
     Task<DemoDeviceResponse?> RegisterDemoAsync(DemoDeviceRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Enlace firmado del propietario (cuenta del portal). Sin conexión: todo <c>null</c>; con rechazo: el código y el mensaje.</summary>
+    Task<(OwnerLinkResponse? Link, string? Code, string? Message)> OwnerLinkAsync(OwnerLinkRequest request, CancellationToken cancellationToken);
 }
 
 /// <summary>Identidad de este equipo (D12B-05) y versión del POS.</summary>
@@ -343,9 +346,15 @@ public sealed class LicenseService(
             ? ToDto(current.Evaluation, current.Record)
             : Result.Failure<LicenseStatusDto>(LicenseErrors.SetupRequired);
 
-    public async Task<Result<LicenseStatusDto>> ActivateAsync(string licenseKey, CancellationToken cancellationToken)
+    /// <summary>
+    /// Activa con la clave o, sin ella, con el enlace firmado del propietario (primer ingreso con la cuenta del portal cuya empresa tiene
+    /// licencia, instalador 1.2.1): la nube activa esa licencia sin que el dueño escriba la clave.
+    /// </summary>
+    public async Task<Result<LicenseStatusDto>> ActivateAsync(string? licenseKey, CancellationToken cancellationToken, string? ownerLinkToken = null)
     {
-        if (!LicenseKey.TryNormalize(licenseKey, out var key))
+        var key = string.Empty;
+        var conEnlace = string.IsNullOrWhiteSpace(licenseKey) && !string.IsNullOrWhiteSpace(ownerLinkToken);
+        if (!conEnlace && !LicenseKey.TryNormalize(licenseKey, out key))
         {
             return Result.Failure<LicenseStatusDto>(LicenseErrors.KeyFormat);
         }
@@ -368,7 +377,7 @@ public sealed class LicenseService(
         var started = clock.UtcNow;
         var result = await cloud.ActivateAsync(
             new ActivationRequest(key, installation.NodeId, fingerprint.ToString(), LocalDeviceRole, device.AppVersion, site.OrganizationNit,
-                site.BranchName, device.DeviceName, device.OperatingSystem, site.BusinessProfile),
+                site.BranchName, device.DeviceName, device.OperatingSystem, site.BusinessProfile, conEnlace ? ownerLinkToken : null),
             cancellationToken);
         await RecordAsync("ACTIVATION", started, result, cancellationToken);
         if (result.Response is not { } response)
@@ -381,12 +390,13 @@ public sealed class LicenseService(
             return Result.Failure<LicenseStatusDto>(LicenseErrors.TokenRejected);
         }
 
+        var prefix = conEnlace ? response.KeyPrefix ?? "POS" : LicenseKey.VisiblePrefix(key);
         await store.SaveTokenAsync(
-            response.Token, LicenseKey.VisiblePrefix(key), claims.IssuedAt, activation: true, Offset(claims), LicensePaymentLink.Normalize(response.PaymentUrl),
+            response.Token, prefix, claims.IssuedAt, activation: true, Offset(claims), LicensePaymentLink.Normalize(response.PaymentUrl),
             TrustedNow(claims), cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("licensing", "LICENSE_ACTIVATED", "License", installation.NodeId, "Licencia",
-                $"Licencia {LicenseKey.VisiblePrefix(key)}… activada: {claims.OrganizationName} ({claims.OrganizationNit}), edición {claims.Edition}, vigente hasta {claims.ValidUntil:yyyy-MM-dd}."),
+                $"Licencia {prefix}… activada{(conEnlace ? " con la cuenta del portal del propietario" : string.Empty)}: {claims.OrganizationName} ({claims.OrganizationNit}), edición {claims.Edition}, vigente hasta {claims.ValidUntil:yyyy-MM-dd}."),
             cancellationToken);
         return await StatusAsync(cancellationToken);
     }
@@ -593,18 +603,67 @@ internal sealed class ListLicenseCheckinsHandler(LicenseService service) : IQuer
         Result.Success(await service.ListCheckinsAsync(query.Limit, cancellationToken));
 }
 
-/// <summary>Activa la licencia con la clave (solo el propietario, D12B-01).</summary>
-public sealed record ActivateLicenseCommand(string LicenseKey) : ICommand<LicenseStatusDto>, IAllowedWhenRestricted;
+/// <summary>
+/// Activa la licencia con la clave (solo el propietario, D12B-01) o, sin clave, con el enlace firmado del propietario que entregó la nube
+/// en el primer ingreso con la cuenta del portal (<c>OwnerLinkToken</c>).
+/// </summary>
+public sealed record ActivateLicenseCommand(string? LicenseKey, string? OwnerLinkToken = null) : ICommand<LicenseStatusDto>, IAllowedWhenRestricted;
 
 internal sealed class ActivateLicenseValidator : AbstractValidator<ActivateLicenseCommand>
 {
-    public ActivateLicenseValidator() => RuleFor(x => x.LicenseKey).NotEmpty().MaximumLength(60);
+    public ActivateLicenseValidator()
+    {
+        RuleFor(x => x.LicenseKey).NotEmpty().MaximumLength(60).When(x => string.IsNullOrWhiteSpace(x.OwnerLinkToken));
+        RuleFor(x => x.OwnerLinkToken).MaximumLength(LicenseToken.MaxLength);
+    }
 }
 
 internal sealed class ActivateLicenseHandler(LicenseService service) : ICommandHandler<ActivateLicenseCommand, LicenseStatusDto>
 {
     public Task<Result<LicenseStatusDto>> Handle(ActivateLicenseCommand command, CancellationToken cancellationToken) =>
-        service.ActivateAsync(command.LicenseKey, cancellationToken);
+        service.ActivateAsync(command.LicenseKey, cancellationToken, command.OwnerLinkToken);
+}
+
+/// <summary>
+/// Primer ingreso a una tienda sin Propietario (instalador premium 1.2.1): pide a la nube el enlace firmado del propietario con el
+/// correo y la contraseña del portal (y la clave, si el dueño la escribió). Solo desde este equipo y solo mientras no haya Propietario
+/// (lo revisa el endpoint). Con el enlace la página crea al Propietario (POST /api/v1/setup/owner) y, si la empresa tiene licencia,
+/// la activa (POST /api/v1/license/activate con el enlace).
+/// </summary>
+public sealed record RequestOwnerLinkCommand(string Email, string Password, string? TotpCode, string? LicenseKey)
+    : ICommand<OwnerLinkResponse>, IAllowedWhenRestricted;
+
+internal sealed class RequestOwnerLinkValidator : AbstractValidator<RequestOwnerLinkCommand>
+{
+    public RequestOwnerLinkValidator()
+    {
+        RuleFor(x => x.Email).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Password).NotEmpty().MaximumLength(128);
+        RuleFor(x => x.TotpCode).MaximumLength(10);
+        RuleFor(x => x.LicenseKey).MaximumLength(60);
+    }
+}
+
+internal sealed class RequestOwnerLinkHandler(ILicenseCloud cloud) : ICommandHandler<RequestOwnerLinkCommand, OwnerLinkResponse>
+{
+    public async Task<Result<OwnerLinkResponse>> Handle(RequestOwnerLinkCommand command, CancellationToken cancellationToken)
+    {
+        if (!cloud.IsConfigured)
+        {
+            return Result.Failure<OwnerLinkResponse>(LicenseErrors.NotConfigured);
+        }
+
+        var (link, code, message) = await cloud.OwnerLinkAsync(
+            new OwnerLinkRequest(string.IsNullOrWhiteSpace(command.LicenseKey) ? null : command.LicenseKey.Trim(), command.Email.Trim(), command.Password,
+                string.IsNullOrWhiteSpace(command.TotpCode) ? null : command.TotpCode.Trim()),
+            cancellationToken);
+        if (link is not null)
+        {
+            return link;
+        }
+
+        return Result.Failure<OwnerLinkResponse>(code is null ? LicenseErrors.Unreachable : LicenseErrors.FromCloud(code, message));
+    }
 }
 
 /// <summary>Verifica ahora con el servidor (<c>MANUAL</c>) o el check-in programado (<c>SCHEDULED</c>).</summary>

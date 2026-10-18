@@ -39,12 +39,14 @@ public sealed record TerminalInput(string Code, string Name);
 /// Asistente de configuración inicial (docs/fases/fase-02-propuesta.md §8). Disponible solo mientras la instalación no
 /// esté configurada. Todo en UNA transacción auditada. <c>BusinessProfile</c> (Fase 7-C parte A): tipo de negocio
 /// (SUPERMARKET, FRESH_MARKET, PHARMACY, APPAREL, HARDWARE u OTHER); si no viene (instaladores anteriores) se usa SUPERMARKET. Enciende
-/// las funciones de ese tipo y siembra categorías de ejemplo si el catálogo está vacío.
+/// las funciones de ese tipo y siembra categorías de ejemplo si el catálogo está vacío. <c>Owner</c> opcional (instalador premium 1.2.1):
+/// sin él la tienda queda configurada y SIN Propietario; el primer ingreso con la cuenta del portal (o con la clave) lo crea
+/// (POST /api/v1/setup/owner, solo desde este equipo).
 /// </summary>
 public sealed record SetupCommand(
     CompanyInput Company,
     BranchInput Branch,
-    OwnerInput Owner,
+    OwnerInput? Owner,
     TerminalInput? Terminal = null,
     SetupMode Mode = SetupMode.NewCompany,
     string? BusinessProfile = null) : ICommand<SetupResultDto>, IAllowedWhenRestricted;
@@ -55,10 +57,9 @@ internal sealed class SetupCommandValidator : AbstractValidator<SetupCommand>
     {
         RuleFor(x => x.Company).NotNull().SetValidator(new CompanyInputValidator());
         RuleFor(x => x.Branch).NotNull().SetValidator(new BranchInputValidator());
-        RuleFor(x => x.Owner).NotNull();
-        RuleFor(x => x.Owner.Username).NotEmpty().MaximumLength(120).When(x => x.Owner is not null);
-        RuleFor(x => x.Owner.DisplayName).NotEmpty().MaximumLength(120).When(x => x.Owner is not null);
-        RuleFor(x => x.Owner.Password).NotEmpty().When(x => x.Owner is not null);
+        RuleFor(x => x.Owner!.Username).NotEmpty().MaximumLength(120).When(x => x.Owner is not null);
+        RuleFor(x => x.Owner!.DisplayName).NotEmpty().MaximumLength(120).When(x => x.Owner is not null);
+        RuleFor(x => x.Owner!.Password).NotEmpty().When(x => x.Owner is not null);
         RuleFor(x => x.Terminal!.Code).Matches("^[A-Z0-9]{2,6}$").When(x => x.Terminal is not null);
         RuleFor(x => x.Terminal!.Name).NotEmpty().MaximumLength(60).When(x => x.Terminal is not null);
         RuleFor(x => x.BusinessProfile).Must(p => BusinessProfiles.TryParseProfile(p, out _)).When(x => !string.IsNullOrWhiteSpace(x.BusinessProfile))
@@ -183,10 +184,16 @@ internal sealed class SetupCommandHandler(
         await unitOfWork.SaveChangesAsync(cancellationToken);
         // Fase 13-B (D13B-09): con la cuenta del portal, el enlace firmado debe ser de ESTA empresa (NIT con DV).
         var nit = input.IdentificationType == Company.NitType ? $"{input.IdentificationNumber.Trim()}-{input.CheckDigit?.Trim()}" : null;
-        var owner = await identity.CreateOwnerAsync(companyId, request.Owner, nit, cancellationToken);
-        if (owner.IsFailure)
+        var ownerId = Guid.Empty;
+        if (request.Owner is { } ownerInput)
         {
-            return owner.Error;
+            var owner = await identity.CreateOwnerAsync(companyId, ownerInput, nit, cancellationToken);
+            if (owner.IsFailure)
+            {
+                return owner.Error;
+            }
+
+            ownerId = owner.Value;
         }
 
         // Datos iniciales de los módulos (lista de precios, impuestos, motivos de ajuste…), en esta misma transacción.
@@ -223,7 +230,7 @@ internal sealed class SetupCommandHandler(
                 Severity: AuditSeverity.Warning),
             cancellationToken);
 
-        return new SetupResultDto(companyId, branchId, terminal.Value.Id, branch.Value.SalesFloor.Id, installation.NodeId, systemUserId, owner.Value, edition);
+        return new SetupResultDto(companyId, branchId, terminal.Value.Id, branch.Value.SalesFloor.Id, installation.NodeId, systemUserId, ownerId, edition);
     }
 }
 

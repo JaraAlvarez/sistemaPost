@@ -512,12 +512,16 @@ public sealed class UserMutations(IIdentityStore store, PrivilegeGuard guard, IC
 
 /// <summary>
 /// Crea el Propietario en una instalación configurada sin él (Fase 2). Solo desde el propio servidor y solo mientras
-/// no exista un Propietario activo.
+/// no exista un Propietario activo. Instalador premium 1.2.1: es el PRIMER INGRESO del dueño con su cuenta del portal
+/// (<c>PortalLinkToken</c>, enlace firmado por la nube). Si la empresa tiene los datos provisionales del instalador, toma el NIT, la
+/// razón social y el tipo de negocio de la empresa del portal (así la licencia se activa con el NIT correcto); si la cuenta aún no tiene
+/// empresa, el Propietario se crea igual y la tienda sigue en la prueba.
 /// </summary>
 public sealed record CreateOwnerCommand(OwnerInput Owner) : ICommand<Guid>, IAllowedWhenRestricted;
 
 internal sealed class CreateOwnerHandler(
-    IInstallationContext installation, IClientContext client, IIdentityProvisioning provisioning, IIdentityStore store)
+    IInstallationContext installation, IClientContext client, IIdentityProvisioning provisioning, IIdentityStore store,
+    Pos.Modules.Licensing.Contracts.IPortalOwnerLinkVerifier links, Pos.Modules.Organization.Contracts.IProvisionalCompany companies)
     : ICommandHandler<CreateOwnerCommand, Guid>
 {
     public async Task<Result<Guid>> Handle(CreateOwnerCommand request, CancellationToken cancellationToken)
@@ -537,6 +541,26 @@ internal sealed class CreateOwnerHandler(
             return IdentityErrors.OwnerAlreadyExists;
         }
 
-        return await provisioning.CreateOwnerAsync(companyId, request.Owner, cancellationToken: cancellationToken);
+        string? nit = null;
+        if (!string.IsNullOrWhiteSpace(request.Owner.PortalLinkToken) && links.Verify(request.Owner.PortalLinkToken) is { } link
+            && await companies.GetAsync(companyId, cancellationToken) is { } company)
+        {
+            nit = company.Nit;
+            if (company.Provisional)
+            {
+                // Empresa provisional: sin empresa en el portal no hay NIT que revisar; con empresa, la tienda toma sus datos.
+                nit = link.OrganizationNit;
+                if (link.OrganizationNit.Length > 0)
+                {
+                    var adopted = await companies.AdoptAsync(companyId, link.OrganizationNit, link.OrganizationName, link.BusinessProfile, cancellationToken);
+                    if (adopted.IsFailure)
+                    {
+                        return adopted.Error;
+                    }
+                }
+            }
+        }
+
+        return await provisioning.CreateOwnerAsync(companyId, request.Owner, nit, cancellationToken);
     }
 }

@@ -61,9 +61,29 @@ public sealed class LicensingModule : IModule
             .WithSummary("Historial de activaciones, verificaciones y liberaciones con el servidor de licencias");
 
         group.MapPost("/activate", async (ActivateLicenseRequest request, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new ActivateLicenseCommand(request.LicenseKey), ct)).ToHttpResult())
+                (await d.Send(new ActivateLicenseCommand(request.LicenseKey, request.OwnerLinkToken), ct)).ToHttpResult())
             .RequirePermission(LicensePermissions.Manage)
-            .WithSummary("Activa la licencia con la clave POS-XXXXX-XXXXX-XXXXX-XXXXX (requiere Internet)");
+            .WithSummary("Activa la licencia con la clave POS-XXXXX-XXXXX-XXXXX-XXXXX o con el enlace del propietario (requiere Internet)");
+
+        // Primer ingreso a una tienda sin Propietario (instalador premium 1.2.1): la cuenta del portal se valida en la nube.
+        api.MapPost("/setup/owner/portal-link", async (RequestOwnerLinkRequest request, IClientContext client, IOwnerSetupStatus owner, IDispatcher d,
+                CancellationToken ct) =>
+            {
+                if (!client.IsLocal || client.DeviceId is not null)
+                {
+                    return Error.Forbidden("IDENTITY.LOCAL_ONLY", "El primer ingreso se hace en el propio equipo de la tienda.").ToProblem();
+                }
+
+                if (!await owner.IsOwnerPendingAsync(ct))
+                {
+                    return Error.Conflict("IDENTITY.OWNER_ALREADY_EXISTS", "Esta tienda ya tiene Propietario: inicie sesión con su usuario.").ToProblem();
+                }
+
+                return (await d.Send(new RequestOwnerLinkCommand(request.Email, request.Password, request.TotpCode, request.LicenseKey), ct)).ToHttpResult();
+            })
+            .WithTags("Configuración inicial")
+            .AllowAnonymousByDesign("Solo desde el propio servidor y solo mientras no exista un Propietario activo (primer ingreso).")
+            .WithSummary("Valida la cuenta del portal del dueño en la nube y devuelve el enlace firmado para crear al Propietario");
 
         group.MapPost("/check", async (IDispatcher d, CancellationToken ct) => (await d.Send(new CheckLicenseNowCommand(), ct)).ToHttpResult())
             .RequirePermission(LicensePermissions.Check)
@@ -76,7 +96,9 @@ public sealed class LicensingModule : IModule
     }
 }
 
-public sealed record ActivateLicenseRequest(string LicenseKey);
+public sealed record ActivateLicenseRequest(string? LicenseKey, string? OwnerLinkToken = null);
+
+public sealed record RequestOwnerLinkRequest(string Email, string Password, string? TotpCode = null, string? LicenseKey = null);
 
 public sealed record DeactivateLicenseRequest(string? Reason);
 

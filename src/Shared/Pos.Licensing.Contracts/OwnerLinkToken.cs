@@ -29,9 +29,24 @@ public sealed record OwnerLinkClaims
     [JsonPropertyName("name")]
     public required string DisplayName { get; init; }
 
-    /// <summary>NIT de la empresa de la licencia con su DV: <c>900123456-7</c>.</summary>
+    /// <summary>NIT de la empresa de la licencia con su DV: <c>900123456-7</c>. Vacío si la cuenta del portal todavía no tiene empresa.</summary>
     [JsonPropertyName("org")]
     public required string OrganizationNit { get; init; }
+
+    /// <summary>Razón social de la empresa (opcional; los enlaces anteriores no la traen): la tienda la toma si tiene datos provisionales.</summary>
+    [JsonPropertyName("orgName")]
+    public string? OrganizationName { get; init; }
+
+    /// <summary>
+    /// Licencia vigente de la empresa (opcional): el POS se activa con este mismo enlace, sin escribir la clave (primer ingreso con la
+    /// cuenta del portal, instalador 1.2.1). Solo la nube lo lee; la tienda no lo usa.
+    /// </summary>
+    [JsonPropertyName("lic")]
+    public Guid? LicenseId { get; init; }
+
+    /// <summary>Tipo de negocio de la empresa en el portal (opcional): la tienda recién instalada lo aplica.</summary>
+    [JsonPropertyName("bp")]
+    public string? BusinessProfile { get; init; }
 
     [JsonPropertyName("iat")]
     public required DateTimeOffset IssuedAt { get; init; }

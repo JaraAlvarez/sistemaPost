@@ -229,6 +229,9 @@ public sealed class LicensePaymentLinkTests : IDisposable
         public Task<CloudResult> DeactivateAsync(DeactivationRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(CloudResult.Ok(null));
 
+        public Task<(OwnerLinkResponse? Link, string? Code, string? Message)> OwnerLinkAsync(OwnerLinkRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<(OwnerLinkResponse?, string?, string?)>((null, null, null));
+
         public Task<DemoDeviceResponse?> RegisterDemoAsync(DemoDeviceRequest request, CancellationToken cancellationToken) =>
             Task.FromResult<DemoDeviceResponse?>(null);
 

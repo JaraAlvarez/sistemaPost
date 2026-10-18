@@ -215,6 +215,8 @@ public class ArchitectureTests
             "Inventory.VerifyStockCommand",
             "Licensing.ActivateLicenseCommand", "Licensing.CheckLicenseNowCommand", "Licensing.DeactivateLicenseCommand", "Licensing.RefreshLicenseCommand",
             "Licensing.RegisterDemoDeviceCommand",
+            // Primer ingreso del dueño con la cuenta del portal (instalador 1.2.1): también con la prueba terminada.
+            "Licensing.RequestOwnerLinkCommand",
             "Organization.CreatePairingCodeCommand", "Organization.PairDeviceCommand", "Organization.RevokeDeviceCommand",
             "Organization.SetReceiptPrinterCommand", "Organization.SetTerminalScaleCommand", "Organization.SetTerminalScaleKeyCommand", "Organization.SetupCommand",
             "Reporting.ExportReportCommand",

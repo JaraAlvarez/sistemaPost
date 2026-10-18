@@ -184,7 +184,13 @@ public enum PortalCustomerCheck
 /// Usuario CLIENTE validado: correo (en minúsculas) y nombre para mostrar. <c>TotpRequired</c> (autorización en el navegador): el
 /// usuario debe escribir su código TOTP para autorizar (lo tiene activo o el portal lo exige), sin importar si entró con Google.
 /// </summary>
-public sealed record PortalCustomerVerification(PortalCustomerCheck Result, string? Email = null, string? DisplayName = null, bool TotpRequired = false);
+/// <param name="Result">Resultado de la verificación.</param>
+/// <param name="Email">Correo del usuario (si es válido).</param>
+/// <param name="DisplayName">Nombre del usuario (si es válido).</param>
+/// <param name="TotpRequired">Si hace falta el código TOTP.</param>
+/// <param name="AccountId">Cuenta del usuario Cliente (la que se verificó, o la suya cuando no se pidió una: primer ingreso sin clave).</param>
+public sealed record PortalCustomerVerification(
+    PortalCustomerCheck Result, string? Email = null, string? DisplayName = null, bool TotpRequired = false, Guid? AccountId = null);
 
 /// <summary>
 /// Lo implementa el módulo de usuarios del portal; lo usa el de licencias para el instalador premium sin depender de él. Cuenta los
@@ -193,8 +199,12 @@ public sealed record PortalCustomerVerification(PortalCustomerCheck Result, stri
 /// </summary>
 public interface IPortalCustomerVerifier
 {
+    /// <summary>
+    /// Correo y contraseña de un usuario Cliente. Con <paramref name="accountId"/>, debe ser de esa cuenta; sin ella (primer ingreso a una
+    /// tienda sin clave), basta con que sea Cliente de alguna cuenta, que se devuelve en <see cref="PortalCustomerVerification.AccountId"/>.
+    /// </summary>
     Task<PortalCustomerVerification> VerifyAsync(
-        string email, string password, string? totpCode, Guid accountId, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
+        string email, string password, string? totpCode, Guid? accountId, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
 
     /// <summary>
     /// "Continuar con Google" del instalador: el usuario YA entró al portal (contraseña o Google, con su sesión normal) y autoriza en el

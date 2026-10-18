@@ -50,7 +50,8 @@ public sealed class LicenseTokenFactory(ILicenseTokenSigner signer, LicensingOpt
 
         var token = signer.Sign(claims);
         return new LicenseTokenResponse(
-            token, signer.PublicKey!.Kid, claims.SubscriptionStatus, claims.ValidUntil, claims.GraceDays, claims.RefreshAfter, messages);
+            token, signer.PublicKey!.Kid, claims.SubscriptionStatus, claims.ValidUntil, claims.GraceDays, claims.RefreshAfter, messages,
+            KeyPrefix: license.KeyPrefix);
     }
 
     internal List<LicenseMessage> Messages(Subscription subscription, DateTimeOffset now, string? appVersion)
@@ -102,6 +103,7 @@ public sealed record ActivateLicenseCommand(ActivationRequest Request, IPAddress
 
 internal sealed class ActivateLicenseHandler(
     ILicensingStore store,
+    ITrustedSigningKeys trustedKeys,
     ILicenseTokenSigner signer,
     ILicenseThrottle throttle,
     LicenseTokenFactory tokens,
@@ -117,7 +119,21 @@ internal sealed class ActivateLicenseHandler(
             return LicenseApiErrors.SigningUnavailable;
         }
 
-        if (!LicenseKey.TryNormalize(request.LicenseKey, out var key))
+        // Primer ingreso con la cuenta del portal (instalador 1.2.1): el enlace firmado del propietario (vigente, emitido por esta nube
+        // para una cuenta con licencia) reemplaza a la clave. El resto de la activación es igual.
+        Guid? licenseFromLink = null;
+        var key = string.Empty;
+        if (string.IsNullOrWhiteSpace(request.LicenseKey) && !string.IsNullOrWhiteSpace(request.OwnerLinkToken))
+        {
+            var link = OwnerLinkToken.Verify(request.OwnerLinkToken, await trustedKeys.GetAsync(cancellationToken), clock.UtcNow);
+            if (!link.IsValid || link.Claims!.LicenseId is not { } fromLink)
+            {
+                return LicenseApiErrors.KeyInvalid;
+            }
+
+            licenseFromLink = fromLink;
+        }
+        else if (!LicenseKey.TryNormalize(request.LicenseKey, out key))
         {
             return LicenseApiErrors.KeyFormatInvalid;
         }
@@ -139,12 +155,15 @@ internal sealed class ActivateLicenseHandler(
 
         // Se buscan las licencias por el prefijo visible y la clave se compara en tiempo constante con TODAS las candidatas.
         // Una clave inexistente y una revocada reciben exactamente la misma respuesta.
-        License? license = null;
-        foreach (var candidate in await store.FindLicensesByPrefixAsync(LicenseKey.VisiblePrefix(key), cancellationToken))
+        License? license = licenseFromLink is { } id ? await store.GetLicenseAsync(id, cancellationToken) : null;
+        if (licenseFromLink is null)
         {
-            if (candidate.Matches(key))
+            foreach (var candidate in await store.FindLicensesByPrefixAsync(LicenseKey.VisiblePrefix(key), cancellationToken))
             {
-                license ??= candidate;
+                if (candidate.Matches(key))
+                {
+                    license ??= candidate;
+                }
             }
         }
 

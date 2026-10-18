@@ -248,6 +248,17 @@ mismas etapas de §3.1) y `Resultado: OK | SIN_RESPUESTA | ERROR <paso>`. Los re
 
 ### 10.3 Configuración automática (equipo principal o única caja)
 
+> **Desde 1.2.1 el premium no pide ningún dato** (Bienvenida → Instalando → ¡Listo!). Configura la tienda con `POST /api/v1/setup`
+> **sin Propietario**: SUPERMARKET, empresa provisional (`Company.ProvisionalNit` = `0-0`, dirección `Por completar`, Bogotá), S01 ·
+> Principal y C01 · Caja 1; no activa licencia ni genera el código de recuperación. Si la configuración falla, **Reintentar** repite
+> solo ese paso. Al abrir BusinessPost, `Ingresar` ve `OwnerPending` y muestra el **primer ingreso** (`Shared/PrimerIngreso.razor`):
+> `POST /api/v1/setup/owner/portal-link` (local, solo sin Propietario; la nube `POST /v1/owner-links` acepta ahora la clave **opcional**:
+> sin clave valida a cualquier usuario Cliente y elige la empresa de su cuenta con licencia vigente) → `POST /api/v1/setup/owner` con el
+> enlace (si la empresa es provisional toma su NIT, razón social y tipo de negocio) → login → `POST /api/v1/license/activate` con la
+> clave o con el **enlace** (`ownerLinkToken`, claim `lic`). El Tablero avisa "Complete los datos de su empresa" mientras
+> `CompanyDto.DataPending`. Pendiente: "Continuar con Google" en el primer ingreso y pasar a equipo principal al activar una licencia
+> Multicaja (hoy la instalación queda como única caja). Lo de abajo describe el flujo anterior (1.2.0).
+
 Cuando el paquete termina, el premium espera `http://localhost:5480/health/live` (hasta 10 minutos) y, por la API local:
 `POST /api/v1/setup` (empresa con los datos de la licencia y de "Tu negocio", sucursal **S01 · Principal**, caja **C01 · Caja 1** y
 el Propietario) → `POST /auth/login` → `POST /license/activate` (si falla, sigue en prueba y lo avisa) → `POST /backups/recovery-code`

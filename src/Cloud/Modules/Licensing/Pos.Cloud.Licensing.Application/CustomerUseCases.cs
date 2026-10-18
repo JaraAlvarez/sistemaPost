@@ -142,13 +142,28 @@ internal sealed class CreateOrganizationHandler(ILicensingStore store, IAuditWri
     }
 }
 
+/// <summary>
+/// Datos de la empresa en el portal. <c>BusinessProfile</c> (opcional): tipo de negocio con el que el instalador premium crea la tienda
+/// (lo lee de la vista previa de la clave). Después manda la tienda: el check-in informa el tipo que el dueño tenga en Configuración.
+/// </summary>
 [RequiresPermission(CloudPermissions.AccountManage)]
-public sealed record UpdateOrganizationCommand(Guid OrganizationId, string LegalName, string? City, bool IsActive) : ICommand;
+public sealed record UpdateOrganizationCommand(Guid OrganizationId, string LegalName, string? City, bool IsActive, string? BusinessProfile = null) : ICommand;
 
 internal sealed class UpdateOrganizationHandler(ILicensingStore store) : ICommandHandler<UpdateOrganizationCommand>
 {
-    public async Task<Result> Handle(UpdateOrganizationCommand request, CancellationToken cancellationToken) =>
-        await store.GetOrganizationAsync(request.OrganizationId, cancellationToken) is { } organization
-            ? organization.Update(request.LegalName, request.City, request.IsActive)
-            : LicensingErrors.OrganizationNotFound;
+    public async Task<Result> Handle(UpdateOrganizationCommand request, CancellationToken cancellationToken)
+    {
+        if (await store.GetOrganizationAsync(request.OrganizationId, cancellationToken) is not { } organization)
+        {
+            return LicensingErrors.OrganizationNotFound;
+        }
+
+        var result = organization.Update(request.LegalName, request.City, request.IsActive);
+        if (result.IsSuccess)
+        {
+            organization.ReportBusinessProfile(request.BusinessProfile);
+        }
+
+        return result;
+    }
 }

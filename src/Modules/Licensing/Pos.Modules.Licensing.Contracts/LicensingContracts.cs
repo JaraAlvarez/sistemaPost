@@ -87,7 +87,12 @@ public interface ILicenseStatus
 }
 
 /// <summary>Enlace del propietario ya verificado: correo (en minúsculas), nombre y NIT con DV de la empresa de la licencia.</summary>
-public sealed record PortalOwnerLink(string Email, string DisplayName, string OrganizationNit);
+/// <param name="Email">Correo validado por la nube.</param>
+/// <param name="DisplayName">Nombre del usuario del portal.</param>
+/// <param name="OrganizationNit">NIT con DV; vacío si la cuenta del portal aún no tiene empresa (la tienda sigue en prueba).</param>
+/// <param name="OrganizationName">Razón social de la empresa del portal (opcional; enlaces anteriores no la traen).</param>
+/// <param name="BusinessProfile">Tipo de negocio de la empresa en el portal (opcional).</param>
+public sealed record PortalOwnerLink(string Email, string DisplayName, string OrganizationNit, string? OrganizationName = null, string? BusinessProfile = null);
 
 /// <summary>
 /// Verifica sin conexión el enlace firmado por la nube con el que el instalador premium crea al Propietario con su cuenta del portal

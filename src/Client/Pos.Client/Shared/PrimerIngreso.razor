@@ -1,0 +1,125 @@
+@* Primer ingreso a una tienda recién instalada y SIN Propietario (instalador premium 1.2.1: el instalador no pide ningún dato).
+   Dos opciones: (1) la cuenta del portal de BusinessPost (businesspost.tutiendanueva.com): el primer ingreso la convierte en el
+   Propietario; si su empresa tiene licencia, se activa sola; si no, sigue la prueba de 30 días. (2) La clave de licencia recién
+   comprada, con la cuenta del portal de quien la compró. Usa el enlace firmado del propietario que ya existía para el instalador:
+   POST setup/owner/portal-link (la nube valida la cuenta) → POST setup/owner (crea al Propietario) → login → activar la licencia. *@
+@inject ApiClient Api
+@inject SessionState Session
+@inject NavigationManager Navigation
+
+<MudText Typo="Typo.body2" Class="mt-2 mb-3">
+    Es la primera vez que se abre BusinessPost en este equipo. Entre con su cuenta de BusinessPost (la del portal
+    <b>businesspost.tutiendanueva.com</b>): quedará como el <b>Propietario</b> de la tienda.
+</MudText>
+<MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" ApplyEffectsToContainer="true">
+    <MudTabPanel Text="Mi cuenta de BusinessPost" Icon="@Icons.Material.Outlined.AccountCircle">
+        <MudText Typo="Typo.caption" Class="d-block mt-3">Si su cuenta tiene una licencia, se activa sola. Si no, empieza la prueba gratis de 30 días.</MudText>
+    </MudTabPanel>
+    <MudTabPanel Text="Tengo una clave de licencia" Icon="@Icons.Material.Outlined.Key">
+        <MudTextField @bind-Value="_clave" Label="Clave de licencia" Placeholder="POS-XXXXX-XXXXX-XXXXX-XXXXX" Variant="Variant.Outlined" Immediate="true" Class="mt-4"
+                      autocomplete="off" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Key" />
+        <MudText Typo="Typo.caption" Class="d-block mt-1">Entre con la cuenta del portal con la que se compró la licencia.</MudText>
+    </MudTabPanel>
+</MudTabs>
+<EditForm Model="this" OnSubmit="EntrarAsync">
+    <MudTextField @bind-Value="_correo" Label="Correo de su cuenta de BusinessPost" Variant="Variant.Outlined" Immediate="true" Class="mt-3" autocomplete="username"
+                  InputType="InputType.Email" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Email" />
+    <MudTextField @bind-Value="_clavePortal" Label="Contraseña del portal" InputType="InputType.Password" Variant="Variant.Outlined" Immediate="true" Class="mt-3"
+                  autocomplete="current-password" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Outlined.Lock" />
+    @if (_pideTotp)
+    {
+        <MudTextField @bind-Value="_totp" Label="Código de verificación (6 dígitos de su aplicación)" Variant="Variant.Outlined" Immediate="true" Class="mt-3"
+                      InputMode="InputMode.numeric" MaxLength="6" autocomplete="one-time-code" />
+    }
+    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true" Class="mt-5" Disabled="_busy"
+               StartIcon="@Icons.Material.Outlined.Login">@(_busy ? _paso : "Entrar")</MudButton>
+</EditForm>
+<MudText Typo="Typo.caption" Class="d-block mt-3">
+    ¿Aún no tiene cuenta? Créela en businesspost.tutiendanueva.com y vuelva aquí. Los datos de la empresa (razón social, NIT y dirección)
+    los completa después en Configuración.
+</MudText>
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mt-4" role="alert">@_error</MudAlert>
+}
+
+@code {
+    private sealed record EnlacePropietario(string Token, string Email, string DisplayName, DateTimeOffset ExpiresAt, string? OrganizationName = null,
+        string? OrganizationNit = null, bool HasLicense = false);
+
+    private int _tab;
+    private bool _busy, _pideTotp;
+    private string _paso = "Entrando…";
+    private string? _clave, _correo, _clavePortal, _totp, _error;
+
+    private async Task EntrarAsync()
+    {
+        _error = null;
+        var conClave = _tab == 1;
+        if (conClave && string.IsNullOrWhiteSpace(_clave))
+        {
+            _error = "Escriba la clave de licencia.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_correo) || string.IsNullOrEmpty(_clavePortal))
+        {
+            _error = "Escriba el correo y la contraseña de su cuenta de BusinessPost.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _paso = "Validando su cuenta…";
+            var enlace = await Api.PostAsync<EnlacePropietario>("api/v1/setup/owner/portal-link", new
+            {
+                email = _correo.Trim(), password = _clavePortal, totpCode = string.IsNullOrWhiteSpace(_totp) ? null : _totp.Trim(),
+                licenseKey = conClave ? _clave!.Trim() : null,
+            });
+
+            // El Propietario es la cuenta validada por la nube, con la MISMA contraseña del portal.
+            _paso = "Preparando su tienda…";
+            await Api.PostAsync<System.Text.Json.JsonElement>("api/v1/setup/owner", new
+            {
+                username = enlace.Email, displayName = enlace.DisplayName, password = _clavePortal, email = enlace.Email, portalLinkToken = enlace.Token,
+            });
+            Session.SignIn(await Api.PostAsync<LoginResult>("api/v1/auth/login", new { username = enlace.Email, password = _clavePortal }));
+
+            // Licencia: la clave escrita o, sin ella, la de la empresa de la cuenta (con el mismo enlace). Si falla, sigue la prueba y se
+            // puede activar después en Administración → Licencia.
+            if (conClave || enlace.HasLicense)
+            {
+                _paso = "Activando la licencia…";
+                try
+                {
+                    await Api.PostAsync<System.Text.Json.JsonElement>("api/v1/license/activate",
+                        new { licenseKey = conClave ? _clave!.Trim() : null, ownerLinkToken = conClave ? null : enlace.Token });
+                }
+                catch (ApiException)
+                {
+                    // La administración muestra el estado de la licencia y cómo activarla.
+                }
+            }
+
+            Navigation.NavigateTo("/admin");
+        }
+        catch (ApiException ex)
+        {
+            if (ex.Code == "LICENSE.OWNER_TOTP_REQUIRED")
+            {
+                _pideTotp = true;
+            }
+
+            _error = ex.Texto;
+        }
+        catch (HttpRequestException)
+        {
+            _error = "No se pudo conectar con el servidor de la tienda.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

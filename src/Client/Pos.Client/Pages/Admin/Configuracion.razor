@@ -21,6 +21,13 @@
                 }
                 else if (_empresa is not null)
                 {
+                    @if (_empresa.DataPending)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mb-3">
+                            Complete los datos de su empresa: el instalador la creó con datos provisionales (razón social, NIT y dirección).
+                            Son necesarios para facturar.
+                        </MudAlert>
+                    }
                     <MudGrid Spacing="2">
                         <MudItem xs="12" sm="6"><MudTextField @bind-Value="_cRazonSocial" Label="Razón social" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
                         <MudItem xs="12" sm="6"><MudTextField @bind-Value="_cNombreComercial" Label="Nombre comercial" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
@@ -30,9 +37,21 @@
                                 <MudSelectItem T="string" Value="@("Natural")">Persona natural</MudSelectItem>
                             </MudSelect>
                         </MudItem>
-                        <MudItem xs="12" sm="4">
-                            <MudTextField T="string" Value="@Identificacion" Label="Identificación (no se puede cambiar)" ReadOnly="true" />
-                        </MudItem>
+                        @if (_empresa.ProvisionalIdentification && PuedeEmpresa)
+                        {
+                            @* NIT provisional del instalador: se reemplaza una vez por el real (después ya no se puede cambiar). *@
+                            <MudItem xs="8" sm="3">
+                                <MudTextField @bind-Value="_cNit" Label="NIT (sin dígito de verificación)" Immediate="true" InputMode="InputMode.numeric" MaxLength="15"
+                                              HelperText="Escríbalo una vez: después no se puede cambiar." />
+                            </MudItem>
+                            <MudItem xs="4" sm="1"><MudTextField T="string" Value="@DvNit" Label="DV" ReadOnly="true" /></MudItem>
+                        }
+                        else
+                        {
+                            <MudItem xs="12" sm="4">
+                                <MudTextField T="string" Value="@Identificacion" Label="Identificación (no se puede cambiar)" ReadOnly="true" />
+                            </MudItem>
+                        }
                         <MudItem xs="12" sm="4"><MudTextField @bind-Value="_cRegimen" Label="Régimen tributario (código)" Immediate="true" ReadOnly="@(!PuedeEmpresa)" /></MudItem>
                         <MudItem xs="12" sm="6">
                             <MudTextField @bind-Value="_cResponsabilidades" Label="Responsabilidades fiscales (códigos separados por coma)" Immediate="true" ReadOnly="@(!PuedeEmpresa)" />
@@ -398,6 +417,7 @@
 
     // Empresa
     private CompanyDto? _empresa;
+    private string? _cNit;
     private string? _cRazonSocial, _cNombreComercial, _cRegimen, _cResponsabilidades, _cMunicipio, _cDireccion, _cTelefono, _cCorreo;
     private string _cTipoPersona = "Legal";
 
@@ -485,6 +505,7 @@
             _cDireccion = empresa.Address;
             _cTelefono = empresa.Phone;
             _cCorreo = empresa.Email;
+            _cNit = empresa.ProvisionalIdentification ? null : empresa.IdentificationNumber;
             _errorEmpresa = null;
         }
         catch (ApiException ex)
@@ -492,6 +513,14 @@
             _errorEmpresa = ex.Texto;
         }
     }
+
+    /// <summary>NIT que se guarda: el escrito si la empresa tiene el provisional del instalador; si no, el de siempre.</summary>
+    private string NitAGuardar =>
+        _empresa is { ProvisionalIdentification: true } && !string.IsNullOrWhiteSpace(_cNit) ? _cNit.Trim() : _empresa?.IdentificationNumber ?? "";
+
+    private string? DvNit => !string.IsNullOrWhiteSpace(_cNit) && Pos.SharedKernel.Fiscal.Nit.IsWellFormed(_cNit.Trim())
+        ? Pos.SharedKernel.Fiscal.Nit.ComputeCheckDigit(_cNit.Trim()).ToString(System.Globalization.CultureInfo.InvariantCulture)
+        : null;
 
     private async Task GuardarEmpresaAsync()
     {
@@ -509,8 +538,8 @@
                 tradeName = _cNombreComercial,
                 personType = _cTipoPersona,
                 identificationType = _empresa.IdentificationType,
-                identificationNumber = _empresa.IdentificationNumber,
-                checkDigit = Vacio(_empresa.CheckDigit),
+                identificationNumber = NitAGuardar,
+                checkDigit = _empresa.ProvisionalIdentification ? Vacio(DvNit) : Vacio(_empresa.CheckDigit),
                 taxRegime = _cRegimen,
                 fiscalResponsibilities = (_cResponsabilidades ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                 municipalityCode = _cMunicipio,

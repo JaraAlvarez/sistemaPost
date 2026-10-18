@@ -66,6 +66,9 @@ public interface ILicensingStore
 
     Task<Organization?> GetOrganizationAsync(Guid id, CancellationToken cancellationToken);
 
+    /// <summary>Empresas de una cuenta (primer ingreso a una tienda con la cuenta del portal, sin clave).</summary>
+    Task<IReadOnlyList<Organization>> GetOrganizationsOfAccountAsync(Guid accountId, CancellationToken cancellationToken);
+
     Task<bool> NitExistsAsync(string nit, CancellationToken cancellationToken);
 
     Task<Subscription?> GetSubscriptionAsync(Guid id, CancellationToken cancellationToken);
