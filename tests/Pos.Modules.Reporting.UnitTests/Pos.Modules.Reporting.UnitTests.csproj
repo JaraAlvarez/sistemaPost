@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reportes: cálculos de análisis (ABC, comparativos, 364 días, mapa de calor), motor con un ejecutor falso, catálogo y exportación. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Reporting\Pos.Modules.Reporting.Application\Pos.Modules.Reporting.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Reporting\Pos.Modules.Reporting.Infrastructure\Pos.Modules.Reporting.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

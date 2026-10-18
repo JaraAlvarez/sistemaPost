@@ -21,6 +21,7 @@ public static class ReportCatalog
     public const string Cash = "Caja";
     public const string Antifraud = "Antifraude";
     public const string AuditGroup = "Auditoría";
+    public const string Analysis = "Análisis";
 
     /// <summary>La bitácora es por nodo: filas de la empresa y del sistema (sin empresa).</summary>
     private const string AuditCompany = "(a.company_id = @company_id OR a.company_id IS NULL)";
@@ -51,6 +52,14 @@ public static class ReportCatalog
         new("returned", "Devuelto (cambios y garantías)", T.Money, Total: true),
         new("net_sales", "Venta neta", T.Money, Total: true),
     ];
+
+    /// <summary>Días del mapa de calor en el orden ISO (lunes = 1).</summary>
+    internal static readonly (string Key, string Label)[] HeatmapDays =
+    [
+        ("mon", "Lunes"), ("tue", "Martes"), ("wed", "Miércoles"), ("thu", "Jueves"), ("fri", "Viernes"), ("sat", "Sábado"), ("sun", "Domingo"),
+    ];
+
+    private static readonly string[] ComparisonMetrics = ["net", "tickets", "total", "base", "cost"];
 
     public static IReadOnlyList<ReportDefinition> All { get; } =
     [
@@ -283,6 +292,182 @@ public static class ReportCatalog
             ProfitSql("l.cashier_id", "r.original_cashier_id", "JOIN reporting.returns r ON r.return_id = rl.return_id", "u.display_name AS cashier_name",
                 "JOIN reporting.users u ON u.user_id = x.k", "profit DESC")),
 
+        // ------------------------------------------------------------------------------------------------ Análisis (mejora de reportes)
+        new("ABC_BY_SALES", "ABC de productos por venta", Analysis,
+            "Productos clasificados A, B y C por venta neta (Pareto), con su participación y el % acumulado. Cortes configurables: A = 80 % y B = 15 % por defecto.",
+            ReportingPermissions.SalesAdvanced, AbcParameters(),
+            [
+                new("sku", "SKU", T.Text),
+                new("product_name", "Producto", T.Text),
+                new("category_name", "Categoría", T.Text),
+                new("quantity", "Unidades netas", T.Quantity, Total: true),
+                new("net_sales", "Venta neta", T.Money, Total: true),
+                .. AbcColumns(isCost: false),
+            ],
+            $"""
+            WITH sold AS (
+                SELECT l.product_id AS k, sum(l.base_quantity) AS quantity, sum(l.total) AS total
+                FROM reporting.sale_lines l WHERE {LinesSold} GROUP BY 1),
+            ret AS (
+                SELECT rl.product_id AS k, sum(rl.base_quantity) AS quantity, sum(rl.credit_amount) AS returned
+                FROM reporting.return_lines rl WHERE {LinesReturned} GROUP BY 1),
+            x AS (
+                SELECT COALESCE(sold.k, ret.k) AS k, COALESCE(sold.quantity, 0) - COALESCE(ret.quantity, 0) AS quantity,
+                       COALESCE(sold.total, 0) - COALESCE(ret.returned, 0) AS net_sales
+                FROM sold FULL JOIN ret ON ret.k = sold.k)
+            SELECT p.sku, p.product_name, p.category_name, x.quantity, x.net_sales, sum(GREATEST(x.net_sales, 0)) OVER () AS abc_base
+            FROM x JOIN reporting.products p ON p.product_id = x.k
+            ORDER BY x.net_sales DESC, p.sku
+            """,
+            "Un producto es A si lo acumulado antes de él no llega al corte A (el que cruza el 80 % queda en A). Los productos con venta neta "
+            + "en cero o negativa van a C. Venta neta = vendido con impuestos − devuelto en el periodo, igual que 'Ventas por producto'.",
+            new AbcCalculation("net_sales", "abc_base")),
+
+        new("ABC_BY_PROFIT", "ABC de productos por utilidad", Analysis,
+            "Productos clasificados A, B y C por utilidad (venta sin impuestos − costo del kardex), con su participación y el % acumulado.",
+            ReportingPermissions.ProfitView, AbcParameters(),
+            [
+                new("sku", "SKU", T.Text),
+                new("product_name", "Producto", T.Text),
+                new("category_name", "Categoría", T.Text),
+                new("net_sales", "Venta neta sin impuestos", T.Money, Total: true),
+                new("cost", "Costo", T.Money, Total: true, IsCost: true),
+                new("profit", "Utilidad", T.Money, Total: true, IsCost: true),
+                new("margin", "Margen %", T.Percent, IsCost: true, Ratio: new RatioTotal("profit", "net_sales", 100m)),
+                .. AbcColumns(isCost: true),
+            ],
+            $"""
+            WITH sold AS (
+                SELECT l.product_id AS k, sum(l.tax_base) AS net, sum(l.cost_total) AS cost
+                FROM reporting.sale_lines l WHERE {LinesSold} GROUP BY 1),
+            ret AS (
+                SELECT rl.product_id AS k, sum(rl.tax_base_share) AS net, sum(rl.cost_total) AS cost
+                FROM reporting.return_lines rl WHERE {LinesReturned} GROUP BY 1),
+            x AS (
+                SELECT COALESCE(sold.k, ret.k) AS k, round(COALESCE(sold.net, 0) - COALESCE(ret.net, 0), 2) AS net_sales,
+                       round(COALESCE(sold.cost, 0) - COALESCE(ret.cost, 0), 2) AS cost
+                FROM sold FULL JOIN ret ON ret.k = sold.k)
+            SELECT p.sku, p.product_name, p.category_name, x.net_sales, x.cost, x.net_sales - x.cost AS profit,
+                   round(100 * (x.net_sales - x.cost) / NULLIF(x.net_sales, 0), 2) AS margin,
+                   sum(GREATEST(x.net_sales - x.cost, 0)) OVER () AS abc_base
+            FROM x JOIN reporting.products p ON p.product_id = x.k
+            ORDER BY profit DESC, p.sku
+            """,
+            "Los productos con utilidad en cero o negativa van a C. El costo es el promedio del kardex guardado en cada línea; una línea sin "
+            + "costo cuenta como costo cero e infla la utilidad.",
+            new AbcCalculation("profit", "abc_base")),
+
+        new("COMPARE_BY_DAY", "Comparativo por día", Analysis,
+            "Cada día del rango contra el mismo día del periodo anterior (los N días justo antes) y del año pasado (364 días antes, mismo día "
+            + "de la semana): venta neta, tiquetes, ticket promedio y margen, con su variación.",
+            ReportingPermissions.SalesBasic, ComparisonParameters(),
+            [new("business_date", "Fecha", T.Date), new("day_name", "Día", T.Text), .. ComparisonColumns(ticketsTotal: true)],
+            ComparisonSql(
+                tickets: $"""
+                    SELECT p.period, s.business_date + p.shift AS k, count(*) AS tickets, sum(s.total) AS total
+                    FROM reporting.sales s JOIN p ON s.business_date BETWEEN p.p_from AND p.p_to
+                    WHERE {N("s")} AND s.status = 'COMPLETED' GROUP BY 1, 2
+                    """,
+                returns: $"""
+                    SELECT p.period, r.business_date + p.shift AS k, sum(r.credit_total) AS returned
+                    FROM reporting.returns r JOIN p ON r.business_date BETWEEN p.p_from AND p.p_to
+                    WHERE {N("r")} AND r.status = 'COMPLETED' GROUP BY 1, 2
+                    """,
+                lineKey: "l.business_date + p.shift",
+                returnLineKey: "rl.business_date + p.shift",
+                returnLineJoin: string.Empty,
+                select: $"""
+                    SELECT g.d::date AS business_date,
+                           CASE extract(isodow FROM g.d) WHEN 1 THEN 'lunes' WHEN 2 THEN 'martes' WHEN 3 THEN 'miércoles' WHEN 4 THEN 'jueves'
+                                WHEN 5 THEN 'viernes' WHEN 6 THEN 'sábado' ELSE 'domingo' END AS day_name,
+                           {ComparisonValues()}
+                    FROM generate_series(@from::timestamp, @to::timestamp, interval '1 day') g(d)
+                    LEFT JOIN x ON x.k = g.d::date
+                    ORDER BY 1
+                    """),
+            "Venta neta = completadas − cambios − reintegros (las devoluciones restan en su fecha). Ticket promedio = total vendido ÷ tiquetes. "
+            + "El margen (con permiso de costos) es sobre la venta sin impuestos y su variación va en puntos porcentuales. Sin valor anterior la variación queda vacía.",
+            new ComparisonCalculation(LastYearRule.SameWeekday364)),
+
+        new("COMPARE_BY_CATEGORY", "Comparativo por categoría", Analysis,
+            "Cada categoría contra el periodo anterior (los N días justo antes) y el año pasado (mismas fechas): venta neta, tiquetes, ticket "
+            + "promedio y margen, con su variación.",
+            ReportingPermissions.SalesAdvanced, ComparisonParameters(),
+            [new("category_path", "Ruta", T.Text), new("category_name", "Categoría", T.Text), .. ComparisonColumns(ticketsTotal: false)],
+            ComparisonSql(
+                tickets: """
+                    SELECT p.period, l.category_id AS k, count(DISTINCT l.sale_id) AS tickets, sum(l.total) AS total
+                    FROM reporting.sale_lines l JOIN p ON l.business_date BETWEEN p.p_from AND p.p_to
+                    WHERE l.company_id = @company_id AND l.branch_id = @branch_id AND l.sale_status = 'COMPLETED' AND l.line_status = 'ACTIVE'
+                    GROUP BY 1, 2
+                    """,
+                returns: """
+                    SELECT p.period, rl.category_id AS k, sum(rl.credit_amount) AS returned
+                    FROM reporting.return_lines rl JOIN p ON rl.business_date BETWEEN p.p_from AND p.p_to
+                    WHERE rl.company_id = @company_id AND rl.branch_id = @branch_id AND rl.status = 'COMPLETED' GROUP BY 1, 2
+                    """,
+                lineKey: "l.category_id",
+                returnLineKey: "rl.category_id",
+                returnLineJoin: string.Empty,
+                select: $"""
+                    SELECT c.category_path, c.category_name, {ComparisonValues()}
+                    FROM x JOIN reporting.categories c ON c.category_id = x.k
+                    ORDER BY cur_net DESC, 1
+                    """),
+            "Un tiquete con productos de varias categorías cuenta en cada una (por eso los tiquetes no se totalizan). Venta neta = vendido con "
+            + "impuestos − devuelto en el periodo, igual que 'Ventas por categoría'. El año pasado son las mismas fechas (el 29 de febrero pasa al 28).",
+            new ComparisonCalculation(LastYearRule.SameDates)),
+
+        new("COMPARE_BY_CASHIER", "Comparativo por cajero", Analysis,
+            "Cada cajero contra el periodo anterior (los N días justo antes) y el año pasado (mismas fechas): venta neta, tiquetes, ticket "
+            + "promedio y margen, con su variación.",
+            ReportingPermissions.SalesBasic, ComparisonParameters(),
+            [new("cashier_name", "Cajero", T.Text), .. ComparisonColumns(ticketsTotal: true)],
+            ComparisonSql(
+                tickets: $"""
+                    SELECT p.period, s.cashier_id AS k, count(*) AS tickets, sum(s.total) AS total
+                    FROM reporting.sales s JOIN p ON s.business_date BETWEEN p.p_from AND p.p_to
+                    WHERE {N("s")} AND s.status = 'COMPLETED' GROUP BY 1, 2
+                    """,
+                returns: $"""
+                    SELECT p.period, r.original_cashier_id AS k, sum(r.credit_total) AS returned
+                    FROM reporting.returns r JOIN p ON r.business_date BETWEEN p.p_from AND p.p_to
+                    WHERE {N("r")} AND r.status = 'COMPLETED' GROUP BY 1, 2
+                    """,
+                lineKey: "l.cashier_id",
+                returnLineKey: "r.original_cashier_id",
+                returnLineJoin: "JOIN reporting.returns r ON r.return_id = rl.return_id",
+                select: $"""
+                    SELECT u.display_name AS cashier_name, {ComparisonValues()}
+                    FROM x JOIN reporting.users u ON u.user_id = x.k
+                    ORDER BY cur_net DESC, 1
+                    """),
+            "Las devoluciones restan al cajero de la venta original, en la fecha de la devolución. El año pasado son las mismas fechas.",
+            new ComparisonCalculation(LastYearRule.SameDates)),
+
+        new("SALES_HEATMAP", "Mapa de calor de ventas", Analysis,
+            "Ventas por hora del día (filas) y día de la semana (columnas): muestra las horas y los días de más movimiento.",
+            ReportingPermissions.SalesBasic, [From with { DefaultValue = "today-27" }, To],
+            [
+                new("hour", "Hora", T.Text),
+                .. HeatmapDays.Select(d => new ReportColumn(d.Key, d.Label, T.Money, Total: true, Style: ReportColumnStyle.Heat)),
+                new("total", "Total", T.Money, Total: true),
+            ],
+            $"""
+            WITH h AS (
+                SELECT extract(hour FROM s.completed_local)::int AS h, extract(isodow FROM s.business_date)::int AS dow, s.total
+                FROM reporting.sales s
+                WHERE {SalesInRange} AND s.status = 'COMPLETED')
+            SELECT lpad(h.h::text, 2, '0') || ':00' AS hour,
+                   {string.Join(", ", HeatmapDays.Select((d, i) => $"COALESCE(sum(h.total) FILTER (WHERE h.dow = {i + 1}), 0) AS {d.Key}"))},
+                   sum(h.total) AS total
+            FROM h
+            GROUP BY h.h
+            ORDER BY h.h
+            """,
+            "La hora es la hora real del cobro (hora de Colombia) y el día de la semana sale de la fecha de negocio, igual que 'Ventas por hora'. "
+            + "Valores con impuestos de las ventas completadas."),
+
         // ------------------------------------------------------------------------------------------------ Impuestos
         new("TAXES_SALES", "Impuestos generados en ventas", Taxes,
             "IVA e impuestos al consumo por tipo y tarifa de las ventas completadas (base y valor). Para impuestos de valor fijo la base son unidades.",
@@ -295,7 +480,7 @@ public static class ReportCatalog
                 new("fixed_amount", "Valor fijo", T.Money),
                 new("base", "Base gravable", T.Money, Total: true),
                 new("base_units", "Unidades (valor fijo)", T.Quantity, Total: true),
-                new("amount", "Impuesto", T.Money, Total: true),
+                new("amount", "Valor del impuesto", T.Money, Total: true),
             ],
             """
             SELECT x.tax_kind, x.tax_code, max(x.tax_name) AS tax_name, x.rate, x.fixed_amount,
@@ -1026,6 +1211,119 @@ public static class ReportCatalog
         WHERE {AuditCompany} AND a.occurred_local::date BETWEEN @from AND @to AND ({filter})
         ORDER BY a.occurred_at, a.seq
         """;
+
+    private static IReadOnlyList<ReportParameter> AbcParameters() =>
+    [
+        From with { DefaultValue = "today-29" },
+        To,
+        new("cutA", "Corte A (% acumulado, número entero)", ReportParameterType.Number, DefaultValue: "80"),
+        new("cutB", "Corte B (% siguiente, número entero)", ReportParameterType.Number, DefaultValue: "15"),
+    ];
+
+    private static ReportColumn[] AbcColumns(bool isCost) =>
+    [
+        new(AbcCalculation.ShareKey, "Participación %", T.Percent, Total: true, IsCost: isCost, Computed: true),
+        new(AbcCalculation.CumulativeKey, "% acumulado", T.Percent, IsCost: isCost, Computed: true),
+        new(AbcCalculation.ClassKey, "Clase", T.Text, IsCost: isCost, Computed: true, Style: ReportColumnStyle.AbcClass),
+        new("abc_base", "Base del ABC", T.Money, Total: true, IsCost: isCost, Hidden: true),
+    ];
+
+    private static IReadOnlyList<ReportParameter> ComparisonParameters() => [From with { DefaultValue = "today-6" }, To];
+
+    /// <summary>
+    /// Columnas de un comparativo (20 visibles): por métrica, el valor actual, el anterior y su variación, y el del año pasado y su
+    /// variación. Ocultas: total vendido, base sin impuestos y costo de cada periodo (de ahí salen el ticket promedio y el margen).
+    /// </summary>
+    private static ReportColumn[] ComparisonColumns(bool ticketsTotal)
+    {
+        static ReportColumn Var(string key, string label) =>
+            new(key, label, T.Percent, Total: true, Computed: true, Style: ReportColumnStyle.Variation);
+        static ReportColumn Points(string key, string label) =>
+            new(key, label, T.Percent, Total: true, IsCost: true, Computed: true, Style: ReportColumnStyle.PointChange);
+
+        return
+        [
+            new("cur_net", "Venta neta", T.Money, Total: true),
+            new("prev_net", "Venta neta anterior", T.Money, Total: true),
+            Var("net_vs_prev", "Var. % venta vs. anterior"),
+            new("ly_net", "Venta neta año pasado", T.Money, Total: true),
+            Var("net_vs_ly", "Var. % venta vs. año pasado"),
+            new("cur_tickets", "Tiquetes", T.Count, Total: ticketsTotal),
+            new("prev_tickets", "Tiquetes anterior", T.Count, Total: ticketsTotal),
+            Var("tickets_vs_prev", "Var. % tiquetes vs. anterior"),
+            new("ly_tickets", "Tiquetes año pasado", T.Count, Total: ticketsTotal),
+            Var("tickets_vs_ly", "Var. % tiquetes vs. año pasado"),
+            new("cur_avg", "Ticket promedio", T.Money, Total: true, Computed: true),
+            new("prev_avg", "Ticket promedio anterior", T.Money, Total: true, Computed: true),
+            Var("avg_vs_prev", "Var. % ticket vs. anterior"),
+            new("ly_avg", "Ticket promedio año pasado", T.Money, Total: true, Computed: true),
+            Var("avg_vs_ly", "Var. % ticket vs. año pasado"),
+            new("cur_margin", "Margen %", T.Percent, Total: true, IsCost: true, Computed: true),
+            new("prev_margin", "Margen % anterior", T.Percent, Total: true, IsCost: true, Computed: true),
+            Points("margin_vs_prev", "Var. pp margen vs. anterior"),
+            new("ly_margin", "Margen % año pasado", T.Percent, Total: true, IsCost: true, Computed: true),
+            Points("margin_vs_ly", "Var. pp margen vs. año pasado"),
+            .. ComparisonCalculation.Periods.SelectMany(p => new ReportColumn[]
+            {
+                new($"{p}_total", $"Total vendido ({p})", T.Money, Total: true, Hidden: true),
+                new($"{p}_base", $"Base sin impuestos ({p})", T.Money, Total: true, IsCost: true, Hidden: true),
+                new($"{p}_cost", $"Costo ({p})", T.Money, Total: true, IsCost: true, Hidden: true),
+            }),
+        ];
+    }
+
+    /// <summary>Valores de los tres periodos que el SQL entrega (venta neta, tiquetes, total, base y costo).</summary>
+    private static string ComparisonValues() =>
+        string.Join(", ", ComparisonCalculation.Periods.SelectMany(p => ComparisonMetrics.Select(m => $"COALESCE(x.{p}_{m}, 0) AS {p}_{m}")));
+
+    /// <summary>
+    /// Comparativo en un solo recorrido: los tres periodos van en un <c>VALUES</c> y cada fuente (tiquetes y total, devoluciones, base y
+    /// costo de las líneas, y lo devuelto de ellas) se une con <c>BETWEEN</c> para aprovechar el índice por fecha de negocio. La llave
+    /// <c>k</c> es la fila del reporte (día corrido con <c>p.shift</c>, categoría o cajero).
+    /// </summary>
+    private static string ComparisonSql(string tickets, string returns, string lineKey, string returnLineKey, string returnLineJoin, string select)
+    {
+        var pivot = string.Join(
+            ",\n           ",
+            new[] { ("cur", "C"), ("prev", "P"), ("ly", "Y") }.SelectMany(p => new[]
+            {
+                $"COALESCE(sum(m.total - m.returned) FILTER (WHERE m.period = '{p.Item2}'), 0) AS {p.Item1}_net",
+                $"COALESCE(sum(m.tickets) FILTER (WHERE m.period = '{p.Item2}'), 0) AS {p.Item1}_tickets",
+                $"COALESCE(sum(m.total) FILTER (WHERE m.period = '{p.Item2}'), 0) AS {p.Item1}_total",
+                $"COALESCE(sum(m.base) FILTER (WHERE m.period = '{p.Item2}'), 0) AS {p.Item1}_base",
+                $"COALESCE(sum(m.cost) FILTER (WHERE m.period = '{p.Item2}'), 0) AS {p.Item1}_cost",
+            }));
+        return $"""
+            WITH p(period, p_from, p_to, shift) AS (
+                VALUES ('C', @from::date, @to::date, 0), ('P', @prev_from::date, @prev_to::date, @prev_shift::int),
+                       ('Y', @ly_from::date, @ly_to::date, @ly_shift::int)),
+            tk AS (
+            {tickets}),
+            rt AS (
+            {returns}),
+            pf AS (
+                SELECT p.period, {lineKey} AS k, sum(l.tax_base) AS base, sum(l.cost_total) AS cost
+                FROM reporting.sale_lines l JOIN p ON l.business_date BETWEEN p.p_from AND p.p_to
+                WHERE l.company_id = @company_id AND l.branch_id = @branch_id AND l.sale_status = 'COMPLETED' AND l.line_status = 'ACTIVE'
+                GROUP BY 1, 2),
+            pr AS (
+                SELECT p.period, {returnLineKey} AS k, sum(rl.tax_base_share) AS base, sum(rl.cost_total) AS cost
+                FROM reporting.return_lines rl {returnLineJoin} JOIN p ON rl.business_date BETWEEN p.p_from AND p.p_to
+                WHERE rl.company_id = @company_id AND rl.branch_id = @branch_id AND rl.status = 'COMPLETED'
+                GROUP BY 1, 2),
+            m AS (
+                SELECT period, k, tickets::numeric AS tickets, total, 0::numeric AS returned, 0::numeric AS base, 0::numeric AS cost FROM tk
+                UNION ALL SELECT period, k, 0, 0, returned, 0, 0 FROM rt
+                UNION ALL SELECT period, k, 0, 0, 0, base, cost FROM pf
+                UNION ALL SELECT period, k, 0, 0, 0, -base, -cost FROM pr),
+            x AS (
+                SELECT m.k,
+                       {pivot}
+                FROM m
+                GROUP BY m.k)
+            {select}
+            """;
+    }
 
     /// <summary>Datos de este nodo (D9-13): empresa y sucursal de la sesión.</summary>
     private static string N(string alias) => $"{alias}.company_id = @company_id AND {alias}.branch_id = @branch_id";

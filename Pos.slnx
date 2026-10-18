@@ -160,6 +160,7 @@
     <Project Path="tests/Pos.Modules.Parties.UnitTests/Pos.Modules.Parties.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Promotions.UnitTests/Pos.Modules.Promotions.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Purchasing.UnitTests/Pos.Modules.Purchasing.UnitTests.csproj" />
+    <Project Path="tests/Pos.Modules.Reporting.UnitTests/Pos.Modules.Reporting.UnitTests.csproj" />
     <Project Path="tests/Pos.Printing.UnitTests/Pos.Printing.UnitTests.csproj" />
     <Project Path="tests/Pos.Modules.Sales.UnitTests/Pos.Modules.Sales.UnitTests.csproj" />
     <Project Path="tests/Pos.Server.IntegrationTests/Pos.Server.IntegrationTests.csproj" />

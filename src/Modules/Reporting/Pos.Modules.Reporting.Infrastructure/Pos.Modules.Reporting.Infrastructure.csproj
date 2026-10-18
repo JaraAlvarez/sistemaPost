@@ -13,4 +13,8 @@
     <PackageReference Include="PDFsharp-MigraDoc" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pos.Modules.Reporting.UnitTests" />
+  </ItemGroup>
 </Project>
