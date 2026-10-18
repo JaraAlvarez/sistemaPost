@@ -38,7 +38,7 @@ Diseño breve de las correcciones pedidas por la revisión de seguridad. Rama `f
 - `STOCK` deja de subir `averageCost` (el portal solo muestra cantidad y valor total).
 - Ronda 2: `V2026.10.102` (tienda) marca las ventas de los clientes que ya estaban anonimizados, para que se reenvíen sin el nombre;
   `V2026.10.015` (nube) quita `customerIdentification` y `averageCost` de lo ya recibido (`jsonb -`).
-- Ronda 3: la nube también los quita AL RECIBIR (`ApplyAsync`), así una tienda sin actualizar (1.3.0) no los vuelve a dejar guardados.
+- Ronda 3: la nube también los quita AL RECIBIR (`ApplyAsync`), así una tienda sin actualizar (las que siguen en 1.0.x/1.1.0) no los vuelve a dejar guardados.
 - «Ventas recientes» del portal se muestra y ordena por `completedAt` de la venta (no por la versión, que cambia con una anulación o una
   supresión). **Pendiente:** índice para esa consulta. El cast de texto a `timestamptz` no es inmutable (depende de la zona de la sesión)
   y PostgreSQL no lo admite en un índice; ordenar por el texto tampoco sirve (las tiendas pueden mandar distintos desfases). Requiere una

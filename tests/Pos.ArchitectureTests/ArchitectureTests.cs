@@ -200,19 +200,22 @@ public class ArchitectureTests
             "Audit.AcknowledgeIncidentCommand", "Audit.IssueIntegrityCertificateCommand", "Audit.VerifyAuditCommand",
             "Backup.ConfirmRecoveryCodeCommand", "Backup.DownloadBackupCommand", "Backup.GenerateRecoveryCodeCommand", "Backup.RunBackupNowCommand",
             "Backup.SaveDestinationCommand",
-            "Billing.CorrectFiscalBuyerCommand", "Billing.ReleaseFiscalBacklogCommand", "Billing.RetryFiscalDocumentCommand",
-            "Billing.SetProviderCredentialsCommand", "Billing.UpdateBillingSettingsCommand", "Billing.VerifyBillingConnectionCommand",
-            "Cash.CancelClosingCommand", "Cash.CloseSessionCommand", "Cash.RegisterMovementCommand", "Cash.ReviewSessionCommand", "Cash.StartClosingCommand",
-            "Cash.CancelSistecreditoPaymentCommand", "Cash.CheckSistecreditoPaymentCommand", "Cash.StartSistecreditoPaymentCommand",
+            "Billing.AssignFiscalRangeCommand", "Billing.CorrectFiscalBuyerCommand", "Billing.ReleaseFiscalBacklogCommand", "Billing.RetryFiscalDocumentCommand",
+            "Billing.RotateProviderCredentialsCommand", "Billing.SetProviderCredentialsCommand", "Billing.UpdateBillingSettingsCommand",
+            "Billing.VerifyBillingConnectionCommand", "Billing.VerifyCandidateCredentialsCommand",
+            "Cash.CancelClosingCommand", "Cash.CloseSessionCommand", "Cash.OpenSessionCommand", "Cash.RegisterMovementCommand", "Cash.ReviewSessionCommand",
+            "Cash.StartClosingCommand",
+            "Cash.CancelSistecreditoPaymentCommand", "Cash.CheckSistecreditoPaymentCommand", "Cash.DisableSistecreditoCommand",
+            "Cash.ResolveSistecreditoReviewCommand", "Cash.StartSistecreditoPaymentCommand",
             "Customers.AnonymizeCustomerCommand", "Customers.CloseDataRequestCommand", "Customers.CompleteCustomerCommand", "Customers.CreateCustomerCommand",
             "Customers.CreateDataRequestCommand", "Customers.ExportCustomerDataCommand", "Customers.QuickCreateCustomerCommand", "Customers.RecordConsentsCommand",
             "Identity.ChangePasswordCommand", "Identity.ChangePinCommand", "Identity.CreateAuthorizationCommand", "Identity.CreateOwnerCommand",
             "Identity.LoginCommand", "Identity.LogoutCommand", "Identity.PosLoginCommand", "Identity.ResetPasswordCommand", "Identity.ResetPinCommand",
-            "Identity.RevokeSessionCommand", "Identity.UnlockUserCommand",
+            "Identity.RevokeSessionCommand", "Identity.SetUserActiveCommand", "Identity.UnlockUserCommand",
             "Inventory.VerifyStockCommand",
             "Licensing.ActivateLicenseCommand", "Licensing.CheckLicenseNowCommand", "Licensing.DeactivateLicenseCommand", "Licensing.RefreshLicenseCommand",
             "Organization.CreatePairingCodeCommand", "Organization.PairDeviceCommand", "Organization.RevokeDeviceCommand",
-            "Organization.SetReceiptPrinterCommand", "Organization.SetTerminalScaleKeyCommand", "Organization.SetupCommand",
+            "Organization.SetReceiptPrinterCommand", "Organization.SetTerminalScaleCommand", "Organization.SetTerminalScaleKeyCommand", "Organization.SetupCommand",
             "Reporting.ExportReportCommand",
             "Sales.AddLineCommand", "Sales.ApplyDiscountCommand", "Sales.CancelSaleCommand", "Sales.ChangeQuantityCommand", "Sales.CompleteSaleCommand",
             "Sales.HoldSaleCommand", "Sales.OverridePriceCommand", "Sales.RecheckSalePaymentsCommand", "Sales.ReleaseSistecreditoCreditCommand", "Sales.RemoveDiscountCommand", "Sales.ReprintSaleCommand", "Sales.ResetScaleInterlockCommand", "Sales.ResumeSaleCommand",
@@ -232,8 +235,15 @@ public class ArchitectureTests
             "Cash.StartSistecreditoPaymentCommand",
             "Sales.AddLineCommand", "Sales.ApplyDiscountCommand", "Sales.ChangeQuantityCommand", "Sales.CompleteSaleCommand", "Sales.HoldSaleCommand",
             "Sales.OverridePriceCommand", "Sales.ResumeSaleCommand", "Sales.SetCustomerCommand", "Sales.StartExchangeCommand", "Sales.StartSaleCommand",
-            "Sales.WarrantyRefundCommand",
         ],
         ignoreOrder: true);
+
+        // Integración 1.2.0: abrir jornada solo con el estado alterado o el archivo ilegible, dentro de la ventana de 24 h. La devolución
+        // por garantía (dinero que sale) ya no lleva la ventana; el cambio por otro producto sí (termina en una venta nueva).
+        ProductionAssemblies.All
+            .SelectMany(a => a.GetTypes())
+            .Where(t => !t.IsInterface && t.GetInterfaces().Any(i => i.Name == "IRestrictedSessionOpening"))
+            .Select(t => $"{t.Namespace!.Split('.')[2]}.{t.Name}")
+            .ShouldBe(["Cash.OpenSessionCommand"]);
     }
 }

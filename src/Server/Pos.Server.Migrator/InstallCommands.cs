@@ -109,6 +109,7 @@ internal static class InstallCommands
 
             ApplySettings(config, options, pgBin, edition);
             await WriteConfigAsync(configFile, config, cancellationToken);
+            await GrantUserReadableConfigAsync(dataRoot, cancellationToken);
             return 0;
         }
 
@@ -332,6 +333,31 @@ internal static class InstallCommands
     {
         await RunAsync("icacls.exe", [dataRoot, "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/Q"], cancellationToken);
         await RunAsync("icacls.exe", [pgData, "/grant", "*S-1-5-20:(OI)(CI)F", "/T", "/Q"], cancellationToken);
+        await GrantUserReadableConfigAsync(dataRoot, cancellationToken);
+    }
+
+    /// <summary>
+    /// Integración 1.2.0 (7): en la Caja Única la ventana BusinessPost.exe corre como usuario normal y lee <c>config\desktop.json</c>
+    /// (dirección inicial, huella, orígenes), igual que en la caja adicional (<c>UpdaterSecurity.UserReadableConfig</c>). Se da solo
+    /// LECTURA y solo a ese archivo: <c>server.json</c> (secretos con DPAPI de la máquina) sigue cerrado; sin él la ventana usa
+    /// <c>http://localhost:5480/</c>, el puerto que deja el instalador. Sus preferencias van en <c>%LOCALAPPDATA%</c>.
+    /// </summary>
+    private static async Task GrantUserReadableConfigAsync(string dataRoot, CancellationToken cancellationToken)
+    {
+        var file = Path.Combine(dataRoot, "config", "desktop.json");
+        if (!OperatingSystem.IsWindows() || !File.Exists(file) || File.GetAttributes(file).HasFlag(FileAttributes.ReparsePoint))
+        {
+            return;
+        }
+
+        try
+        {
+            await RunAsync("icacls.exe", [file, "/grant", "*S-1-5-32-545:R", "/Q"], cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.Error.WriteLine($"Advertencia: no se pudo dar lectura de {file} a los usuarios ({ex.Message}).");
+        }
     }
 
     private static void ApplySettings(JsonObject config, IReadOnlyDictionary<string, string> options, string pgBin, string edition)

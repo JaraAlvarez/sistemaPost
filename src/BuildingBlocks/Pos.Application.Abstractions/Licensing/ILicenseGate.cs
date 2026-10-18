@@ -13,7 +13,12 @@ namespace Pos.Application.Abstractions.Licensing;
 /// Restringida desde hace más de 24 h: los comandos <see cref="IRestrictedSalesWindow"/> (vender) también se bloquean y solo queda
 /// cerrar la jornada.
 /// </param>
-public sealed record LicenseGateState(bool Restricted, bool Demo, string? Reason, bool SalesWindowClosed = false)
+/// <param name="AllowsOpeningSessions">
+/// Integración 1.2.0 (ALTA 2): restringida porque el estado local quedó "alterado" (vuelta atrás o backup restaurado) o porque no se
+/// pudo leer el archivo de la licencia. No es un problema de pago: durante la misma ventana de 24 h también se pueden ABRIR jornadas
+/// (<see cref="IRestrictedSessionOpening"/>), si no la tienda no podría vender aunque la ventana siga abierta.
+/// </param>
+public sealed record LicenseGateState(bool Restricted, bool Demo, string? Reason, bool SalesWindowClosed = false, bool AllowsOpeningSessions = false)
 {
     public static readonly LicenseGateState Unrestricted = new(false, false, null);
 }
@@ -36,6 +41,13 @@ public interface IAllowedWhenRestricted;
 /// ventana se bloquea; cancelar, anular, reimprimir y cerrar la jornada siguen disponibles.
 /// </summary>
 public interface IRestrictedSalesWindow : IAllowedWhenRestricted;
+
+/// <summary>
+/// Abrir una jornada con la licencia restringida: solo cuando la restricción lo permite (<see cref="LicenseGateState.AllowsOpeningSessions"/>:
+/// estado alterado o archivo ilegible) y dentro de la ventana de 24 h. Con cualquier otro motivo (pago, vencimiento, revocación) sigue
+/// bloqueado como antes (D12B-02).
+/// </summary>
+public interface IRestrictedSessionOpening : IAllowedWhenRestricted;
 #pragma warning restore CA1040
 
 public static class LicenseGateErrors

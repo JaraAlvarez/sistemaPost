@@ -49,8 +49,10 @@ public sealed record LicenseEvaluation(
     DateTimeOffset EffectiveNow,
     bool ClockRollback,
     DateTimeOffset DemoEndsAt,
-    IReadOnlyList<LicenseNoticeDto> Notices)
+    IReadOnlyList<LicenseNoticeDto> Notices,
+    bool Recoverable = false)
 {
+    // Recoverable (integración 1.2.0): restringida por el estado local alterado o el archivo ilegible, no por pago ni revocación.
     public bool Restricted => LicenseStates.IsRestricted(State);
 }
 
@@ -131,10 +133,10 @@ public static class LicenseEvaluator
         var demoEnds = record.DemoStartedAt.AddDays(DemoDays);
         var claims = verification is { IsValid: true } ? verification.Claims : null;
 
-        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null)
+        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null, bool recoverable = false)
         {
             int? days = until is { } u ? Math.Max(0, (int)Math.Ceiling((u - now).TotalDays)) : null;
-            return new LicenseEvaluation(state, reason, days, claims, effectiveNow, rollback, demoEnds, Notices(state, reason, days, claims));
+            return new LicenseEvaluation(state, reason, days, claims, effectiveNow, rollback, demoEnds, Notices(state, reason, days, claims), recoverable);
         }
 
         if (rollback)
@@ -146,7 +148,7 @@ public static class LicenseEvaluator
         // Sin poder leer el archivo protegido no se puede comprobar nada: restringida (ventana normal de 24 h) con un mensaje propio.
         if (record.VaultUnavailable is { } unavailable)
         {
-            return Result(LicenseStates.Restricted, unavailable);
+            return Result(LicenseStates.Restricted, unavailable, recoverable: true);
         }
 
         // En demostración un estado alterado no restringe: la demo se evalúa con la marca y el inicio que guarda el archivo protegido
@@ -155,7 +157,8 @@ public static class LicenseEvaluator
         if (record.Token is null && record.Tampered && record.HadConfirmedLicense)
         {
             return Result(LicenseStates.Restricted,
-                "Los datos de la licencia guardados en este equipo no cuadran con su firma y este equipo ya tuvo una licencia activada. Active la licencia con su clave.");
+                "Los datos de la licencia guardados en este equipo no cuadran con su firma y este equipo ya tuvo una licencia activada. Active la licencia con su clave.",
+                recoverable: true);
         }
 
         if (record.Token is null)
@@ -186,7 +189,8 @@ public static class LicenseEvaluator
         if (record.Tampered)
         {
             return Result(LicenseStates.Restricted,
-                "Los datos de la licencia guardados en este equipo no cuadran con su firma (se modificaron fuera del sistema, se restauró un backup anterior o se perdió el archivo de la licencia). Verifique la licencia con conexión a Internet.");
+                "Los datos de la licencia guardados en este equipo no cuadran con su firma (se modificaron fuera del sistema, se restauró un backup anterior o se perdió el archivo de la licencia). Verifique la licencia con conexión a Internet.",
+                recoverable: true);
         }
 
         if (!string.Equals(claims.DeviceRole, localDeviceRole, StringComparison.Ordinal))

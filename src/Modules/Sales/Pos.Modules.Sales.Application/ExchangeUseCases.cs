@@ -195,7 +195,11 @@ internal sealed class StartExchangeHandler(
 /// (<c>sales.refund.warranty</c>, sin autorización de supervisor), con motivo; el dinero sale en efectivo del cajón de la
 /// jornada abierta (RN-CSH-06) y queda auditado como crítico.
 /// </summary>
-public sealed record WarrantyRefundCommand(Guid OriginalSaleId, IReadOnlyList<ReturnLineRequest> Lines, string Reason) : ICommand<RefundReceiptDto>, IRestrictedSalesWindow;
+/// <remarks>
+/// Integración 1.2.0: con la licencia restringida se permite también DESPUÉS de las 24 h (es una devolución de dinero, nunca un ingreso);
+/// el cambio por otro producto (<see cref="StartExchangeCommand"/>) sigue dentro de la ventana porque termina en una venta nueva.
+/// </remarks>
+public sealed record WarrantyRefundCommand(Guid OriginalSaleId, IReadOnlyList<ReturnLineRequest> Lines, string Reason) : ICommand<RefundReceiptDto>, IAllowedWhenRestricted;
 
 internal sealed class WarrantyRefundHandler(
     ISalesStore store,

@@ -189,10 +189,13 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
 
     public LicenseEvaluation? Current => _snapshot?.Evaluation;
 
-    // Sin cálculo reciente se restringe, pero se CONSERVA la última decisión de venta (si ya no se podía vender, sigue sin poderse).
+    // Sin cálculo reciente se restringe, pero se CONSERVA la última decisión de venta (si ya no se podía vender, sigue sin poderse) y
+    // el resto de la compuerta (con "with": ningún campo se toma por posición).
     LicenseGateState ILicenseGate.Current => _snapshot is { } s
-        ? (_time.GetElapsedTime(s.At) > StaleAfter ? new LicenseGateState(true, s.Gate.Demo, StaleReason, s.Gate.SalesWindowClosed) : s.Gate)
-        : (_time.GetElapsedTime(_startedAt) > StaleAfter ? new LicenseGateState(true, false, StaleReason) : LicenseGateState.Unrestricted);
+        ? (_time.GetElapsedTime(s.At) > StaleAfter ? s.Gate with { Restricted = true, Reason = StaleReason } : s.Gate)
+        : (_time.GetElapsedTime(_startedAt) > StaleAfter
+            ? new LicenseGateState(Restricted: true, Demo: false, Reason: StaleReason)
+            : LicenseGateState.Unrestricted);
 
     public LicenseSummaryDto Summary => _snapshot is { } s
         ? new LicenseSummaryDto(s.Evaluation.State, s.Evaluation.DaysLeft, s.Evaluation.Notices, s.PaymentUrl)
@@ -201,14 +204,20 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
     /// <param name="evaluation">Estado calculado.</param>
     /// <param name="paymentUrl">Enlace de pago vigente.</param>
     /// <param name="salesWindowClosed">Restringida desde hace más de <see cref="LicenseEvaluator.RestrictedSalesWindow"/> (H6).</param>
-    public void Update(LicenseEvaluation evaluation, string? paymentUrl = null, bool salesWindowClosed = false)
+    /// <param name="recoverableRestriction">
+    /// Restringida por el estado alterado o el archivo ilegible (no por pago): en la ventana de 24 h también se abren jornadas.
+    /// </param>
+    public void Update(LicenseEvaluation evaluation, string? paymentUrl = null, bool salesWindowClosed = false, bool recoverableRestriction = false)
     {
         ArgumentNullException.ThrowIfNull(evaluation);
         _snapshot = new Snapshot(
             evaluation,
             new LicenseGateState(
-                evaluation.Restricted, evaluation.State == LicenseStates.Demo, evaluation.Restricted ? evaluation.Reason : null,
-                evaluation.Restricted && salesWindowClosed),
+                Restricted: evaluation.Restricted,
+                Demo: evaluation.State == LicenseStates.Demo,
+                Reason: evaluation.Restricted ? evaluation.Reason : null,
+                SalesWindowClosed: evaluation.Restricted && salesWindowClosed,
+                AllowsOpeningSessions: evaluation.State == LicenseStates.Restricted && recoverableRestriction),
             paymentUrl,
             _time.GetTimestamp());
     }
@@ -257,7 +266,10 @@ public sealed class LicenseService(
         var evaluation = Evaluate(record);
         var trustedNow = LicenseEvaluator.TrustedNow(record, evaluation);
         var restrictedSince = evaluation.Restricted ? record.RestrictedSince ?? (persist ? trustedNow : null) : null;
-        cache.Update(evaluation, PaymentUrlOf(record), SalesWindowClosed(evaluation.Restricted ? restrictedSince : null, trustedNow));
+        // Integración 1.2.0 (ALTA 2): después de una vuelta atrás o de restaurar un backup el estado queda "alterado" sin jornadas abiertas;
+        // con ese motivo (o el archivo de la licencia ilegible) también se pueden abrir jornadas dentro de la ventana de 24 h.
+        cache.Update(evaluation, PaymentUrlOf(record), SalesWindowClosed(evaluation.Restricted ? restrictedSince : null, trustedNow),
+            recoverableRestriction: evaluation.Recoverable);
         if (!persist)
         {
             return (evaluation, record);

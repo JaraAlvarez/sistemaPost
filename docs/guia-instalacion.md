@@ -116,6 +116,10 @@ las cajas.
 - El servicio **BusinessPost-Updater** revisa cada 6 horas si hay una versión nueva, la descarga y la verifica (firma y huella).
 - La instala a las **02:00** si no hay jornadas abiertas. Antes hace un **backup obligatorio**.
 - Si algo falla, vuelve solo a la versión anterior y, si hace falta, a la base de datos del backup previo. Queda en la auditoría.
+- **1.2.0 en tiendas con 1.0.x o 1.1.0: con el instalador**, no por actualización automática. El manifiesto `stable.json` de la 1.2.0
+  no se publica para esas tiendas hasta validarlo en la VM. Primero hay que desplegar la nube nueva (despliegue-nube §10). Si una tienda vieja
+  igual la recibe sola, su actualizador escribe "no se aplicó ningún cambio" aunque la migración falló, y quien vuelve atrás es el
+  migrador 1.2.0 (códigos 9/10, docs/notas-de-version.md y docs/guia-recuperacion.md).
 - Para instalar ya, sin esperar: **Administración → Actualizaciones → Instalar ahora**. Úselo con las cajas cerradas.
 - Las cajas se actualizan desde el servidor de la tienda, sin Internet.
 - **La ventana BusinessPost.exe también se actualiza** con el paquete (va en `app\<versión>\desktop`, en el servidor y en las cajas).

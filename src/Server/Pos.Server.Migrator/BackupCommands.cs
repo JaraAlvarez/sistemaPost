@@ -349,6 +349,10 @@ internal static class BackupCommands
     public static string? ConfigSecret(string dataRoot, string name) =>
         ProtectedSecret.Reveal(ReadConfig(dataRoot)?["Pos"]?["Database"]?[name]?.GetValue<string>()) is { Length: > 0 } value ? value : null;
 
+    /// <summary>Un valor de texto de <c>Pos:{section}:{name}</c> en server.json (sin descifrar), o <c>null</c>.</summary>
+    public static string? ConfigValue(string dataRoot, string section, string name) =>
+        ReadConfig(dataRoot)?["Pos"]?[section]?[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+
     private static JsonNode? ReadConfig(string dataRoot)
     {
         var path = Path.Combine(dataRoot, "config", "server.json");
