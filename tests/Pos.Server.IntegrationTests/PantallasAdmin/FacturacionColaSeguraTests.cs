@@ -35,10 +35,32 @@ public class FacturacionColaSeguraTests
         protected override string Edition => "SINGLE";
     }
 
+    /// <summary>Caja Única con la facturación prohibida en la instalación (<c>Pos:Billing:Provider = NONE</c>).</summary>
+    private sealed class NoneFactory : PosServerFactory
+    {
+        protected override string Edition => "SINGLE";
+
+        protected override IEnumerable<KeyValuePair<string, string?>> ExtraSettings => [new("Pos:Billing:Provider", "NONE")];
+    }
+
     [Fact]
-    public async Task Por_defecto_el_adaptador_es_NONE_y_no_se_puede_encender()
+    public async Task Por_defecto_el_adaptador_es_FACTUS_apagado_y_no_se_enciende_sin_verificar()
     {
         await using var factory = new DefaultFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        var settings = await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings");
+        settings.ActiveAdapter.ShouldBe("FACTUS");
+        settings.Mode.ShouldBe("OFF");
+        await CredentialsAsync(shop.Owner);
+        // Sin verificar no se enciende (no se llama a Factus en esta prueba).
+        await RawAsync(shop.Owner, HttpMethod.Put, "/api/v1/billing/settings", new { mode = "EVERY_SALE", environment = "SANDBOX" })
+            .ShouldFailWithAsync(HttpStatusCode.UnprocessableEntity, "BILLING.VERIFICATION_REQUIRED");
+    }
+
+    [Fact]
+    public async Task Con_NONE_en_la_configuracion_no_se_puede_verificar_ni_encender()
+    {
+        await using var factory = new NoneFactory();
         var shop = await SalesScenario.CreateAsync(factory);
         (await GetAsync<BillingSettingsDto>(shop.Owner, "/api/v1/billing/settings")).ActiveAdapter.ShouldBe("NONE");
         await CredentialsAsync(shop.Owner);

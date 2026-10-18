@@ -43,7 +43,7 @@
 
 ## Adenda A · Factus como adaptador por defecto y salvaguardas de la cola (2026-10, rama `pantallas-admin`)
 
-- **Estado:** Propuesto — pendiente de aprobación del usuario. No se fusiona a `main` sin esa aprobación.
+- **Estado:** Aprobado por el usuario (2026-10-17). `BillingOptions.DefaultProvider = FACTUS`; la facturación igual nace apagada (OFF).
 - **Cambia:** el punto 3 de la decisión. **Detalle:** [pantallas-faltantes-propuesta.md §2](../fases/pantallas-faltantes-propuesta.md).
 - **Mientras tanto (ronda 3, PB2):** el código mantiene `NONE` por defecto (`BillingOptions.DefaultProvider`); aprobar esta adenda es
   cambiar esa sola línea a `FactusFiscalProvider.ProviderName`. La pantalla ya funciona habilitando `FACTUS` en `server.json`, y todas las
