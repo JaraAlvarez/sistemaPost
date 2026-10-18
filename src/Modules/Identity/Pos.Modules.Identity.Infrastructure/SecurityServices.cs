@@ -236,7 +236,12 @@ internal sealed class IdentityState(NpgsqlDataSource dataSource) : IIdentityStat
         var companyExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
             "SELECT EXISTS (SELECT 1 FROM org.companies)", cancellationToken: cancellationToken));
         var pending = companyExists && !hasOwner;
-        Volatile.Write(ref _ownerPending, pending ? 1 : 0);
+        // Sin empresa todavía no se guarda: el asistente puede crearla SIN Propietario (instalador 1.2.1) y entonces queda pendiente.
+        if (companyExists)
+        {
+            Volatile.Write(ref _ownerPending, pending ? 1 : 0);
+        }
+
         return pending;
     }
 

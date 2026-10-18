@@ -8,7 +8,7 @@
 <PageTitle>Ingresar · BusinessPost</PageTitle>
 
 <PantallaAcceso Titulo="@(_needsPairing ? "Emparejar este equipo" : "Bienvenido")"
-                Ayuda="@(_needsPairing ? null : "Entre con su código de cajero para vender, o con su usuario para la administración.")">
+                Ayuda="@(_needsPairing || _primerIngreso ? null : "Entre con su código de cajero para vender, o con su usuario para la administración.")">
     @if (_loading)
     {
         <MudSkeleton Height="48px" Class="mb-3" />
@@ -22,6 +22,10 @@
             Este equipo aún no está emparejado con el servidor de la tienda. Pida el código de emparejamiento a un administrador.
         </MudAlert>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large" FullWidth="true" Href="/emparejar" StartIcon="@Icons.Material.Outlined.Link">Emparejar este equipo</MudButton>
+    }
+    else if (_primerIngreso)
+    {
+        <PrimerIngreso />
     }
     else
     {
@@ -76,6 +80,7 @@
     private bool _loading = true;
     private bool _busy;
     private bool _needsPairing;
+    private bool _primerIngreso;
     private bool _verClave;
     private int _tab;
     private string? _code, _pin, _username, _password, _error;
@@ -95,6 +100,8 @@
             // En Multicaja, un equipo de la red (no el propio servidor) debe estar emparejado para entrar.
             var local = Navigation.BaseUri.Contains("://localhost", StringComparison.OrdinalIgnoreCase) || Navigation.BaseUri.Contains("://127.0.0.1", StringComparison.Ordinal);
             _needsPairing = Session.IsMulti && !local && Session.Device is null;
+            // Instalador premium 1.2.1: la tienda queda sin Propietario; el primer ingreso (en este mismo equipo) lo crea.
+            _primerIngreso = Session.Setup.OwnerPending && local && Session.Device is null;
             _tab = EnumText.Same(Session.Device?.DeviceKind, "TERMINAL") || !Session.IsMulti ? 0 : 1;
         }
         catch (ApiException ex)

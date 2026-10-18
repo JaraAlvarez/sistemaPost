@@ -131,13 +131,27 @@ public sealed record LicensePreviewRequest(string LicenseKey);
 /// <param name="SubscriptionStatus"><see cref="SubscriptionStatuses"/> (ACTIVE o TRIAL).</param>
 /// <param name="ValidUntil">Fin del periodo pagado o de la prueba.</param>
 /// <param name="City">Ciudad registrada en la nube (ayuda a buscar el municipio), si la hay.</param>
-public sealed record LicensePreviewResponse(string LegalName, string Nit, string Edition, string SubscriptionStatus, DateTimeOffset ValidUntil, string? City);
+/// <param name="BusinessProfile">
+/// Tipo de negocio de la empresa en el portal (<see cref="BusinessProfileCodes"/>), si lo tiene: el instalador premium crea la tienda con
+/// ese tipo (si no, SUPERMARKET). Opcional: los instaladores anteriores lo ignoran.
+/// </param>
+public sealed record LicensePreviewResponse(
+    string LegalName, string Nit, string Edition, string SubscriptionStatus, DateTimeOffset ValidUntil, string? City, string? BusinessProfile = null);
 
-/// <summary>Correo y contraseña del portal del dueño (y el código TOTP si lo tiene activo), con la clave que identifica la empresa.</summary>
-public sealed record OwnerLinkRequest(string LicenseKey, string Email, string Password, string? TotpCode = null);
+/// <summary>
+/// Correo y contraseña del portal del dueño (y el código TOTP si lo tiene activo), con la clave que identifica la empresa. Sin clave
+/// (primer ingreso a una tienda recién instalada, instalador 1.2.1): la empresa es la de la cuenta del usuario del portal, si la tiene.
+/// </summary>
+public sealed record OwnerLinkRequest(string? LicenseKey, string Email, string Password, string? TotpCode = null);
 
-/// <summary>Enlace firmado (<see cref="OwnerLinkToken"/>) para crear al Propietario del POS con la cuenta del portal.</summary>
-public sealed record OwnerLinkResponse(string Token, string Email, string DisplayName, DateTimeOffset ExpiresAt);
+/// <summary>
+/// Enlace firmado (<see cref="OwnerLinkToken"/>) para crear al Propietario del POS con la cuenta del portal. <c>OrganizationName</c>,
+/// <c>OrganizationNit</c> y <c>HasLicense</c> (opcionales): la empresa de la cuenta y si tiene una licencia vigente; con ella el POS se
+/// activa con el mismo enlace (<see cref="ActivationRequest.OwnerLinkToken"/>). Sin empresa ni licencia, la tienda sigue en la prueba.
+/// </summary>
+public sealed record OwnerLinkResponse(
+    string Token, string Email, string DisplayName, DateTimeOffset ExpiresAt, string? OrganizationName = null, string? OrganizationNit = null,
+    bool HasLicense = false);
 
 /// <summary>"Continuar con Google" desde el instalador: la clave identifica la empresa (misma búsqueda y límites que la vista previa).</summary>
 public sealed record OwnerLinkRequestStart(string LicenseKey);
@@ -170,6 +184,10 @@ public sealed record OwnerLinkPollResponse(string Status, int Interval, OwnerLin
 /// <param name="BusinessProfile">
 /// Tipo de negocio de la tienda (Fase 7-C parte A): <see cref="BusinessProfileCodes"/>. Opcional: los POS anteriores no lo envían.
 /// </param>
+/// <param name="OwnerLinkToken">
+/// Enlace firmado del propietario (opcional, sin <paramref name="LicenseKey"/>): primer ingreso con la cuenta del portal, cuya empresa
+/// tiene una licencia vigente. La nube activa esa licencia sin que el dueño escriba la clave.
+/// </param>
 public sealed record ActivationRequest(
     string LicenseKey,
     Guid InstallationId,
@@ -180,7 +198,8 @@ public sealed record ActivationRequest(
     string? BranchName = null,
     string? DeviceName = null,
     string? OperatingSystem = null,
-    string? BusinessProfile = null);
+    string? BusinessProfile = null,
+    string? OwnerLinkToken = null);
 
 /// <summary>Check-in diario: el token vigente (aunque haya vencido) autentica la instalación junto con la huella actual.</summary>
 /// <param name="Token">Último token recibido.</param>
@@ -253,7 +272,8 @@ public sealed record DeactivationRequest(string Token, string Fingerprint, strin
 /// <summary>
 /// Token emitido y un resumen legible (el POS confía solo en lo firmado dentro del token). <c>PaymentUrl</c> (Fase 12-C): enlace de pago
 /// en línea de la suscripción cuando está por vencer, en gracia o restringida, y la nube tiene el pago en línea configurado; nulo si no.
-/// No va firmado: es solo un enlace que el POS muestra.
+/// No va firmado: es solo un enlace que el POS muestra. <c>KeyPrefix</c> (opcional): prefijo visible de la clave, para mostrarlo cuando el
+/// POS se activó con el enlace del propietario y no con la clave.
 /// </summary>
 public sealed record LicenseTokenResponse(
     string Token,
@@ -263,7 +283,8 @@ public sealed record LicenseTokenResponse(
     int GraceDays,
     DateTimeOffset RefreshAfter,
     IReadOnlyList<LicenseMessage> Messages,
-    string? PaymentUrl = null);
+    string? PaymentUrl = null,
+    string? KeyPrefix = null);
 
 /// <summary>Clave pública publicada, con la forma de un JWK OKP (RFC 8037).</summary>
 /// <param name="Kid">Identificador de la clave.</param>

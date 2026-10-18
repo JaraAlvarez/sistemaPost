@@ -268,6 +268,15 @@ else
                         <MudGrid Spacing="3">
                             <MudItem xs="12" md="6"><MudTextField T="string" @bind-Value="_legalName" Label="Razón social" MaxLength="200" /></MudItem>
                             <MudItem xs="12" md="4"><MudTextField T="string" @bind-Value="_city" Label="Ciudad" MaxLength="120" /></MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudSelect T="string" @bind-Value="_businessProfile" Label="Tipo de negocio" Clearable="true"
+                                           HelperText="El instalador crea la tienda con este tipo. Después lo informa la tienda (Configuración → Funciones del negocio).">
+                                    @foreach (var profile in BusinessProfileCodes.All)
+                                    {
+                                        <MudSelectItem T="string" Value="@profile">@BusinessProfileCodes.Name(profile)</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
                             <MudItem xs="12" md="2" Class="d-flex align-center"><MudSwitch T="bool" @bind-Value="_orgActive" Label="@(_orgActive ? "Activa" : "Inactiva")" Color="Color.Success" /></MudItem>
                         </MudGrid>
                         <MudText Typo="Typo.caption" Class="d-block mt-2 texto-secundario">El NIT no se modifica: el token de las tiendas está ligado a él.</MudText>
@@ -294,6 +303,7 @@ else
     private int? _maxInstallations;
     private string? _legalName;
     private string? _city;
+    private string? _businessProfile;
     private bool _orgActive = true;
     private IReadOnlyList<PaymentOrderRowDto> _payments = [];
     private PaymentSettingsDto? _paymentSettings;
@@ -321,6 +331,7 @@ else
         {
             _legalName = _detail.Organization.LegalName;
             _city = _detail.Organization.City;
+            _businessProfile = _detail.Organization.BusinessProfile;
             _orgActive = _detail.Organization.Status == "ACTIVE";
             _maxInstallations = _detail.Licenses.FirstOrDefault(l => l.Status == "ACTIVE")?.MaxInstallations;
         }
@@ -420,7 +431,7 @@ else
             return;
         }
 
-        if (await RunAsync(new UpdateOrganizationCommand(OrganizationId, _legalName ?? string.Empty, _city, _orgActive), "Empresa actualizada."))
+        if (await RunAsync(new UpdateOrganizationCommand(OrganizationId, _legalName ?? string.Empty, _city, _orgActive, _businessProfile), "Empresa actualizada."))
         {
             await LoadAsync();
         }

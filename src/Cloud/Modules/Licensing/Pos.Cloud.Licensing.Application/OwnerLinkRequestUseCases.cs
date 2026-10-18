@@ -14,25 +14,32 @@ namespace Pos.Cloud.Licensing.Application;
 internal static class OwnerLinkIssuer
 {
     public static async Task<(OwnerLinkResponse Response, Guid TokenId)> IssueAsync(
-        ILicenseTokenSigner signer, IAuditWriter audit, IIdGenerator ids, DateTimeOffset now, License license, Organization organization,
+        ILicenseTokenSigner signer, IAuditWriter audit, IIdGenerator ids, DateTimeOffset now, License? license, Organization? organization,
         string email, string displayName, string via, CancellationToken cancellationToken)
     {
+        // Sin empresa (cuenta del portal recién creada): el enlace no lleva NIT y la tienda queda en la prueba con sus datos provisionales.
         var claims = new OwnerLinkClaims
         {
             TokenId = ids.NewId(),
             Email = email,
             DisplayName = displayName,
-            OrganizationNit = organization.NitNumber.ToString(),
+            OrganizationNit = organization?.NitNumber.ToString() ?? string.Empty,
+            OrganizationName = organization?.LegalName,
+            LicenseId = license?.Id,
+            BusinessProfile = organization?.BusinessProfile,
             IssuedAt = now,
             ExpiresAt = now + OwnerLinkToken.Lifetime,
         };
         var token = signer.SignOwnerLink(claims);
         await audit.WriteAsync(
-            new AuditEntry("licensing", "OWNER_LINK_ISSUED", nameof(Organization), organization.Id, organization.AuditLabel,
-                $"{organization.LegalName}: enlace del propietario para {claims.Email} (licencia {license.KeyPrefix}…) {via}; vence {claims.ExpiresAt:yyyy-MM-dd HH:mm} UTC.",
+            new AuditEntry("licensing", "OWNER_LINK_ISSUED", nameof(Organization), organization?.Id, organization?.AuditLabel,
+                organization is null
+                    ? $"Enlace del propietario para {claims.Email} (cuenta sin empresa: la tienda queda en prueba) {via}; vence {claims.ExpiresAt:yyyy-MM-dd HH:mm} UTC."
+                    : $"{organization.LegalName}: enlace del propietario para {claims.Email} ({(license is null ? "sin licencia vigente" : $"licencia {license.KeyPrefix}…")}) {via}; vence {claims.ExpiresAt:yyyy-MM-dd HH:mm} UTC.",
                 Severity: AuditSeverity.Warning),
             cancellationToken);
-        return (new OwnerLinkResponse(token, claims.Email, claims.DisplayName, claims.ExpiresAt), claims.TokenId);
+        return (new OwnerLinkResponse(token, claims.Email, claims.DisplayName, claims.ExpiresAt, organization?.LegalName, organization?.NitNumber.ToString(),
+            license is not null), claims.TokenId);
     }
 }
 

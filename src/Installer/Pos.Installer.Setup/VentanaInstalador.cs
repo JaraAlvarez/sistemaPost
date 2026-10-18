@@ -5,7 +5,7 @@ using Microsoft.Web.WebView2.WinForms;
 namespace Pos.Installer.Setup;
 
 /// <summary>
-/// Ventana del instalador: 960×600 sin el marco de Windows (la barra con arrastrar, minimizar y cerrar la dibuja la página), esquinas
+/// Ventana del instalador: 960×600 (por la escala de Windows; más chica si no cabe en la pantalla) sin el marco de Windows (la barra con arrastrar, minimizar y cerrar la dibuja la página), esquinas
 /// redondeadas en Windows 11 y WebView2 con las páginas incrustadas en el programa (nunca se carga nada de internet).
 /// </summary>
 internal sealed partial class VentanaInstalador : Form
@@ -16,6 +16,8 @@ internal sealed partial class VentanaInstalador : Form
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(17, 21, 125) };
     private readonly Puente _puente;
     private bool _puedeCerrar;
+    // Zoom de la página cuando la ventana no cabe en la pantalla (Logica/TamanoVentana); 1 = tamaño normal.
+    private double _zoom = 1;
 
     public VentanaInstalador(Opciones opciones)
     {
@@ -33,8 +35,11 @@ internal sealed partial class VentanaInstalador : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        var escala = DeviceDpi / 96f;
-        ClientSize = new Size((int)(960 * escala), (int)(600 * escala));
+        // 960×600 píxeles CSS por la escala de Windows; si no cabe en el área útil (pantalla pequeña al 125 % o 150 %), se achica todo.
+        var area = Screen.FromHandle(Handle).WorkingArea;
+        var (ancho, alto, zoom) = Logica.TamanoVentana.Calcular(DeviceDpi / 96d, area.Width, area.Height);
+        _zoom = zoom;
+        ClientSize = new Size(ancho, alto);
         CenterToScreen();
         var redondeo = 2; // DWMWCP_ROUND (Windows 11; en Windows 10 se ignora).
         _ = DwmSetWindowAttribute(Handle, 33, ref redondeo, sizeof(int));
@@ -59,6 +64,11 @@ internal sealed partial class VentanaInstalador : Form
         }
 
         var core = _web.CoreWebView2;
+        if (_zoom < 1)
+        {
+            _web.ZoomFactor = _zoom;
+        }
+
         core.Settings.AreDevToolsEnabled = _opciones.Maqueta;
         core.Settings.AreDefaultContextMenusEnabled = false;
         core.Settings.IsStatusBarEnabled = false;

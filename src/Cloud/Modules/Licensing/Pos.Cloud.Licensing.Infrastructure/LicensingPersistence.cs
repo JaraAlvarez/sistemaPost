@@ -236,6 +236,9 @@ internal sealed class LicensingStore(CloudDbContext context) : ILicensingStore
     public Task<Organization?> GetOrganizationAsync(Guid id, CancellationToken cancellationToken) =>
         context.Set<Organization>().SingleOrDefaultAsync(o => o.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<Organization>> GetOrganizationsOfAccountAsync(Guid accountId, CancellationToken cancellationToken) =>
+        await context.Set<Organization>().Where(o => o.AccountId == accountId).OrderBy(o => o.LegalName).ToListAsync(cancellationToken);
+
     public Task<bool> NitExistsAsync(string nit, CancellationToken cancellationToken) =>
         context.Set<Organization>().AnyAsync(o => o.Nit == nit, cancellationToken);
 

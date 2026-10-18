@@ -16,7 +16,8 @@ internal static class Mapping
     public static CompanyDto ToDto(this Company c) => new(
         c.Id, c.LegalName, c.TradeName, c.PersonType.UpperSnake(), c.IdentificationType, c.IdentificationNumber, c.CheckDigit,
         c.TaxRegime, [.. c.FiscalResponsibilities.Select(r => r.Code).Order(StringComparer.Ordinal)], c.CountryCode,
-        c.MunicipalityCode, c.Address, c.Phone, c.Email, c.CurrencyCode, c.Timezone, c.Status.UpperSnake());
+        c.MunicipalityCode, c.Address, c.Phone, c.Email, c.CurrencyCode, c.Timezone, c.Status.UpperSnake(),
+        c.HasProvisionalIdentification, c.DataPending);
 
     public static BranchDto ToDto(this Branch b, Guid? homeBranchId) => new(
         b.Id, b.Code, b.Name, b.MunicipalityCode, b.Address, b.Phone, b.DefaultWarehouseId, b.Status.UpperSnake(), b.Id == homeBranchId);

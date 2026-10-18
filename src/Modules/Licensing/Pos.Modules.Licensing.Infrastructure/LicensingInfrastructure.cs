@@ -102,6 +102,33 @@ internal sealed partial class LicenseCloudClient(HttpClient? http, ILogger<Licen
         }
     }
 
+    public async Task<(OwnerLinkResponse? Link, string? Code, string? Message)> OwnerLinkAsync(OwnerLinkRequest request, CancellationToken cancellationToken)
+    {
+        if (http is null)
+        {
+            return (null, null, null);
+        }
+
+        try
+        {
+            using var response = await http.PostAsJsonAsync(LicensingRoutes.OwnerLinks.TrimStart('/'), request, Json, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<OwnerLinkResponse>(Json, cancellationToken) is { Token.Length: > 0 } link
+                    ? (link, null, null)
+                    : (null, "LICENSE.HTTP_200", "El servidor de licencias no devolvió la validación de la cuenta.");
+            }
+
+            var problem = await ReadProblemAsync(response, cancellationToken);
+            return (null, problem?.Code ?? $"LICENSE.HTTP_{(int)response.StatusCode}", problem?.Detail ?? problem?.Title);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException && !cancellationToken.IsCancellationRequested)
+        {
+            LogUnreachable(logger, LicensingRoutes.OwnerLinks, ex.Message);
+            return (null, null, null);
+        }
+    }
+
     private async Task<CloudResult> PostAsync<T>(string route, T body, CancellationToken cancellationToken)
     {
         if (http is null)
@@ -390,7 +417,7 @@ internal sealed class PortalOwnerLinkVerifier(ILicenseKeys keys, TimeProvider ti
 {
     public PortalOwnerLink? Verify(string token) =>
         OwnerLinkToken.Verify(token, keys.Ring, time.GetUtcNow()) is { IsValid: true, Claims: { } claims }
-            ? new PortalOwnerLink(claims.Email.Trim().ToLowerInvariant(), claims.DisplayName, claims.OrganizationNit)
+            ? new PortalOwnerLink(claims.Email.Trim().ToLowerInvariant(), claims.DisplayName, claims.OrganizationNit, claims.OrganizationName, claims.BusinessProfile)
             : null;
 }
 

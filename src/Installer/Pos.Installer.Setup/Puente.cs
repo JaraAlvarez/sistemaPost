@@ -11,24 +11,18 @@ internal sealed record Opciones(bool Desinstalar, bool Maqueta, string Paquete, 
 
 /// <summary>
 /// Puente página ↔ Windows (mensajes web de WebView2). La página envía <c>{ id, accion, datos }</c> y recibe
-/// <c>{ id, ok, dato, mensaje, codigo }</c>; los avisos de la instalación llegan como <c>{ evento, … }</c>. La contraseña del portal y
-/// el enlace firmado se quedan en este proceso (memoria) y solo viajan al servidor local; nunca se guardan en disco.
+/// <c>{ id, ok, dato, mensaje, codigo }</c>; los avisos de la instalación llegan como <c>{ evento, … }</c>. Desde 1.2.1 el instalador
+/// no pide ningún dato (ni licencia ni cuenta): el primer ingreso a BusinessPost crea al Propietario con la cuenta del portal.
 /// </summary>
 internal sealed class Puente(
     Opciones opciones, Action<string> enviar, Func<string?> elegirBackup, Func<string, string?> elegirCarpeta, Action<string> accionVentana) : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
 
-    private readonly NubeLicencias _nube = new(Sistema.ServidorLicencias);
     private readonly Lazy<IReadOnlyList<Municipio>> _municipios = new(LeerMunicipios);
     private readonly CancellationTokenSource _cierre = new();
     private Instalacion? _instalacion;
-    // Enlace firmado del propietario, atado a la clave con la que se obtuvo (si cambia la clave, no sirve).
-    private volatile VinculoPropietario? _vinculo;
 
-    // "Continuar con Google": la espera en curso (una a la vez) y la dirección para "Abrir el navegador otra vez".
-    private CancellationTokenSource? _google;
-    private string? _direccionGoogle;
 
     public bool Trabajando { get; private set; }
 
@@ -36,11 +30,8 @@ internal sealed class Puente(
 
     public void Dispose()
     {
-        _google?.Cancel();
-        _google?.Dispose();
         _cierre.Dispose();
         _instalacion?.Dispose();
-        _nube.Dispose();
     }
 
     public async Task RecibirAsync(string json)
@@ -76,7 +67,6 @@ internal sealed class Puente(
                     maqueta = opciones.Maqueta,
                     pantalla = opciones.Maqueta ? opciones.Pantalla : null,
                     version = Sistema.Version,
-                    nube = _nube.Disponible || opciones.Maqueta,
                     modoInstalado = opciones.Maqueta || opciones.Desinstalar ? null : Sistema.ModoInstalado()?.ToString().ToLowerInvariant(),
                     desinstalacion = opciones.Desinstalar ? (opciones.Maqueta ? new { instalado = true, carpeta = @"C:\Program Files\BusinessPost", datos = Sistema.Datos, version = "1.1.0", equipoPrincipal = true } : Desinstalacion.Estado()) : null,
                 }, null, null);
@@ -90,63 +80,6 @@ internal sealed class Puente(
 
             case "digito":
                 return (DigitoVerificacion.Calcular(Texto(datos, "numero")), null, null);
-
-            case "vistaPrevia":
-            {
-                if (opciones.Maqueta)
-                {
-                    await Task.Delay(600, ct);
-                    return (new LicensePreviewResponse("Supermercado La Economía SAS", "900123456-8", "MULTI", "ACTIVE", new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.Zero), "Medellín"), null, null);
-                }
-
-                var respuesta = await _nube.VistaPreviaAsync(Texto(datos, "clave") ?? string.Empty, ct);
-                return (respuesta.Dato, respuesta.Mensaje, respuesta.Codigo);
-            }
-
-            case "cuentaPortal":
-            {
-                var claveCuenta = Texto(datos, "clave") ?? string.Empty;
-                if (opciones.Maqueta)
-                {
-                    await Task.Delay(700, ct);
-                    var correoMaqueta = Texto(datos, "correo")?.Trim().ToLowerInvariant() ?? "dueno@correo.co";
-                    _vinculo = new VinculoPropietario("enlace-de-maqueta", correoMaqueta, claveCuenta, deGoogle: false);
-                    return (new { email = correoMaqueta, displayName = "Dueño de prueba" }, null, null);
-                }
-
-                CancelarGoogle();
-                _vinculo = null;
-                var respuesta = await _nube.CuentaAsync(
-                    claveCuenta, Texto(datos, "correo") ?? string.Empty, Texto(datos, "contrasena") ?? string.Empty, Texto(datos, "codigo"), ct);
-                if (respuesta is not { Ok: true, Dato: { Token.Length: > 0 } enlace })
-                {
-                    return (null, respuesta.Mensaje ?? "El servidor de licencias no devolvió la validación de tu cuenta. Intenta de nuevo.", respuesta.Codigo);
-                }
-
-                _vinculo = new VinculoPropietario(enlace.Token, enlace.Email, claveCuenta, deGoogle: false);
-                return (new { email = enlace.Email, displayName = enlace.DisplayName }, null, null);
-            }
-
-            case "olvidarCuenta":
-                // La página cambió la clave de licencia: la cuenta validada con la clave anterior ya no sirve.
-                CancelarGoogle();
-                _vinculo = null;
-                return (null, null, null);
-
-            case "googleIniciar":
-                return await IniciarGoogleAsync(Texto(datos, "clave") ?? string.Empty, ct);
-
-            case "googleAbrir":
-                if (_direccionGoogle is not null && !opciones.Maqueta)
-                {
-                    Sistema.AbrirComoUsuario(_direccionGoogle);
-                }
-
-                return (null, null, null);
-
-            case "googleCancelar":
-                CancelarGoogle();
-                return (null, null, null);
 
             case "buscarPrincipal":
             {
@@ -171,15 +104,8 @@ internal sealed class Puente(
             case "instalar":
                 return Instalar(datos);
 
-            case "confirmarCodigo":
-                if (opciones.Maqueta)
-                {
-                    Avisar(new { evento = "terminado", empresa = "La Economía", modo = "principal", licenciaActiva = true });
-                    return (null, null, null);
-                }
-
-                var error = _instalacion is null ? "No hay una instalación en curso." : await _instalacion.ConfirmarCodigoAsync(ct);
-                return (null, error, null);
+            case "reconfigurar":
+                return Reconfigurar();
 
             case "verRegistro":
                 if (Texto(datos, "ruta") is { } ruta && File.Exists(ruta))
@@ -229,132 +155,17 @@ internal sealed class Puente(
         }
     }
 
-    /// <summary>
-    /// "Continuar con Google" (Fase 13-B, parte E): Google no permite su ingreso dentro de un WebView, así que la nube crea una solicitud
-    /// y el instalador abre el portal en el NAVEGADOR DEL SISTEMA (con el usuario normal, no como administrador). Solo se abre una dirección
-    /// HTTPS del mismo servidor de licencias. Luego consulta en segundo plano y avisa a la página con <c>{ evento: "google", … }</c>.
-    /// </summary>
-    private async Task<(object?, string?, string?)> IniciarGoogleAsync(string clave, CancellationToken ct)
-    {
-        CancelarGoogle();
-        _vinculo = null;
-        if (opciones.Maqueta)
-        {
-            await Task.Delay(500, ct);
-            Esperar((_, _) => Task.FromResult(new ResultadoConsulta(OwnerLinkRequestStatuses.Approved, 5,
-                new OwnerLinkResponse("enlace-de-maqueta", "dueno@gmail.com", "Dueño de prueba", DateTimeOffset.UtcNow.AddHours(2)))), clave, TimeSpan.FromMinutes(5), TimeSpan.FromSeconds(5));
-            return (new { codigo = "K7QF-M2XP", venceEn = 300 }, null, null);
-        }
-
-        var respuesta = await _nube.IniciarGoogleAsync(clave, ct);
-        if (!respuesta.Ok)
-        {
-            return (null, respuesta.Mensaje, respuesta.Codigo);
-        }
-
-        if (respuesta.Dato is not { } inicio || !IngresoGoogle.EsDireccionSegura(inicio.BrowserUrl, _nube.Servidor))
-        {
-            return (null, "El servidor de licencias devolvió una respuesta que no es la esperada. Usa tu correo y contraseña del portal.", null);
-        }
-
-        _direccionGoogle = inicio.BrowserUrl;
-        Sistema.AbrirComoUsuario(inicio.BrowserUrl);
-        Esperar((_, token) => _nube.ConsultarGoogleAsync(inicio.RequestId, inicio.PollToken, token),
-            clave, TimeSpan.FromSeconds(inicio.ExpiresIn), TimeSpan.FromSeconds(inicio.Interval));
-        return (new { codigo = inicio.UserCode, venceEn = inicio.ExpiresIn }, null, null);
-    }
-
-    /// <summary>
-    /// Lanza la espera en segundo plano (el resultado llega a la página como aviso). Cualquier falla inesperada termina la espera con un
-    /// aviso de error (con "Reintentar" en la página) en vez de dejar "Esperando autorización" para siempre.
-    /// </summary>
-    private void Esperar(Func<EsperaAutorizacion, CancellationToken, Task<ResultadoConsulta>> consultar, string clave, TimeSpan vigencia, TimeSpan intervalo)
-    {
-        var cancelacion = CancellationTokenSource.CreateLinkedTokenSource(_cierre.Token);
-        _google = cancelacion;
-        var espera = new EsperaAutorizacion(DateTimeOffset.UtcNow, vigencia, intervalo);
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var estado = await espera.EjecutarAsync(token => consultar(espera, token), Task.Delay, () => DateTimeOffset.UtcNow, null, cancelacion.Token);
-                if (estado == EstadoEspera.Autorizada && espera.Enlace is { Token.Length: > 0 } enlace && !cancelacion.IsCancellationRequested)
-                {
-                    _vinculo = new VinculoPropietario(enlace.Token, enlace.Email, clave, deGoogle: true);
-                    Avisar(new { evento = "google", estado = "autorizada", email = enlace.Email, displayName = enlace.DisplayName });
-                    return;
-                }
-
-                if (estado != EstadoEspera.Cancelada && !cancelacion.IsCancellationRequested)
-                {
-                    Avisar(new { evento = "google", estado = estado.ToString().ToLowerInvariant(), mensaje = espera.Mensaje, reintentar = true });
-                }
-            }
-            catch (OperationCanceledException) when (cancelacion.IsCancellationRequested)
-            {
-                // Cancelada desde la página o se cerró la ventana.
-            }
-#pragma warning disable CA1031 // Cualquier falla de la espera se muestra en la página (antes quedaba "Esperando autorización" para siempre).
-            catch (Exception ex)
-#pragma warning restore CA1031
-            {
-                if (!cancelacion.IsCancellationRequested)
-                {
-                    Avisar(new
-                    {
-                        evento = "google",
-                        estado = "error",
-                        mensaje = $"No pudimos completar el ingreso con Google ({ex.Message}). Pulsa \"Reintentar\" o usa tu correo y contraseña.",
-                        reintentar = true,
-                    });
-                }
-            }
-        });
-    }
-
-    private void CancelarGoogle()
-    {
-        var actual = _google;
-        _google = null;
-        _direccionGoogle = null;
-        actual?.Cancel();
-    }
-
     private (object?, string?, string?) Instalar(JsonElement datos)
     {
         var solicitud = datos.Deserialize<SolicitudInstalacion>(Json)!;
-        var conLicencia = !string.IsNullOrWhiteSpace(solicitud.Clave);
-        if (solicitud.Propietario is { } propietario && conLicencia)
+        // El instalador ya no pide la licencia ni la cuenta (1.2.1): la tienda queda como única caja, sin Propietario y en prueba. La
+        // página solo decide la caja adicional y, al recuperar un backup, si el equipo dañado era el principal.
+        solicitud = solicitud with
         {
-            // Con la clave, el Propietario SIEMPRE es la cuenta del portal validada con ESA clave (y de la empresa que se configura).
-            var vinculo = _vinculo;
-            if (vinculo is null)
-            {
-                return (null, "Valida otra vez tu cuenta del portal antes de instalar.", VinculoPropietario.CodigoInvalido);
-            }
-
-            if (vinculo.Revisar(solicitud.Clave, solicitud.Negocio?.Numero, DateTimeOffset.UtcNow) is { } invalido)
-            {
-                _vinculo = null;
-                return (null, invalido, VinculoPropietario.CodigoInvalido);
-            }
-
-            // Con Google no hay contraseña del portal: la contraseña LOCAL que eligió el dueño debe cumplir la política del portal y
-            // coincidir con su confirmación.
-            if (vinculo.DeGoogle && IngresoGoogle.ValidarContrasenaLocal(propietario.Contrasena, propietario.Confirmacion, vinculo.Correo) is { } problema)
-            {
-                return (null, problema, null);
-            }
-
-            // El usuario es el correo VALIDADO por la nube (no el que quede escrito en la página).
-            solicitud = solicitud with { Propietario = propietario with { Usuario = vinculo.Correo, Enlace = vinculo.Enlace } };
-        }
-        else if (solicitud.Propietario is { } local)
-        {
-            solicitud = solicitud with { Propietario = local with { Enlace = null } };
-        }
-
-
+            Modo = ModoPorLicencia.Elegir(solicitud.Modo, !string.IsNullOrWhiteSpace(solicitud.Backup)),
+            Clave = null,
+            Propietario = null,
+        };
         Trabajando = true;
         Program.RegistrarTrabajo(Task.Run(async () =>
         {
@@ -379,6 +190,65 @@ internal sealed class Puente(
 #pragma warning restore CA1031
             {
                 Avisar(new { evento = "error", mensaje = $"Ocurrió un error inesperado: {ex.Message}", registro = _instalacion?.Registro });
+            }
+            finally
+            {
+                Trabajando = false;
+            }
+        }));
+        return (null, null, null);
+    }
+
+    /// <summary>
+    /// Reintenta SOLO la configuración de la tienda (el paquete ya quedó instalado). Nunca reinstala ni manda al asistente web.
+    /// </summary>
+    private (object?, string?, string?) Reconfigurar()
+    {
+        if (opciones.Maqueta)
+        {
+            Trabajando = true;
+            Program.RegistrarTrabajo(Task.Run(async () =>
+            {
+                try
+                {
+                    Avisar(new { evento = "progreso", etapa = (int)Etapa.ConfigurandoNegocio, porcentaje = 94, nota = "Dejando lista tu tienda…" });
+                    await Task.Delay(1200, _cierre.Token);
+                    Avisar(new { evento = "terminado", modo = "unica", empresa = "Mi negocio" });
+                }
+                catch (OperationCanceledException)
+                {
+                    // Se cerró la ventana.
+                }
+                finally
+                {
+                    Trabajando = false;
+                }
+            }));
+            return (null, null, null);
+        }
+
+        if (_instalacion?.Pendiente is not { } pendiente)
+        {
+            return (null, "No hay una configuración pendiente. Cierra el instalador y ábrelo otra vez.", null);
+        }
+
+        var instalacion = _instalacion;
+        Trabajando = true;
+        Program.RegistrarTrabajo(Task.Run(async () =>
+        {
+            try
+            {
+                await instalacion.ReintentarConfiguracionAsync(_cierre.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Se cerró la ventana.
+            }
+#pragma warning disable CA1031 // La falla se muestra en la página.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                Avisar(new { evento = "error", mensaje = $"Ocurrió un error inesperado: {ex.Message}", registro = instalacion.Registro, reintentar = true });
             }
             finally
             {
@@ -472,9 +342,9 @@ internal sealed class Puente(
             return;
         }
 
-        Avisar(new { evento = "progreso", etapa = (int)Etapa.ConfigurandoNegocio, porcentaje = 94, nota = "Activando tu licencia…" });
+        Avisar(new { evento = "progreso", etapa = (int)Etapa.ConfigurandoNegocio, porcentaje = 94, nota = "Dejando lista tu tienda…" });
         await Task.Delay(1200, ct);
-        Avisar(new { evento = "codigo", codigo = "7F3A-91C2-0B44-E1D8-AB12-CD34", porcentaje = 98 });
+        Avisar(new { evento = "terminado", modo = "unica", empresa = "Mi negocio" });
     }
 
     private void Avisar(object aviso) => enviar(JsonSerializer.Serialize(aviso, Json));

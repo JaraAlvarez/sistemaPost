@@ -79,7 +79,8 @@ internal sealed class PreviewLicenseHandler(ILicensingStore store, ILicenseThrot
 
         var (_, subscription, organization) = resolved.Value;
         return new LicensePreviewResponse(
-            organization.LegalName, organization.NitNumber.ToString(), subscription.Edition.ToCode(), subscription.Status.ToCode(), subscription.ValidUntil, organization.City);
+            organization.LegalName, organization.NitNumber.ToString(), subscription.Edition.ToCode(), subscription.Status.ToCode(), subscription.ValidUntil, organization.City,
+            organization.BusinessProfile);
     }
 }
 
@@ -115,6 +116,11 @@ internal sealed class CreateOwnerLinkHandler(
             return Outcome.Fail<OwnerLinkResponse>(LicenseApiErrors.OwnerCredentialsInvalid);
         }
 
+        if (string.IsNullOrWhiteSpace(request.LicenseKey))
+        {
+            return await SinClaveAsync(command, cancellationToken);
+        }
+
         var resolved = await InstallerKeys.ResolveAsync(store, throttle, ids, clock, request.LicenseKey, cancellationToken);
         if (resolved.IsFailure)
         {
@@ -141,6 +147,57 @@ internal sealed class CreateOwnerLinkHandler(
         var (link, _) = await OwnerLinkIssuer.IssueAsync(
             signer, audit, ids, clock.UtcNow, license, organization, check.Email!, check.DisplayName!,
             $"desde {command.IpAddress?.ToString() ?? "IP desconocida"}", cancellationToken);
+        return Outcome.Ok(link);
+    }
+
+    /// <summary>
+    /// Primer ingreso a una tienda recién instalada (instalador 1.2.1), sin clave: un usuario Cliente del portal con su correo y
+    /// contraseña (mismas reglas y bloqueo). La empresa es la de su cuenta: la que tenga licencia vigente (el POS se activa con el enlace)
+    /// o, si no, la primera; sin empresa, el enlace no lleva NIT y la tienda queda en la prueba.
+    /// </summary>
+    private async Task<Result<Outcome<OwnerLinkResponse>>> SinClaveAsync(CreateOwnerLinkCommand command, CancellationToken cancellationToken)
+    {
+        var request = command.Request;
+        var check = await customers.VerifyAsync(
+            request.Email, request.Password, request.TotpCode, null, "una tienda nueva", command.IpAddress, cancellationToken);
+        var error = check.Result switch
+        {
+            PortalCustomerCheck.Valid => null,
+            PortalCustomerCheck.Locked => LicenseApiErrors.OwnerLocked,
+            PortalCustomerCheck.NotOwner => LicenseApiErrors.OwnerNotLinked,
+            PortalCustomerCheck.TotpRequired => LicenseApiErrors.OwnerTotpRequired,
+            PortalCustomerCheck.PasswordChangeRequired => LicenseApiErrors.OwnerPasswordChangeRequired,
+            _ => LicenseApiErrors.OwnerCredentialsInvalid,
+        };
+        if (error is not null || check.AccountId is not { } accountId)
+        {
+            return Outcome.Fail<OwnerLinkResponse>(error ?? LicenseApiErrors.OwnerNotLinked);
+        }
+
+        Organization? organization = null;
+        License? license = null;
+        var now = clock.UtcNow;
+        foreach (var candidate in (await store.GetOrganizationsOfAccountAsync(accountId, cancellationToken)).Where(o => o.Status == RecordStatus.Active))
+        {
+            organization ??= candidate;
+            if (await store.GetActiveLicenseAsync(candidate.Id, cancellationToken) is not { } active)
+            {
+                continue;
+            }
+
+            var subscription = await store.GetSubscriptionAsync(active.SubscriptionId, cancellationToken);
+            subscription?.Refresh(new ChangeContext(SystemActor.Id, now, ids));
+            if (subscription is { AllowsActivation: true })
+            {
+                organization = candidate;
+                license = active;
+                break;
+            }
+        }
+
+        var (link, _) = await OwnerLinkIssuer.IssueAsync(
+            signer, audit, ids, now, license, organization, check.Email!, check.DisplayName!,
+            $"en el primer ingreso a la tienda, sin clave (desde {command.IpAddress?.ToString() ?? "IP desconocida"})", cancellationToken);
         return Outcome.Ok(link);
     }
 }

@@ -2,7 +2,7 @@ using Pos.Installer.Setup.Logica;
 
 namespace Pos.Installer.Setup.Tests;
 
-/// <summary>Paso "¿Qué tipo de negocio tienes?" (Fase 7-C parte A): el instalador solo envía códigos que el servidor acepta.</summary>
+/// <summary>Tipo de negocio (Fase 7-C parte A): el instalador 1.2.1 ya no lo pregunta y crea la tienda como SUPERMERCADO.</summary>
 public class TiposNegocioTests
 {
     [Theory]
@@ -22,15 +22,27 @@ public class TiposNegocioTests
     }
 
     [Fact]
-    public void La_pagina_del_instalador_ofrece_una_tarjeta_por_tipo()
+    public void El_instalador_no_pide_datos_y_crea_la_tienda_como_supermercado_con_datos_provisionales()
     {
-        using var recurso = typeof(TiposNegocio).Assembly.GetManifestResourceStream("instalador.html")!;
-        var html = new StreamReader(recurso).ReadToEnd();
-        foreach (var tipo in TiposNegocio.Todos)
+        string Recurso(string nombre)
         {
-            html.ShouldContain($"data-tipo=\"{tipo}\"");
+            using var recurso = typeof(TiposNegocio).Assembly.GetManifestResourceStream(nombre)!;
+            return new StreamReader(recurso).ReadToEnd();
         }
 
-        html.ShouldContain("¿Qué tipo de negocio tienes?");
+        var html = Recurso("instalador.html");
+        var js = Recurso("instalador.js");
+        // Solo Bienvenida (Instalar), Instalando y ¡Listo! (más los enlaces de caja adicional y recuperar): ningún campo de licencia ni cuenta.
+        foreach (var pantalla in new[] { "data-s=\"licencia\"", "data-s=\"cuenta\"", "data-s=\"tipo\"", "data-s=\"negocio\"", "data-s=\"equipo\"" })
+        {
+            html.ShouldNotContain(pantalla);
+        }
+
+        html.ShouldContain("id=\"lnkAdicional\"");
+        html.ShouldContain("id=\"lnkRecuperar\"");
+        js.ShouldContain("tipoNegocio: \"SUPERMARKET\"");
+        // Los mismos valores provisionales que reconoce el servidor (Company.ProvisionalNit y Company.ProvisionalAddress).
+        js.ShouldContain("numero: \"0\", dv: \"0\"");
+        js.ShouldContain("direccion: \"Por completar\"");
     }
 }

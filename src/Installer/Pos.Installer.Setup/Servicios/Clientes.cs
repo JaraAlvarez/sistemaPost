@@ -47,90 +47,6 @@ internal static class Http
     }
 }
 
-/// <summary>Servidor de licencias en la nube: vista previa de la clave y cuenta del portal del dueño (Fase 13-B).</summary>
-public sealed class NubeLicencias(Uri? servidor) : IDisposable
-{
-    /// <summary>Respuesta 200 que no es de BusinessPost (p. ej. la página de una red Wi-Fi que pide iniciar sesión).</summary>
-    internal const string RespuestaAjena =
-        "La respuesta de internet no es de BusinessPost (¿la red pide iniciar sesión en una página?). Revisa la conexión de este equipo e intenta de nuevo.";
-
-    private readonly HttpClient? _http = servidor is null ? null : new HttpClient { BaseAddress = servidor, Timeout = TimeSpan.FromSeconds(20) };
-
-    /// <summary>Para las pruebas: otro manejador HTTP (sin red real).</summary>
-    internal NubeLicencias(Uri servidor, HttpMessageHandler manejador)
-        : this(servidor)
-    {
-        _http = new HttpClient(manejador) { BaseAddress = servidor, Timeout = TimeSpan.FromSeconds(20) };
-    }
-
-    public bool Disponible => _http is not null;
-
-    public void Dispose() => _http?.Dispose();
-
-    public Task<Respuesta<LicensePreviewResponse>> VistaPreviaAsync(string clave, CancellationToken cancellationToken) =>
-        EnviarAsync<LicensePreviewResponse>(LicensingRoutes.LicensePreviews, new LicensePreviewRequest(clave), cancellationToken);
-
-    public Task<Respuesta<OwnerLinkResponse>> CuentaAsync(string clave, string correo, string contrasena, string? codigo, CancellationToken cancellationToken) =>
-        EnviarAsync<OwnerLinkResponse>(LicensingRoutes.OwnerLinks, new OwnerLinkRequest(clave, correo, contrasena, codigo), cancellationToken);
-
-    /// <summary>Servidor de licencias configurado (la dirección del navegador debe ser de este mismo servidor).</summary>
-    public Uri? Servidor => servidor;
-
-    /// <summary>"Continuar con Google": crea la solicitud que el dueño autoriza en el navegador del sistema.</summary>
-    public Task<Respuesta<OwnerLinkRequestStarted>> IniciarGoogleAsync(string clave, CancellationToken cancellationToken) =>
-        EnviarAsync<OwnerLinkRequestStarted>(LicensingRoutes.OwnerLinkRequests, new OwnerLinkRequestStart(clave), cancellationToken);
-
-    /// <summary>Una consulta del estado de la solicitud (el secreto va en el cuerpo, nunca en la URL).</summary>
-    public async Task<ResultadoConsulta> ConsultarGoogleAsync(Guid solicitud, string secreto, CancellationToken cancellationToken)
-    {
-        var respuesta = await EnviarAsync<OwnerLinkPollResponse>(LicensingRoutes.OwnerLinkRequestPoll(solicitud), new OwnerLinkPoll(secreto), cancellationToken);
-        return respuesta is { Ok: true, Dato: { } dato } ? ResultadoConsulta.Con(dato) : ResultadoConsulta.Fallo(respuesta.Codigo, respuesta.Mensaje);
-    }
-
-    private async Task<Respuesta<T>> EnviarAsync<T>(string ruta, object cuerpo, CancellationToken cancellationToken)
-    {
-        if (_http is null)
-        {
-            return new(default, "Esta versión del instalador no tiene servidor de licencias. Usa \"Probar gratis 30 días\" y activa la clave después.");
-        }
-
-        try
-        {
-            using var response = await _http.PostAsJsonAsync(ruta.TrimStart('/'), cuerpo, Http.Json, cancellationToken);
-            if (response.IsSuccessStatusCode)
-            {
-                // Una red con página de inicio de sesión (hotel, café) responde 200 con HTML: no es JSON de BusinessPost.
-                var dato = await response.Content.ReadFromJsonAsync<T>(Http.Json, cancellationToken);
-                return dato is null ? new(default, RespuestaAjena) : new(dato);
-            }
-
-            var (codigo, detalle) = await Http.ProblemaAsync(response, cancellationToken);
-            return new(default, Mensaje(codigo, detalle, response.StatusCode), codigo);
-        }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException)
-        {
-            return new(default, RespuestaAjena);
-        }
-        catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
-        {
-            return new(default, "No hay conexión con BusinessPost en internet. Revisa el internet de este equipo e intenta de nuevo, o elige \"Probar gratis 30 días\".");
-        }
-    }
-
-    internal static string Mensaje(string? codigo, string? detalle, HttpStatusCode estado) => codigo switch
-    {
-        LicenseErrorCodes.KeyFormatInvalid => "La clave no está completa o tiene un error. Se ve así: POS-XXXXX-XXXXX-XXXXX-XXXXX.",
-        LicenseErrorCodes.KeyInvalid => "Esa clave no es válida. Revísala letra por letra o pídela de nuevo en tu portal de cliente.",
-        LicenseErrorCodes.SubscriptionInactive => "La suscripción de esta clave no está al día. Entra a tu portal de cliente o comunícate con soporte.",
-        LicenseErrorCodes.TooManyRequests or "SECURITY.TOO_MANY_REQUESTS" => "Hubo demasiados intentos seguidos. Espera unos minutos e intenta de nuevo.",
-        LicenseErrorCodes.SigningUnavailable => "El servidor de licencias está en mantenimiento. Intenta en unos minutos.",
-        LicenseErrorCodes.OwnerLinkRequestUsed => "Esa autorización ya se usó. Pulsa de nuevo \"Continuar con Google\".",
-        LicenseErrorCodes.OwnerLinkRequestNotFound => "La solicitud ya no existe. Pulsa de nuevo \"Continuar con Google\".",
-        _ when !string.IsNullOrWhiteSpace(detalle) => detalle,
-        _ => $"El servidor de licencias respondió con un error ({(int)estado}). Intenta de nuevo en unos minutos.",
-    };
-}
-
 /// <summary>
 /// Datos del negocio que configura el instalador (cuerpo del asistente inicial del servidor local). <c>TipoNegocio</c> (Fase 7-C parte A):
 /// SUPERMARKET, FRESH_MARKET, PHARMACY, APPAREL, HARDWARE u OTHER.
@@ -149,8 +65,11 @@ public sealed record DatosNegocio(
     string? Correo,
     string? TipoNegocio = null);
 
-/// <summary>Propietario: con la cuenta del portal (<c>Enlace</c> firmado por la nube) o local (prueba de 30 días).</summary>
-public sealed record DatosPropietario(string Usuario, string Nombre, string Contrasena, string? Enlace, string? Confirmacion = null);
+/// <summary>
+/// Propietario: con la cuenta del portal (<c>Enlace</c> firmado por la nube; <c>Portal</c> = true, lo que se supone si la página no lo
+/// dice) o local (<c>Portal</c> = false: "Crear mi cuenta" en "Tu cuenta", con o sin clave de licencia).
+/// </summary>
+public sealed record DatosPropietario(string Usuario, string Nombre, string Contrasena, string? Enlace, string? Confirmacion = null, bool Portal = true);
 
 /// <summary>Resultado de esperar al servidor local después de instalar.</summary>
 public enum EsperaServidor
@@ -165,7 +84,7 @@ public enum EsperaServidor
     SinRespuesta,
 }
 
-/// <summary>Servidor de BusinessPost en este equipo (http://localhost:5480): asistente inicial, ingreso, licencia y código de recuperación.</summary>
+/// <summary>Servidor de BusinessPost en este equipo (http://localhost:5480): asistente inicial e ingreso (para liberar la licencia al desinstalar).</summary>
 public sealed class ServidorLocal : IDisposable
 {
     public static readonly Uri Direccion = new("http://localhost:5480/");
@@ -285,11 +204,10 @@ public sealed class ServidorLocal : IDisposable
         estado is HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout or HttpStatusCode.RequestTimeout
             or HttpStatusCode.TooManyRequests;
 
-    /// <summary>Asistente inicial en una sola llamada: empresa, sucursal "Principal" (S01), "Caja 1" (C01) y el Propietario.</summary>
-    public Task<Respuesta<JsonElement>> ConfigurarAsync(DatosNegocio negocio, DatosPropietario propietario, CancellationToken cancellationToken)
+    /// <summary>Asistente inicial en una sola llamada: empresa, sucursal "Principal" (S01), "Caja 1" (C01) y, si viene, el Propietario.</summary>
+    public Task<Respuesta<JsonElement>> ConfigurarAsync(DatosNegocio negocio, DatosPropietario? propietario, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(negocio);
-        ArgumentNullException.ThrowIfNull(propietario);
         var nit = negocio.TipoDocumento == "NIT";
         var cuerpo = new
         {
@@ -309,7 +227,8 @@ public sealed class ServidorLocal : IDisposable
                 email = Vacio(negocio.Correo),
             },
             branch = new { code = "S01", name = "Principal", municipalityCode = negocio.Municipio, address = negocio.Direccion.Trim(), phone = Vacio(negocio.Telefono) },
-            owner = new
+            // Sin Propietario (instalador 1.2.1): lo crea el primer ingreso con la cuenta del portal.
+            owner = propietario is null ? null : new
             {
                 username = propietario.Usuario.Trim().ToLowerInvariant(),
                 displayName = propietario.Nombre.Trim(),
@@ -335,18 +254,6 @@ public sealed class ServidorLocal : IDisposable
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return new(token);
     }
-
-    public Task<Respuesta<JsonElement>> ActivarLicenciaAsync(string clave, CancellationToken cancellationToken) =>
-        EnviarAsync<JsonElement>(HttpMethod.Post, "api/v1/license/activate", new { licenseKey = clave }, cancellationToken);
-
-    public async Task<Respuesta<string>> GenerarCodigoAsync(CancellationToken cancellationToken)
-    {
-        var respuesta = await EnviarAsync<JsonElement>(HttpMethod.Post, "api/v1/backups/recovery-code", null, cancellationToken);
-        return respuesta.Ok ? new(respuesta.Dato.GetProperty("code").GetString()) : new(null, respuesta.Mensaje, respuesta.Codigo);
-    }
-
-    public Task<Respuesta<JsonElement>> ConfirmarCodigoAsync(string codigo, CancellationToken cancellationToken) =>
-        EnviarAsync<JsonElement>(HttpMethod.Post, "api/v1/backups/recovery-code/confirm", new { code = codigo }, cancellationToken);
 
     public Task<Respuesta<JsonElement>> LiberarEquipoAsync(string? motivo, CancellationToken cancellationToken) =>
         EnviarAsync<JsonElement>(HttpMethod.Post, "api/v1/license/deactivate", new { reason = motivo }, cancellationToken);

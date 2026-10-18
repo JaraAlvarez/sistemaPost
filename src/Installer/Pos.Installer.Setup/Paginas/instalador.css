@@ -11,7 +11,8 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;font-family:Inter,"Segoe UI",system-ui,sans-serif;color:var(--texto);background:#fff;overflow:hidden;user-select:none}
-/* La ventana de Windows ES la ventana del diseño (960×600, sin marco; Windows 11 redondea las esquinas). */
+/* La ventana de Windows ES la ventana del diseño (960×600, sin marco; Windows 11 redondea las esquinas). Si no cabe en la pantalla
+   (escala de Windows al 125 % o 150 % en una pantalla pequeña) la ventana se achica con zoom (VentanaInstalador.cs). */
 .ventana{width:100vw;height:100vh;overflow:hidden;display:flex;position:relative;background:#fff}
 .barra{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:center;justify-content:flex-end;padding:0 10px;z-index:5}
 .barra button{width:34px;height:26px;border:0;border-radius:8px;background:transparent;color:rgba(255,255,255,.85);font-size:15px;cursor:pointer}
@@ -37,12 +38,14 @@ html,body{margin:0;height:100%;font-family:Inter,"Segoe UI",system-ui,sans-serif
 .version{margin-top:auto;position:relative;z-index:1;font-size:11px;opacity:.7}
 /* Contenido. */
 .contenido{flex:1;position:relative;background:linear-gradient(180deg,#fbfbff,#f3f3fb);display:flex;flex-direction:column;min-width:0}
-.pantalla{display:none;flex:1;padding:58px 46px 0;flex-direction:column;animation:entra .35s ease;min-height:0}
+.pantalla{display:none;flex:1;padding:58px 46px 0;flex-direction:column;animation:entra .35s ease;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#cfcde3 transparent}
 .pantalla.activa{display:flex}
 @keyframes entra{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .lead{color:var(--texto-2);font-size:14.5px;line-height:1.55;margin:0 0 22px;max-width:520px}
-.pie{display:flex;align-items:center;gap:12px;padding:18px 0 24px;margin-top:auto}
+/* Barra de botones fija abajo (sticky): aunque el contenido no quepa y se desplace, "Continuar" siempre se ve. */
+.pie{display:flex;align-items:center;gap:12px;padding:18px 46px 24px;margin:auto -46px 0;position:sticky;bottom:0;z-index:3;
+  background:linear-gradient(180deg,rgba(243,243,251,0),#f3f3fb 16px)}
 .pie .izq{margin-right:auto;font-size:12px;color:var(--texto-2)}
 .btn{border:0;border-radius:999px;padding:12px 26px;font:inherit;font-weight:600;font-size:14px;cursor:pointer;transition:.15s}
 .btn-primario{background:var(--morado);color:#fff;box-shadow:6px 6px 16px rgba(93,68,160,.35)}
@@ -55,27 +58,10 @@ h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .ilus{width:200px;height:160px;flex:none;border-radius:20px;background:linear-gradient(145deg,#ece9ff,#dfe8fb);display:grid;place-items:center;box-shadow:var(--hundido)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
 .chip{font-size:12.5px;background:#fff;border:1px solid var(--borde);border-radius:999px;padding:6px 12px;color:#374151}
-.aliado-mini{margin-top:26px;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#fff;border:1px solid var(--borde);font-size:13px;max-width:520px}
+.aliado-mini{margin-top:18px;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#fff;border:1px solid var(--borde);font-size:13px;max-width:520px}
 .aliado-mini b{color:var(--morado)}
 .aliado-mini img{width:30px;height:30px;border-radius:8px;flex:none}
-/* Tarjetas de modo. */
-.modos{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.modo{background:#fff;border:2px solid transparent;border-radius:18px;padding:18px 16px;cursor:pointer;box-shadow:0 10px 24px -14px rgba(31,36,50,.35);transition:.15s;position:relative}
-.modo:hover{transform:translateY(-2px)}
-.modo.sel{border-color:var(--morado);box-shadow:0 14px 30px -14px rgba(91,61,245,.55)}
-.modo.sel::after{content:"✓";position:absolute;top:12px;right:12px;width:22px;height:22px;border-radius:50%;background:var(--morado);color:#fff;font-size:12px;display:grid;place-items:center}
-.modo h3{font-size:15px;margin:12px 0 6px}
-.modo p{font-size:12.5px;color:var(--texto-2);line-height:1.5;margin:0}
-.modo .tag{display:inline-block;margin-top:10px;font-size:11px;font-weight:700;color:var(--morado);background:#efeaff;border-radius:999px;padding:3px 9px}
-/* Tipo de negocio (Fase 7-C parte A): las mismas tarjetas de "Este equipo", en dos filas de tres. */
-.tipos{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.tipo-negocio{background:#fff;border:2px solid transparent;border-radius:18px;padding:14px 14px 12px;cursor:pointer;box-shadow:0 10px 24px -14px rgba(31,36,50,.35);transition:.15s;position:relative}
-.tipo-negocio:hover{transform:translateY(-2px)}
-.tipo-negocio:focus-visible{outline:3px solid rgba(91,61,245,.35);outline-offset:2px}
-.tipo-negocio.sel{border-color:var(--morado);box-shadow:0 14px 30px -14px rgba(91,61,245,.55)}
-.tipo-negocio.sel::after{content:"✓";position:absolute;top:10px;right:10px;width:22px;height:22px;border-radius:50%;background:var(--morado);color:#fff;font-size:12px;display:grid;place-items:center}
-.tipo-negocio h3{font-size:14px;margin:8px 0 4px}
-.tipo-negocio p{font-size:12px;color:var(--texto-2);line-height:1.45;margin:0}
+.otros{margin-top:10px}.otros .ayuda{margin:3px 0 0}
 .ayuda{margin-top:16px;font-size:12.5px;color:var(--texto-2)}
 .ayuda a,.demo a,a.enlace{color:var(--morado);font-weight:600;text-decoration:none;cursor:pointer}
 /* Campos. */
@@ -84,14 +70,7 @@ h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .campo input,.campo select{width:100%;border:0;border-radius:999px;padding:13px 18px;font:inherit;font-size:15px;background:#EEF1F4;box-shadow:var(--hundido);letter-spacing:.04em;color:var(--texto);user-select:text}
 .campo input:focus,.campo select:focus{outline:none;box-shadow:var(--hundido),0 0 0 3px rgba(91,61,245,.25)}
 .campo input[readonly]{color:var(--texto-2)}
-.empresa{max-width:520px;display:none;align-items:center;gap:14px;background:#fff;border:1px solid #c9f2e6;border-radius:16px;padding:14px 16px;margin-top:6px}
-.empresa.ver{display:flex}
-.ok{width:34px;height:34px;border-radius:50%;background:#dcfce7;color:var(--verde);display:grid;place-items:center;font-weight:800;flex:none}
-.empresa small{color:var(--texto-2)}
 .demo{margin-top:12px;font-size:13px;color:var(--texto-2)}
-.google{display:inline-flex;align-items:center;gap:10px;background:#fff;border:0;border-radius:999px;padding:11px 20px;font:inherit;font-weight:500;font-size:14px;cursor:pointer;box-shadow:0 4px 12px rgba(15,23,42,.14);align-self:flex-start}
-.sep{display:flex;align-items:center;gap:10px;color:var(--texto-2);font-size:12px;margin:16px 0;max-width:520px}
-.sep::before,.sep::after{content:"";flex:1;height:1px;background:var(--borde)}
 /* Progreso. */
 .progreso{display:flex;gap:22px;flex:1;min-height:0}
 .lista{flex:1;display:grid;align-content:start;gap:12px;font-size:14px}
@@ -105,7 +84,7 @@ h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .barra-p i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--azul-2),var(--morado),var(--turquesa));transition:width .6s}
 /* Carrusel. */
 .carrusel{width:300px;flex:none;border-radius:20px;overflow:hidden;position:relative;height:300px;box-shadow:0 20px 40px -20px rgba(31,36,50,.5)}
-.slide{position:absolute;inset:0;padding:22px;color:#fff;display:flex;flex-direction:column;justify-content:flex-end;opacity:0;transition:opacity .8s}
+.slide{position:absolute;inset:0;padding:22px;color:#fff;display:flex;flex-direction:column;justify-content:flex-end;opacity:0;transition:opacity 1.6s ease-in-out}
 .slide.ver{opacity:1}
 .slide h4{font-size:20px;line-height:1.2;margin:0 0 8px;letter-spacing:-.01em}
 .slide p{font-size:13px;line-height:1.5;margin:0;opacity:.9}
@@ -137,10 +116,6 @@ h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .rejilla .campo{margin-bottom:10px;max-width:none}
 .rejilla .campo input,.rejilla .campo select{padding:10px 16px;font-size:14px;letter-spacing:0}
 .rejilla .ancho{grid-column:1/-1}
-.nit{display:flex;gap:8px}.nit input:first-child{flex:1}.nit input:last-child{width:70px;text-align:center}
-.sugerencias{position:absolute;left:0;right:0;top:100%;z-index:8;background:#fff;border:1px solid var(--borde);border-radius:14px;margin-top:4px;max-height:180px;overflow:auto;box-shadow:0 16px 30px -12px rgba(31,36,50,.35)}
-.sugerencias div{padding:8px 14px;font-size:13px;cursor:pointer}.sugerencias div:hover,.sugerencias div.sel{background:#f2efff}
-.sugerencias small{color:var(--texto-2)}
 .archivo{display:flex;gap:10px;align-items:center;max-width:520px;margin-bottom:14px}
 .archivo span{flex:1;font-size:13px;color:var(--texto-2);background:#fff;border:1px dashed var(--borde);border-radius:12px;padding:10px 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #dBackupRuta{white-space:normal}
@@ -148,7 +123,6 @@ h1{font-size:28px;line-height:1.15;margin:0 0 8px;letter-spacing:-.02em}
 .servidores{display:grid;gap:8px;max-width:520px;margin-bottom:12px}
 .servidor{background:#fff;border:2px solid transparent;border-radius:14px;padding:10px 14px;cursor:pointer;font-size:13px;box-shadow:0 6px 16px -10px rgba(31,36,50,.35)}
 .servidor.sel{border-color:var(--morado)} .servidor small{color:var(--texto-2);display:block}
-.codigo{font:700 26px/1.3 Consolas,ui-monospace,monospace;letter-spacing:.08em;padding:18px;border:2px dashed var(--morado);border-radius:16px;text-align:center;margin:6px 0 14px;background:#fff;max-width:560px;user-select:text}
 .casilla{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--texto);max-width:560px;line-height:1.45}
 .casilla input{accent-color:var(--morado);width:16px;height:16px;margin-top:2px;flex:none}
 .columnas{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:620px;margin-bottom:12px}
@@ -162,17 +136,3 @@ textarea{width:100%;max-width:620px;border:0;border-radius:14px;padding:10px 14p
 .modal h2{font-size:19px;margin:0 0 8px}.modal p{font-size:13.5px;color:var(--texto-2);line-height:1.5;margin:0 0 14px}
 .modal .acciones{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
 .btn-peligro{background:var(--rojo);color:#fff}
-/* "Continuar con Google": espera con el código para comparar. */
-.google-espera{max-width:520px;background:#fff;border:1px solid var(--borde);border-radius:16px;padding:14px 16px;margin-bottom:12px}
-.espera-fila{display:flex;gap:12px;align-items:flex-start;font-size:13.5px;line-height:1.45}
-.espera-fila small{color:var(--texto-2);font-size:12.5px}
-.girando{width:22px;height:22px;border-radius:50%;border:2.5px solid var(--borde);border-top-color:var(--morado);animation:gira .8s linear infinite;flex:none;margin-top:2px}
-.codigo-corto{font-size:24px;padding:10px;margin:12px 0 4px;max-width:none}
-@media (prefers-reduced-motion:reduce){.girando{animation-duration:2.4s}}
-.impresion{display:none}
-@media print{
-  .ventana,.velo{display:none!important}
-  .impresion{display:block;font-family:Inter,Arial,sans-serif;color:#000;padding:40px}
-  .impresion h2{font-size:22px;margin:0 0 10px}.impresion p{font-size:13px;line-height:1.5}
-  .impresion .codigo{border:2px dashed #000;font-size:28px}
-}

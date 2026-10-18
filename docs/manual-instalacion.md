@@ -9,14 +9,16 @@ necesita conocimientos técnicos: siga los pasos en orden. Las imágenes muestra
 
 ¿Tiene afán? Estos son los pasos completos en una página. El detalle de cada uno está más abajo.
 
-1. Tenga a mano su **correo y contraseña del portal**, su **clave de licencia** (empieza por `POS-`) y los datos de su empresa (NIT, municipio, dirección).
+1. Tenga a mano el **correo y la contraseña de su cuenta de BusinessPost** (la del portal businesspost.tutiendanueva.com) y, si ya
+   compró la licencia, su **clave** (empieza por `POS-`).
 2. En el portal de BusinessPost abra **Descargas** y pulse **Descargar instalador**.
 3. Haga doble clic en `BusinessPost-Setup-….exe`. Si Windows muestra **"Windows protegió su PC"**, pulse **Más información → Ejecutar de todas formas**. Cuando Windows pregunte si permite cambios, pulse **Sí**.
-4. En el instalador: **Comenzar** → elija **Es la única caja** (o la opción de su local) → escriba la **clave de licencia** → entre con su **cuenta del portal** → revise **Tu negocio** → **Instalar BusinessPost**.
+4. En el instalador pulse **Instalar**. No le pide ningún dato.
 5. Espere a que termine. La primera vez **puede tardar varios minutos** mientras Windows Defender revisa los archivos. No apague el computador.
-6. **Imprima o anote el código de recuperación** y guárdelo fuera del local. Se muestra una sola vez.
-7. Pulse **Abrir BusinessPost** y entre a **Administración** con el correo y la contraseña de su portal.
-8. Cree a sus cajeros en **Administración → Usuarios** (con código de caja y PIN). ¡Listo para vender!
+6. Pulse **Abrir BusinessPost** y entre con su **cuenta de BusinessPost** (o con su **clave de licencia** y la cuenta con la que la
+   compró). Ese primer ingreso lo deja como **Propietario** de la tienda; si su cuenta tiene licencia, se activa sola.
+7. Complete los datos de su empresa en **Administración → Configuración** (el Tablero se lo recuerda) y cree a sus cajeros en
+   **Administración → Usuarios** (con código de caja y PIN). ¡Listo para vender!
 
 ## 1. Antes de empezar
 
@@ -24,17 +26,16 @@ Revise que tiene todo esto:
 
 - Un computador con **Windows 10 o Windows 11 de 64 bits**, con las actualizaciones de Windows al día.
 - Un **usuario administrador** del computador (el instalador le pedirá permiso para hacer cambios en el equipo).
-- **Internet** para activar la licencia. Después la tienda puede vender aunque se caiga el Internet.
-- Su **usuario del portal de BusinessPost** (el correo y la contraseña que le entregamos) para descargar el instalador.
-- Su **clave de licencia** (empieza por `POS-`). Si todavía no la tiene, puede instalar y usar BusinessPost en demostración
-  durante 30 días.
-- Los datos de su empresa a la mano: razón social, NIT, si es responsable de IVA, municipio, dirección y teléfono.
+- **Internet** para el primer ingreso (se valida su cuenta) y para activar la licencia. Después la tienda puede vender aunque se
+  caiga el Internet.
+- Su **cuenta de BusinessPost** (el correo y la contraseña del portal businesspost.tutiendanueva.com). Si todavía no tiene licencia,
+  BusinessPost funciona en prueba gratis durante 30 días.
 
 ¿Cuántas cajas tiene el local?
 
-- **Una sola caja:** instale BusinessPost en ese computador y elija **Es la única caja**.
-- **Varias cajas (Multicaja):** instale primero en el **equipo principal** (el que guarda los datos; casi siempre el de la
-  oficina o la caja principal) y después en cada **caja adicional**. Todos los equipos deben estar en la misma red del local.
+- **Una sola caja:** instale BusinessPost en ese computador con el botón **Instalar**.
+- **Varias cajas (Multicaja):** instale primero en el **equipo principal** (el que guarda los datos) y después en cada **caja
+  adicional** con el enlace **Instalar una caja adicional** de la Bienvenida. Todos los equipos deben estar en la misma red del local.
 
 ## 2. Descargar el instalador
 
@@ -49,8 +50,9 @@ BusinessPost.
 
 ## 3. Instalar el programa
 
-El instalador de BusinessPost es una ventana que lo guía paso a paso. A la izquierda verá siempre en qué paso va; con **Atrás**
-puede devolverse a corregir algo antes de instalar.
+Desde la versión 1.2.1 el instalador **no pide ningún dato**: solo instala y muestra el avance. Son tres pantallas: **Bienvenida →
+Instalación → ¡Listo!** La tienda queda lista así: tipo de negocio **Supermercado**, la sucursal **Principal** y la **Caja 1**, con
+datos provisionales de la empresa y **sin dueño todavía**: el primer ingreso a BusinessPost lo crea (sección 4).
 
 ### Abrir el instalador
 
@@ -62,128 +64,88 @@ puede devolverse a corregir algo antes de instalar.
 
 ### Paso 1: Bienvenida
 
-Pulse **Comenzar**.
+Pulse **Instalar**. Abajo hay dos enlaces discretos para casos especiales: **Instalar una caja adicional** (una caja más de una tienda
+con varias cajas; vea "Caja adicional") y **Recuperar desde un backup** (si reemplaza un computador dañado; sección 9).
 
-![Paso 1 · Bienvenida: pulse Comenzar.](imagenes/instalacion/01-instalador-bienvenida.png)
+![Paso 1 · Bienvenida: pulse Instalar.](imagenes/instalacion/01-instalador-bienvenida-v2.png)
 
-### Paso 2: Este equipo
-
-La pantalla pregunta **"¿Cómo usarás este equipo?"**. Elija una tarjeta y pulse **Continuar**:
-
-- **Es la única caja:** el local tiene una sola caja. Es la opción más común (plan Caja Única).
-- **Es el equipo principal:** el local tiene varias cajas y este es el computador que guarda los datos. Instálelo primero (plan Multicaja).
-- **Es una caja adicional:** una caja más de un local que ya tiene instalado el equipo principal (vea "Caja adicional" más abajo).
-
-Si está reemplazando un computador dañado o robado, use el enlace **Recuperar desde un backup** (sección 9).
-
-![Paso 2 · Este equipo: elija cómo usará el computador.](imagenes/instalacion/02-instalador-este-equipo.png)
-
-### Paso 3: Licencia
-
-Escriba su clave (`POS-XXXXX-XXXXX-XXXXX-XXXXX`). Con Internet, el instalador muestra enseguida la **razón social, el NIT, el plan
-y hasta cuándo está vigente**. Revise que sea su empresa y pulse **Continuar**.
-
-- ¿Aún no tiene clave? Pulse **Probar gratis 30 días**. Todo funciona y puede activar la clave después (sección 6).
-- Si su plan es **Caja Única**, en el paso anterior debe elegir **Es la única caja**; el instalador se lo recuerda.
-
-![Paso 3 · Licencia: al escribir la clave aparecen los datos de su empresa.](imagenes/instalacion/03-instalador-licencia.png)
-
-### Paso 4: Tu cuenta
-
-- **Con clave:** escriba el **correo y la contraseña de su portal de BusinessPost** (los mismos con los que descargó el
-  instalador). Con esa misma cuenta entrará a la administración de BusinessPost, también sin Internet. Si en el portal tiene
-  activo el **código de verificación** (doble factor), el instalador se lo pide: escriba los 6 números de su aplicación.
-- **Con Google:** si entra al portal con Google, pulse **Continuar con Google**. Se abre el navegador: entre a su portal, revise que
-  vea el mismo código que muestra el instalador y pulse **Autorizar**. Como Google no funciona sin Internet, el instalador le pide
-  crear una **contraseña de BusinessPost** (mínimo 12 caracteres, con letras y números): con su correo y esa contraseña entrará a
-  la administración, también sin Internet.
-- **En prueba de 30 días:** escriba su nombre, su correo y una contraseña de mínimo 8 caracteres (dos veces; la revisa el servidor de la tienda con su regla de contraseñas).
-
-![Paso 4 · Tu cuenta: el correo y la contraseña de su portal.](imagenes/instalacion/04-instalador-tu-cuenta.png)
-
-### Paso 5: Tu negocio
-
-Primero el instalador pregunta **"¿Qué tipo de negocio tienes?"**: elija la tarjeta que se parece a su negocio: **Supermercado o
-minimercado**, **Fruver o carnicería**, **Droguería**, **Ropa, calzado o deportes**, **Ferretería, papelería o miscelánea** u **Otro
-tipo de negocio**. Con eso BusinessPost deja encendidas las funciones que su negocio usa (la báscula en un fruver, los lotes y
-vencimientos en una droguería, la venta por metro en una ferretería) y crea unas pocas categorías de ejemplo. **No cambia su plan ni
-su precio**: todas las funciones vienen en Caja Única y en Multicaja. Puede cambiarlo cuando quiera en **Configuración → Funciones
-del negocio**.
-
-Con la clave, la razón social y el NIT ya vienen llenos. Complete el **nombre comercial** (el de su aviso), el **tipo de persona**,
-si es **responsable de IVA**, el **municipio** (escriba y elíjalo de la lista que aparece), la **dirección**, el teléfono y el correo
-del negocio (se usa en la factura electrónica). El **dígito de verificación del NIT se calcula solo**.
-Pulse **Instalar BusinessPost**.
-
-![Paso 5 · Tu negocio: complete los datos que salen en sus tiquetes y facturas.](imagenes/instalacion/05-instalador-tu-negocio.png)
-
-### Paso 6: Instalación
+### Paso 2: Instalación
 
 Espere. La lista muestra cada paso de verdad: copiando los programas, revisando los archivos con Windows Defender, creando la base
 de datos, preparando la caja y la impresora, iniciando BusinessPost y configurando su negocio. La revisión de Windows Defender **la
-primera vez puede tardar varios minutos**: es normal. Puede seguir usando el computador; no lo apague ni cierre el instalador.
+primera vez puede tardar varios minutos**: es normal. Puede seguir usando el computador; no lo apague ni cierre el instalador. A la
+derecha pasan algunas novedades de BusinessPost (cada una dura unos segundos; si pasa el mouse por encima, se detiene).
 
-![Paso 6 · Instalación: el avance real, paso por paso.](imagenes/instalacion/06-instalador-instalando.png)
+![Paso 2 · Instalación: el avance real, paso por paso.](imagenes/instalacion/02-instalador-instalando-v2.png)
 
-### Paso 7: Código de recuperación
+### Paso 3: ¡Todo listo!
 
-El instalador muestra el código de los backups. Es la única forma de abrir los backups de su negocio en otro computador si este
-se daña o se lo roban.
+Pulse **Abrir BusinessPost**. Si quiere vender también por internet, marque **"Quiero conocer tutiendanueva.com"** antes de pulsar
+el botón (es opcional; viene sin marcar).
 
-- **Se muestra una sola vez.** Pulse **Imprimir** o anótelo con cuidado.
-- **Guárdelo fuera del local** (por ejemplo, en su casa). No lo deje pegado en el computador.
-- Marque **"Ya lo imprimí o lo anoté…"** y pulse **Continuar**.
-
-![Paso 7 · Código de recuperación: imprímalo o anótelo y guárdelo fuera del local.](imagenes/instalacion/07-instalador-codigo-recuperacion.png)
-
-### Paso 8: ¡Todo listo!
-
-Verá el resumen (empresa, tipo de equipo y licencia). Pulse **Abrir BusinessPost**. Si quiere vender también por internet, marque
-**"Quiero conocer tutiendanueva.com"** antes de pulsar el botón (es opcional; viene sin marcar).
-
-![Paso 8 · ¡Todo listo!: pulse Abrir BusinessPost.](imagenes/instalacion/08-instalador-todo-listo.png)
+![Paso 3 · ¡Todo listo!: pulse Abrir BusinessPost.](imagenes/instalacion/03-instalador-todo-listo-v2.png)
 
 En el escritorio queda el acceso directo **BusinessPost**. BusinessPost se inicia solo cada vez que se enciende el computador.
 
+La ventana del instalador se ajusta a la pantalla: con el escalado de Windows al 125 % o 150 % en una pantalla pequeña se dibuja un
+poco más pequeña para que los botones de abajo siempre se vean.
+
+![El instalador con el escalado de Windows al 125 %.](imagenes/instalacion/01-instalador-bienvenida-125-v2.png)
+
 ### Caja adicional
 
-En el paso 2 elija **Es una caja adicional** y pulse **Continuar**. El instalador busca solo el equipo principal en la red del
-local y lo muestra: elíjalo y pulse **Instalar BusinessPost**. Si no aparece, pulse **Buscar otra vez** o escriba la **dirección** y
-la **huella del certificado**, que se ven en la administración del equipo principal, en **Administración → Cajas e impresoras**.
-Al terminar, empareje la caja (sección 5).
+En la Bienvenida pulse **Instalar una caja adicional**. Una caja adicional **no lleva clave**: usa la licencia Multicaja del equipo
+principal. El instalador busca solo el equipo principal en la red del local y lo muestra: elíjalo y pulse **Instalar BusinessPost**.
+Si no aparece, pulse **Buscar otra vez** o escriba la **dirección** y la **huella del certificado**, que se ven en la administración
+del equipo principal, en **Administración → Cajas e impresoras**. Al terminar, empareje la caja (sección 5).
 
-![Caja adicional: el instalador encuentra el equipo principal en la red del local.](imagenes/instalacion/09-instalador-caja-adicional.png)
+![Caja adicional: el instalador encuentra el equipo principal en la red del local.](imagenes/instalacion/04-instalador-caja-adicional-v2.png)
 
 ### Si algo sale mal durante la instalación
 
 El instalador muestra **"No pudimos terminar"** con el paso que falló. Pulse **Ver el registro** para abrir el detalle y envíelo a
-soporte. Sus datos no se pierden y puede volver a abrir el instalador.
+soporte. Si BusinessPost ya quedó instalado y solo faltó dejar lista la tienda, aparece **Reintentar**: repite solo ese paso, sin
+volver a instalar. Sus datos no se pierden.
 
-![Si algo falla: el instalador dice en qué paso y guarda el registro para soporte.](imagenes/instalacion/11-instalador-no-pudimos-terminar.png)
+![Si algo falla: Reintentar repite solo la configuración de la tienda.](imagenes/instalacion/06-instalador-reintentar-v2.png)
 
 Si el equipo no tiene el componente de Windows que usa la ventana del instalador (WebView2, viene con Windows 10 y 11 actualizados),
-se abre el instalador clásico: siga sus páginas, son las mismas preguntas.
+se abre el instalador clásico: siga sus páginas.
 
-## 4. Configurar la tienda la primera vez
+## 4. El primer ingreso: queda como Propietario
 
-Con el instalador de la sección 3 **no hay que hacer nada más**: la empresa, la sucursal "Principal", la "Caja 1", su usuario
-de propietario, la licencia y el código de recuperación quedan listos durante la instalación. Los datos de la empresa se pueden
-revisar y cambiar después en **Administración → Configuración** (pestaña **Empresa**).
+Al abrir BusinessPost por primera vez, la pantalla de ingreso muestra **"Es la primera vez que se abre BusinessPost en este equipo"**
+con dos opciones:
 
-![Administración → Configuración: los datos de su empresa, listos desde la instalación.](imagenes/instalacion/18-pos-configuracion.png)
+1. **Mi cuenta de BusinessPost:** escriba el **correo y la contraseña** de su cuenta del portal (businesspost.tutiendanueva.com). La
+   cuenta debe existir en el portal. Ese primer ingreso lo deja como **Propietario** de la tienda, con el correo como usuario y la
+   **misma contraseña** del portal. Si su empresa tiene una **licencia** en el portal, **se activa sola** y la tienda toma la razón
+   social y el NIT de su empresa; si no, empieza la **prueba gratis de 30 días**. Si en el portal tiene activo el **código de
+   verificación** (doble factor), se lo pide.
+2. **Tengo una clave de licencia:** escriba la **clave** que acaba de comprar y el correo y la contraseña de la cuenta del portal
+   con la que la compró. Queda como Propietario y la licencia se activa.
+
+Después de ese primer ingreso no se le vuelve a pedir nada: entra a la administración. El ingreso se hace en el mismo computador
+donde se instaló (el equipo principal o la única caja).
+
+Los datos de la empresa quedan **provisionales** (razón social, NIT y dirección): el **Tablero** muestra el aviso **"Complete los datos
+de su empresa (necesarios para facturar)"**. Complételos en **Administración → Configuración** (pestaña **Empresa**). Mientras el NIT
+sea el provisional, ahí mismo puede escribir el NIT real (el dígito de verificación sale solo); después ya no se cambia. El tipo de
+negocio se cambia en **Configuración → Funciones del negocio**.
+
+![Administración → Configuración: los datos de su empresa.](imagenes/instalacion/18-pos-configuracion.png)
 
 Solo si instaló con el **instalador clásico** (equipos sin WebView2), al terminar se abre en el navegador la **Configuración
-inicial**: elija **qué tipo de negocio tiene** (las mismas seis opciones del paso 5), complete la empresa, la sucursal y el
-propietario; luego la licencia (o **Seguir en demostración**) y, por
-último, genere el **código de recuperación**, guárdelo fuera del local y confírmelo.
+inicial**: elija qué tipo de negocio tiene, complete la empresa, la sucursal y el propietario; luego la licencia (o **Seguir en
+demostración**) y, por último, genere el **código de recuperación**, guárdelo fuera del local y confírmelo.
 
 ### Su usuario de propietario
 
-- Si instaló **con clave**, su usuario es **el correo de su portal** y su contraseña, **la misma del portal** (o, si entró con
-  Google, la contraseña de BusinessPost que creó en el instalador). Entra a la
-  administración aunque no haya Internet. Si después cambia la contraseña en el portal, en BusinessPost siga usando la que
-  tenía (por ahora no se cambia sola; cámbiela también en BusinessPost).
-- Si instaló **en prueba**, su usuario es el correo que escribió y la contraseña que eligió.
+- Su usuario es **el correo de su cuenta de BusinessPost** y su contraseña, **la misma del portal**. Entra a la administración aunque
+  no haya Internet. Si después cambia la contraseña en el portal, en BusinessPost siga usando la que tenía (por ahora no se cambia
+  sola; cámbiela también en BusinessPost).
+- **Código de recuperación de los backups:** créelo en **Administración → Backups** después del primer ingreso, imprímalo y guárdelo
+  fuera del local. Es la única forma de abrir sus backups en otro computador.
 - El usuario propietario entra a la **administración**. Para vender en la caja se necesita un usuario con **código de caja y PIN**:
   créelo en **Administración → Usuarios → Nuevo usuario** (sección 5). Por ahora el código y el PIN se ponen al crear el usuario y
   no se pueden agregar después a uno que ya existe; si el dueño también va a vender, créese un usuario de caja aparte.
@@ -217,7 +179,7 @@ La pantalla de ingreso tiene dos formas de entrar:
 
 ### Agregar cajas (Multicaja)
 
-1. Instale BusinessPost en la caja nueva con la opción **Es una caja adicional** (sección 3).
+1. Instale BusinessPost en la caja nueva con el enlace **Instalar una caja adicional** de la Bienvenida (sección 3).
 2. En el equipo principal, entre a **Administración → Cajas e impresoras** y pulse **Emparejar equipo** en la caja que va a usar.
 3. En la caja nueva, abra BusinessPost, elija **Emparejar este equipo** y escriba el código que le mostró el equipo principal.
 
@@ -277,13 +239,13 @@ soporte necesita para ayudarle (sin contraseñas ni datos de clientes); envíelo
 
 ## 9. Si el computador se daña o se lo roban
 
-Instale BusinessPost en el computador nuevo. En **"Este equipo"** elija la misma opción que tenía el anterior y pulse
-**Recuperar desde un backup** (debajo de las tarjetas). Pulse **Elegir archivo**, busque el archivo del backup (termina en
-`.posbak`), escriba el **código de recuperación** que guardó al instalar y pulse **Instalar y recuperar**. Sus datos, usuarios y
+Abra el instalador en el computador nuevo y, en la Bienvenida, pulse **Recuperar desde un backup**. Pulse **Elegir archivo**, busque
+el archivo del backup (termina en `.posbak`), escriba el **código de recuperación** que guardó, marque la casilla si el equipo dañado
+era el **equipo principal** de una tienda con varias cajas y pulse **Instalar y recuperar**. Sus datos, usuarios y
 licencia vuelven con el backup; si la licencia pide activarse de nuevo, use su clave en **Administración → Licencia**. Si no tiene
 el archivo del backup, comuníquese con soporte antes de instalar.
 
-![Recuperar desde un backup: el archivo .posbak y el código de recuperación.](imagenes/instalacion/10-instalador-recuperar-backup.png)
+![Recuperar desde un backup: el archivo .posbak y el código de recuperación.](imagenes/instalacion/05-instalador-recuperar-backup-v2.png)
 
 ## 10. La ventana de BusinessPost
 

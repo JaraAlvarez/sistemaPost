@@ -14,7 +14,7 @@ namespace Pos.Cloud.PortalIdentity.Application;
 public sealed class PortalCustomerVerifier(PortalAuthServices auth, IAuditWriter audit) : IPortalCustomerVerifier
 {
     public async Task<PortalCustomerVerification> VerifyAsync(
-        string email, string password, string? totpCode, Guid accountId, string organizationLabel, IPAddress? ipAddress, CancellationToken cancellationToken)
+        string email, string password, string? totpCode, Guid? accountId, string organizationLabel, IPAddress? ipAddress, CancellationToken cancellationToken)
     {
         var now = auth.Clock.UtcNow;
         var origin = $"desde el instalador ({ipAddress?.ToString() ?? "IP desconocida"})";
@@ -46,7 +46,7 @@ public sealed class PortalCustomerVerifier(PortalAuthServices auth, IAuditWriter
             return new(error.Code == PortalIdentityErrors.UserLocked.Code ? PortalCustomerCheck.Locked : PortalCustomerCheck.InvalidCredentials);
         }
 
-        if (user.Role != PortalRole.Customer || user.ResellerAccountId != accountId)
+        if (user.Role != PortalRole.Customer || user.ResellerAccountId is null || (accountId is not null && user.ResellerAccountId != accountId))
         {
             // La contraseña es correcta: no cuenta como intento fallido, pero queda registrado.
             await auth.AuditAsync(user, "PORTAL_OWNER_LINK_REJECTED",
@@ -82,7 +82,7 @@ public sealed class PortalCustomerVerifier(PortalAuthServices auth, IAuditWriter
         user.Unlock();
         await auth.AuditAsync(user, "PORTAL_OWNER_LINK_ISSUED",
             $"{user.Email} validó su cuenta para ser el Propietario del POS de {organizationLabel} ({origin}).", AuditSeverity.Warning, cancellationToken);
-        return new(PortalCustomerCheck.Valid, user.Email, user.DisplayName);
+        return new(PortalCustomerCheck.Valid, user.Email, user.DisplayName, AccountId: user.ResellerAccountId);
     }
 
     /// <summary>

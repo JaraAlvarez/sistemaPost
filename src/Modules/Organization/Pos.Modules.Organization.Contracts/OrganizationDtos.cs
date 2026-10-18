@@ -19,7 +19,9 @@ public sealed record CompanyDto(
     string? Email,
     string CurrencyCode,
     string Timezone,
-    string Status);
+    string Status,
+    bool ProvisionalIdentification = false,
+    bool DataPending = false);
 
 public sealed record BranchDto(
     Guid Id,

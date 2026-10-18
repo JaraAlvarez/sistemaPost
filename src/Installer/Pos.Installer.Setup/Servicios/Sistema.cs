@@ -19,12 +19,6 @@ internal static partial class Sistema
     public static string Version =>
         typeof(Sistema).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "0.0.0";
 
-    public static Uri? ServidorLicencias =>
-        typeof(Sistema).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "PosLicenseServer")?.Value is { Length: > 0 } valor
-        && Uri.TryCreate(valor.TrimEnd('/') + "/", UriKind.Absolute, out var url)
-            ? url
-            : null;
-
     public static string Datos => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "BusinessPost");
 
     /// <summary>Modo con el que ya está instalado este equipo (para proponerlo y pedir confirmación si se cambia); <c>null</c> si es nuevo.</summary>

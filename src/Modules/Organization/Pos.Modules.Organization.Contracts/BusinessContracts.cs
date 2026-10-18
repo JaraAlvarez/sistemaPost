@@ -83,3 +83,20 @@ public interface IBusinessStarterData
 {
     Task SeedAsync(Guid companyId, string profile, CancellationToken cancellationToken);
 }
+
+/// <summary>Identificación de la empresa: NIT con DV (<c>900123456-7</c>) y si es la provisional del instalador premium.</summary>
+public sealed record CompanyIdentityInfo(string Nit, bool Provisional);
+
+/// <summary>
+/// Empresa con datos provisionales (instalador premium 1.2.1, sin preguntar los datos de la empresa). En el primer ingreso con la cuenta
+/// del portal, la tienda toma el NIT, la razón social y el tipo de negocio de la empresa de esa cuenta (los del enlace firmado), para
+/// que la licencia se active con el NIT correcto. Lo usa el módulo de identidad al crear el Propietario.
+/// </summary>
+public interface IProvisionalCompany
+{
+    Task<CompanyIdentityInfo?> GetAsync(Guid companyId, CancellationToken cancellationToken);
+
+    /// <summary>Reemplaza la identificación provisional (y la razón social y el tipo de negocio, si vienen). Solo si es provisional.</summary>
+    Task<Pos.SharedKernel.Results.Result> AdoptAsync(
+        Guid companyId, string nitWithCheckDigit, string? legalName, string? businessProfile, CancellationToken cancellationToken);
+}
