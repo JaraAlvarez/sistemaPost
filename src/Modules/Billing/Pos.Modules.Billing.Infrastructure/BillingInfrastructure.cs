@@ -626,11 +626,10 @@ internal sealed class FiscalDocumentPendingHandler(FiscalQueueSignal signal) : I
 public sealed class BillingOptions
 {
     /// <summary>
-    /// Adaptador por defecto. PB2: sigue siendo NONE hasta que el usuario apruebe la adenda A del ADR-0059; al aprobarla, el cambio es esta
-    /// sola línea: <c>DefaultProvider = FactusFiscalProvider.ProviderName</c>. Mientras tanto se habilita por instalación con
-    /// <c>"Pos": { "Billing": { "Provider": "FACTUS" } }</c> en server.json. Las salvaguardas de la cola (PA1) valen con cualquier valor.
+    /// Adaptador por defecto: FACTUS (adenda A del ADR-0059, aprobada por el usuario). La facturación igual nace APAGADA (modo OFF) y la
+    /// cola no envía nada sin una conexión verificada (PA1). <c>NONE</c> sigue disponible en server.json para prohibirla en una instalación.
     /// </summary>
-    public const string DefaultProvider = "NONE";
+    public const string DefaultProvider = "FACTUS";
 
     /// <summary>Adaptador: NONE (por defecto hasta aprobar la adenda A), FAKE (solo fuera de producción) o FACTUS (Factus API v2).</summary>
     public string Provider { get; set; } = DefaultProvider;
@@ -839,7 +838,7 @@ public static class BillingInfrastructureRegistration
         services.AddScoped<FiscalDocumentProcessor>();
         services.AddScoped<FiscalRangeService>();
 
-        // Adaptador del proveedor: el nulo por defecto (BillingOptions.DefaultProvider, PB2); Factus con Provider = FACTUS. El simulado
+        // Adaptador del proveedor: Factus por defecto (BillingOptions.DefaultProvider, adenda A del ADR-0059); el nulo con Provider = NONE. El simulado
         // por configuración solo existe en compilación Debug y fuera de producción (R1: el entorno lo cambia cualquier administrador de
         // Windows); las pruebas de integración lo inyectan reemplazando IFiscalProvider, que funciona también en Release. Con cualquiera,
         // la cola solo envía con el modo encendido y la conexión verificada.
