@@ -42,9 +42,11 @@ public sealed class LegacyMigrateGuardTests(PostgresFixture postgres) : IDisposa
         var backups = 0;
         var migrations = 0;
         var fromVersion = all.LatestVersion;
+        string? beforeRestore = null;
+        var renamedAt = DateTimeOffset.UtcNow;
 
         Task<LegacyMigrateResult> RunAsync(bool retryFailed = false) => LegacyMigrateGuard.RunAsync(
-            dataRoot, "1.2.0", fromVersion, schemaChangesPending: true, retryFailed,
+            dataRoot, "1.2.0", fromVersion, schemaChangesPending: true, retryFailed, serverRunning: false,
             async ct =>
             {
                 backups++;
@@ -61,6 +63,7 @@ public sealed class LegacyMigrateGuardTests(PostgresFixture postgres) : IDisposa
             },
             async (file, ct) =>
             {
+                beforeRestore = active;
                 var target = "pos_rb_" + Guid.NewGuid().ToString("N")[..12];
                 var outcome = await new PreUpdateRollback(tools).RestoreAsync(
                     file, keys, postgres.SuperuserConnectionString, active, target, Path.Combine(_work, Guid.NewGuid().ToString("N")), dataDirectory: null,
@@ -68,6 +71,11 @@ public sealed class LegacyMigrateGuardTests(PostgresFixture postgres) : IDisposa
                 outcome.IsComplete.ShouldBeTrue("Sello y conteos del backup.");
                 active = outcome.Database; // Lo que hace RestorePreUpdateAsync con server.json.
                 return outcome.Database;
+            },
+            ct =>
+            {
+                renamedAt = renamedAt.AddSeconds(1); // Un nombre distinto en cada intento.
+                return LegacyMigrateGuard.RenameAbandonedAsync(postgres.SuperuserConnectionString, beforeRestore!, renamedAt, ct);
             },
             TimeProvider.System,
             Ct);
@@ -83,9 +91,15 @@ public sealed class LegacyMigrateGuardTests(PostgresFixture postgres) : IDisposa
         (await db.ScalarAsync<bool>("SELECT to_regclass('system.prueba_version_nueva') IS NULL", restored)).ShouldBeTrue();
         (await db.ScalarAsync<string>("SELECT max(version) FROM system.schema_migrations WHERE kind = 'VERSIONED'", restored)).ShouldBe(fromVersion);
         (await db.ScalarAsync<long>("SELECT count(*) FROM system.installation", restored)).ShouldBe(1);
-        (await db.ScalarAsync<bool>("SELECT to_regclass('system.prueba_version_nueva') IS NOT NULL")).ShouldBeTrue();
+        // Ronda 2: la BD a medio migrar quedó como pos_failed_<fecha> (el actualizador viejo ya no puede contar jornadas sobre ella).
+        first.AbandonedDatabase.ShouldNotBeNull(first.AbandonError?.ToString()).ShouldStartWith(LegacyMigrateGuard.AbandonedPrefix);
+        (await db.ScalarAsync<long>($"SELECT count(*) FROM pg_database WHERE datname = '{db.Name}'", postgres.SuperuserConnectionString))
+            .ShouldBe(0);
+        (await db.ScalarAsync<bool>("SELECT to_regclass('system.prueba_version_nueva') IS NOT NULL", postgres.ConnectionString(first.AbandonedDatabase)))
+            .ShouldBeTrue();
         var failure = LegacyMigrateGuard.ReadFailure(dataRoot).ShouldNotBeNull();
-        (failure.Version, failure.FromSchemaVersion, failure.NeedsSupport).ShouldBe(("1.2.0", fromVersion, false));
+        (failure.Version, failure.FromSchemaVersion, failure.NeedsSupport, failure.AbandonedDatabase)
+            .ShouldBe(("1.2.0", fromVersion, false, first.AbandonedDatabase));
 
         // La noche siguiente el actualizador viejo lo vuelve a pedir: no se hace backup, no se migra, la BD no se toca.
         var again = await RunAsync();
@@ -116,12 +130,13 @@ public sealed class LegacyMigrateGuardTests(PostgresFixture postgres) : IDisposa
         var tools = new ContainerPgTools(postgres);
 
         var result = await LegacyMigrateGuard.RunAsync(
-            dataRoot, "1.2.0", all.LatestVersion, schemaChangesPending: true, retryFailed: false,
+            dataRoot, "1.2.0", all.LatestVersion, schemaChangesPending: true, retryFailed: false, serverRunning: false,
             async ct => (await new BackupEngine(tools).CreateAsync(
                 new BackupSource(db.BackupConnectionString, null, "1.1.0"), RetentionPolicy.PreUpdateKind, keys.GetOrCreate(), _work, TimeProvider.System,
                 TimeZoneInfo.Utc, ct)).FilePath,
             ct => new DatabaseMigrator(next).MigrateAsync(db.MigratorConnectionString, "1.2.0", ct),
             (_, _) => throw new InvalidOperationException("No debe restaurar."),
+            _ => throw new InvalidOperationException("No debe renombrar."),
             TimeProvider.System,
             Ct);
 
@@ -129,6 +144,25 @@ public sealed class LegacyMigrateGuardTests(PostgresFixture postgres) : IDisposa
         result.ExitCode.ShouldBe(0);
         (await db.ScalarAsync<bool>("SELECT to_regclass('system.prueba_version_nueva') IS NOT NULL")).ShouldBeTrue();
         LegacyMigrateGuard.ReadFailure(dataRoot).ShouldBeNull();
+    }
+
+    /// <summary>Ronda 2 (3 y 4): con el servidor corriendo (un "migrate --no-backup" a mano) no se hace backup ni se migra.</summary>
+    [Fact]
+    public async Task Con_el_servidor_corriendo_no_se_hace_nada()
+    {
+        var calls = 0;
+        var result = await LegacyMigrateGuard.RunAsync(
+            Path.Combine(_work, "data"), "1.2.0", "2026.10.001", schemaChangesPending: true, retryFailed: true, serverRunning: true,
+            _ => { calls++; return Task.FromResult("x"); },
+            _ => { calls++; return Task.CompletedTask; },
+            (_, _) => { calls++; return Task.FromResult("x"); },
+            _ => { calls++; return Task.FromResult("x"); },
+            TimeProvider.System,
+            Ct);
+
+        result.Outcome.ShouldBe(LegacyMigrateOutcome.ServerRunning);
+        result.ExitCode.ShouldBe(LegacyMigrateGuard.ExitServerRunning);
+        calls.ShouldBe(0);
     }
 
     [Fact]

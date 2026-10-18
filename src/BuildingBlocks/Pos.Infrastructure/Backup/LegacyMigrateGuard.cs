@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Npgsql;
 
 namespace Pos.Infrastructure.Backup;
 
@@ -20,10 +22,25 @@ public enum LegacyMigrateOutcome
 
     /// <summary>Esta versión ya falló sobre estos mismos datos: no se vuelve a intentar (no se tocó la BD).</summary>
     AlreadyFailed,
+
+    /// <summary>El servidor está corriendo: no se migra ni se hace backup (la BD no se tocó).</summary>
+    ServerRunning,
 }
 
 /// <summary>Resultado de <see cref="LegacyMigrateGuard.RunAsync"/>.</summary>
-public sealed record LegacyMigrateResult(LegacyMigrateOutcome Outcome, string? BackupFile, Exception? Error, string? RestoredDatabase)
+/// <param name="Outcome">Cómo terminó.</param>
+/// <param name="BackupFile">Backup PRE_UPDATE que se hizo.</param>
+/// <param name="Error">La falla de la migración, del backup o de la restauración.</param>
+/// <param name="RestoredDatabase">BD restaurada que quedó activa.</param>
+/// <param name="AbandonedDatabase">Nombre nuevo de la BD a medio migrar (<c>pos_failed_…</c>), si se pudo renombrar.</param>
+/// <param name="AbandonError">Por qué no se pudo renombrar la BD a medio migrar (no cambia el resultado).</param>
+public sealed record LegacyMigrateResult(
+    LegacyMigrateOutcome Outcome,
+    string? BackupFile,
+    Exception? Error,
+    string? RestoredDatabase,
+    string? AbandonedDatabase = null,
+    Exception? AbandonError = null)
 {
     /// <summary>Código de salida del migrador para este resultado.</summary>
     public int ExitCode => Outcome switch
@@ -32,6 +49,7 @@ public sealed record LegacyMigrateResult(LegacyMigrateOutcome Outcome, string? B
         LegacyMigrateOutcome.BackupFailed => LegacyMigrateGuard.ExitBackupFailed,
         LegacyMigrateOutcome.FailedRestored => LegacyMigrateGuard.ExitFailedRestored,
         LegacyMigrateOutcome.AlreadyFailed => LegacyMigrateGuard.ExitAlreadyFailed,
+        LegacyMigrateOutcome.ServerRunning => LegacyMigrateGuard.ExitServerRunning,
         _ => LegacyMigrateGuard.ExitNeedsSupport,
     };
 }
@@ -42,12 +60,14 @@ public sealed record LegacyMigrateResult(LegacyMigrateOutcome Outcome, string? B
 /// <param name="NeedsSupport">No se pudo volver a los datos de antes.</param>
 /// <param name="At">Cuándo falló.</param>
 /// <param name="Error">Mensaje de la falla (para el paquete de soporte).</param>
+/// <param name="AbandonedDatabase">Nombre con el que quedó la BD a medio migrar (para revisión de soporte).</param>
 public sealed record LegacyMigrateFailure(
     [property: JsonPropertyName("version")] string Version,
     [property: JsonPropertyName("fromSchemaVersion")] string? FromSchemaVersion,
     [property: JsonPropertyName("needsSupport")] bool NeedsSupport,
     [property: JsonPropertyName("at")] DateTimeOffset At,
-    [property: JsonPropertyName("error")] string? Error);
+    [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("abandonedDatabase")] string? AbandonedDatabase = null);
 
 /// <summary>
 /// Integración 1.2.0 (ALTA 1). El primer salto de 1.0.x/1.1.0 a 1.2.0 por actualización automática lo hace el actualizador VIEJO: hace el
@@ -75,6 +95,12 @@ public static class LegacyMigrateGuard
 
     /// <summary>Esta versión ya falló sobre estos datos: no se intentó de nuevo y la BD no se tocó.</summary>
     public const int ExitAlreadyFailed = 10;
+
+    /// <summary>El servidor (<c>BusinessPost-Server</c>) está corriendo: no se migra con él atendiendo.</summary>
+    public const int ExitServerRunning = 11;
+
+    /// <summary>Prefijo del nombre con el que queda la BD a medio migrar después de restaurar.</summary>
+    public const string AbandonedPrefix = "pos_failed_";
 
     /// <summary>Registro en curso del actualizador 1.2.0 o posterior (en <c>{DataRoot}\updates</c>).</summary>
     public const string UpdaterJournal = "update-in-progress.json";
@@ -132,9 +158,14 @@ public static class LegacyMigrateGuard
     /// <param name="databaseVersion">Versión del esquema de la BD activa antes de migrar.</param>
     /// <param name="schemaChangesPending">Si hay migraciones versionadas pendientes.</param>
     /// <param name="retryFailed">Ignorar la marca (soporte).</param>
+    /// <param name="serverRunning">El servicio del servidor no está detenido: no se hace nada (ni backup ni migración).</param>
     /// <param name="backup">Hace y verifica el backup PRE_UPDATE; devuelve el archivo.</param>
     /// <param name="migrate">Aplica las migraciones.</param>
     /// <param name="restore">Restaura el backup y devuelve la BD que queda activa.</param>
+    /// <param name="abandon">
+    /// Después de restaurar, renombra la BD a medio migrar y devuelve su nombre nuevo (<see cref="RenameAbandonedAsync"/>); <c>null</c> no
+    /// renombra. Si falla solo queda el aviso.
+    /// </param>
     /// <param name="time">Reloj.</param>
     /// <param name="cancellationToken">Cancelación.</param>
     public static async Task<LegacyMigrateResult> RunAsync(
@@ -143,15 +174,22 @@ public static class LegacyMigrateGuard
         string? databaseVersion,
         bool schemaChangesPending,
         bool retryFailed,
+        bool serverRunning,
         Func<CancellationToken, Task<string>> backup,
         Func<CancellationToken, Task> migrate,
         Func<string, CancellationToken, Task<string>> restore,
+        Func<CancellationToken, Task<string>>? abandon,
         TimeProvider time,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(backup);
         ArgumentNullException.ThrowIfNull(migrate);
         ArgumentNullException.ThrowIfNull(time);
+        if (serverRunning)
+        {
+            return new LegacyMigrateResult(LegacyMigrateOutcome.ServerRunning, null, null, null);
+        }
+
         if (!schemaChangesPending)
         {
             await migrate(cancellationToken);
@@ -180,13 +218,65 @@ public static class LegacyMigrateGuard
                 ClearFailure(dataRoot);
                 return new LegacyMigrateResult(LegacyMigrateOutcome.Updated, file, null, null);
             case GuardedUpdateOutcome.FailedRestored:
-                SaveFailure(dataRoot, new LegacyMigrateFailure(appVersion, databaseVersion, false, time.GetUtcNow(), update.MigrationError?.Message));
-                return new LegacyMigrateResult(LegacyMigrateOutcome.FailedRestored, file, update.MigrationError, update.RestoredDatabase);
+                string? abandoned = null;
+                Exception? abandonError = null;
+                if (abandon is not null)
+                {
+                    try
+                    {
+                        abandoned = await abandon(CancellationToken.None);
+                    }
+                    catch (Exception ex) when (ex is NpgsqlException or InvalidOperationException or ArgumentException)
+                    {
+                        abandonError = ex;
+                    }
+                }
+
+                SaveFailure(dataRoot, new LegacyMigrateFailure(
+                    appVersion, databaseVersion, false, time.GetUtcNow(), update.MigrationError?.Message, abandoned));
+                return new LegacyMigrateResult(
+                    LegacyMigrateOutcome.FailedRestored, file, update.MigrationError, update.RestoredDatabase, abandoned, abandonError);
             default:
                 SaveFailure(dataRoot, new LegacyMigrateFailure(
                     appVersion, databaseVersion, true, time.GetUtcNow(), (update.RestoreError ?? update.MigrationError)?.Message));
                 return new LegacyMigrateResult(LegacyMigrateOutcome.FailedNeedsSupport, file, update.RestoreError ?? update.MigrationError, null);
         }
+    }
+
+    /// <summary>
+    /// Renombra la BD a medio migrar a <c>pos_failed_&lt;fecha&gt;</c> (ronda de integración 1.2.0). El actualizador viejo guardó al arrancar
+    /// la conexión con el nombre anterior y cuenta las jornadas abiertas sobre ella antes de cada intento: con la BD renombrada esa
+    /// consulta falla y no vuelve a hacer el backup ni a reiniciar los servicios cada noche (hasta que se reinicie su servicio y lea el
+    /// server.json nuevo; entonces la marca hace que el migrador termine con <see cref="ExitAlreadyFailed"/>). Antes se cierran las
+    /// conexiones que queden a esa BD.
+    /// </summary>
+    /// <param name="superuserConnection">Conexión del superusuario (a otra BD, p. ej. <c>postgres</c>).</param>
+    /// <param name="database">BD a medio migrar (la que estaba activa antes de restaurar).</param>
+    /// <param name="at">Fecha para el nombre nuevo.</param>
+    /// <param name="cancellationToken">Cancelación.</param>
+    public static async Task<string> RenameAbandonedAsync(string superuserConnection, string database, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(database);
+        var target = AbandonedPrefix + at.UtcDateTime.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+        await using var connection = new NpgsqlConnection(superuserConnection);
+        await connection.OpenAsync(cancellationToken);
+        if (string.Equals(connection.Database, database, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("La conexión del superusuario no puede ser a la misma BD que se renombra.");
+        }
+
+        await using (var terminate = new NpgsqlCommand(
+            "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname = @database AND pid <> pg_backend_pid()", connection))
+        {
+            terminate.Parameters.AddWithValue("database", database);
+            await terminate.ExecuteScalarAsync(cancellationToken);
+        }
+
+        var builder = new NpgsqlCommandBuilder();
+        await using var rename = new NpgsqlCommand(
+            $"ALTER DATABASE {builder.QuoteIdentifier(database)} RENAME TO {builder.QuoteIdentifier(target)}", connection);
+        await rename.ExecuteNonQueryAsync(cancellationToken);
+        return target;
     }
 
     /// <summary>Borra la marca (una migración que terminó bien).</summary>

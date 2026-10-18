@@ -22,15 +22,20 @@ transacción, así que sin protección la base quedaba a medio migrar y el servi
 
 Desde la 1.2.0 el **migrador** se protege solo cuando lo llama un actualizador viejo (sin `updates\update-in-progress.json` del
 actualizador nuevo): hace su propio backup PRE_UPDATE (ya con el servidor detenido) y, si una migración falla, lo restaura en una base
-nueva, cambia `server.json` a ella y termina con el código **9**. El servidor anterior vuelve a arrancar sobre una base sana: lo que
+nueva, cambia `server.json` a ella, renombra la base a medio migrar a `pos_failed_<fecha>` y termina con el código **9**. El servidor
+anterior vuelve a arrancar sobre una base sana: lo que
 realmente pasó es *"falló la migración y se volvió a los datos de antes (backup PRE_UPDATE restaurado)"*. Si tampoco pudo volver atrás,
 termina con **8** (restaurar con soporte). Detalle y códigos en docs/guia-recuperacion.md.
 
 **Reintentos cada noche:** el actualizador viejo no guarda la versión fallida y vuelve a intentarla en la siguiente ventana (02:00). El
 migrador 1.2.0 deja la marca `updates\legacy-migrate-failed.json` y, si se lo vuelve a llamar con la misma versión sobre los mismos datos,
-termina con **10** sin hacer backup ni tocar la base. Lo que NO se puede evitar desde la 1.2.0: cada noche el actualizador viejo vuelve a
-hacer su backup (en `updates\backups\<fecha>`, ocupa disco) y detiene y arranca los servicios unos minutos (sin jornadas abiertas). Se
-corta instalando la 1.2.0 con el instalador (o una versión siguiente). Soporte puede forzar otro intento con `--retry-failed`.
+termina con **10** sin hacer backup ni tocar la base. Además, al renombrar la base a medio migrar, el actualizador viejo, que cuenta las
+jornadas abiertas sobre la base que leyó al arrancar, falla antes de empezar: no hace backup ni reinicia los servicios. Esto dura hasta
+que su servicio se reinicia (por ejemplo, al reiniciar Windows). Desde ahí, cada noche vuelve a hacer su backup (en
+`updates\backups\<fecha>`, ocupa disco) y a detener y arrancar los servicios unos minutos, y el migrador termina con 10. Se corta
+instalando la 1.2.0 con el instalador. Para reintentar: borrar la marca y usar "Instalar ahora" o el instalador. Con los servicios
+corriendo, el migrador no hace nada (código **11**). El caso "migra bien pero arranca enferma" se repite cada noche
+(docs/guia-recuperacion.md).
 
 ### Cajas adicionales
 - **Actualice las cajas adicionales el mismo día que el equipo principal** (instalador en modo Caja). Una caja 1.1.0 contra un

@@ -20,7 +20,7 @@ namespace Pos.Application.Abstractions.Licensing;
 /// </param>
 public sealed record LicenseGateState(bool Restricted, bool Demo, string? Reason, bool SalesWindowClosed = false, bool AllowsOpeningSessions = false)
 {
-    public static readonly LicenseGateState Unrestricted = new(false, false, null);
+    public static readonly LicenseGateState Unrestricted = new(Restricted: false, Demo: false, Reason: null);
 }
 
 public interface ILicenseGate

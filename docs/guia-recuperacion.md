@@ -63,13 +63,32 @@ sigue la versión anterior"*. Ese texto es del actualizador viejo y no dice lo q
 registro del actualizador y en `C:\ProgramData\BusinessPost\updates\legacy-migrate-failed.json`:
 
 - **Código 9** (lo normal): la migración falló y el migrador volvió solo a los datos de antes. Restauró su backup PRE_UPDATE (en
-  `backups\local`) en una base nueva `pos_rb<fecha>` y `server.json` ya apunta a ella. El servidor anterior atiende sobre esa base; la
-  base a medio migrar queda para revisión (no la borre). Genere un paquete de soporte. La versión se instala después **con el
-  instalador**, cuando soporte lo indique.
+  `backups\local`) en una base nueva `pos_rb<fecha>` y `server.json` ya apunta a ella. El servidor anterior atiende sobre esa base. La
+  base a medio migrar se **renombra a `pos_failed_<fecha>`** (el nombre queda en la marca) y se guarda para revisión: no la borre. Genere
+  un paquete de soporte. La versión se instala después **con el instalador**, cuando soporte lo indique.
+  Con el renombre, el actualizador viejo deja de intentar cada noche: guardó al arrancar la conexión con el nombre anterior y, antes de
+  cada intento, cuenta las jornadas abiertas sobre esa base. Como ya no existe, falla y no hace backup ni reinicia nada. Esto dura hasta
+  que se reinicie su servicio (por ejemplo, al reiniciar Windows). Entonces lee el `server.json` nuevo, lo vuelve a intentar y el
+  migrador termina con el código 10. Nada más usa el nombre anterior: `server.json` (las tres conexiones), el backup y el servidor ya
+  apuntan a `pos_rb<fecha>`.
 - **Código 10**: es la misma versión que ya falló sobre los mismos datos. El migrador no hizo nada: el actualizador viejo la vuelve a
   intentar cada noche, hace su backup en `updates\backups\<fecha>` (bórrelos si ocupan mucho disco) y reinicia los servicios. Se corta
-  instalando la versión con el instalador. Soporte puede forzar otro intento con
-  `Pos.Server.Migrator migrate --no-backup --data-root C:\ProgramData\BusinessPost --retry-failed`.
+  instalando la versión con el instalador.
+- **Para volver a intentarlo** (cuando soporte resolvió la causa): borre `C:\ProgramData\BusinessPost\updates\legacy-migrate-failed.json`
+  y use **Administración → Actualizaciones → Instalar ahora**, o ejecute el instalador. Los dos detienen los servicios antes de migrar.
+  Soporte también puede correr `Pos.Server.Migrator migrate --no-backup --data-root C:\ProgramData\BusinessPost --retry-failed`, pero
+  **solo con los servicios detenidos**: si `BusinessPost-Server` está corriendo, el migrador no hace nada y termina con el código **11**.
+  Esto vale para cualquier `migrate --no-backup --data-root` a mano. `--no-guard` quita toda esta protección (backup propio, vuelta
+  atrás, marca y revisión del servicio). Es **solo para soporte**, en un diagnóstico y con un backup hecho a mano.
+- **Migra bien pero la 1.2.0 arranca enferma.** El migrador terminó con 0 y borró la marca. Después el actualizador viejo no ve sano el
+  servidor nuevo dentro de su tiempo de espera y hace su propia vuelta atrás: activa la versión anterior y restaura con su migrador
+  (`restore --file … --yes`) el backup que hizo en `updates\backups\<fecha>`, en una base nueva a la que pasa `server.json`. Ese backup se
+  hizo **antes** de detener el servidor: se pierde lo escrito en los segundos que pasaron entre el backup y la detención (no había
+  jornadas abiertas). La base migrada queda con su nombre, para revisión. El migrador 1.2.0 no se entera de que la versión arrancó
+  enferma, así que no deja marca: **la noche siguiente se repite todo el ciclo** (migrar, arrancar enferma y volver atrás). Revise el
+  historial de Actualizaciones y el registro del servidor (`logs`), genere un paquete de soporte e instale la 1.2.0 con el instalador
+  cuando se conozca la causa. El instalador espera la salud y, si falla, deja los servicios en inicio manual (códigos 21/22, arriba).
+  Este caso hay que probarlo en la VM antes de publicar el manifiesto.
 - **Código 8**: no se pudo volver atrás. El servidor anterior queda en `SCHEMA_OUTDATED` (no atiende con un esquema que no es el suyo).
   Restaure el backup PRE_UPDATE más reciente de `backups\local` con los pasos de arriba. Si ese no sirve, use el de
   `updates\backups\<fecha>` que hizo el actualizador viejo antes de detener el servidor.
@@ -99,3 +118,4 @@ carga nada. Si el paquete es de esa tienda y la reinstalaron, cambió de equipo 
 | 8 | `install`, o `migrate` del actualizador viejo: la migración falló y NO se pudo volver atrás: restaurar con soporte (ver arriba) |
 | 9 | `migrate` del actualizador 1.0.x/1.1.0: la migración falló y se volvió solo a los datos de antes (backup PRE_UPDATE restaurado) |
 | 10 | `migrate` del actualizador 1.0.x/1.1.0: esta versión ya falló sobre estos datos; no se intentó de nuevo y la BD no se tocó |
+| 11 | `migrate --no-backup --data-root` (actualizador viejo o a mano) con `BusinessPost-Server` corriendo: no se hizo nada |
