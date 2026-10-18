@@ -31,11 +31,7 @@ internal sealed class DemoDeviceRegistry(CloudDbContext context) : IDemoDeviceRe
         var board = Nullable(fingerprint.Board);
         var disk = Nullable(fingerprint.Disk);
         var machine = Nullable(fingerprint.Machine);
-        foreach (var hash in new[] { board, disk, machine }.OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-        {
-            await connection.ExecuteAsync(new CommandDefinition(
-                "SELECT pg_advisory_xact_lock(hashtext(@hash))", new { hash }, transaction, cancellationToken: cancellationToken));
-        }
+        await LockAsync(connection, transaction, [board, disk, machine], cancellationToken);
 
         var candidates = await connection.QueryAsync<Row>(new CommandDefinition(
             $"SELECT {Columns} FROM licensing.demo_devices WHERE board_hash = @board OR disk_hash = @disk OR machine_hash = @machine",
@@ -53,7 +49,7 @@ internal sealed class DemoDeviceRegistry(CloudDbContext context) : IDemoDeviceRe
             await connection.ExecuteAsync(new CommandDefinition(
                 """
                 UPDATE licensing.demo_devices
-                SET first_started_at = @earliest,
+                SET first_started_at = CASE WHEN status = 'RESET' THEN first_started_at ELSE @earliest END,
                     board_hash = COALESCE(board_hash, @board), disk_hash = COALESCE(disk_hash, @disk), machine_hash = COALESCE(@machine, machine_hash),
                     last_seen_at = @now, requests = requests + 1
                 WHERE id = @id
@@ -85,6 +81,17 @@ internal sealed class DemoDeviceRegistry(CloudDbContext context) : IDemoDeviceRe
     public async Task<bool> ResetAsync(Guid id, string reason, Guid actorId, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var (connection, transaction) = await OpenAsync(cancellationToken);
+
+        // Los mismos candados que el registro: un registro del mismo equipo a la vez no pisa el reinicio.
+        var hashes = await connection.QuerySingleOrDefaultAsync<Hashes>(new CommandDefinition(
+            "SELECT board_hash AS BoardHash, disk_hash AS DiskHash, machine_hash AS MachineHash FROM licensing.demo_devices WHERE id = @id",
+            new { id }, transaction, cancellationToken: cancellationToken));
+        if (hashes is null)
+        {
+            return false;
+        }
+
+        await LockAsync(connection, transaction, [hashes.BoardHash, hashes.DiskHash, hashes.MachineHash], cancellationToken);
         return await connection.ExecuteAsync(new CommandDefinition(
             """
             UPDATE licensing.demo_devices
@@ -106,16 +113,27 @@ internal sealed class DemoDeviceRegistry(CloudDbContext context) : IDemoDeviceRe
     {
         var (connection, transaction) = await OpenAsync(cancellationToken);
         var code = new string([.. (supportCode ?? string.Empty).Where(char.IsAsciiHexDigit)]).ToLowerInvariant();
+
+        // El código de soporte sale del disco, o de la placa, o del MachineGuid (los genéricos se guardan vacíos): se filtra por esa misma
+        // columna en SQL y el límite se aplica después del filtro.
         var rows = await connection.QueryAsync<Row>(new CommandDefinition(
             code.Length == 0
                 ? $"SELECT {Columns} FROM licensing.demo_devices ORDER BY last_seen_at DESC LIMIT 100"
-                : $"SELECT {Columns} FROM licensing.demo_devices WHERE disk_hash LIKE @prefix OR board_hash LIKE @prefix OR machine_hash LIKE @prefix ORDER BY last_seen_at DESC LIMIT 100",
+                : $"SELECT {Columns} FROM licensing.demo_devices WHERE COALESCE(disk_hash, board_hash, machine_hash) LIKE @prefix ORDER BY last_seen_at DESC LIMIT 100",
             new { prefix = code + "%" }, transaction, cancellationToken: cancellationToken));
-        return [.. rows
-            .Select(r => new DemoDeviceDto(
-                r.Id, DemoDeviceIdentity.SupportCode(new DeviceFingerprint(r.BoardHash ?? string.Empty, r.DiskHash ?? string.Empty, r.MachineHash ?? string.Empty)),
-                Utc(r.FirstStartedAt), Utc(r.RegisteredAt), Utc(r.LastSeenAt), r.Requests, r.Status, r.ResetAt is { } at ? Utc(at) : null, r.ResetReason))
-            .Where(d => code.Length == 0 || d.SupportCode.Replace("-", string.Empty, StringComparison.Ordinal).StartsWith(code, StringComparison.OrdinalIgnoreCase))];
+        return [.. rows.Select(r => new DemoDeviceDto(
+            r.Id, DemoDeviceIdentity.SupportCode(new DeviceFingerprint(r.BoardHash ?? string.Empty, r.DiskHash ?? string.Empty, r.MachineHash ?? string.Empty)),
+            Utc(r.FirstStartedAt), Utc(r.RegisteredAt), Utc(r.LastSeenAt), r.Requests, r.Status, r.ResetAt is { } at ? Utc(at) : null, r.ResetReason))];
+    }
+
+    /// <summary>Candado de la transacción por cada componente de la huella, en orden (dos operaciones nunca se bloquean en cruz).</summary>
+    private static async Task LockAsync(DbConnection connection, DbTransaction? transaction, string?[] hashes, CancellationToken cancellationToken)
+    {
+        foreach (var hash in hashes.OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "SELECT pg_advisory_xact_lock(hashtext(@hash))", new { hash }, transaction, cancellationToken: cancellationToken));
+        }
     }
 
     private async Task<(DbConnection Connection, DbTransaction? Transaction)> OpenAsync(CancellationToken cancellationToken)
@@ -127,6 +145,8 @@ internal sealed class DemoDeviceRegistry(CloudDbContext context) : IDemoDeviceRe
     private static string? Nullable(string component) => component.Length == 0 ? null : component;
 
     private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
+
+    private sealed record Hashes(string? BoardHash, string? DiskHash, string? MachineHash);
 
     private sealed record Row(
         Guid Id, string? BoardHash, string? DiskHash, string? MachineHash, DateTime FirstStartedAt, DateTime RegisteredAt, DateTime LastSeenAt,

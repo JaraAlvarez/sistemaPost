@@ -80,7 +80,11 @@ internal sealed class LicenseStateStore(
         var maxObserved = Max(Utc(row.MaxObservedUtc), vault.Watermark)!.Value;
         var demoStartedAt = Min(Min(Utc(row.InstalledAt), tampered ? null : Utc(row.DemoStartedAt)), vault.DemoStartedAt)!.Value;
 
-        demoStartedAt = DemoStart(demoStartedAt, row.DemoToken);
+        // Con licencia (token) la demo no cuenta: no se toca la marca ni la compilación más antigua.
+        if (row.Token is null)
+        {
+            demoStartedAt = DemoStart(demoStartedAt, row.DemoToken, Utc(row.InstalledAt));
+        }
         var restrictedSince = tampered ? vault.RestrictedSince : Min(Utc(row.RestrictedSince), vault.RestrictedSince);
         var offlineFloor = vault.OfflineFloor ?? (tampered ? null : Utc(row.OfflineFloorUtc));
 
@@ -177,7 +181,7 @@ internal sealed class LicenseStateStore(
     /// el inicio que firmó la nube para este equipo (de confianza: no se recorta). Si soporte reinició la demo, vale el de la nube aunque
     /// sea posterior, y se anula la marca local.
     /// </summary>
-    private DateTimeOffset DemoStart(DateTimeOffset local, string? demoToken)
+    private DateTimeOffset DemoStart(DateTimeOffset local, string? demoToken, DateTimeOffset installedAt)
     {
         var fingerprint = device?.Fingerprint;
         var build = policy?.BuildDate;
@@ -189,7 +193,9 @@ internal sealed class LicenseStateStore(
 
         if (build is { } current)
         {
-            vault.NoteBuild(current);
+            // Primera vez con la compilación anotada: si el archivo ya traía estado de una versión anterior, la compilación más antigua es
+            // a lo sumo el inicio de la demo que ya conocía (o la creación de la instalación); si no, una actualización regalaría la demo.
+            vault.NoteBuild(current, Min(vault.DemoStartedAt, installedAt)!.Value);
         }
 
         var floor = Min(Min(build, mark?.FirstBuild), vault.FirstBuild);

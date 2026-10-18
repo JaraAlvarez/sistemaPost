@@ -220,8 +220,18 @@ internal sealed partial class LicenseVault
             Deactivated = s.Deactivated || deactivated,
         });
 
-    /// <summary>Anota la compilación del programa en uso (se conserva la más antigua).</summary>
-    public void NoteBuild(DateTimeOffset build) => Update(s => s with { FirstBuild = Min(s.FirstBuild, build) });
+    /// <summary>
+    /// Anota la compilación del programa en uso (se conserva la más antigua). Si el archivo viene de una versión anterior (ya tenía estado:
+    /// inicio de la demo o sellado) y nunca anotó una compilación, la primera queda en <c>min(build, <paramref name="previousStateFloor"/>)</c>:
+    /// la demo ya empezada no se reinicia al actualizar.
+    /// </summary>
+    public void NoteBuild(DateTimeOffset build, DateTimeOffset? previousStateFloor = null) =>
+        Update(s => s with
+        {
+            FirstBuild = s.FirstBuild is { } known
+                ? Min(known, build)
+                : s.DemoStartedAt is not null || s.Sealed ? Min(build, previousStateFloor) : build,
+        });
 
     /// <summary>Restringida desde (se conserva el primero) o <c>null</c> cuando dejó de estarlo.</summary>
     public void SetRestrictedSince(DateTimeOffset? since) =>

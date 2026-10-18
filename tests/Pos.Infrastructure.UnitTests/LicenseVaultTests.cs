@@ -51,6 +51,26 @@ public sealed class LicenseVaultTests : IDisposable
     }
 
     [Fact]
+    public void La_compilacion_mas_antigua_no_se_adelanta_al_actualizar_desde_una_version_sin_ella()
+    {
+        var build = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        var installed = new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero);
+
+        // Instalación nueva (sin estado previo): la compilación en uso.
+        var fresh = new LicenseVault(null, NullLogger<LicenseVault>.Instance);
+        fresh.NoteBuild(build, installed);
+        fresh.FirstBuild.ShouldBe(build);
+        fresh.NoteBuild(build.AddDays(20), installed); // una actualización posterior no la adelanta
+        fresh.FirstBuild.ShouldBe(build);
+
+        // Archivo de una versión anterior (con el inicio de la demo, sin compilación anotada): a lo sumo ese inicio.
+        var upgraded = new LicenseVault(null, NullLogger<LicenseVault>.Instance);
+        upgraded.Confirm(null, installed.AddDays(5), null);
+        upgraded.NoteBuild(build, installed);
+        upgraded.FirstBuild.ShouldBe(installed);
+    }
+
+    [Fact]
     public void Un_archivo_danado_se_aparta_como_bad_y_se_crea_otro()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(File)!);
