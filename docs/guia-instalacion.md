@@ -181,7 +181,8 @@ da a un servicio para iniciar (error 1053) y hacer que el actualizador vuelva a 
   archivos y terminan, sin abrir puertos ni tocar la base de datos) mientras la tienda sigue vendiendo con la versión anterior. En pruebas:
   precalentar tomó 44 s y el arranque real después del cambio, **4 s** (sin precalentar: 4 min 23 s).
 - **Al instalar (Fase 13-B):** el instalador hace lo mismo antes de crear los servicios (paso "Revisando los archivos con Windows
-  Defender"): servidor, migrador, agente de caja y actualizador a la vez, con un límite de 15 minutos. En la instalación de la 1.0.1, sin
+  Defender"): servidor, migrador, agente de caja y actualizador a la vez, con un límite de 15 minutos. Desde el instalador rápido (§11) el runtime de .NET
+  está una sola vez y cada programa lee sus archivos en paralelo. En la instalación de la 1.0.1, sin
   este paso, Windows se rindió a los 30 s ("El servicio no respondió a tiempo", eventos 7009 y 7000) porque Defender tardó 356 s.
 - **Mientras no haya certificado:** después de instalar o actualizar, espere unos minutos al primer arranque y no reinicie el servicio a
   mano; el instalador espera a que BusinessPost responda (y lo vuelve a iniciar si hace falta) y Windows lo reinicia solo si se cae.
@@ -281,3 +282,45 @@ silencio con `/BORRARDATOS=si|no`. Una reinstalación vuelve a registrar el prem
 `BusinessPost-Setup.exe --maqueta` recorre las pantallas con datos de ejemplo (no instala, no pide permisos);
 `--maqueta --pantalla licencia|cuenta|negocio|instalando|codigo|principal` abre directo una pantalla y `--maqueta --desinstalar` la
 desinstalación.
+
+## 11. Instalador rápido: runtime compartido y precalentamiento en paralelo
+
+La instalación tardaba sobre todo en copiar archivos y en el paso "Revisando los archivos con Windows Defender": el servidor, el migrador
+y el agente de caja traían **cada uno** su copia del runtime de .NET (583 archivos y 212 MB repetidos que se copiaban y que Defender
+revisaba tres veces). **No** se desactiva ni se excluye Windows Defender: se le da menos que revisar y se lee en paralelo.
+
+- **Una sola copia del runtime** en `app\<versión>\dotnet` (estructura de una instalación de .NET: `host\fxr` y `shared\` con
+  Microsoft.NETCore.App y Microsoft.AspNetCore.App de la misma versión de parche, firmados por Microsoft). `build-installer.ps1` publica
+  `server`, `migrator` y `agent` *framework-dependent* con `AppHostRelativeDotNet=..\dotnet`: cada `.exe` busca el runtime SOLO en
+  `..\dotnet` (no usa `DOTNET_ROOT` ni un .NET instalado en el equipo; el cliente no instala nada). El runtime sale de la instalación de
+  .NET del equipo que arma la versión (la versión 10.0.x más alta que tenga NETCore y ASP.NET Core) y el script revisa que los tres
+  programas arranquen con él (`--precalentar`) antes de seguir.
+- El runtime va **dentro de la versión**: el paquete de actualización (ZIP) lo lleva, su manifiesto de huellas lo cubre como al resto y
+  la vuelta atrás vuelve también al runtime anterior. Las rutas no cambian (`app\current\server\Pos.Server.Host.exe`, etc.), así que los
+  servicios, la unión `app\current` y los actualizadores ya instalados en las tiendas siguen funcionando con los paquetes nuevos.
+- **Siguen autocontenidos** (un solo `.exe`): la ventana `BusinessPost.exe` (los actualizadores anteriores la copian también a
+  `{app}\desktop`, fuera de la versión) y el actualizador (vive en `{app}\updater`, fuera de las versiones; ahora comprimido: 125 → 56 MB).
+- **Recortes:** sin `.pdb` ni XML de documentación en el paquete (quedan en `BusinessPost-<versión>-simbolos.zip`, solo para soporte),
+  sin `BlazorDebugProxy` (11 MB, solo para depurar en desarrollo) y solo recursos satélite `es;en` (`Directory.Build.props`). No se usa
+  *trimming*: el servidor y el migrador usan reflexión (EF, Blazor, Npgsql) y con el runtime compartido no aplica.
+- **Precalentamiento:** `--precalentar` lee primero, en paralelo (un lector por procesador), solo lo que el programa puede cargar (los
+  archivos de su carpeta y los del runtime que resolvió el host, `TRUSTED_PLATFORM_ASSEMBLIES`; nada de `pgsql\share` ni documentos) y
+  después carga sus ensamblados, también en paralelo. El actualizador precalienta los cuatro programas a la vez (antes uno tras otro).
+- **Reinstalar la misma versión:** `[InstallDelete]` borra antes `server`, `migrator`, `agent` y `dotnet` de esa versión (quedaban el
+  runtime propio de antes y los `.pdb`); `desktop` no se toca.
+- **Espera del final:** `esperar-servicio.ps1` consulta cada 0,5 s (antes 2 s).
+
+Cifras con la 1.2.0 armada en el mismo equipo (con manifiesto firmado, es decir, con el paquete para las cajas adentro):
+
+| | Antes | Después |
+|---|---|---|
+| Archivos del paquete (app + updater + pgsql) | 3 153 | 2 410 |
+| MB sin comprimir | 754 | 486 |
+| server / migrator / agent / dotnet | 931 / 269 / 350 / — archivos | 401 / 60 / 14 / 338 archivos |
+| Actualizador | 125 MB | 56 MB |
+| Paquete de actualización (ZIP) | 237,5 MB | 148,8 MB |
+| Paquete clásico | 482,6 MB | 340,5 MB |
+| Instalador descargable | 538,6 MB | 394,2 MB |
+
+Sin el paquete para las cajas (versión sin firmar) el descargable pasa de unos 301 MB a unos 245 MB. Lo que más pesa ahora es
+`pgsql` (1 588 archivos, 141 MB), que no cambió.

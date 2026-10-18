@@ -6,7 +6,7 @@
 ;       internamente "servidor") · "Esta es una caja adicional" (Multicaja; internamente "caja").
 ; Primer arranque (Fase 13-B, D13B-01 y D13B-02): precalienta los programas (Windows Defender) antes de crear los servicios, muestra el
 ;       paso en curso y espera a que BusinessPost responda antes de abrir el navegador.
-; Deja: C:\Program Files\BusinessPost\app\<versión>\{server,migrator,agent,desktop}, app\current (unión NTFS a la versión activa),
+; Deja: C:\Program Files\BusinessPost\app\<versión>\{server,migrator,agent,desktop,dotnet}, app\current (unión NTFS a la versión activa),
 ;       updater\ y pgsql\ (PostgreSQL 18 empaquetado). Datos, backups y configuración en C:\ProgramData\BusinessPost (se CONSERVAN al
 ;       desinstalar salvo que el usuario pida borrarlos, con doble confirmación).
 ; =====================================================================================================================================
@@ -63,6 +63,9 @@ Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
 Source: "{#PackageDir}\app\{#AppVersion}\server\*";   DestDir: "{app}\app\{#AppVersion}\server";   Flags: recursesubdirs ignoreversion; Check: IsServerMode
 Source: "{#PackageDir}\app\{#AppVersion}\migrator\*"; DestDir: "{app}\app\{#AppVersion}\migrator"; Flags: recursesubdirs ignoreversion; Check: IsServerMode
 Source: "{#PackageDir}\app\{#AppVersion}\agent\*";    DestDir: "{app}\app\{#AppVersion}\agent";    Flags: recursesubdirs ignoreversion
+; Instalador rápido: UNA copia del runtime de .NET de esta versión (server, migrator y agent la buscan en ..\dotnet; antes cada uno traía
+; la suya). Va en los dos modos (la caja adicional usa el agente).
+Source: "{#PackageDir}\app\{#AppVersion}\dotnet\*";   DestDir: "{app}\app\{#AppVersion}\dotnet";   Flags: recursesubdirs ignoreversion
 Source: "{#PackageDir}\pgsql\*";                      DestDir: "{app}\pgsql";                      Flags: recursesubdirs ignoreversion; Check: IsServerMode
 Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"; Flags: ignoreversion
 ; Ventana propia BusinessPost.exe (Fase 13-B, D13B-07), en los dos modos. Va dentro de la versión (app\<versión>\desktop, también en el
@@ -79,6 +82,15 @@ Source: "{#PackageDir}\update\installed-manifest.json"; Flags: dontcopy skipifso
 Source: "{#PackageDir}\update\installed-package.zip";   Flags: dontcopy skipifsourcedoesntexist nocompression
 Source: "scripts\precalentar.ps1";      Flags: dontcopy
 Source: "scripts\esperar-servicio.ps1"; Flags: dontcopy
+
+[InstallDelete]
+; Instalador rápido: al reinstalar la MISMA versión sobre una copia armada antes del runtime compartido quedaban en server\, migrator\ y
+; agent\ el runtime propio de antes (un hostfxr.dll al lado del .exe cambia cómo arranca) y los .pdb/.xml. Los servicios ya están
+; detenidos (PrepareToInstall); desktop\ no se toca (la ventana puede estar abierta).
+Type: filesandordirs; Name: "{app}\app\{#AppVersion}\server"
+Type: filesandordirs; Name: "{app}\app\{#AppVersion}\migrator"
+Type: filesandordirs; Name: "{app}\app\{#AppVersion}\agent"
+Type: filesandordirs; Name: "{app}\app\{#AppVersion}\dotnet"
 
 [Icons]
 ; La interfaz se abre en la ventana propia BusinessPost.exe (Fase 13-B, D13B-07): lee la dirección de C:\ProgramData\BusinessPost\config

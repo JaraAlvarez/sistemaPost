@@ -7,6 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
     <Deterministic>true</Deterministic>
+    <!-- Instalador rápido: solo los recursos satélite en español e inglés (menos archivos que copiar y que revise el antivirus). -->
+    <SatelliteResourceLanguages>es;en</SatelliteResourceLanguages>
 
     <!-- Calidad: cualquier advertencia rompe la compilación. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
