@@ -7,8 +7,8 @@
   externo o carpeta de red, con la carpeta comprobada en el servidor antes de guardar.
 - **Facturación → Configuración → Factus:** conectar Factus desde la pantalla ("Conectar", "Volver a probar", "Cambiar llaves",
   "Desconectar"), documentos retenidos con "Enviar ahora" / "No enviar", rangos por ambiente.
-- El adaptador por defecto sigue siendo `NONE`. FACTUS por defecto está **pendiente de aprobación** (adenda A del ADR-0059); mientras
-  tanto se habilita en `server.json` con `"Pos": { "Billing": { "Provider": "FACTUS" } }`.
+- El adaptador por defecto es **FACTUS** (adenda A del ADR-0059, aprobada). La facturación nace apagada (OFF) y no envía nada sin una
+  conexión verificada. Para prohibirla en una instalación: `"Pos": { "Billing": { "Provider": "NONE" } }` en `server.json`.
 
 ### Base de datos
 - Migración **V2026.10.060** (`billing__provider_verification`): verificación de la conexión, atraso retenido, ambiente por documento y
