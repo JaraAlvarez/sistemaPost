@@ -1,4 +1,5 @@
 using Pos.Modules.Reporting.Contracts;
+using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Reporting.Application;
 
@@ -14,10 +15,49 @@ public sealed record ReportParameter(string Name, string Label, ReportParameterT
 /// <summary>Total de una columna calculado como razón de otras dos (p. ej. margen = utilidad ÷ venta × 100).</summary>
 public sealed record RatioTotal(string Numerator, string Denominator, decimal Factor);
 
-/// <summary>Columna del reporte. <see cref="IsCost"/>: se oculta sin <c>inventory.cost.view</c> ni <c>reporting.profit.view</c> (RN-REP-04).</summary>
-public sealed record ReportColumn(string Key, string Label, ReportColumnType Type, bool Total = false, bool IsCost = false, RatioTotal? Ratio = null)
+/// <summary>
+/// Columna del reporte. <see cref="IsCost"/>: se oculta sin <c>inventory.cost.view</c> ni <c>reporting.profit.view</c> (RN-REP-04).
+/// <see cref="Hidden"/>: se lee del SQL (y se suma) pero nunca se publica, p. ej. la base de un cálculo. <see cref="Computed"/>: no viene del
+/// SQL; la llena el <see cref="IReportCalculation"/> del reporte. <see cref="Style"/>: presentación en la pantalla.
+/// </summary>
+public sealed record ReportColumn(
+    string Key,
+    string Label,
+    ReportColumnType Type,
+    bool Total = false,
+    bool IsCost = false,
+    RatioTotal? Ratio = null,
+    bool Hidden = false,
+    bool Computed = false,
+    ReportColumnStyle Style = ReportColumnStyle.None)
 {
     public bool HasTotal => Total || Ratio is not null;
+}
+
+/// <summary>Lo que ve un cálculo: la fecha de hoy y los argumentos SQL ya validados (nombres en snake_case).</summary>
+public sealed record ReportCalculationContext(DateOnly Today, IReadOnlyList<SqlArgument> Arguments)
+{
+    public object? Value(string sqlName) => Arguments.FirstOrDefault(a => a.Name == sqlName)?.Value;
+}
+
+/// <summary>Argumentos SQL adicionales y parámetros que se muestran en la pantalla y en los archivos (p. ej. los periodos comparados).</summary>
+public sealed record ReportPreparation(IReadOnlyList<SqlArgument> Arguments, IReadOnlyList<KeyValuePair<string, string>> Shown)
+{
+    public static ReportPreparation None { get; } = new([], []);
+}
+
+/// <summary>
+/// Cálculo en C# de un reporte (mejora de reportes de análisis): <see cref="Prepare"/> valida y agrega argumentos antes del SQL;
+/// <see cref="Apply"/> llena las columnas <see cref="ReportColumn.Computed"/> de cada fila; <see cref="CompleteTotals"/> corrige los totales
+/// que no son una suma (variaciones, promedios). Las filas y los totales llegan con TODAS las columnas de la definición, en su orden.
+/// </summary>
+public interface IReportCalculation
+{
+    Result<ReportPreparation> Prepare(ReportCalculationContext context);
+
+    void Apply(ReportCalculationContext context, IReadOnlyList<ReportColumn> columns, IReadOnlyList<object?[]> rows);
+
+    void CompleteTotals(ReportCalculationContext context, IReadOnlyList<ReportColumn> columns, object?[] totals);
 }
 
 /// <summary>
@@ -34,7 +74,8 @@ public sealed record ReportDefinition(
     IReadOnlyList<ReportParameter> Parameters,
     IReadOnlyList<ReportColumn> Columns,
     string Sql,
-    string? Note = null)
+    string? Note = null,
+    IReportCalculation? Calculation = null)
 {
     public ReportInfoDto ToInfo(bool includeCost) => new(
         Code,
@@ -42,9 +83,18 @@ public sealed record ReportDefinition(
         Group,
         Description,
         [.. Parameters.Select(p => new ReportParameterDto(p.Name, p.Label, p.Type, p.Required, p.DefaultValue))],
-        [.. VisibleColumns(includeCost).Select(c => new ReportColumnDto(c.Key, c.Label, c.Type, c.HasTotal))]);
+        [.. VisibleColumns(includeCost).Select(c => c.ToDto())]);
 
-    public IReadOnlyList<ReportColumn> VisibleColumns(bool includeCost) => [.. Columns.Where(c => includeCost || !c.IsCost)];
+    /// <summary>Columnas publicadas: sin las ocultas y, sin permiso de costos, sin las de costo.</summary>
+    public IReadOnlyList<ReportColumn> VisibleColumns(bool includeCost) => [.. Columns.Where(c => !c.Hidden && (includeCost || !c.IsCost))];
+
+    /// <summary>Columnas que se leen del SQL (todas menos las calculadas en C#).</summary>
+    public IReadOnlyList<ReportColumn> QueryColumns => [.. Columns.Where(c => !c.Computed)];
+}
+
+internal static class ReportColumnExtensions
+{
+    public static ReportColumnDto ToDto(this ReportColumn column) => new(column.Key, column.Label, column.Type, column.HasTotal, column.Style);
 }
 
 /// <summary>Parámetros comunes de los reportes.</summary>

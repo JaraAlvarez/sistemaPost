@@ -44,6 +44,27 @@ public enum ReportColumnType
     Boolean,
 }
 
+/// <summary>
+/// Presentación especial de una columna en la pantalla: variación (▲ verde / ▼ rojo), clase ABC (A verde, B ámbar, C gris) o celda
+/// del mapa de calor (más oscura cuanto mayor el valor). No cambia el valor ni su formato en los archivos.
+/// </summary>
+public enum ReportColumnStyle
+{
+    None,
+    Variation,
+    AbcClass,
+    Heat,
+}
+
+/// <summary>Intensidad de una celda del mapa de calor: 0 (sin ventas) a <see cref="Levels"/> (la celda mayor).</summary>
+public static class HeatmapScale
+{
+    public const int Levels = 5;
+
+    public static int Level(decimal value, decimal max) =>
+        value <= 0m || max <= 0m ? 0 : (int)Math.Ceiling(Math.Min(value, max) / max * Levels);
+}
+
 /// <summary>Tipo de un parámetro del reporte (se recibe en la cadena de consulta).</summary>
 public enum ReportParameterType
 {
@@ -62,7 +83,7 @@ public enum ReportFormat
 
 public sealed record ReportParameterDto(string Name, string Label, ReportParameterType Type, bool Required, string? DefaultValue);
 
-public sealed record ReportColumnDto(string Key, string Label, ReportColumnType Type, bool HasTotal);
+public sealed record ReportColumnDto(string Key, string Label, ReportColumnType Type, bool HasTotal, ReportColumnStyle Style = ReportColumnStyle.None);
 
 public sealed record ReportInfoDto(
     string Code,

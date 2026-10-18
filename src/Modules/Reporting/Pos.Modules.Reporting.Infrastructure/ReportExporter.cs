@@ -147,7 +147,7 @@ internal sealed class ReportExporter(IClock clock) : IReportExporter
         pdf.Info.Title = document.Title;
         var normal = pdf.Styles[StyleNames.Normal]!;
         normal.Font.Name = PdfFonts.Family;
-        normal.Font.Size = document.Columns.Count > 12 ? 6 : 8;
+        normal.Font.Size = FontSize(document.Columns.Count);
 
         var section = pdf.AddSection();
         section.PageSetup = pdf.DefaultPageSetup.Clone();
@@ -254,6 +254,9 @@ internal sealed class ReportExporter(IClock clock) : IReportExporter
         bool b => b ? "Sí" : "No",
         _ => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
     };
+
+    /// <summary>Letra de la tabla: 8 pt; 6 pt con más de 12 columnas; 5 pt con más de 15 (los comparativos tienen unas 22, pregunta 3).</summary>
+    internal static double FontSize(int columns) => columns > 15 ? 5 : columns > 12 ? 6 : 8;
 
     private static double Weight(ReportColumnType type) => type switch
     {

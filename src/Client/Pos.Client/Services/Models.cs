@@ -76,7 +76,8 @@ public sealed record CashReport(string Kind, string Number, decimal ExpectedTota
 
 public sealed record ReportParameter(string Name, string Label, string Type, bool Required, string? DefaultValue);
 
-public sealed record ReportColumn(string Key, string Label, string Type, bool HasTotal);
+/// <summary><c>Style</c>: presentación especial (Variation, AbcClass, Heat; ver ReportColumnStyle).</summary>
+public sealed record ReportColumn(string Key, string Label, string Type, bool HasTotal, string Style = "None");
 
 public sealed record ReportInfo(string Code, string Name, string Group, string Description, IReadOnlyList<ReportParameter> Parameters, IReadOnlyList<ReportColumn> Columns);
 

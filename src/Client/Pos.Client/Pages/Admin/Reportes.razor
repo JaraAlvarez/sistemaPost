@@ -57,17 +57,49 @@
                     {
                         <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">@_result.Note</MudAlert>
                     }
+                    @if (EsMapaDeCalor)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Wrap="Wrap.Wrap">
+                            <MudToggleGroup T="bool" @bind-Value="_verMapa" Size="Size.Small" Color="Color.Primary" Outlined="true">
+                                <MudToggleItem Value="false" Text="Tabla" />
+                                <MudToggleItem Value="true" Text="Mapa de calor" />
+                            </MudToggleGroup>
+                            @if (_verMapa)
+                            {
+                                <MudText Typo="Typo.caption">Más oscuro = más ventas en esa hora y ese día.</MudText>
+                            }
+                        </MudStack>
+                    }
                     <div style="overflow-x: auto;">
-                        <MudSimpleTable Dense="true" Outlined="true" Striped="true">
+                        <MudSimpleTable Dense="true" Outlined="true" Striped="@(!_verMapa || !EsMapaDeCalor)">
                             <thead><tr>@foreach (var column in _result.Columns) { <th class="@(Numeric(column) ? "num" : null)">@column.Label</th> }</tr></thead>
                             <tbody>
                                 @foreach (var row in _result.Rows)
                                 {
-                                    <tr>@foreach (var column in _result.Columns) { <td class="@(Numeric(column) ? "num" : null)">@Format.Cell(row.GetValueOrDefault(column.Key), column.Type)</td> }</tr>
+                                    <tr>
+                                        @foreach (var column in _result.Columns)
+                                        {
+                                            var value = row.GetValueOrDefault(column.Key);
+                                            <td class="@(Numeric(column) ? "num" : null)" style="@EstiloCelda(column, value)">
+                                                @if (column.Style == "AbcClass" && value.ValueKind == JsonValueKind.String)
+                                                {
+                                                    <MudChip T="string" Size="Size.Small" Color="@ColorAbc(value.GetString())" Class="ma-0">@value.GetString()</MudChip>
+                                                }
+                                                else if (column.Style == "Variation")
+                                                {
+                                                    <span style="@ColorVariacion(value)">@Variacion(value, column)</span>
+                                                }
+                                                else
+                                                {
+                                                    @Format.Cell(value, column.Type)
+                                                }
+                                            </td>
+                                        }
+                                    </tr>
                                 }
                                 @if (_result.Totals.Count > 0)
                                 {
-                                    <tr>@foreach (var column in _result.Columns) { <td class="num"><b>@(_result.Totals.TryGetValue(column.Key, out var total) ? Format.Cell(total, column.Type) : "")</b></td> }</tr>
+                                    <tr>@foreach (var column in _result.Columns) { <td class="num"><b>@(_result.Totals.TryGetValue(column.Key, out var total) ? (column.Style == "Variation" ? Variacion(total, column) : Format.Cell(total, column.Type)) : "")</b></td> }</tr>
                                 }
                             </tbody>
                         </MudSimpleTable>
@@ -84,7 +116,7 @@
     private ReportInfo? _selected;
     private ReportResult? _result;
     private readonly Dictionary<string, string?> _values = [];
-    private bool _loading = true, _busy;
+    private bool _loading = true, _busy, _verMapa = true;
     private string? _error;
 
     protected override async Task OnInitializedAsync()
@@ -106,11 +138,76 @@
         _selected = report;
         _result = null;
         _values.Clear();
-        var today = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        _verMapa = true;
         foreach (var parameter in report.Parameters)
         {
-            _values[parameter.Name] = parameter.DefaultValue == "today" ? today : parameter.DefaultValue;
+            _values[parameter.Name] = parameter.Type == "Date" ? FechaPorDefecto(parameter.DefaultValue) : parameter.DefaultValue;
         }
+    }
+
+    /// <summary>"today" y "today-N" (p. ej. los últimos 7 días de los comparativos) se muestran ya resueltos en el selector de fecha.</summary>
+    private static string? FechaPorDefecto(string? value)
+    {
+        if (value is null || !value.StartsWith("today", StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+
+        var offset = value.Length > 5 && int.TryParse(value[5..], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var o) ? o : 0;
+        return DateTime.Today.AddDays(offset).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
+    private bool EsMapaDeCalor => _result?.Columns.Any(c => c.Style == "Heat") == true;
+
+    /// <summary>Celda del mapa de calor: más oscura cuanto mayor la venta frente a la mayor celda de la tabla.</summary>
+    private string? EstiloCelda(ReportColumn column, JsonElement value)
+    {
+        if (!_verMapa || column.Style != "Heat" || value.ValueKind != JsonValueKind.Number || _result is null)
+        {
+            return null;
+        }
+
+        var max = _result.Rows
+            .SelectMany(r => _result.Columns.Where(c => c.Style == "Heat").Select(c => r.GetValueOrDefault(c.Key)))
+            .Where(v => v.ValueKind == JsonValueKind.Number)
+            .Select(v => v.GetDecimal())
+            .DefaultIfEmpty(0m)
+            .Max();
+        var level = Pos.Modules.Reporting.Contracts.HeatmapScale.Level(value.GetDecimal(), max);
+        if (level == 0)
+        {
+            return null;
+        }
+
+        var alpha = (0.12m + 0.16m * (level - 1)).ToString("0.00", CultureInfo.InvariantCulture);
+        return $"background-color: rgba(var(--mud-palette-primary-rgb), {alpha});" + (level >= 4 ? " color: var(--mud-palette-primary-text);" : string.Empty);
+    }
+
+    private static Color ColorAbc(string? clase) => clase switch
+    {
+        "A" => Color.Success,
+        "B" => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private static string? ColorVariacion(JsonElement value) =>
+        value.ValueKind != JsonValueKind.Number ? null
+        : value.GetDecimal() > 0 ? "color: var(--mud-palette-success);"
+        : value.GetDecimal() < 0 ? "color: var(--mud-palette-error);"
+        : null;
+
+    /// <summary>Variación con flecha: ▲ sube, ▼ baja; el margen va en puntos porcentuales (pp).</summary>
+    private static string Variacion(JsonElement value, ReportColumn column)
+    {
+        if (value.ValueKind != JsonValueKind.Number)
+        {
+            return "";
+        }
+
+        var number = value.GetDecimal();
+        var unit = column.Label.Contains("pp", StringComparison.Ordinal) ? " pp" : " %";
+        var arrow = number > 0 ? "▲ " : number < 0 ? "▼ " : "";
+        return arrow + Math.Abs(number).ToString("0.##", Format.Colombia) + unit;
     }
 
     private DateTime? Fecha(string name) =>

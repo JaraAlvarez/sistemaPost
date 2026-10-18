@@ -218,21 +218,66 @@ public sealed class ReportEngine(
             .. sqlArguments,
         ];
 
-        var rows = await runner.RunAsync(new ReportQuery(definition.Sql, definition.Columns, all, maxRows + 1, timeout), cancellationToken);
+        var calculation = definition.Calculation;
+        var calculationContext = new ReportCalculationContext(today, all);
+        if (calculation is not null)
+        {
+            var preparation = calculation.Prepare(calculationContext);
+            if (preparation.IsFailure)
+            {
+                return preparation.Error;
+            }
+
+            all.AddRange(preparation.Value.Arguments);
+            shown.AddRange(preparation.Value.Shown);
+            calculationContext = new ReportCalculationContext(today, all);
+        }
+
+        var queryColumns = definition.QueryColumns;
+        var rows = await runner.RunAsync(new ReportQuery(definition.Sql, queryColumns, all, maxRows + 1, timeout), cancellationToken);
         if (rows.IsFailure)
         {
             return rows.Error;
         }
 
         var truncated = rows.Value.Count > maxRows;
-        IReadOnlyList<object?[]> all0 = truncated ? [.. rows.Value.Take(maxRows)] : rows.Value;
+        IReadOnlyList<object?[]> read = truncated ? [.. rows.Value.Take(maxRows)] : rows.Value;
+
+        // Filas con TODAS las columnas de la definición (las calculadas en blanco): el cálculo las llena y los totales se sacan antes de
+        // quitar las ocultas y las de costo, para que las razones y los cálculos puedan usar columnas que no se publican.
+        var full = Expand(definition.Columns, queryColumns, read);
+        calculation?.Apply(calculationContext, definition.Columns, full);
+        var totals = ComputeTotals(definition.Columns, full);
+        calculation?.CompleteTotals(calculationContext, definition.Columns, totals);
+
         var includeCost = await CanSeeCostsAsync(cancellationToken);
         var visible = definition.VisibleColumns(includeCost);
-        var indexes = visible.Select(c => definition.Columns.ToList().IndexOf(c)).ToArray();
+        var indexes = visible.Select(c => IndexOf(definition.Columns, c.Key)).ToArray();
         IReadOnlyList<object?[]> projected = indexes.Length == definition.Columns.Count
-            ? all0
-            : [.. all0.Select(r => indexes.Select(i => r[i]).ToArray())];
-        return new ExecutedReport(definition, visible, shown, projected, ComputeTotals(visible, projected), truncated, companyId, branchId);
+            ? full
+            : [.. full.Select(r => indexes.Select(i => r[i]).ToArray())];
+        return new ExecutedReport(definition, visible, shown, projected, [.. indexes.Select(i => totals[i])], truncated, companyId, branchId);
+    }
+
+    /// <summary>Ubica los valores leídos (en el orden de las columnas del SQL) en el orden completo de la definición.</summary>
+    internal static IReadOnlyList<object?[]> Expand(IReadOnlyList<ReportColumn> columns, IReadOnlyList<ReportColumn> queryColumns, IReadOnlyList<object?[]> rows)
+    {
+        if (queryColumns.Count == columns.Count)
+        {
+            return rows;
+        }
+
+        var positions = queryColumns.Select(c => IndexOf(columns, c.Key)).ToArray();
+        return [.. rows.Select(r =>
+        {
+            var row = new object?[columns.Count];
+            for (var i = 0; i < positions.Length; i++)
+            {
+                row[positions[i]] = r[i];
+            }
+
+            return row;
+        })];
     }
 
     /// <summary>Totales de la columna: suma o razón entre dos columnas sumadas (p. ej. margen = utilidad ÷ venta × 100).</summary>
@@ -405,7 +450,7 @@ internal sealed class RunReportHandler(ReportEngine engine, IClock clock) : IQue
             report.Definition.Name,
             report.Definition.Group,
             report.Parameters.ToDictionary(p => p.Key, p => (string?)p.Value),
-            [.. report.Columns.Select(c => new ReportColumnDto(c.Key, c.Label, c.Type, c.HasTotal))],
+            [.. report.Columns.Select(c => c.ToDto())],
             rows,
             ToRow(report.Columns, report.Totals),
             report.Rows.Count,
