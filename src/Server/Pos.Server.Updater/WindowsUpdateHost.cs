@@ -145,51 +145,55 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
     /// </summary>
     private async Task PrecalentarAsync(string versionDirectory, CancellationToken cancellationToken)
     {
-        foreach (var (folder, exe) in new[]
-                 {
-                     ("server", "Pos.Server.Host.exe"), ("migrator", "Pos.Server.Migrator.exe"), ("agent", "Pos.Terminal.Agent.exe"),
-                     (VentanaEscritorio.Carpeta, VentanaEscritorio.Programa),
-                 })
+        // Instalador rápido: los programas se precalientan A LA VEZ (antes uno tras otro); comparten el runtime de app\{versión}\dotnet.
+        var programas = new[]
         {
-            var path = Path.Combine(versionDirectory, folder, exe);
-            if (!File.Exists(path))
-            {
-                continue;
-            }
+            ("server", "Pos.Server.Host.exe"), ("migrator", "Pos.Server.Migrator.exe"), ("agent", "Pos.Terminal.Agent.exe"),
+            (VentanaEscritorio.Carpeta, VentanaEscritorio.Programa),
+        };
+        await Task.WhenAll(programas.Select(p => PrecalentarProgramaAsync(versionDirectory, p.Item1, p.Item2, cancellationToken)));
+    }
 
-            // R5: solo programas que salieron del paquete verificado (su huella está en el manifiesto de la carpeta) y sin enlaces.
-            if (StagedContents.VerifyFile(versionDirectory, Path.Combine(folder, exe)) is { } problema)
-            {
-                LogServiceFailed(logger, exe, $"no se precalienta: {problema}");
-                continue;
-            }
+    private async Task PrecalentarProgramaAsync(string versionDirectory, string folder, string exe, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(versionDirectory, folder, exe);
+        if (!File.Exists(path))
+        {
+            return;
+        }
 
-            var reloj = Stopwatch.StartNew();
+        // R5: solo programas que salieron del paquete verificado (su huella está en el manifiesto de la carpeta) y sin enlaces.
+        if (StagedContents.VerifyFile(versionDirectory, Path.Combine(folder, exe)) is { } problema)
+        {
+            LogServiceFailed(logger, exe, $"no se precalienta: {problema}");
+            return;
+        }
+
+        var reloj = Stopwatch.StartNew();
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo(path, "--precalentar")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(path)!,
+            })!;
+            using var limite = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limite.CancelAfter(TimeSpan.FromMinutes(15));
             try
             {
-                using var process = Process.Start(new ProcessStartInfo(path, "--precalentar")
-                {
-                    CreateNoWindow = true,
-                    UseShellExecute = false,
-                    WorkingDirectory = Path.GetDirectoryName(path)!,
-                })!;
-                using var limite = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                limite.CancelAfter(TimeSpan.FromMinutes(15));
-                try
-                {
-                    await process.WaitForExitAsync(limite.Token);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-
-                LogPrecalentado(logger, exe, reloj.Elapsed.TotalSeconds);
+                await process.WaitForExitAsync(limite.Token);
             }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                LogServiceFailed(logger, exe, ex.Message);
+                process.Kill(entireProcessTree: true);
             }
+
+            LogPrecalentado(logger, exe, reloj.Elapsed.TotalSeconds);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            LogServiceFailed(logger, exe, ex.Message);
         }
     }
 

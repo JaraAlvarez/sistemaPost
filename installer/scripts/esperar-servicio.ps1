@@ -33,7 +33,8 @@ do {
         & "$env:SystemRoot\System32\sc.exe" start $Servicio | Out-Null
         $reiniciado = $true
     }
-    Start-Sleep -Seconds 2
+    # Sondeo corto (antes 2 s): apenas responde, la instalación sigue.
+    Start-Sleep -Milliseconds 500
 } while ((Get-Date) -lt $fin)
 
 if ($reiniciado) { exit 2 }

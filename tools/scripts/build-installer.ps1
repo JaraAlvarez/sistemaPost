@@ -1,6 +1,7 @@
 ﻿<#
 .SYNOPSIS
-    Arma una versión para clientes (Fase 13): publica el servidor, el migrador, el agente de caja y el actualizador; agrega PostgreSQL 18;
+    Arma una versión para clientes (Fase 13): publica el servidor, el migrador, el agente de caja y el actualizador (los tres primeros
+    con UNA copia compartida del runtime de .NET en app\<versión>\dotnet, ver guia-instalacion §11); agrega PostgreSQL 18;
     crea el paquete de actualización (ZIP), firma su manifiesto y compila el instalador con Inno Setup.
 .DESCRIPTION
     Salida en artifacts\releases:
@@ -49,19 +50,71 @@ if (-not (Test-Path $PostgresZip)) { throw "No existe $PostgresZip." }
 Remove-Item $package -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $app, $releases | Out-Null
 
-function Publish([string] $project, [string] $output, [switch] $SingleFile, [string[]] $Extra = @()) {
-    $arguments = @('publish', (Join-Path $root $project), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
+$symbols = Join-Path $package 'simbolos'
+
+# -Shared (instalador rápido): el programa NO lleva su propia copia del runtime de .NET; usa la ÚNICA copia de la versión, en
+# app\<versión>\dotnet (la arma Add-SharedRuntime). El .exe busca el runtime solo en ..\dotnet (AppHostRelativeDotNet, sin DOTNET_ROOT
+# ni .NET instalado en el equipo). Antes el servidor, el migrador y el agente traían cada uno el runtime completo (583 archivos y 212 MB
+# repetidos que se copiaban y que Windows Defender revisaba tres veces).
+function Publish([string] $project, [string] $output, [switch] $SingleFile, [switch] $Shared, [string[]] $Extra = @()) {
+    $selfContained = if ($Shared) { 'false' } else { 'true' }
+    $arguments = @('publish', (Join-Path $root $project), '-c', 'Release', '-r', 'win-x64', '--self-contained', $selfContained,
         '-p:PublishReadyToRun=true', "-p:Version=$Version", '-o', $output, '--nologo', '-v', 'q') + $Extra
+    if ($Shared) { $arguments += '-p:AppHostRelativeDotNet=..\dotnet' }
     if ($SingleFile) { $arguments += @('-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true') }
     & dotnet @arguments
     if ($LASTEXITCODE -ne 0) { throw "Falló la publicación de $project." }
+    # Sin símbolos ni documentación XML en el paquete (no se usan al ejecutar): quedan aparte en BusinessPost-<versión>-simbolos.zip.
+    $target = Join-Path $symbols (Split-Path $output -Leaf)
+    Get-ChildItem $output -Recurse -File | Where-Object {
+        $_.Extension -eq '.pdb' -or ($_.Extension -eq '.xml' -and ($SingleFile -or (Test-Path (Join-Path $_.DirectoryName ($_.BaseName + '.dll')))))
+    } | ForEach-Object {
+        New-Item -ItemType Directory -Force $target | Out-Null
+        Move-Item $_.FullName (Join-Path $target $_.Name) -Force
+    }
 }
 
-Write-Host "Publicando $Version (autocontenido, ReadyToRun)..." -ForegroundColor Cyan
-Publish 'src\Server\Pos.Server.Host\Pos.Server.Host.csproj' (Join-Path $app 'server')
-Publish 'src\Server\Pos.Server.Migrator\Pos.Server.Migrator.csproj' (Join-Path $app 'migrator')
-Publish 'src\Terminal\Pos.Terminal.Agent\Pos.Terminal.Agent.csproj' (Join-Path $app 'agent')
-Publish 'src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj' (Join-Path $package 'updater') -SingleFile
+# Una sola copia del runtime de .NET (Microsoft.NETCore.App y Microsoft.AspNetCore.App, misma versión de parche) en app\<versión>\dotnet,
+# con la estructura de una instalación de .NET (host\fxr y shared\). Sale de la instalación de .NET de este equipo (archivos firmados por
+# Microsoft, los mismos del runtime que se descarga). Va DENTRO de la versión: el paquete de actualización la lleva y la vuelta atrás
+# vuelve también al runtime anterior.
+function Add-SharedRuntime([string] $destination) {
+    $dotnetRoot = Split-Path -Parent (Get-Command dotnet).Source
+    $core = Get-ChildItem (Join-Path $dotnetRoot 'shared\Microsoft.NETCore.App') -Directory | Where-Object Name -match '^10\.0\.\d+$' |
+        Sort-Object { [version]$_.Name } -Descending
+    $runtime = $core | Where-Object { Test-Path (Join-Path $dotnetRoot "shared\Microsoft.AspNetCore.App\$($_.Name)") } | Select-Object -First 1
+    if (-not $runtime) { throw "No hay un runtime 10.0 de .NET y ASP.NET Core de la misma versión en $dotnetRoot." }
+    $fxr = Get-ChildItem (Join-Path $dotnetRoot 'host\fxr') -Directory | Where-Object { [version]$_.Name -ge [version]$runtime.Name } |
+        Sort-Object { [version]$_.Name } | Select-Object -First 1
+    if (-not $fxr) { throw "No hay host\fxr $($runtime.Name) o posterior en $dotnetRoot." }
+    Write-Host "Runtime compartido .NET $($runtime.Name) (hostfxr $($fxr.Name))..." -ForegroundColor Cyan
+    foreach ($framework in 'Microsoft.NETCore.App', 'Microsoft.AspNetCore.App') {
+        $to = Join-Path $destination "shared\$framework\$($runtime.Name)"
+        New-Item -ItemType Directory -Force $to | Out-Null
+        Copy-Item (Join-Path $dotnetRoot "shared\$framework\$($runtime.Name)\*") $to -Recurse -Force
+    }
+    $toFxr = Join-Path $destination "host\fxr\$($fxr.Name)"
+    New-Item -ItemType Directory -Force $toFxr | Out-Null
+    Copy-Item (Join-Path $fxr.FullName '*') $toFxr -Recurse -Force
+    foreach ($notice in 'LICENSE.txt', 'ThirdPartyNotices.txt') {
+        if (Test-Path (Join-Path $dotnetRoot $notice)) { Copy-Item (Join-Path $dotnetRoot $notice) $destination -Force }
+    }
+}
+
+Write-Host "Publicando $Version (runtime compartido, ReadyToRun)..." -ForegroundColor Cyan
+# BlazorDebugProxy (11 MB) solo sirve para depurar la interfaz en desarrollo: no va al paquete.
+Publish 'src\Server\Pos.Server.Host\Pos.Server.Host.csproj' (Join-Path $app 'server') -Shared -Extra @('-p:BlazorWebAssemblyOmitDebugProxyOutput=true')
+Publish 'src\Server\Pos.Server.Migrator\Pos.Server.Migrator.csproj' (Join-Path $app 'migrator') -Shared
+Publish 'src\Terminal\Pos.Terminal.Agent\Pos.Terminal.Agent.csproj' (Join-Path $app 'agent') -Shared
+Add-SharedRuntime (Join-Path $app 'dotnet')
+# Revisión: cada programa arranca con el runtime compartido (su modo --precalentar carga sus archivos y termina).
+foreach ($exe in 'server\Pos.Server.Host.exe', 'migrator\Pos.Server.Migrator.exe', 'agent\Pos.Terminal.Agent.exe') {
+    $path = Join-Path $app $exe
+    $check = Start-Process $path -ArgumentList '--precalentar' -WorkingDirectory (Split-Path $path) -WindowStyle Hidden -Wait -PassThru
+    if ($check.ExitCode -ne 0) { throw "$exe no arranca con el runtime compartido (código $($check.ExitCode))." }
+}
+# El actualizador vive fuera de las versiones ({app}\updater) y sigue siendo autocontenido; comprimido es menos de la mitad.
+Publish 'src\Server\Pos.Server.Updater\Pos.Server.Updater.csproj' (Join-Path $package 'updater') -SingleFile -Extra @('-p:EnableCompressionInSingleFile=true')
 # Ventana propia BusinessPost.exe (Fase 13-B, D13B-07): un solo .exe autocontenido (y el aviso de licencia de WebView2). Va DENTRO de
 # la versión (app\<versión>\desktop) para que el paquete de actualización la lleve: los accesos directos abren
 # {app}\app\current\desktop\BusinessPost.exe y el cambio de versión (o la vuelta atrás) la cambia junto con el servidor.
@@ -109,7 +162,14 @@ try {
     foreach ($required in 'server/Pos.Server.Host.exe', 'migrator/Pos.Server.Migrator.exe', 'agent/Pos.Terminal.Agent.exe', 'desktop/BusinessPost.exe') {
         if ($names -notcontains $required) { throw "El paquete de actualización no tiene $required." }
     }
+    # Runtime compartido de la versión (server, migrator y agent lo buscan en ..\dotnet).
+    if (-not ($names | Where-Object { $_ -like 'dotnet/host/fxr/*/hostfxr.dll' })) { throw 'El paquete de actualización no tiene dotnet/host/fxr.' }
+    if (-not ($names | Where-Object { $_ -like 'dotnet/shared/Microsoft.AspNetCore.App/*' })) { throw 'El paquete de actualización no tiene el runtime de ASP.NET Core.' }
 } finally { $entries.Dispose() }
+if (Test-Path $symbols) {
+    # Símbolos (.pdb) y XML de documentación, solo para soporte: no se suben al VPS ni van al instalador.
+    Compress-Archive -Path (Join-Path $symbols '*') -DestinationPath (Join-Path $releases "BusinessPost-$Version-simbolos.zip") -Force
+}
 
 if ($SigningKey) {
     & dotnet run --project (Join-Path $root 'tools\Pos.Release\Pos.Release.csproj') -c Release -- sign --package $zip --version $Version `
