@@ -65,7 +65,35 @@ public sealed class Account : AggregateRoot<Guid>, IHasAuditLabel
 
     public string? Notes { get; private set; }
 
+    /// <summary>
+    /// Registro propio (primer ingreso a una tienda con "Continuar con Google", sin cuenta en el portal): la cuenta se creó sola. El
+    /// portal la muestra en "Registros nuevos" (posibles clientes). <c>null</c> en las cuentas creadas por el equipo de BusinessPost.
+    /// </summary>
+    public DateTimeOffset? SelfRegisteredAt { get; private set; }
+
+    /// <summary>Primera vez que un usuario de la cuenta quedó como Propietario de una tienda (se entregó el enlace firmado).</summary>
+    public DateTimeOffset? FirstStoreLinkedAt { get; private set; }
+
     public string AuditLabel => $"Cuenta {Name}";
+
+    /// <summary>Cuenta de un cliente que se registró solo desde la tienda (Google): directa, sin NIT; el nombre y el correo de Google.</summary>
+    public static Result<Account> SelfRegister(Guid id, string name, string email, DateTimeOffset now)
+    {
+        var shown = string.IsNullOrWhiteSpace(name) ? email : name.Trim();
+        var created = Create(id, AccountKind.Direct,
+            new AccountData(shown.Length > 200 ? shown[..200] : shown, null, null, shown.Length > 120 ? shown[..120] : shown, email, null,
+                "Registro propio desde la tienda (Continuar con Google)."),
+            null);
+        if (created.IsSuccess)
+        {
+            created.Value.SelfRegisteredAt = now;
+        }
+
+        return created;
+    }
+
+    /// <summary>Un usuario de la cuenta quedó como Propietario de una tienda: se guarda la primera vez.</summary>
+    public void MarkStoreLinked(DateTimeOffset now) => FirstStoreLinkedAt ??= now;
 
     public static Result<Account> Create(Guid id, AccountKind kind, AccountData data, Account? parent)
     {

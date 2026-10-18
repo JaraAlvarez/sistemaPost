@@ -151,6 +151,17 @@ public interface ILicenseCloud
 
     /// <summary>Enlace firmado del propietario (cuenta del portal). Sin conexión: todo <c>null</c>; con rechazo: el código y el mensaje.</summary>
     Task<(OwnerLinkResponse? Link, string? Code, string? Message)> OwnerLinkAsync(OwnerLinkRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// "Continuar con Google" del primer ingreso: crea la solicitud en la nube (la dirección del navegador es HTTPS y del MISMO servidor de
+    /// licencias; si no, se rechaza). Sin conexión: todo <c>null</c>.
+    /// </summary>
+    Task<(OwnerLinkRequestStarted? Started, string? Code, string? Message)> StartOwnerLinkRequestAsync(OwnerLinkRequestStart request, CancellationToken cancellationToken)
+        => Task.FromResult<(OwnerLinkRequestStarted?, string?, string?)>((null, null, null));
+
+    /// <summary>Consulta la solicitud; si el dueño la autorizó, trae el enlace firmado (una sola vez).</summary>
+    Task<(OwnerLinkPollResponse? Poll, string? Code, string? Message)> PollOwnerLinkRequestAsync(Guid requestId, OwnerLinkPoll request, CancellationToken cancellationToken)
+        => Task.FromResult<(OwnerLinkPollResponse?, string?, string?)>((null, null, null));
 }
 
 /// <summary>Identidad de este equipo (D12B-05) y versión del POS.</summary>
@@ -632,6 +643,54 @@ internal sealed class ActivateLicenseHandler(LicenseService service) : ICommandH
 /// </summary>
 public sealed record RequestOwnerLinkCommand(string Email, string Password, string? TotpCode, string? LicenseKey)
     : ICommand<OwnerLinkResponse>, IAllowedWhenRestricted;
+
+/// <summary>
+/// "Continuar con Google" en el primer ingreso (instalador 1.2.1): crea la solicitud en la nube, la página abre la dirección en el
+/// navegador del sistema y consulta con <see cref="PollGoogleOwnerLinkCommand"/>. Solo desde este equipo y sin Propietario (endpoint).
+/// </summary>
+public sealed record StartGoogleOwnerLinkCommand(string? LicenseKey) : ICommand<OwnerLinkRequestStarted>, IAllowedWhenRestricted;
+
+internal sealed class StartGoogleOwnerLinkHandler(ILicenseCloud cloud) : ICommandHandler<StartGoogleOwnerLinkCommand, OwnerLinkRequestStarted>
+{
+    public async Task<Result<OwnerLinkRequestStarted>> Handle(StartGoogleOwnerLinkCommand command, CancellationToken cancellationToken)
+    {
+        if (!cloud.IsConfigured)
+        {
+            return Result.Failure<OwnerLinkRequestStarted>(LicenseErrors.NotConfigured);
+        }
+
+        var (started, code, message) = await cloud.StartOwnerLinkRequestAsync(
+            new OwnerLinkRequestStart(string.IsNullOrWhiteSpace(command.LicenseKey) ? null : command.LicenseKey.Trim()), cancellationToken);
+        if (started is not null)
+        {
+            return started;
+        }
+
+        return Result.Failure<OwnerLinkRequestStarted>(code is null ? LicenseErrors.Unreachable : LicenseErrors.FromCloud(code, message));
+    }
+}
+
+/// <summary>Consulta de la solicitud de "Continuar con Google" (con el secreto que devolvió <see cref="StartGoogleOwnerLinkCommand"/>).</summary>
+public sealed record PollGoogleOwnerLinkCommand(Guid RequestId, string PollToken) : ICommand<OwnerLinkPollResponse>, IAllowedWhenRestricted;
+
+internal sealed class PollGoogleOwnerLinkValidator : AbstractValidator<PollGoogleOwnerLinkCommand>
+{
+    public PollGoogleOwnerLinkValidator() => RuleFor(x => x.PollToken).NotEmpty().MaximumLength(64);
+}
+
+internal sealed class PollGoogleOwnerLinkHandler(ILicenseCloud cloud) : ICommandHandler<PollGoogleOwnerLinkCommand, OwnerLinkPollResponse>
+{
+    public async Task<Result<OwnerLinkPollResponse>> Handle(PollGoogleOwnerLinkCommand command, CancellationToken cancellationToken)
+    {
+        var (poll, code, message) = await cloud.PollOwnerLinkRequestAsync(command.RequestId, new OwnerLinkPoll(command.PollToken), cancellationToken);
+        if (poll is not null)
+        {
+            return poll;
+        }
+
+        return Result.Failure<OwnerLinkPollResponse>(code is null ? LicenseErrors.Unreachable : LicenseErrors.FromCloud(code, message));
+    }
+}
 
 internal sealed class RequestOwnerLinkValidator : AbstractValidator<RequestOwnerLinkCommand>
 {

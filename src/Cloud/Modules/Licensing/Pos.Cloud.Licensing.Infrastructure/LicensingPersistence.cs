@@ -169,6 +169,8 @@ internal sealed class LicensingModelContributor : ICloudModelContributor
             b.Property(x => x.DecidedIp).HasColumnType("inet");
             b.HasOne<License>().WithMany().HasForeignKey(x => x.LicenseId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Account>().WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
+            b.Ignore(x => x.WithoutKey);
             b.HasXminConcurrency();
         });
 

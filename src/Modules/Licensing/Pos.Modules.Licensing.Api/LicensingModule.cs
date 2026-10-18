@@ -68,22 +68,24 @@ public sealed class LicensingModule : IModule
         // Primer ingreso a una tienda sin Propietario (instalador premium 1.2.1): la cuenta del portal se valida en la nube.
         api.MapPost("/setup/owner/portal-link", async (RequestOwnerLinkRequest request, IClientContext client, IOwnerSetupStatus owner, IDispatcher d,
                 CancellationToken ct) =>
-            {
-                if (!client.IsLocal || client.DeviceId is not null)
-                {
-                    return Error.Forbidden("IDENTITY.LOCAL_ONLY", "El primer ingreso se hace en el propio equipo de la tienda.").ToProblem();
-                }
-
-                if (!await owner.IsOwnerPendingAsync(ct))
-                {
-                    return Error.Conflict("IDENTITY.OWNER_ALREADY_EXISTS", "Esta tienda ya tiene Propietario: inicie sesión con su usuario.").ToProblem();
-                }
-
-                return (await d.Send(new RequestOwnerLinkCommand(request.Email, request.Password, request.TotpCode, request.LicenseKey), ct)).ToHttpResult();
-            })
+                await PrimerIngresoAsync(client, owner, ct) ?? (await d.Send(new RequestOwnerLinkCommand(request.Email, request.Password, request.TotpCode, request.LicenseKey), ct)).ToHttpResult())
             .WithTags("Configuración inicial")
             .AllowAnonymousByDesign("Solo desde el propio servidor y solo mientras no exista un Propietario activo (primer ingreso).")
             .WithSummary("Valida la cuenta del portal del dueño en la nube y devuelve el enlace firmado para crear al Propietario");
+
+        // "Continuar con Google" del primer ingreso: la página abre el portal en el navegador del sistema y consulta hasta que se autoriza.
+        api.MapPost("/setup/owner/google/start", async (StartGoogleOwnerLinkRequest request, IClientContext client, IOwnerSetupStatus owner, IDispatcher d,
+                CancellationToken ct) =>
+                await PrimerIngresoAsync(client, owner, ct) ?? (await d.Send(new StartGoogleOwnerLinkCommand(request.LicenseKey), ct)).ToHttpResult())
+            .WithTags("Configuración inicial")
+            .AllowAnonymousByDesign("Solo desde el propio servidor y solo mientras no exista un Propietario activo (primer ingreso).")
+            .WithSummary("Crea en la nube la solicitud de \"Continuar con Google\" (dirección del navegador, código y secreto de consulta)");
+        api.MapPost("/setup/owner/google/poll", async (PollGoogleOwnerLinkRequest request, IClientContext client, IOwnerSetupStatus owner, IDispatcher d,
+                CancellationToken ct) =>
+                await PrimerIngresoAsync(client, owner, ct) ?? (await d.Send(new PollGoogleOwnerLinkCommand(request.RequestId, request.PollToken), ct)).ToHttpResult())
+            .WithTags("Configuración inicial")
+            .AllowAnonymousByDesign("Solo desde el propio servidor y solo mientras no exista un Propietario activo (primer ingreso).")
+            .WithSummary("Estado de la solicitud de \"Continuar con Google\"; si se autorizó, el enlace firmado para crear al Propietario");
 
         group.MapPost("/check", async (IDispatcher d, CancellationToken ct) => (await d.Send(new CheckLicenseNowCommand(), ct)).ToHttpResult())
             .RequirePermission(LicensePermissions.Check)
@@ -94,11 +96,28 @@ public sealed class LicensingModule : IModule
             .RequirePermission(LicensePermissions.Manage)
             .WithSummary("Libera este equipo de la licencia (antes de cambiar de computador); queda restringido hasta activar de nuevo");
     }
+
+    /// <summary>Primer ingreso: solo en el propio equipo de la tienda y mientras no haya Propietario. <c>null</c> si se puede seguir.</summary>
+    private static async Task<IResult?> PrimerIngresoAsync(IClientContext client, IOwnerSetupStatus owner, CancellationToken ct)
+    {
+        if (!client.IsLocal || client.DeviceId is not null)
+        {
+            return Error.Forbidden("IDENTITY.LOCAL_ONLY", "El primer ingreso se hace en el propio equipo de la tienda.").ToProblem();
+        }
+
+        return await owner.IsOwnerPendingAsync(ct)
+            ? null
+            : Error.Conflict("IDENTITY.OWNER_ALREADY_EXISTS", "Esta tienda ya tiene Propietario: inicie sesión con su usuario.").ToProblem();
+    }
 }
 
 public sealed record ActivateLicenseRequest(string? LicenseKey, string? OwnerLinkToken = null);
 
 public sealed record RequestOwnerLinkRequest(string Email, string Password, string? TotpCode = null, string? LicenseKey = null);
+
+public sealed record StartGoogleOwnerLinkRequest(string? LicenseKey = null);
+
+public sealed record PollGoogleOwnerLinkRequest(Guid RequestId, string PollToken);
 
 public sealed record DeactivateLicenseRequest(string? Reason);
 

@@ -115,15 +115,20 @@ se abre el instalador clásico: siga sus páginas.
 ## 4. El primer ingreso: queda como Propietario
 
 Al abrir BusinessPost por primera vez, la pantalla de ingreso muestra **"Es la primera vez que se abre BusinessPost en este equipo"**
-con dos opciones:
+con estas opciones:
 
-1. **Mi cuenta de BusinessPost:** escriba el **correo y la contraseña** de su cuenta del portal (businesspost.tutiendanueva.com). La
+1. **Continuar con Google** (la más sencilla): se abre el navegador en el portal de BusinessPost. Entre con Google, escriba el código
+   que muestra BusinessPost y pulse **Autorizar**. **Si todavía no tiene cuenta en el portal, se le crea sola** (cliente nuevo) y la
+   tienda arranca en la **prueba gratis de 30 días** como Supermercado. Si ya tenía cuenta (y su empresa tiene licencia), entra con
+   ella. Después cree una **contraseña de BusinessPost** (mínimo 12 caracteres, con letras y números): con su correo y esa contraseña
+   entra en este equipo, también sin Internet.
+2. **Mi cuenta de BusinessPost:** escriba el **correo y la contraseña** de su cuenta del portal (businesspost.tutiendanueva.com). La
    cuenta debe existir en el portal. Ese primer ingreso lo deja como **Propietario** de la tienda, con el correo como usuario y la
    **misma contraseña** del portal. Si su empresa tiene una **licencia** en el portal, **se activa sola** y la tienda toma la razón
    social y el NIT de su empresa; si no, empieza la **prueba gratis de 30 días**. Si en el portal tiene activo el **código de
    verificación** (doble factor), se lo pide.
-2. **Tengo una clave de licencia:** escriba la **clave** que acaba de comprar y el correo y la contraseña de la cuenta del portal
-   con la que la compró. Queda como Propietario y la licencia se activa.
+3. **Tengo una clave de licencia:** escriba la **clave** que acaba de comprar y entre (con Google o con el correo y la contraseña) con
+   la cuenta del portal con la que la compró. Queda como Propietario y la licencia se activa.
 
 Después de ese primer ingreso no se le vuelve a pedir nada: entra a la administración. El ingreso se hace en el mismo computador
 donde se instaló (el equipo principal o la única caja).
@@ -162,7 +167,16 @@ La pantalla de ingreso tiene dos formas de entrar:
 
 ![Ingreso a la administración: usuario y contraseña.](imagenes/instalacion/14-pos-ingreso-administracion.png)
 
-### Crear cajeros y otros usuarios
+### Crear cajeros y colaboradores
+
+En **Administración → Usuarios → Nuevo usuario** elija el tipo:
+
+- **Usuario de caja:** vende con **código de caja y PIN** (se propone el rol **Cajero**).
+- **Colaborador (cargo administrativo):** entra a la administración con usuario y contraseña, sin caja. Elija su cargo:
+  **Contabilidad** (reportes, facturación electrónica, impuestos y gastos; consulta las ventas), **Cartera** (clientes, cuentas por
+  pagar y pagos a proveedores), **Compras**, **Inventario**, **Contador** (solo consulta) o **Administrador**.
+
+#### Paso a paso
 
 1. Entre a la administración con el usuario del propietario.
 2. Abra **Administración → Usuarios** y pulse **Nuevo usuario**.

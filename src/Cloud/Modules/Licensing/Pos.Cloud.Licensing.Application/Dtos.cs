@@ -163,6 +163,9 @@ public interface ILicensingReadModel
 {
     Task<IReadOnlyList<AccountDto>> ListAccountsAsync(string? search, CancellationToken cancellationToken);
 
+    /// <summary>"Registros nuevos": cuentas creadas solas desde la tienda, las más recientes primero.</summary>
+    Task<IReadOnlyList<SelfRegisteredAccountDto>> ListSelfRegisteredAccountsAsync(CancellationToken cancellationToken);
+
     Task<AccountDto?> GetAccountAsync(Guid id, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<OrganizationRowDto>> ListOrganizationsAsync(Guid? accountId, string? search, DateTimeOffset now, CancellationToken cancellationToken);

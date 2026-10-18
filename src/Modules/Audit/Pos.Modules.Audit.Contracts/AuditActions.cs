@@ -82,6 +82,7 @@ public static class AuditActions
         new("SESSION_REVOKED", "identity", "Sesión cerrada por un administrador", "WARNING"),
         new("SUPERVISOR_AUTHORIZATION_GRANTED", "identity", "Autorización de supervisor", "INFO"),
         new("SYSTEM_ROLE_UPDATED", "identity", "Rol de sistema actualizado", "INFO"),
+        new("SYSTEM_ROLE_CREATED", "identity", "Rol de sistema nuevo de la versión creado", "INFO"),
         new("USER_LOCKED", "identity", "Usuario bloqueado por intentos fallidos", "WARNING"),
         new("USER_SESSIONS_REVOKED", "identity", "Sesiones del usuario cerradas", "WARNING"),
         new("INVENTORY_ADJUSTMENT_POSTED", "inventory", "Ajuste de inventario contabilizado", "INFO"),

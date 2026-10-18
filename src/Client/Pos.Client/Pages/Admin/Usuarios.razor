@@ -66,13 +66,29 @@
     <div class="panel-fondo">
         <div class="panel" role="dialog" aria-modal="true" aria-label="Nuevo usuario">
             <h2>Nuevo usuario</h2>
+            @* Usuario de caja (vende con código y PIN) o colaborador con un cargo administrativo (contabilidad, cartera, compras…), que entra
+               a la administración con usuario y contraseña. *@
+            <MudRadioGroup T="string" Value="_tipoNuevo" ValueChanged="CambiarTipo" Class="mb-2">
+                <MudRadio T="string" Value="@("caja")" Color="Color.Primary">Usuario de caja</MudRadio>
+                <MudRadio T="string" Value="@("colaborador")" Color="Color.Primary">Colaborador (cargo administrativo)</MudRadio>
+            </MudRadioGroup>
+            @if (_tipoNuevo == "colaborador")
+            {
+                <MudText Typo="Typo.caption" Class="d-block mb-2">
+                    Elija su cargo abajo: <b>Contabilidad</b> (reportes, facturación, impuestos y gastos), <b>Cartera</b> (clientes, cuentas por pagar
+                    y pagos), <b>Compras</b>, <b>Inventario</b>, <b>Contador</b> (solo consulta) o <b>Administrador</b>. No vende ni opera la caja.
+                </MudText>
+            }
             <MudTextField @bind-Value="_username" Label="Usuario" Immediate="true" HelperText="Minúsculas, dígitos, punto o guion; o un correo." />
             <MudTextField @bind-Value="_displayName" Label="Nombre completo" Immediate="true" />
             <MudTextField @bind-Value="_password" Label="Contraseña inicial (la cambia al entrar)" InputType="InputType.Password" Immediate="true" />
             <SeleccionRoles Roles="_roles" Seleccion="_rolesNuevo" />
-            <MudTextField @bind-Value="_posCode" Label="Código de caja (opcional, 3 a 6 dígitos)" Immediate="true" InputMode="InputMode.numeric" MaxLength="6" />
-            <MudTextField @bind-Value="_pin" Label="@($"PIN de caja (opcional, {_pinLength} dígitos)")" InputType="InputType.Password" Immediate="true"
-                          InputMode="InputMode.numeric" MaxLength="_pinLength" HelperText="Si da código de caja, el PIN es obligatorio." />
+            @if (_tipoNuevo == "caja")
+            {
+                <MudTextField @bind-Value="_posCode" Label="Código de caja (3 a 6 dígitos)" Immediate="true" InputMode="InputMode.numeric" MaxLength="6" />
+                <MudTextField @bind-Value="_pin" Label="@($"PIN de caja ({_pinLength} dígitos)")" InputType="InputType.Password" Immediate="true"
+                              InputMode="InputMode.numeric" MaxLength="_pinLength" HelperText="Si da código de caja, el PIN es obligatorio." />
+            }
             <div class="acciones">
                 <MudButton OnClick="@(() => _nuevo = false)">Cancelar</MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CrearAsync">Crear</MudButton>
@@ -215,6 +231,7 @@
     private bool _loading = true, _busy, _nuevo, _panelPin, _panelClave;
     private string? _error, _username, _displayName, _password, _posCode, _pin;
     private HashSet<Guid> _rolesNuevo = [];
+    private string _tipoNuevo = "caja";
     private int _pinLength = 4, _claveMinima = 8;
 
     private UserDto? _detalle;
@@ -310,8 +327,23 @@
     private void Nuevo()
     {
         _username = _displayName = _password = _posCode = _pin = null;
-        _rolesNuevo = [];
+        CambiarTipo("caja");
         _nuevo = true;
+    }
+
+    /// <summary>Caja: propone el rol Cajero. Colaborador: sin código de caja ni PIN; el dueño elige el cargo.</summary>
+    private void CambiarTipo(string tipo)
+    {
+        _tipoNuevo = tipo;
+        _rolesNuevo = [];
+        if (tipo == "caja" && _roles.FirstOrDefault(r => r.Code == "CASHIER") is { } cajero)
+        {
+            _rolesNuevo.Add(cajero.Id);
+        }
+        else
+        {
+            _posCode = _pin = null;
+        }
     }
 
     private async Task CrearAsync()

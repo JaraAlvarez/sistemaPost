@@ -151,7 +151,7 @@ public sealed class InstallerSignInRequest : Entity<Guid>
         UserCode = string.Empty;
     }
 
-    private InstallerSignInRequest(Guid id, Guid licenseId, Guid organizationId, string pollTokenHash, string userCode, IPAddress? createdIp, DateTimeOffset now)
+    private InstallerSignInRequest(Guid id, Guid? licenseId, Guid? organizationId, string pollTokenHash, string userCode, IPAddress? createdIp, DateTimeOffset now)
         : base(id)
     {
         LicenseId = licenseId;
@@ -165,9 +165,16 @@ public sealed class InstallerSignInRequest : Entity<Guid>
         PollIntervalSeconds = InstallerSignInRules.IntervalSeconds;
     }
 
-    public Guid LicenseId { get; private set; }
+    /// <summary>Licencia de la clave; <c>null</c> en el primer ingreso a una tienda sin clave (la empresa sale de la cuenta del usuario).</summary>
+    public Guid? LicenseId { get; private set; }
 
-    public Guid OrganizationId { get; private set; }
+    public Guid? OrganizationId { get; private set; }
+
+    /// <summary>Sin clave: cuenta del usuario que autorizó (cliente); <c>null</c> si no tiene (p. ej. un superadministrador).</summary>
+    public Guid? AccountId { get; private set; }
+
+    /// <summary>¿Es del primer ingreso a una tienda sin clave?</summary>
+    public bool WithoutKey => LicenseId is null;
 
     public string PollTokenHash { get; private set; }
 
@@ -204,8 +211,15 @@ public sealed class InstallerSignInRequest : Entity<Guid>
     /// <summary>Códigos incorrectos escritos en el portal (V2026.10.012).</summary>
     public int CodeAttempts { get; private set; }
 
-    public static InstallerSignInRequest Create(Guid id, Guid licenseId, Guid organizationId, string pollToken, IPAddress? createdIp, DateTimeOffset now) =>
-        new(id, licenseId, organizationId, InstallerSignInRules.HashPollToken(pollToken), InstallerSignInRules.NewUserCode(), createdIp, now);
+    public static InstallerSignInRequest Create(Guid id, Guid? licenseId, Guid? organizationId, string pollToken, IPAddress? createdIp, DateTimeOffset now)
+    {
+        if ((licenseId is null) != (organizationId is null))
+        {
+            throw new ArgumentException("La licencia y la empresa van juntas (o ninguna, sin clave).", nameof(organizationId));
+        }
+
+        return new(id, licenseId, organizationId, InstallerSignInRules.HashPollToken(pollToken), InstallerSignInRules.NewUserCode(), createdIp, now);
+    }
 
     public bool IsExpiredAt(DateTimeOffset now) => now >= ExpiresAt;
 
@@ -277,7 +291,7 @@ public sealed class InstallerSignInRequest : Entity<Guid>
     /// <summary>Códigos incorrectos que quedan antes de cancelar la solicitud.</summary>
     public int CodeAttemptsLeft => Math.Max(0, InstallerSignInRules.MaxCodeAttempts - CodeAttempts);
 
-    public Result Approve(Guid portalUserId, string email, string displayName, IPAddress? ip, DateTimeOffset now)
+    public Result Approve(Guid portalUserId, string email, string displayName, IPAddress? ip, DateTimeOffset now, Guid? accountId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
@@ -288,6 +302,7 @@ public sealed class InstallerSignInRequest : Entity<Guid>
 
         Status = InstallerSignInStatus.Approved;
         PortalUserId = portalUserId;
+        AccountId = WithoutKey ? accountId : null;
         ApprovedEmail = email;
         ApprovedDisplayName = displayName;
         DecidedAt = now;

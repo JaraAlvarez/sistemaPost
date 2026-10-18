@@ -214,7 +214,7 @@ public interface IPortalCustomerVerifier
     /// <paramref name="deciding"/> (un POST de decisión): abrir la página (GET) no escribe en la auditoría.
     /// </summary>
     Task<PortalCustomerVerification> VerifySignedInAsync(
-        Guid userId, Guid? sessionId, Guid accountId, string organizationLabel, bool deciding, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
+        Guid userId, Guid? sessionId, Guid? accountId, string organizationLabel, bool deciding, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
 
     /// <summary>
     /// Código TOTP para autorizar en el navegador (si el usuario lo tiene activo o el portal lo exige, también tras entrar con Google).
@@ -222,6 +222,16 @@ public interface IPortalCustomerVerifier
     /// </summary>
     Task<PortalCustomerCheck> VerifySignedInTotpAsync(
         Guid userId, string? totpCode, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Registro propio de un cliente (lo implementa el módulo de licencias; lo usa el de usuarios del portal sin depender de él): cuando una
+/// persona SIN cuenta en el portal entra con Google en el primer ingreso a una tienda, se le crea una cuenta de cliente directa (sin
+/// empresa ni licencia: la tienda queda en prueba). El portal la lista en "Registros nuevos".
+/// </summary>
+public interface ICustomerSelfRegistration
+{
+    Task<Result<Guid>> RegisterAsync(string name, string email, CancellationToken cancellationToken);
 }
 
 /// <summary>Instalación del POS autenticada con su token de licencia y la huella de su equipo (sincronización, Fase 16, D16-03).</summary>

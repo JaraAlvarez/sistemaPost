@@ -176,14 +176,26 @@ internal static class PortalGoogle
         }
 
         var userAgent = http.Request.Headers.UserAgent.ToString();
+        var email = principal.FindFirstValue(ClaimTypes.Email);
+        var verified = string.Equals(principal.FindFirstValue(EmailVerifiedClaim), "true", StringComparison.Ordinal);
         var result = await dispatcher.Send(new PortalExternalLoginCommand(
-            PortalExternalProviders.Google,
-            principal.FindFirstValue(ClaimTypes.Email),
-            string.Equals(principal.FindFirstValue(EmailVerifiedClaim), "true", StringComparison.Ordinal),
-            SessionChannel.Portal,
-            http.Connection.RemoteIpAddress,
-            userAgent.Length == 0 ? null : userAgent));
+            PortalExternalProviders.Google, email, verified, SessionChannel.Portal, http.Connection.RemoteIpAddress, userAgent.Length == 0 ? null : userAgent));
         var error = result.IsFailure ? result.Error : result.Value.Error;
+
+        // Primer ingreso a una tienda (instalador 1.2.1): quien NO tiene cuenta en el portal y viene de autorizar su tienda se registra
+        // solo (cliente nuevo, en prueba). Nunca desde el ingreso normal del portal.
+        if (error?.Code == PortalIdentityErrors.ExternalLoginRejected.Code
+            && PortalCookie.SafeReturnUrl(returnUrl).StartsWith(PortalCookie.InstallerLinkPath, StringComparison.OrdinalIgnoreCase))
+        {
+            var registered = await dispatcher.Send(new RegisterGoogleCustomerCommand(
+                email, principal.FindFirstValue(ClaimTypes.Name), verified, SessionChannel.Portal, http.Connection.RemoteIpAddress,
+                userAgent.Length == 0 ? null : userAgent));
+            if (registered.IsSuccess && registered.Value.Error is null)
+            {
+                result = registered;
+                error = null;
+            }
+        }
         if (error is not null)
         {
             return Results.Redirect(LoginUrl(http.Request, error.Code == PortalIdentityErrors.UserLocked.Code ? "bloqueado" : "rechazado"));

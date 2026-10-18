@@ -19,7 +19,7 @@ using Pos.Modules.Sales.Contracts;
 namespace Pos.Modules.Identity.Application;
 
 /// <summary>
-/// Los 7 roles de sistema del doc 06 (más el encargado de promociones, Fase 7) con los permisos que existen a la fecha. Cada fase agrega los permisos de sus
+/// Los 7 roles de sistema del doc 06 (más el encargado de promociones, Fase 7, y Contabilidad y Cartera, 1.2.1) con los permisos que existen a la fecha. Cada fase agrega los permisos de sus
 /// módulos a estos roles. Propietario y Administrador reciben TODO el catálogo vigente.
 /// </summary>
 public static class SystemRoles
@@ -32,6 +32,12 @@ public static class SystemRoles
     public const string Purchasing = "PURCHASING";
     public const string Accountant = "ACCOUNTANT";
     public const string PromotionsManager = "PROMOTIONS_MANAGER";
+
+    /// <summary>Colaborador de contabilidad: reportes, facturación, impuestos y gastos; ventas solo en consulta; sin caja.</summary>
+    public const string Accounting = "ACCOUNTING";
+
+    /// <summary>Colaborador de cartera: clientes, cuentas por pagar y pagos a proveedores; sin ventas ni caja.</summary>
+    public const string Collections = "COLLECTIONS";
 
     public static IReadOnlyList<SystemRoleDefinition> Build(IReadOnlyCollection<string> allPermissions) =>
     [
@@ -76,6 +82,19 @@ public static class SystemRoles
              PromotionsPermissions.PromotionView, CustomersPermissions.CustomerView, CustomersPermissions.HistoryView,
              ReportingPermissions.SalesBasic, ReportingPermissions.SalesAdvanced, ReportingPermissions.ProfitView, ReportingPermissions.TaxesView,
              ReportingPermissions.InventoryView, ReportingPermissions.PurchasesView, ReportingPermissions.CashView, ReportingPermissions.Export]),
+        // Colaboradores con cargos administrativos (instalador 1.2.1): el dueño los crea en Usuarios sin código de caja ni PIN.
+        new(Accounting, "Contabilidad", "Reportes, facturación electrónica, impuestos y gastos; consulta las ventas. No vende ni opera la caja.",
+            [OrganizationPermissions.CompanyView, OrganizationPermissions.BranchView, SettingsPermissions.SettingView,
+             CatalogPermissions.ProductView, InventoryPermissions.StockView, InventoryPermissions.CostView, PartiesPermissions.PartyView,
+             PurchasingPermissions.PurchaseView, PurchasingPermissions.PayableView, ExpensesPermissions.ExpenseView, ExpensesPermissions.ExpenseManage,
+             SalesPermissions.SaleView, BillingPermissions.DocumentView, BillingPermissions.DocumentManage, CustomersPermissions.CustomerView,
+             ReportingPermissions.SalesBasic, ReportingPermissions.SalesAdvanced, ReportingPermissions.ProfitView, ReportingPermissions.TaxesView,
+             ReportingPermissions.InventoryView, ReportingPermissions.PurchasesView, ReportingPermissions.Export]),
+        new(Collections, "Cartera", "Clientes, cuentas por pagar y pagos a proveedores. No vende ni opera la caja.",
+            [OrganizationPermissions.BranchView, PartiesPermissions.PartyView, PartiesPermissions.PartyManage, CustomersPermissions.CustomerView,
+             CustomersPermissions.CustomerManage, CustomersPermissions.HistoryView, PurchasingPermissions.PurchaseView, PurchasingPermissions.PayableView,
+             PurchasingPermissions.PayablePay, ExpensesPermissions.ExpenseView, BillingPermissions.DocumentView, ReportingPermissions.PurchasesView,
+             ReportingPermissions.Export]),
         new(PromotionsManager, "Encargado de promociones", "Crea, simula, activa y termina promociones; liquida los productos próximos a vencer.",
             [OrganizationPermissions.BranchView, CatalogPermissions.ProductView, InventoryPermissions.StockView, PromotionsPermissions.PromotionManage,
              PromotionsPermissions.PromotionView, SalesPermissions.SaleView, ReportingPermissions.SalesBasic, ReportingPermissions.SalesAdvanced]),

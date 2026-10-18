@@ -161,6 +161,7 @@ public static class LicensingInfrastructureRegistration
         services.AddScoped<IDemoDeviceRegistry, DemoDeviceRegistry>();
         services.AddScoped<IPosInstallationAuthenticator, PosInstallationAuthenticator>();
         services.AddScoped<ILicensingReadModel, LicensingReadModel>();
+        services.AddScoped<ICustomerSelfRegistration, CustomerSelfRegistration>();
         services.AddScoped<PortalChange>();
         services.AddScoped<LicenseTokenFactory>();
         services.AddSingleton<ILicenseTokenSigner, FileLicenseTokenSigner>();

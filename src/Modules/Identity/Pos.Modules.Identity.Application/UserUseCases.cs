@@ -541,6 +541,13 @@ internal sealed class CreateOwnerHandler(
             return IdentityErrors.OwnerAlreadyExists;
         }
 
+        // Con la cuenta del portal la política local no se aplica (CreateOwnerAsync): la contraseña es la del portal o, con Google, una de
+        // BusinessPost; en los dos casos, como en el portal, al menos 12 caracteres.
+        if (!string.IsNullOrWhiteSpace(request.Owner.PortalLinkToken) && (request.Owner.Password ?? string.Empty).Length < 12)
+        {
+            return Error.Validation("IDENTITY.PASSWORD_TOO_SHORT", "La contraseña debe tener al menos 12 caracteres.");
+        }
+
         string? nit = null;
         if (!string.IsNullOrWhiteSpace(request.Owner.PortalLinkToken) && links.Verify(request.Owner.PortalLinkToken) is { } link
             && await companies.GetAsync(companyId, cancellationToken) is { } company)

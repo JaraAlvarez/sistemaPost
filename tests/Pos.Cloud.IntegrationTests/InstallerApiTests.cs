@@ -40,7 +40,7 @@ public class InstallerApiTests(CloudFixture cloud) : IClassFixture<CloudFixture>
         // Sin secretos: ni ids, ni la clave, ni contactos; solo estos campos.
         using var document = JsonDocument.Parse(body);
         document.RootElement.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal)
-            .ShouldBe(["city", "edition", "legalName", "nit", "subscriptionStatus", "validUntil"]);
+            .ShouldBe(["businessProfile", "city", "edition", "legalName", "nit", "subscriptionStatus", "validUntil"]);
         body.ShouldNotContain(customer.License.Key, Case.Insensitive);
         body.ShouldNotContain(customer.OrganizationId.ToString(), Case.Insensitive);
         body.ShouldNotContain("contacto@cliente.co", Case.Insensitive);

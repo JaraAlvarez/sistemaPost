@@ -1,0 +1,59 @@
+@page "/registros"
+@attribute [Authorize(Policy = CloudPermissions.LicensingView)]
+@inherits PortalPageBase
+
+<PageTitle>Registros nuevos · BusinessPost</PageTitle>
+<PageHeader Title="Registros nuevos" Section="Licenciamiento"
+            Description="Personas que se registraron solas con Google en el primer ingreso a una tienda (posibles clientes). Su tienda arranca en la prueba de 30 días como Supermercado." />
+
+@if (LoadError is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@LoadError</MudAlert>
+}
+
+<MudPaper Elevation="0" Class="bp-card">
+    @if (_rows is null)
+    {
+        <TableSkeleton />
+    }
+    else if (_rows.Count == 0)
+    {
+        <EmptyState Title="Todavía no hay registros nuevos." Icon="@Icons.Material.Outlined.PersonAddAlt" />
+    }
+    else
+    {
+        <div class="bp-table-wrap">
+            <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                <thead>
+                    <tr><th scope="col">Nombre</th><th scope="col">Correo</th><th scope="col">Registro</th><th scope="col">Tienda</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _rows)
+                    {
+                        <tr>
+                            <td><MudLink Href="@($"clientes/{r.AccountId}")" Typo="Typo.body2">@r.Name</MudLink></td>
+                            <td>@r.Email</td>
+                            <td>@Date(r.RegisteredAt)</td>
+                            <td>
+                                @if (r.FirstStoreLinkedAt is { } linked)
+                                {
+                                    <StatusChip Text="Activó una tienda" Color="Color.Success" /> <span class="texto-secundario">@Date(linked)</span>
+                                }
+                                else
+                                {
+                                    <StatusChip Text="Sin tienda todavía" Color="Color.Default" />
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </div>
+    }
+</MudPaper>
+
+@code {
+    private IReadOnlyList<SelfRegisteredAccountDto>? _rows;
+
+    protected override async Task OnInitializedAsync() => _rows = await LoadAsync(new ListSelfRegisteredAccountsQuery()) ?? [];
+}

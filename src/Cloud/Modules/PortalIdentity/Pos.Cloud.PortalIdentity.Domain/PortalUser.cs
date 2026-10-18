@@ -118,6 +118,21 @@ public sealed partial class PortalUser : AggregateRoot<Guid>, IHasAuditLabel
         return user;
     }
 
+    /// <summary>
+    /// Cliente que se registró solo con Google en el primer ingreso a una tienda: entra con Google; su contraseña es aleatoria (nadie la
+    /// conoce; si la quiere, la restablece) y no se le pide cambiarla para no interrumpir la autorización de la tienda.
+    /// </summary>
+    public static Result<PortalUser> CreateGoogleCustomer(Guid id, string email, string displayName, Guid accountId, string randomPasswordHash, DateTimeOffset now)
+    {
+        var created = Create(id, email, displayName, PortalRole.Customer, accountId, randomPasswordHash, now);
+        if (created.IsSuccess)
+        {
+            created.Value.SetPassword(randomPasswordHash, now, mustChange: false);
+        }
+
+        return created;
+    }
+
     /// <summary>Distribuidor y cliente van atados a una cuenta.</summary>
     public static bool NeedsAccount(PortalRole role) => role is PortalRole.Reseller or PortalRole.Customer;
 

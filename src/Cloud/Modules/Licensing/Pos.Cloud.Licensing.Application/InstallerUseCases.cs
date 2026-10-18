@@ -14,6 +14,38 @@ namespace Pos.Cloud.Licensing.Application;
 /// Clave escrita en el instalador premium (Fase 13-B): misma búsqueda que la activación (prefijo visible + comparación en tiempo constante
 /// con TODAS las candidatas; una clave inexistente y una revocada reciben la misma respuesta) y el mismo límite por licencia.
 /// </summary>
+/// <summary>Empresa de la cuenta del usuario del portal para el primer ingreso sin clave: la que tenga licencia vigente o, si no, la primera.</summary>
+internal static class AccountStores
+{
+    public static async Task<(Organization? Organization, License? License)> ChooseAsync(
+        ILicensingStore store, Guid? accountId, DateTimeOffset now, IIdGenerator ids, CancellationToken cancellationToken)
+    {
+        if (accountId is not { } id)
+        {
+            return (null, null);
+        }
+
+        Organization? organization = null;
+        foreach (var candidate in (await store.GetOrganizationsOfAccountAsync(id, cancellationToken)).Where(o => o.Status == RecordStatus.Active))
+        {
+            organization ??= candidate;
+            if (await store.GetActiveLicenseAsync(candidate.Id, cancellationToken) is not { } active)
+            {
+                continue;
+            }
+
+            var subscription = await store.GetSubscriptionAsync(active.SubscriptionId, cancellationToken);
+            subscription?.Refresh(new ChangeContext(SystemActor.Id, now, ids));
+            if (subscription is { AllowsActivation: true })
+            {
+                return (candidate, active);
+            }
+        }
+
+        return (organization, null);
+    }
+}
+
 internal static class InstallerKeys
 {
     public static async Task<Result<(License License, Subscription Subscription, Organization Organization)>> ResolveAsync(
@@ -145,7 +177,7 @@ internal sealed class CreateOwnerLinkHandler(
         }
 
         var (link, _) = await OwnerLinkIssuer.IssueAsync(
-            signer, audit, ids, clock.UtcNow, license, organization, check.Email!, check.DisplayName!,
+            store, signer, audit, ids, clock.UtcNow, license, organization, organization.AccountId, check.Email!, check.DisplayName!,
             $"desde {command.IpAddress?.ToString() ?? "IP desconocida"}", cancellationToken);
         return Outcome.Ok(link);
     }
@@ -169,34 +201,18 @@ internal sealed class CreateOwnerLinkHandler(
             PortalCustomerCheck.PasswordChangeRequired => LicenseApiErrors.OwnerPasswordChangeRequired,
             _ => LicenseApiErrors.OwnerCredentialsInvalid,
         };
-        if (error is not null || check.AccountId is not { } accountId)
+        if (error is not null)
         {
-            return Outcome.Fail<OwnerLinkResponse>(error ?? LicenseApiErrors.OwnerNotLinked);
+            return Outcome.Fail<OwnerLinkResponse>(error);
         }
 
-        Organization? organization = null;
-        License? license = null;
+        // Sin cuenta de cliente (p. ej. un superadministrador): queda como Propietario y la tienda sigue en la prueba.
+        var accountId = check.AccountId;
+
         var now = clock.UtcNow;
-        foreach (var candidate in (await store.GetOrganizationsOfAccountAsync(accountId, cancellationToken)).Where(o => o.Status == RecordStatus.Active))
-        {
-            organization ??= candidate;
-            if (await store.GetActiveLicenseAsync(candidate.Id, cancellationToken) is not { } active)
-            {
-                continue;
-            }
-
-            var subscription = await store.GetSubscriptionAsync(active.SubscriptionId, cancellationToken);
-            subscription?.Refresh(new ChangeContext(SystemActor.Id, now, ids));
-            if (subscription is { AllowsActivation: true })
-            {
-                organization = candidate;
-                license = active;
-                break;
-            }
-        }
-
+        var (organization, license) = await AccountStores.ChooseAsync(store, accountId, now, ids, cancellationToken);
         var (link, _) = await OwnerLinkIssuer.IssueAsync(
-            signer, audit, ids, now, license, organization, check.Email!, check.DisplayName!,
+            store, signer, audit, ids, now, license, organization, accountId, check.Email!, check.DisplayName!,
             $"en el primer ingreso a la tienda, sin clave (desde {command.IpAddress?.ToString() ?? "IP desconocida"})", cancellationToken);
         return Outcome.Ok(link);
     }
