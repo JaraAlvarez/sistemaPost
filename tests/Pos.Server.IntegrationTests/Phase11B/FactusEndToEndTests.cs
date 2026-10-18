@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Billing.FactusFake;
 using Pos.Modules.Billing.Infrastructure.Factus;
@@ -35,6 +36,20 @@ public sealed class FactusBillingServerFactory(Uri factusUrl, int verifyMinSecon
 
     /// <summary>Ajustes de conexión vivos (las pruebas cambian la URL para simular que no hay Internet).</summary>
     public FactusConnectionOptions Connection => Services.GetRequiredService<FactusConnectionOptions>();
+
+    /// <summary>
+    /// La URL del Factus simulado se inyecta aquí: en Release el servidor ignora <c>Pos:Billing:Factus:BaseUrl</c> (R1, una URL propia
+    /// permitiría apuntar a un Factus falso), así que las pruebas reemplazan los ajustes de conexión por servicios.
+    /// </summary>
+    protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<FactusConnectionOptions>();
+            services.AddSingleton(new FactusConnectionOptions { BaseUrl = factusUrl, RequestTimeout = TimeSpan.FromSeconds(5) });
+        });
+    }
 }
 
 /// <summary>

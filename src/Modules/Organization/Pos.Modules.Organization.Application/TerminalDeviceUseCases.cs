@@ -1,3 +1,4 @@
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Modules.Organization.Contracts;
 using Pos.Modules.Organization.Domain;
@@ -33,7 +34,7 @@ internal sealed class GetReceiptPrinterHandler(IOrganizationStore store) : IQuer
 
 public sealed record SetReceiptPrinterCommand(
     Guid PosTerminalId, PrinterConnection Connection, string? Address, int PaperWidthMm, PrinterCodePageSetting CodePage, bool AutoCut, bool DrawerConnected,
-    DrawerPinSetting DrawerPin) : ICommand<ReceiptPrinterDto>;
+    DrawerPinSetting DrawerPin) : ICommand<ReceiptPrinterDto>, IAllowedWhenRestricted;
 
 internal sealed class SetReceiptPrinterHandler(IOrganizationStore store, IIdGenerator ids) : ICommandHandler<SetReceiptPrinterCommand, ReceiptPrinterDto>
 {

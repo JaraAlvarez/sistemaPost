@@ -82,7 +82,7 @@ public static class ScaleDrivers
     public const string CasCode = "CAS";
     public const string GenericCode = "GENERIC";
 
-    /// <summary>Báscula simulada (solo en desarrollo o con <c>Agent:EnableScaleSimulator</c>): habla Toledo 8217 dentro del agente.</summary>
+    /// <summary>Báscula simulada (solo en compilación Debug: en desarrollo o con <c>Agent:EnableScaleSimulator</c>): habla Toledo 8217 dentro del agente.</summary>
     public const string SimulatedCode = "SIMULATED";
 
     public static IReadOnlyList<IScaleDriver> All { get; } = [new Toledo8217Driver(), new CasDriver(), new GenericAsciiDriver()];

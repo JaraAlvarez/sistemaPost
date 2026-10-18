@@ -180,15 +180,17 @@ public class ArchitectureTests
     /// <summary>
     /// R10 (Fase 12-B, D12B-02): lista de comandos que siguen disponibles con la licencia RESTRINGIDA. Cambiarla exige revisar esta
     /// prueba: un comando nuevo nace bloqueado en RESTRICTED (nunca en los demás estados) y solo se agrega aquí si es vender, cerrar la
-    /// jornada abierta, iniciar sesión, respaldar, exportar, verificar o atender la licencia. Restablecer contraseña o PIN de otro usuario
-    /// (PU11, docs/fases/pantallas-faltantes-propuesta.md) también: la tienda debe poder recuperar el acceso aunque la licencia esté restringida.
+    /// jornada abierta, iniciar sesión, respaldar, exportar, verificar, atender la licencia o algo sin lo cual la tienda no puede cerrar
+    /// ni cumplir con la DIAN (facturación, equipos, impresora; docs/fases/fase-licencia-endurecimiento.md §3).
+    /// Restablecer contraseña o PIN de otro usuario (PU11, docs/fases/pantallas-faltantes-propuesta.md) también: la tienda debe poder
+    /// recuperar el acceso aunque la licencia esté restringida.
     /// </summary>
     [Fact]
     public void R10_Comandos_permitidos_con_la_licencia_restringida()
     {
         var allowed = ProductionAssemblies.All
             .SelectMany(a => a.GetTypes())
-            .Where(t => t.GetInterfaces().Any(i => i.Name == "IAllowedWhenRestricted"))
+            .Where(t => !t.IsInterface && t.GetInterfaces().Any(i => i.Name == "IAllowedWhenRestricted"))
             .Select(t => $"{t.Namespace!.Split('.')[2]}.{t.Name}")
             .Order(StringComparer.Ordinal)
             .ToList();
@@ -198,22 +200,38 @@ public class ArchitectureTests
             "Audit.AcknowledgeIncidentCommand", "Audit.IssueIntegrityCertificateCommand", "Audit.VerifyAuditCommand",
             "Backup.ConfirmRecoveryCodeCommand", "Backup.DownloadBackupCommand", "Backup.GenerateRecoveryCodeCommand", "Backup.RunBackupNowCommand",
             "Backup.SaveDestinationCommand",
-            "Billing.ReleaseFiscalBacklogCommand", "Billing.RetryFiscalDocumentCommand", "Billing.VerifyBillingConnectionCommand",
+            "Billing.CorrectFiscalBuyerCommand", "Billing.ReleaseFiscalBacklogCommand", "Billing.RetryFiscalDocumentCommand",
+            "Billing.SetProviderCredentialsCommand", "Billing.UpdateBillingSettingsCommand", "Billing.VerifyBillingConnectionCommand",
             "Cash.CancelClosingCommand", "Cash.CloseSessionCommand", "Cash.RegisterMovementCommand", "Cash.ReviewSessionCommand", "Cash.StartClosingCommand",
             "Cash.CancelSistecreditoPaymentCommand", "Cash.CheckSistecreditoPaymentCommand", "Cash.StartSistecreditoPaymentCommand",
             "Customers.AnonymizeCustomerCommand", "Customers.CloseDataRequestCommand", "Customers.CompleteCustomerCommand", "Customers.CreateCustomerCommand",
             "Customers.CreateDataRequestCommand", "Customers.ExportCustomerDataCommand", "Customers.QuickCreateCustomerCommand", "Customers.RecordConsentsCommand",
-            "Expenses.CreateExpenseCommand", "Expenses.VoidExpenseCommand",
             "Identity.ChangePasswordCommand", "Identity.ChangePinCommand", "Identity.CreateAuthorizationCommand", "Identity.CreateOwnerCommand",
             "Identity.LoginCommand", "Identity.LogoutCommand", "Identity.PosLoginCommand", "Identity.ResetPasswordCommand", "Identity.ResetPinCommand",
             "Identity.RevokeSessionCommand", "Identity.UnlockUserCommand",
-            "Inventory.RebuildStockCommand", "Inventory.VerifyStockCommand",
+            "Inventory.VerifyStockCommand",
             "Licensing.ActivateLicenseCommand", "Licensing.CheckLicenseNowCommand", "Licensing.DeactivateLicenseCommand", "Licensing.RefreshLicenseCommand",
-            "Organization.SetTerminalScaleKeyCommand", "Organization.SetupCommand",
+            "Organization.CreatePairingCodeCommand", "Organization.PairDeviceCommand", "Organization.RevokeDeviceCommand",
+            "Organization.SetReceiptPrinterCommand", "Organization.SetTerminalScaleKeyCommand", "Organization.SetupCommand",
             "Reporting.ExportReportCommand",
             "Sales.AddLineCommand", "Sales.ApplyDiscountCommand", "Sales.CancelSaleCommand", "Sales.ChangeQuantityCommand", "Sales.CompleteSaleCommand",
             "Sales.HoldSaleCommand", "Sales.OverridePriceCommand", "Sales.RecheckSalePaymentsCommand", "Sales.ReleaseSistecreditoCreditCommand", "Sales.RemoveDiscountCommand", "Sales.ReprintSaleCommand", "Sales.ResetScaleInterlockCommand", "Sales.ResumeSaleCommand",
             "Sales.SetCustomerCommand", "Sales.SettleSalePaymentsCommand", "Sales.StartExchangeCommand", "Sales.StartSaleCommand", "Sales.VoidLineCommand", "Sales.VoidSaleCommand",
+            "Sales.WarrantyRefundCommand",
+        ],
+        ignoreOrder: true);
+
+        // H6: de los permitidos, los de VENDER solo pasan las primeras 24 h de la restricción; después solo se cierra la jornada.
+        var salesWindow = ProductionAssemblies.All
+            .SelectMany(a => a.GetTypes())
+            .Where(t => !t.IsInterface && t.GetInterfaces().Any(i => i.Name == "IRestrictedSalesWindow"))
+            .Select(t => $"{t.Namespace!.Split('.')[2]}.{t.Name}")
+            .ToList();
+        salesWindow.ShouldBe(
+        [
+            "Cash.StartSistecreditoPaymentCommand",
+            "Sales.AddLineCommand", "Sales.ApplyDiscountCommand", "Sales.ChangeQuantityCommand", "Sales.CompleteSaleCommand", "Sales.HoldSaleCommand",
+            "Sales.OverridePriceCommand", "Sales.ResumeSaleCommand", "Sales.SetCustomerCommand", "Sales.StartExchangeCommand", "Sales.StartSaleCommand",
             "Sales.WarrantyRefundCommand",
         ],
         ignoreOrder: true);

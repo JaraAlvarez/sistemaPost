@@ -4,8 +4,11 @@ using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using Pos.Licensing.Contracts;
@@ -99,9 +102,15 @@ internal sealed class ShiftableTime : TimeProvider
     public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + Shift;
 }
 
-/// <summary>Caja Única conectada al servidor de licencias en memoria, con una huella fija y el reloj desplazable.</summary>
+/// <summary>
+/// Caja Única conectada al servidor de licencias en memoria, con una huella fija y el reloj desplazable. La clave de la nube y la huella
+/// se INYECTAN como servicios (no por configuración): así la prueba vale igual en Debug y en Release, donde la configuración de
+/// desarrollo no existe (R1).
+/// </summary>
 public class LicenseServerFactory : PosServerFactory
 {
+    internal static readonly DeviceFingerprint Fingerprint = DeviceFingerprint.FromHardware("PLACA-1", "DISCO-1", "MAQUINA-1");
+
     internal FakeLicenseCloud Cloud { get; } = new();
 
     internal ShiftableTime Time { get; } = new();
@@ -113,8 +122,6 @@ public class LicenseServerFactory : PosServerFactory
         new("Pos:Audit:Interval", "00:00:00.500"),
         new("Pos:Audit:SafetyHorizon", "00:00:02"),
         new("Pos:Licensing:ServerUrl", "https://licencias.test/"),
-        new("Pos:Licensing:DevelopmentTrustedKeys:0", Cloud.Key.PublicKey.X),
-        new("Pos:Licensing:DevelopmentFingerprint", DeviceFingerprint.FromHardware("PLACA-1", "DISCO-1", "MAQUINA-1").ToString()),
     ];
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -123,6 +130,8 @@ public class LicenseServerFactory : PosServerFactory
         builder.ConfigureTestServices(services =>
         {
             services.Replace(ServiceDescriptor.Singleton<TimeProvider>(Time));
+            services.Replace(ServiceDescriptor.Singleton<ILicenseKeys>(new EmbeddedLicenseKeys([Cloud.Key.PublicKey.X])));
+            services.Replace(ServiceDescriptor.Singleton<IDeviceIdentity>(new WindowsDeviceIdentity(Fingerprint.ToString())));
             services.Replace(ServiceDescriptor.Singleton<ILicenseCloud>(new LicenseCloudClient(
                 new HttpClient(Cloud) { BaseAddress = new Uri("https://licencias.test/") }, NullLogger<LicenseCloudClient>.Instance)));
         });
@@ -228,11 +237,103 @@ public class LicenseApiTests
         actions.ShouldContain("LICENSE_CLOCK_ROLLBACK");
     }
 
+    /// <summary>
+    /// R2: si el reloj se adelantó por error, la marca de tiempo sube; al corregirlo la licencia queda restringida por "reloj atrasado"
+    /// y el siguiente check-in (hora confiable firmada por la nube) baja la marca y la deja vigente otra vez.
+    /// </summary>
+    [Fact]
+    public async Task Reloj_adelantado_por_error_y_corregido_vuelve_a_vigente_con_el_checkin()
+    {
+        await using var factory = new LicenseServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        (await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/activate", new { licenseKey = FakeLicenseCloud.ValidKey })).State
+            .ShouldBe(LicenseStates.Valid);
+
+        // Con el reloj adelantado las sesiones web vencen: el estado se lee con el mismo comando del proceso de fondo.
+        factory.Time.Shift = TimeSpan.FromDays(10);
+        (await RefreshAsync(factory)).State.ShouldNotBe(LicenseStates.Restricted);
+
+        factory.Time.Shift = TimeSpan.Zero;
+        await RefreshAsync(factory);
+        var restricted = await GetAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license");
+        restricted.State.ShouldBe(LicenseStates.Restricted);
+        restricted.Reason.ShouldContain("reloj");
+
+        (await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/check")).State.ShouldBe(LicenseStates.Valid);
+        await RefreshAsync(factory);
+        (await GetAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license")).State.ShouldBe(LicenseStates.Valid);
+
+        await using var connection = new NpgsqlConnection(factory.ConnectionString);
+        var maxObserved = await connection.ExecuteScalarAsync<DateTime>("SELECT max_observed_utc FROM licensing.license_state");
+        maxObserved.ShouldBeLessThan(DateTime.UtcNow.AddHours(1));
+        (await connection.ExecuteScalarAsync<string?>("SELECT state_mac FROM licensing.license_state")).ShouldNotBeNull();
+    }
+
+    /// <summary>H4: editar a mano el estado guardado rompe la firma: restringida hasta el check-in (el recálculo no la vuelve a firmar).</summary>
+    [Fact]
+    public async Task Editar_el_estado_en_la_base_de_datos_restringe_hasta_el_checkin()
+    {
+        await using var factory = new LicenseServerFactory();
+        var shop = await SalesScenario.CreateAsync(factory);
+        await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/activate", new { licenseKey = FakeLicenseCloud.ValidKey });
+
+        await using (var connection = new NpgsqlConnection(factory.ConnectionString))
+        {
+            await connection.ExecuteAsync("UPDATE licensing.license_state SET clock_offset_seconds = clock_offset_seconds + 600");
+        }
+
+        await RefreshAsync(factory);
+        var tampered = await GetAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license");
+        tampered.State.ShouldBe(LicenseStates.Restricted);
+        tampered.Reason.ShouldContain("no cuadran con su firma");
+        await RefreshAsync(factory);
+        (await GetAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license")).State.ShouldBe(LicenseStates.Restricted);
+
+        (await PostAsync<LicenseStatusDto>(shop.Owner, "/api/v1/license/check")).State.ShouldBe(LicenseStates.Valid);
+    }
+
+    /// <summary>
+    /// R1: en Release las claves y la huella de desarrollo NO se leen de la configuración aunque el entorno sea Development (el entorno lo
+    /// cambia cualquier administrador de Windows).
+    /// </summary>
+    [Fact]
+    public void En_Release_las_claves_de_desarrollo_se_ignoran_aunque_el_entorno_sea_Development()
+    {
+        using var key = LicenseSigningKey.Generate();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Pos:Licensing:DevelopmentTrustedKeys:0"] = key.PublicKey.X,
+            ["Pos:Licensing:DevelopmentFingerprint"] = LicenseServerFactory.Fingerprint.ToString(),
+        }).Build();
+        var development = new HostingEnvironment { EnvironmentName = Environments.Development };
+
+        // Compilación Release (debugBuild: false) con el entorno Development: no se habilitan y no se leen.
+        LicensingDevelopment.Enabled(development, debugBuild: false).ShouldBeFalse();
+        var release = LicensingInfrastructureRegistration.Read(configuration, developmentOverrides: false);
+        release.DevelopmentTrustedKeys.ShouldBeEmpty();
+        release.DevelopmentFingerprint.ShouldBeNull();
+        new EmbeddedLicenseKeys(release.DevelopmentTrustedKeys).Ring.Kids.ShouldNotContain(key.PublicKey.Kid);
+
+        // Ni siquiera en Debug valen en producción.
+        LicensingDevelopment.Enabled(new HostingEnvironment { EnvironmentName = Environments.Production }, debugBuild: true).ShouldBeFalse();
+
+#if DEBUG
+        LicensingDevelopment.CompiledIn.ShouldBeTrue();
+        LicensingInfrastructureRegistration.Read(configuration, developmentOverrides: true).DevelopmentTrustedKeys.ShouldHaveSingleItem();
+#else
+        // Este binario es Release: la puerta no existe y, aunque se pida, la configuración no se lee.
+        LicensingDevelopment.CompiledIn.ShouldBeFalse();
+        LicensingInfrastructureRegistration.Read(configuration, developmentOverrides: true).DevelopmentTrustedKeys.ShouldBeEmpty();
+#endif
+    }
+
     /// <summary>El proceso en segundo plano recalcula cada minuto; la prueba lo fuerza con el mismo comando.</summary>
-    private static async Task RefreshAsync(LicenseServerFactory factory)
+    private static async Task<LicenseStatusDto> RefreshAsync(LicenseServerFactory factory)
     {
         await using var scope = factory.Services.CreateAsyncScope();
-        (await scope.ServiceProvider.GetRequiredService<Pos.Application.Abstractions.Messaging.IDispatcher>()
-            .Send(new RefreshLicenseCommand(), Ct)).IsSuccess.ShouldBeTrue();
+        var result = await scope.ServiceProvider.GetRequiredService<Pos.Application.Abstractions.Messaging.IDispatcher>()
+            .Send(new RefreshLicenseCommand(), Ct);
+        result.IsSuccess.ShouldBeTrue();
+        return result.Value;
     }
 }

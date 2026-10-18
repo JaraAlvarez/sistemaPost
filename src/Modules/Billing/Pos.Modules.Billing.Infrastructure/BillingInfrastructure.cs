@@ -809,6 +809,13 @@ internal sealed partial class FiscalQueueWorker(
 
 public static class BillingInfrastructureRegistration
 {
+    /// <summary>¿Existe el proveedor simulado por configuración (<c>Pos:Billing:Provider = FAKE</c>)? Solo en compilación Debug (R1).</summary>
+#if DEBUG
+    internal const bool FakeProviderCompiledIn = true;
+#else
+    internal const bool FakeProviderCompiledIn = false;
+#endif
+
     public static void Register(IServiceCollection services)
     {
         // La configuración se lee al resolver (no al registrar): así la ven también los ajustes que agregan las pruebas.
@@ -832,8 +839,10 @@ public static class BillingInfrastructureRegistration
         services.AddScoped<FiscalDocumentProcessor>();
         services.AddScoped<FiscalRangeService>();
 
-        // Adaptador del proveedor: el nulo por defecto (BillingOptions.DefaultProvider, PB2); Factus con Provider = FACTUS; el simulado solo
-        // fuera de producción. Con cualquiera, la cola solo envía con el modo encendido y la conexión verificada.
+        // Adaptador del proveedor: el nulo por defecto (BillingOptions.DefaultProvider, PB2); Factus con Provider = FACTUS. El simulado
+        // por configuración solo existe en compilación Debug y fuera de producción (R1: el entorno lo cambia cualquier administrador de
+        // Windows); las pruebas de integración lo inyectan reemplazando IFiscalProvider, que funciona también en Release. Con cualquiera,
+        // la cola solo envía con el modo encendido y la conexión verificada.
         services.AddSingleton<NullFiscalProvider>();
         services.AddSingleton<FakeFiscalProvider>();
         services.AddFactusApi();
@@ -841,7 +850,7 @@ public static class BillingInfrastructureRegistration
         services.AddSingleton<FactusFiscalProvider>();
         services.AddSingleton<IFiscalProvider>(sp => sp.GetRequiredService<BillingOptions>().Provider switch
         {
-            "FAKE" when !sp.GetRequiredService<IHostEnvironment>().IsProduction() => sp.GetRequiredService<FakeFiscalProvider>(),
+            "FAKE" when FakeProviderCompiledIn && !sp.GetRequiredService<IHostEnvironment>().IsProduction() => sp.GetRequiredService<FakeFiscalProvider>(),
             FactusFiscalProvider.ProviderName => sp.GetRequiredService<FactusFiscalProvider>(),
             _ => sp.GetRequiredService<NullFiscalProvider>(),
         });
@@ -857,7 +866,8 @@ public static class BillingInfrastructureRegistration
         var section = configuration.GetSection("Pos:Billing:Factus");
         return new FactusConnectionOptions
         {
-            BaseUrl = !environment.IsProduction() && Uri.TryCreate(section["BaseUrl"], UriKind.Absolute, out var url) ? url : null,
+            // Una URL propia permitiría apuntar a un "Factus" falso que acepta todo: solo en Debug fuera de producción (R1).
+            BaseUrl = FakeProviderCompiledIn && !environment.IsProduction() && Uri.TryCreate(section["BaseUrl"], UriKind.Absolute, out var url) ? url : null,
             RequestTimeout = TimeSpan.FromSeconds(int.TryParse(section["TimeoutSeconds"], out var seconds) ? Math.Clamp(seconds, 1, 300) : 60),
         };
     }

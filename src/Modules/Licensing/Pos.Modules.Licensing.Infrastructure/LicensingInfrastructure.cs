@@ -13,6 +13,7 @@ using Microsoft.Win32;
 using Pos.Application.Abstractions.Installation;
 using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
+using Pos.Infrastructure.Backup;
 using Pos.Infrastructure.Persistence;
 using Pos.Licensing.Contracts;
 using Pos.Modules.Licensing.Application;
@@ -32,13 +33,36 @@ public sealed class LicensingOptions
     public int CheckinHours { get; set; } = 24;
 
     /// <summary>
-    /// Claves públicas adicionales (base64url). SOLO fuera de producción (pruebas y desarrollo contra una nube local): en producción
-    /// solo valen las embebidas en el binario (D12B-04).
+    /// Máximo de días sin check-in exitoso (N1). ⚙️ <see cref="LicenseEvaluator.DefaultMaxOfflineDays"/> (30, PENDIENTE DE APROBACIÓN);
+    /// la configuración del equipo solo puede ACORTARLO (1–30): alargarlo exige cambiar el producto.
+    /// </summary>
+    public int MaxOfflineDays { get; set; } = LicenseEvaluator.DefaultMaxOfflineDays;
+
+    /// <summary>
+    /// Claves públicas adicionales (base64url) para desarrollo contra una nube local. SOLO existen en compilación <c>Debug</c> y fuera de
+    /// producción (R1): en <c>Release</c> nunca se leen de la configuración, sea cual sea el entorno. Las pruebas de integración inyectan
+    /// las claves por servicios, no por aquí.
     /// </summary>
     public IReadOnlyList<string> DevelopmentTrustedKeys { get; set; } = [];
 
-    /// <summary>Huella fija (<c>fp1.…</c>) para pruebas; ignorada en producción.</summary>
+    /// <summary>Huella fija (<c>fp1.…</c>) para desarrollo; mismas reglas que <see cref="DevelopmentTrustedKeys"/>.</summary>
     public string? DevelopmentFingerprint { get; set; }
+}
+
+/// <summary>
+/// Puertas de desarrollo de la licencia (R1). El entorno (<c>DOTNET_ENVIRONMENT</c>) lo cambia cualquier administrador de Windows, así
+/// que NO basta: las claves y la huella de desarrollo solo existen si el binario se compiló en <c>Debug</c>.
+/// </summary>
+internal static class LicensingDevelopment
+{
+#if DEBUG
+    public const bool CompiledIn = true;
+#else
+    public const bool CompiledIn = false;
+#endif
+
+    /// <summary>¿Se leen las claves y la huella de desarrollo de la configuración?</summary>
+    public static bool Enabled(IHostEnvironment environment, bool debugBuild = CompiledIn) => debugBuild && !environment.IsProduction();
 }
 
 // ------------------------------------------------------------------------------------------------ Cliente de la nube
@@ -117,6 +141,7 @@ internal sealed class WindowsDeviceIdentity : IDeviceIdentity
 {
     private readonly Lazy<DeviceFingerprint?> _fingerprint;
 
+    /// <param name="developmentFingerprint">Huella fija: solo la pasa el registro en <c>Debug</c> o una prueba dentro del proceso.</param>
     public WindowsDeviceIdentity(string? developmentFingerprint)
     {
         _fingerprint = new Lazy<DeviceFingerprint?>(() =>
@@ -209,7 +234,8 @@ internal sealed class WindowsDeviceIdentity : IDeviceIdentity
 
 /// <summary>
 /// Claves públicas de confianza (D12B-04): las embebidas en el binario (<c>trusted-keys.json</c>, se completa al compilar la versión
-/// de producción con las claves ACTIVE y STANDBY del servidor) más, solo fuera de producción, las de la configuración.
+/// de producción con las claves ACTIVE y STANDBY del servidor) más las adicionales: las de la configuración solo en <c>Debug</c> fuera
+/// de producción (R1) o las que inyecta una prueba dentro del proceso.
 /// </summary>
 internal sealed class EmbeddedLicenseKeys : ILicenseKeys
 {
@@ -250,6 +276,7 @@ internal sealed partial class LicenseWorker(
 {
     private DateTimeOffset _nextCheckin = DateTimeOffset.MinValue;
     private int _failures;
+    private long? _lastTick;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -275,8 +302,24 @@ internal sealed partial class LicenseWorker(
     {
         await using var scope = scopes.CreateAsyncScope();
         var dispatcher = scope.ServiceProvider.GetRequiredService<IDispatcher>();
-        var status = await dispatcher.Send(new RefreshLicenseCommand(), cancellationToken);
+
+        // H3: tiempo de funcionamiento desde el recálculo anterior, con el reloj MONÓTONO (cambiar la hora de Windows no lo altera).
+        var tick = time.GetTimestamp();
+        TimeSpan? elapsed = _lastTick is { } previous ? time.GetElapsedTime(previous, tick) : null;
+        var status = await dispatcher.Send(new RefreshLicenseCommand(elapsed), cancellationToken);
+        if (status.IsSuccess)
+        {
+            _lastTick = tick;
+        }
+
         var now = time.GetUtcNow();
+
+        // Restringida: se vuelve a verificar al menos cada hora (un pago aplicado o un estado alterado se corrige pronto).
+        if (status.IsSuccess && LicenseStates.IsRestricted(status.Value.State) && _nextCheckin > now + TimeSpan.FromHours(1))
+        {
+            _nextCheckin = now + TimeSpan.FromHours(1);
+        }
+
         if (status.IsFailure || !installation.IsSetupCompleted || !cloud.IsConfigured || status.Value.LicenseKeyPrefix is null
             || status.Value.State == LicenseStates.Demo || now < _nextCheckin)
         {
@@ -285,7 +328,9 @@ internal sealed partial class LicenseWorker(
 
         var kind = _nextCheckin == DateTimeOffset.MinValue ? "STARTUP" : "SCHEDULED";
         var last = status.Value.LastCheckinAt;
-        if (kind == "STARTUP" && last is { } l && now - l < TimeSpan.FromHours(options.CheckinHours))
+
+        // Restringida (reloj, datos alterados, días sin conexión…): se verifica al arrancar aunque el último check-in sea reciente.
+        if (kind == "STARTUP" && last is { } l && now - l < TimeSpan.FromHours(options.CheckinHours) && !LicenseStates.IsRestricted(status.Value.State))
         {
             _nextCheckin = l + Interval();
             return;
@@ -327,15 +372,18 @@ public static class LicensingInfrastructureRegistration
     public static void Register(IServiceCollection services)
     {
         // La configuración se lee al construir los servicios (la de las pruebas y la del instalador llegan después del registro).
-        services.AddSingleton(sp => Read(sp.GetRequiredService<IConfiguration>()));
-        services.AddSingleton<LicenseStateCache>();
+        services.AddSingleton(sp => Read(
+            sp.GetRequiredService<IConfiguration>(), LicensingDevelopment.Enabled(sp.GetRequiredService<IHostEnvironment>())));
+        services.AddSingleton(sp => new LicensePolicy(sp.GetRequiredService<LicensingOptions>().MaxOfflineDays));
+        services.AddSingleton(sp => new LicenseStateCache(sp.GetService<TimeProvider>()));
         services.AddSingleton<ILicenseGate>(sp => sp.GetRequiredService<LicenseStateCache>());
         services.AddSingleton<ILicenseStatus>(sp => sp.GetRequiredService<LicenseStateCache>());
-        // Las claves y la huella de desarrollo nunca valen en producción (D12B-04).
-        services.AddSingleton<ILicenseKeys>(sp => new EmbeddedLicenseKeys(
-            sp.GetRequiredService<IHostEnvironment>().IsProduction() ? [] : sp.GetRequiredService<LicensingOptions>().DevelopmentTrustedKeys));
-        services.AddSingleton<IDeviceIdentity>(sp => new WindowsDeviceIdentity(
-            sp.GetRequiredService<IHostEnvironment>().IsProduction() ? null : sp.GetRequiredService<LicensingOptions>().DevelopmentFingerprint));
+        // Archivo protegido con el secreto de la firma del estado y la marca de tiempo (H4); sin carpeta de datos, solo en memoria.
+        services.AddSingleton(sp => new LicenseVault(
+            DataRoot(sp) is { } root ? Path.Combine(root, "config", "license.vault") : null, sp.GetRequiredService<ILogger<LicenseVault>>()));
+        // Las claves y la huella de desarrollo solo existen en Debug fuera de producción (R1): Read ya las deja vacías en otro caso.
+        services.AddSingleton<ILicenseKeys>(sp => new EmbeddedLicenseKeys(sp.GetRequiredService<LicensingOptions>().DevelopmentTrustedKeys));
+        services.AddSingleton<IDeviceIdentity>(sp => new WindowsDeviceIdentity(sp.GetRequiredService<LicensingOptions>().DevelopmentFingerprint));
         services.AddSingleton<ILicenseCloud>(sp => new LicenseCloudClient(
             Uri.TryCreate(sp.GetRequiredService<LicensingOptions>().ServerUrl, UriKind.Absolute, out var url)
                 ? new HttpClient { BaseAddress = new Uri(url.ToString().TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(20) }
@@ -350,15 +398,39 @@ public static class LicensingInfrastructureRegistration
         services.AddHostedService(sp => sp.GetRequiredService<LicenseWorker>());
     }
 
-    private static LicensingOptions Read(IConfiguration configuration)
+    /// <summary>
+    /// Carpeta de datos de la instalación: <c>Pos:DataRoot</c> leído al resolver (así ve también la de cada prueba) o, si no está, la de los
+    /// backups (la predeterminada de la instalación). Sin ninguna, el archivo de la licencia vive solo en memoria.
+    /// </summary>
+    private static string? DataRoot(IServiceProvider services) =>
+        services.GetRequiredService<IConfiguration>()["Pos:DataRoot"] is { Length: > 0 } configured
+            ? Path.GetFullPath(configured, AppContext.BaseDirectory)
+            : services.GetService<BackupEnvironment>()?.DataRoot is { Length: > 0 } root ? root : null;
+
+    /// <summary>
+    /// Lee <c>Pos:Licensing</c>. Con <paramref name="developmentOverrides"/> en falso (siempre en <c>Release</c>) las claves y la huella
+    /// de desarrollo NO se leen aunque estén en la configuración.
+    /// </summary>
+    internal static LicensingOptions Read(IConfiguration configuration, bool developmentOverrides)
     {
         var section = configuration.GetSection(LicensingOptions.SectionName);
-        return new LicensingOptions
+        var options = new LicensingOptions
         {
             ServerUrl = section[nameof(LicensingOptions.ServerUrl)],
             CheckinHours = int.TryParse(section[nameof(LicensingOptions.CheckinHours)], out var hours) && hours is >= 1 and <= 168 ? hours : 24,
-            DevelopmentTrustedKeys = [.. section.GetSection(nameof(LicensingOptions.DevelopmentTrustedKeys)).GetChildren().Select(c => c.Value).OfType<string>()],
-            DevelopmentFingerprint = section[nameof(LicensingOptions.DevelopmentFingerprint)],
+            MaxOfflineDays = int.TryParse(section[nameof(LicensingOptions.MaxOfflineDays)], out var days) && days is >= 1 and <= LicenseEvaluator.DefaultMaxOfflineDays
+                ? days
+                : LicenseEvaluator.DefaultMaxOfflineDays,
         };
+#if DEBUG
+        if (developmentOverrides)
+        {
+            options.DevelopmentTrustedKeys = [.. section.GetSection(nameof(LicensingOptions.DevelopmentTrustedKeys)).GetChildren().Select(c => c.Value).OfType<string>()];
+            options.DevelopmentFingerprint = section[nameof(LicensingOptions.DevelopmentFingerprint)];
+        }
+#else
+        _ = developmentOverrides;
+#endif
+        return options;
     }
 }

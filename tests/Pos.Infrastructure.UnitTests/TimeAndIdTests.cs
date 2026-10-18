@@ -88,6 +88,28 @@ public class LicenseRestrictionBehaviorTests
         (await new LicenseRestrictionBehavior<AdminCommand, Result>(new Gate(false)).Handle(new AdminCommand(), Next, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
         calls.ShouldBe(3);
     }
+
+    private sealed record SellCommand : ICommand, IRestrictedSalesWindow;
+
+    private sealed class WindowGate(bool closed) : ILicenseGate
+    {
+        public LicenseGateState Current { get; } = new(true, false, "Licencia vencida.", closed);
+    }
+
+    [Fact]
+    public async Task En_RESTRICTED_se_vende_solo_las_primeras_24_horas_y_despues_solo_se_cierra()
+    {
+        static Task<Result> Next() => Task.FromResult(Result.Success());
+        var ct = TestContext.Current.CancellationToken;
+
+        (await new LicenseRestrictionBehavior<SellCommand, Result>(new WindowGate(false)).Handle(new SellCommand(), Next, ct)).IsSuccess.ShouldBeTrue();
+        var closed = await new LicenseRestrictionBehavior<SellCommand, Result>(new WindowGate(true)).Handle(new SellCommand(), Next, ct);
+        closed.Error.Code.ShouldBe(LicenseGateErrors.Restricted.Code);
+        closed.Error.Message.ShouldContain("24 horas");
+
+        // Cerrar la jornada (permitido sin ventana) sigue pasando.
+        (await new LicenseRestrictionBehavior<SaleCommand, Result>(new WindowGate(true)).Handle(new SaleCommand(), Next, ct)).IsSuccess.ShouldBeTrue();
+    }
 }
 
 internal sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

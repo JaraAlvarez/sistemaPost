@@ -328,7 +328,7 @@ internal sealed class ReleaseSistecreditoCreditHandler(
     }
 }
 
-public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>, IAllowedWhenRestricted;
+public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>, IRestrictedSalesWindow;
 
 internal sealed class CompleteSaleHandler(
     ISalesStore store,

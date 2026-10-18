@@ -454,7 +454,7 @@ public sealed class SistecreditoAccess(ISaleChargeProbe sales, ICurrentUser curr
 /// </summary>
 public sealed record StartSistecreditoPaymentCommand(
     Guid SaleId, decimal Amount, string DocumentType, string DocumentNumber, IReadOnlyList<string>? HeldTransactionIds = null)
-    : ICommand<SistecreditoPaymentDto>, IAllowedWhenRestricted, ISelfTransactedCommand
+    : ICommand<SistecreditoPaymentDto>, IRestrictedSalesWindow, ISelfTransactedCommand
 {
     public override string ToString() =>
         $"StartSistecreditoPaymentCommand {{ SaleId = {SaleId}, Amount = {Amount}, DocumentType = {DocumentType}, DocumentNumber = {SistecreditoProtocol.Mask(DocumentNumber)} }}";
