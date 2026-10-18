@@ -13,7 +13,8 @@ namespace Pos.Application.Abstractions.Licensing;
 /// Restringida desde hace más de 24 h: los comandos <see cref="IRestrictedSalesWindow"/> (vender) también se bloquean y solo queda
 /// cerrar la jornada.
 /// </param>
-public sealed record LicenseGateState(bool Restricted, bool Demo, string? Reason, bool SalesWindowClosed = false)
+/// <param name="DemoEnded">La prueba gratuita de este equipo ya terminó (lo muestran el asistente y la pantalla de ingreso).</param>
+public sealed record LicenseGateState(bool Restricted, bool Demo, string? Reason, bool SalesWindowClosed = false, bool DemoEnded = false)
 {
     public static readonly LicenseGateState Unrestricted = new(false, false, null);
 }

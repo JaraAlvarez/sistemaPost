@@ -112,6 +112,9 @@ public interface ILicenseStateStore
 
     Task RaiseMaxObservedAsync(DateTimeOffset value, CancellationToken cancellationToken);
 
+    /// <summary>Adelanta el inicio de la demo al que firmó la nube para este equipo (nunca lo atrasa).</summary>
+    Task AdoptDemoStartAsync(DateTimeOffset startedAt, CancellationToken cancellationToken);
+
     Task RecordCheckinAsync(LicenseCheckinDto checkin, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<LicenseCheckinDto>> ListCheckinsAsync(int limit, CancellationToken cancellationToken);
@@ -142,6 +145,9 @@ public interface ILicenseCloud
     Task<CloudResult> CheckinAsync(CheckinRequest request, CancellationToken cancellationToken);
 
     Task<CloudResult> DeactivateAsync(DeactivationRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Registro de la demo por equipo; <c>null</c> si no hubo respuesta válida (sin conexión, error).</summary>
+    Task<DemoDeviceResponse?> RegisterDemoAsync(DemoDeviceRequest request, CancellationToken cancellationToken);
 }
 
 /// <summary>Identidad de este equipo (D12B-05) y versión del POS.</summary>
@@ -191,7 +197,7 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
 
     // Sin cálculo reciente se restringe, pero se CONSERVA la última decisión de venta (si ya no se podía vender, sigue sin poderse).
     LicenseGateState ILicenseGate.Current => _snapshot is { } s
-        ? (_time.GetElapsedTime(s.At) > StaleAfter ? new LicenseGateState(true, s.Gate.Demo, StaleReason, s.Gate.SalesWindowClosed) : s.Gate)
+        ? (_time.GetElapsedTime(s.At) > StaleAfter ? new LicenseGateState(true, s.Gate.Demo, StaleReason, s.Gate.SalesWindowClosed, s.Gate.DemoEnded) : s.Gate)
         : (_time.GetElapsedTime(_startedAt) > StaleAfter ? new LicenseGateState(true, false, StaleReason) : LicenseGateState.Unrestricted);
 
     public LicenseSummaryDto Summary => _snapshot is { } s
@@ -208,7 +214,7 @@ public sealed class LicenseStateCache(TimeProvider? time = null) : ILicenseGate,
             evaluation,
             new LicenseGateState(
                 evaluation.Restricted, evaluation.State == LicenseStates.Demo, evaluation.Restricted ? evaluation.Reason : null,
-                evaluation.Restricted && salesWindowClosed),
+                evaluation.Restricted && salesWindowClosed, evaluation.Notices.Any(n => n.Code == LicenseEvaluator.DemoEndedCode)),
             paymentUrl,
             _time.GetTimestamp());
     }
@@ -435,6 +441,36 @@ public sealed class LicenseService(
         return await StatusAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Demo por equipo (docs/fases/fase-demo-por-equipo.md): sin licencia, informa a la nube la huella y el inicio local de la demo y
+    /// adopta el inicio firmado por la nube si es más antiguo (reinstalación borrando los datos). <c>true</c> si la nube respondió un
+    /// registro válido para este equipo.
+    /// </summary>
+    public async Task<Result<bool>> RegisterDemoAsync(CancellationToken cancellationToken)
+    {
+        if (await RefreshAsync(persist: false, cancellationToken) is not { Record: var record } || record.Token is not null || !cloud.IsConfigured
+            || device.Fingerprint is not { IsUsable: true } fingerprint)
+        {
+            return false;
+        }
+
+        var response = await cloud.RegisterDemoAsync(new DemoDeviceRequest(fingerprint.ToString(), record.DemoStartedAt), cancellationToken);
+        if (response is null || DemoToken.Verify(response.Token, keys.Ring) is not { IsValid: true, Claims: { } claims }
+            || !DeviceFingerprint.TryParse(claims.DeviceFingerprint, out var registered) || !registered.Matches(fingerprint))
+        {
+            return false;
+        }
+
+        // Solo se ADELANTA el inicio: ni una respuesta falsa ni un reloj de la nube raro pueden alargar la demo.
+        if (claims.StartedAt < record.DemoStartedAt)
+        {
+            await store.AdoptDemoStartAsync(claims.StartedAt, cancellationToken);
+            await RefreshAsync(persist: true, cancellationToken);
+        }
+
+        return true;
+    }
+
     public Task<IReadOnlyList<LicenseCheckinDto>> ListCheckinsAsync(int limit, CancellationToken cancellationToken) =>
         store.ListCheckinsAsync(Math.Clamp(limit, 1, 500), cancellationToken);
 
@@ -562,6 +598,14 @@ internal sealed class DeactivateLicenseHandler(LicenseService service) : IComman
 {
     public Task<Result<LicenseStatusDto>> Handle(DeactivateLicenseCommand command, CancellationToken cancellationToken) =>
         service.DeactivateAsync(command.Reason, cancellationToken);
+}
+
+/// <summary>Registro de la demo por equipo con la nube (al arrancar y cada 24 h mientras no haya licencia). <c>true</c> si la nube respondió.</summary>
+public sealed record RegisterDemoDeviceCommand : ICommand<bool>, IAllowedWhenRestricted;
+
+internal sealed class RegisterDemoDeviceHandler(LicenseService service) : ICommandHandler<RegisterDemoDeviceCommand, bool>
+{
+    public Task<Result<bool>> Handle(RegisterDemoDeviceCommand command, CancellationToken cancellationToken) => service.RegisterDemoAsync(cancellationToken);
 }
 
 /// <summary>

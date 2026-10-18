@@ -140,6 +140,17 @@ internal sealed class LicensingModelContributor : ICloudModelContributor
             b.HasOne<Activation>().WithMany().HasForeignKey(x => x.ActivationId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        // Demo por equipo (V2026.10.016): la escribe DemoDeviceRegistry con SQL directo.
+        modelBuilder.Entity<DemoDevice>(b =>
+        {
+            b.ToTable("demo_devices", "licensing");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).ValueGeneratedNever();
+            b.Property(x => x.BoardHash).HasMaxLength(32);
+            b.Property(x => x.DiskHash).HasMaxLength(32);
+            b.Property(x => x.MachineHash).HasMaxLength(32);
+        });
+
         // "Continuar con Google" del instalador (V2026.10.010).
         modelBuilder.Entity<InstallerSignInRequest>(b =>
         {

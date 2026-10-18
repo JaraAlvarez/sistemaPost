@@ -63,6 +63,14 @@ public static class LicenseEvaluator
     /// <summary>Días de la demostración (D12B-09). No es configurable por la tienda.</summary>
     public const int DemoDays = 30;
 
+    /// <summary>
+    /// Aviso de la demo vencida EN ESTE EQUIPO (docs/fases/fase-demo-por-equipo.md): el inicio sale de la BD, del archivo protegido, de
+    /// la marca del equipo y de la nube, así que reinstalar no la reinicia.
+    /// </summary>
+    public const string DemoEndedCode = "DEMO_ENDED";
+
+    public const string DemoEndedMessage = "La prueba gratuita de este equipo ya terminó; active la licencia con su clave.";
+
     /// <summary>Retroceso del reloj tolerado antes de restringir (RN-LIC-05).</summary>
     public static readonly TimeSpan ClockRollbackTolerance = TimeSpan.FromHours(24);
 
@@ -131,10 +139,10 @@ public static class LicenseEvaluator
         var demoEnds = record.DemoStartedAt.AddDays(DemoDays);
         var claims = verification is { IsValid: true } ? verification.Claims : null;
 
-        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null)
+        LicenseEvaluation Result(string state, string reason, DateTimeOffset? until = null, string? noticeCode = null)
         {
             int? days = until is { } u ? Math.Max(0, (int)Math.Ceiling((u - now).TotalDays)) : null;
-            return new LicenseEvaluation(state, reason, days, claims, effectiveNow, rollback, demoEnds, Notices(state, reason, days, claims));
+            return new LicenseEvaluation(state, reason, days, claims, effectiveNow, rollback, demoEnds, Notices(state, reason, days, claims, noticeCode));
         }
 
         if (rollback)
@@ -167,7 +175,7 @@ public static class LicenseEvaluator
 
             return now <= demoEnds
                 ? Result(LicenseStates.Demo, "Modo demostración: el sistema funciona completo y los documentos impresos dicen \"DEMOSTRACIÓN\". Active la licencia con su clave.", demoEnds)
-                : Result(LicenseStates.Restricted, "Terminó la demostración de 30 días. Active la licencia con su clave.");
+                : Result(LicenseStates.Restricted, DemoEndedMessage, noticeCode: DemoEndedCode);
         }
 
         if (claims is null)
@@ -267,7 +275,7 @@ public static class LicenseEvaluator
         return (number, string.IsNullOrEmpty(dv) ? null : dv);
     }
 
-    private static List<LicenseNoticeDto> Notices(string state, string reason, int? daysLeft, LicenseClaims? claims)
+    private static List<LicenseNoticeDto> Notices(string state, string reason, int? daysLeft, LicenseClaims? claims, string? noticeCode)
     {
         var notices = new List<LicenseNoticeDto>();
         switch (state)
@@ -280,7 +288,7 @@ public static class LicenseEvaluator
                 break;
             case LicenseStates.Restricted:
             case LicenseStates.ReactivationRequired:
-                notices.Add(new(state, "CRITICAL", reason));
+                notices.Add(new(noticeCode ?? state, "CRITICAL", reason));
                 break;
             case LicenseStates.ValidOffline:
                 notices.Add(new("OFFLINE", "INFO", reason));

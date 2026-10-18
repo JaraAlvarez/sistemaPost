@@ -229,7 +229,8 @@ internal sealed class SetupCommandHandler(
 
 public sealed record GetSetupStatusQuery : IQuery<SetupStatusDto>;
 
-internal sealed class GetSetupStatusHandler(IInstallationContext installation, IIdentityState identity) : IQueryHandler<GetSetupStatusQuery, SetupStatusDto>
+internal sealed class GetSetupStatusHandler(IInstallationContext installation, IIdentityState identity, ILicenseGate license)
+    : IQueryHandler<GetSetupStatusQuery, SetupStatusDto>
 {
     public async Task<Result<SetupStatusDto>> Handle(GetSetupStatusQuery request, CancellationToken cancellationToken) =>
         new SetupStatusDto(
@@ -238,5 +239,6 @@ internal sealed class GetSetupStatusHandler(IInstallationContext installation, I
             installation.NodeId,
             installation.CompanyId,
             installation.BranchId,
-            await identity.IsOwnerPendingAsync(cancellationToken));
+            await identity.IsOwnerPendingAsync(cancellationToken),
+            license.Current.DemoEnded);
 }

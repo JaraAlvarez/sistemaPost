@@ -127,6 +127,9 @@ public interface ILicenseTokenSigner
     /// <summary>Firma el enlace del propietario del instalador premium (Fase 13-B, D13B-09) con la misma clave.</summary>
     string SignOwnerLink(OwnerLinkClaims claims);
 
+    /// <summary>Firma el registro de la demo por equipo (docs/fases/fase-demo-por-equipo.md) con la misma clave.</summary>
+    string SignDemo(DemoClaims claims);
+
     /// <summary>Habilita o deshabilita la firma según el registro de claves (lo decide el arranque).</summary>
     void SetEnabled(bool enabled);
 }

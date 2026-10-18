@@ -117,6 +117,11 @@ public sealed class LicensingModule : IModule
         pos.MapGet("/public-keys", async (IDispatcher d, CancellationToken ct) => ToHttp(await d.Send(new GetPublicKeysQuery(), ct)))
             .WithSummary("Claves públicas de confianza por kid (JWK OKP Ed25519)");
 
+        // Demo por equipo (docs/fases/fase-demo-por-equipo.md): anónimo (la tienda aún no tiene clave), con el límite por IP del grupo.
+        pos.MapPost("/demo-devices", async (DemoDeviceRequest request, IDispatcher d, CancellationToken ct) =>
+                ToHttp(await d.Send(new RegisterDemoDeviceCommand(request), ct)))
+            .WithSummary("Registra la huella del equipo sin licencia y devuelve, firmado, el primer inicio de su demostración");
+
         // Instalador premium (Fase 13-B, D13B-08 y D13B-09).
         pos.MapPost("/license-previews", async (LicensePreviewRequest request, IDispatcher d, CancellationToken ct) =>
                 ToHttp(await d.Send(new PreviewLicenseCommand(request), ct)))

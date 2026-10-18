@@ -25,6 +25,12 @@
     }
     else
     {
+        @if (Session.Setup?.DemoEnded == true)
+        {
+            <MudAlert Severity="Severity.Warning" Class="my-3" Icon="@Icons.Material.Outlined.Key">
+                La prueba gratuita de este equipo ya terminó; active la licencia con su clave (Administración → Licencia).
+            </MudAlert>
+        }
         <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" ApplyEffectsToContainer="true" Centered="false">
             <MudTabPanel Text="Caja" Icon="@Icons.Material.Outlined.PointOfSale">
                 <EditForm Model="this" OnSubmit="CajaAsync">

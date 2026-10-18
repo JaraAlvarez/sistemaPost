@@ -105,7 +105,8 @@ public sealed class LicenseEvaluatorTests : IDisposable
         cache.Update(Evaluate(Record(token: null), Installed.AddDays(31)));
         var gate = ((Pos.Application.Abstractions.Licensing.ILicenseGate)cache).Current;
         gate.Restricted.ShouldBeTrue();
-        gate.Reason.ShouldNotBeNull().ShouldContain("demostración");
+        gate.Reason.ShouldNotBeNull().ShouldContain("prueba gratuita");
+        gate.DemoEnded.ShouldBeTrue();
 
         cache.Update(Evaluate(Record(token: null), Installed.AddDays(1)));
         ((Pos.Application.Abstractions.Licensing.ILicenseGate)cache).Current.Demo.ShouldBeTrue();

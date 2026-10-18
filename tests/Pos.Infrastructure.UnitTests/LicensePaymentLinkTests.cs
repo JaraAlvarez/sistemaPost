@@ -191,6 +191,12 @@ public sealed class LicensePaymentLinkTests : IDisposable
 
         public Task RaiseMaxObservedAsync(DateTimeOffset value, CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task AdoptDemoStartAsync(DateTimeOffset startedAt, CancellationToken cancellationToken)
+        {
+            Record = Record with { DemoStartedAt = startedAt < Record.DemoStartedAt ? startedAt : Record.DemoStartedAt };
+            return Task.CompletedTask;
+        }
+
         public Task RecordCheckinAsync(LicenseCheckinDto checkin, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<IReadOnlyList<LicenseCheckinDto>> ListCheckinsAsync(int limit, CancellationToken cancellationToken) =>
@@ -217,6 +223,9 @@ public sealed class LicensePaymentLinkTests : IDisposable
 
         public Task<CloudResult> DeactivateAsync(DeactivationRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(CloudResult.Ok(null));
+
+        public Task<DemoDeviceResponse?> RegisterDemoAsync(DemoDeviceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult<DemoDeviceResponse?>(null);
 
         private Task<CloudResult> Respond()
         {

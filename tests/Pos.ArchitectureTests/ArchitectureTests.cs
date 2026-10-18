@@ -211,6 +211,7 @@ public class ArchitectureTests
             "Identity.RevokeSessionCommand", "Identity.UnlockUserCommand",
             "Inventory.VerifyStockCommand",
             "Licensing.ActivateLicenseCommand", "Licensing.CheckLicenseNowCommand", "Licensing.DeactivateLicenseCommand", "Licensing.RefreshLicenseCommand",
+            "Licensing.RegisterDemoDeviceCommand",
             "Organization.CreatePairingCodeCommand", "Organization.PairDeviceCommand", "Organization.RevokeDeviceCommand",
             "Organization.SetReceiptPrinterCommand", "Organization.SetTerminalScaleKeyCommand", "Organization.SetupCommand",
             "Reporting.ExportReportCommand",

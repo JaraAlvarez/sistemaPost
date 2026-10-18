@@ -117,13 +117,14 @@ $("form-empresa").addEventListener("submit", async (e) => {
   try {
     await login(f.username, f.password);
     show("licencia");
+    await avisarDemoTerminada();
   } catch (err) { configuradaSinIngreso(f.username, err.message); }
 });
 
 $("form-ingreso").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = Object.fromEntries(new FormData(e.target));
-  try { await login(f.username, f.password); show("licencia"); } catch (err) { fail(err.message); }
+  try { await login(f.username, f.password); show("licencia"); await avisarDemoTerminada(); } catch (err) { fail(err.message); }
 });
 
 $("form-licencia").addEventListener("submit", async (e) => {
@@ -136,6 +137,14 @@ $("form-licencia").addEventListener("submit", async (e) => {
   } catch (err) { fail(err.message); }
 });
 $("demo").addEventListener("click", () => show("recuperacion"));
+
+// Demo por equipo: si la prueba gratuita de ESTE equipo ya terminó (también tras reinstalar borrando los datos), no se ofrece seguir en demo.
+async function avisarDemoTerminada() {
+  try {
+    const status = await call("GET", "/setup/status");
+    if (status.demoEnded) { $("demo").classList.add("hidden"); $("demoTerminada").classList.remove("hidden"); }
+  } catch { /* el aviso es informativo */ }
+}
 
 $("generar").addEventListener("click", async () => {
   try {
@@ -160,7 +169,7 @@ $("form-confirmar").addEventListener("submit", async (e) => {
   try {
     const status = await call("GET", "/setup/status");
     if (!status.isCompleted) { await loadCatalogs(); show("empresa"); }
-    else if (token) { show("licencia"); }
+    else if (token) { show("licencia"); await avisarDemoTerminada(); }
     else { show("ingreso"); }
   } catch (err) { fail("El servidor no responde todavía. Espere unos segundos y recargue la página. (" + err.message + ")"); }
 })();

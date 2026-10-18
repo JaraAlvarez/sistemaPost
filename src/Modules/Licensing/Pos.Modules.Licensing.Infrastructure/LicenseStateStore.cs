@@ -25,8 +25,9 @@ namespace Pos.Modules.Licensing.Infrastructure;
 /// firmada que ya está confirmada (no la escribió la transacción en curso).</item>
 /// </list>
 /// </summary>
-internal sealed class LicenseStateStore(PosDbContext context, IInstallationContext installation, LicenseVault vault, ILicenseKeys keys)
-    : ILicenseStateStore
+internal sealed class LicenseStateStore(
+    PosDbContext context, IInstallationContext installation, LicenseVault vault, ILicenseKeys keys, IDeviceIdentity? device = null,
+    IDeviceDemoMark? demoMark = null) : ILicenseStateStore
 {
     private const string SealedColumns =
         """
@@ -78,6 +79,13 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
 
         var maxObserved = Max(Utc(row.MaxObservedUtc), vault.Watermark)!.Value;
         var demoStartedAt = Min(Min(Utc(row.InstalledAt), tampered ? null : Utc(row.DemoStartedAt)), vault.DemoStartedAt)!.Value;
+
+        // Demo por equipo: la marca del registro sobrevive a reinstalar borrando los datos; vale el inicio más antiguo y se guarda.
+        if (device?.Fingerprint is { } fingerprint && demoMark is not null)
+        {
+            demoStartedAt = Min(demoStartedAt, demoMark.Read(fingerprint))!.Value;
+            demoMark.Note(fingerprint, demoStartedAt);
+        }
         var restrictedSince = tampered ? vault.RestrictedSince : Min(Utc(row.RestrictedSince), vault.RestrictedSince);
         var offlineFloor = vault.OfflineFloor ?? (tampered ? null : Utc(row.OfflineFloorUtc));
 
@@ -161,6 +169,14 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
             new { node = installation.NodeId }, trusted: true, cancellationToken);
         vault.Flag(deactivated: true);
     }
+
+    public Task AdoptDemoStartAsync(DateTimeOffset startedAt, CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            """
+            UPDATE licensing.license_state SET demo_started_at = LEAST(COALESCE(demo_started_at, @startedAt), @startedAt), updated_at = now()
+            WHERE node_id = @node
+            """,
+            new { startedAt, node = installation.NodeId }, trusted: false, cancellationToken);
 
     public async Task RaiseMaxObservedAsync(DateTimeOffset value, CancellationToken cancellationToken)
     {

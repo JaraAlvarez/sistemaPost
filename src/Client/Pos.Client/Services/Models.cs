@@ -28,7 +28,7 @@ public sealed record MeInfo(
 
 public sealed record LoginResult(string Token, DateTimeOffset ExpiresAt, int IdleTimeoutSeconds, MeInfo User);
 
-public sealed record SetupStatus(bool IsCompleted, string Edition, Guid NodeId, Guid? CompanyId, Guid? BranchId, bool OwnerPending);
+public sealed record SetupStatus(bool IsCompleted, string Edition, Guid NodeId, Guid? CompanyId, Guid? BranchId, bool OwnerPending, bool DemoEnded = false);
 
 public sealed record DeviceCredential(Guid DeviceId, string DeviceSecret, string DeviceKind, Guid? PosTerminalId);
 
