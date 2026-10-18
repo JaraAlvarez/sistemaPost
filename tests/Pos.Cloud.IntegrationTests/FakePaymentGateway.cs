@@ -36,22 +36,52 @@ public sealed class FakePaymentGateway : IPaymentGateway
     /// <summary>Simula que la pasarela no responde a las consultas.</summary>
     public bool Unavailable { get; set; }
 
+    /// <summary>Las próximas N consultas fallan (la pasarela no responde) y luego vuelve a responder.</summary>
+    public int FailNextQueries { get; set; }
+
     public void Set(GatewayTransaction transaction) => _transactions[transaction.Id] = transaction;
+
+    private bool Failing()
+    {
+        if (Unavailable)
+        {
+            return true;
+        }
+
+        lock (_transactions)
+        {
+            if (FailNextQueries > 0)
+            {
+                FailNextQueries--;
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public string BuildCheckoutUrl(CheckoutRequest request) => WompiProtocol.CheckoutUrl(CheckoutUrl, PublicKey, IntegritySecret, request);
 
     public GatewayEvent ParseEvent(string body, string? checksumHeader) => WompiProtocol.ParseEvent(body, checksumHeader, EventsSecret);
 
     public Task<GatewayTransaction?> GetTransactionAsync(string transactionId, CancellationToken cancellationToken) =>
-        Task.FromResult(Unavailable ? null : _transactions.GetValueOrDefault(transactionId));
+        Task.FromResult(Failing() ? null : _transactions.GetValueOrDefault(transactionId));
 
     public Task<IReadOnlyList<GatewayTransaction>?> FindByReferenceAsync(string reference, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<GatewayTransaction>?>(Unavailable ? null : [.. _transactions.Values.Where(t => t.Reference == reference)]);
+        Task.FromResult<IReadOnlyList<GatewayTransaction>?>(Failing() ? null : [.. _transactions.Values.Where(t => t.Reference == reference)]);
+
+    /// <summary>Ruta de la página de regreso que va en la redirección al checkout (con el token de la orden).</summary>
+    public static string ResultPath(string checkoutUrl)
+    {
+        var query = new Uri(checkoutUrl).Query.TrimStart('?').Split('&');
+        var redirect = Uri.UnescapeDataString(query.Single(q => q.StartsWith("redirect-url=", StringComparison.Ordinal))["redirect-url=".Length..]);
+        return new Uri(redirect).AbsolutePath;
+    }
 
     /// <summary>Cuerpo de un evento <c>transaction.updated</c> firmado como lo hace Wompi (o con otro secreto, para probar el rechazo).</summary>
-    public static string SignedEvent(GatewayTransaction transaction, string secret = EventsSecret)
+    public static string SignedEvent(GatewayTransaction transaction, string secret = EventsSecret, DateTimeOffset? at = null)
     {
-        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var timestamp = (at ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
         var checksum = WompiProtocol.Sha256Hex(string.Concat(
             transaction.Id, transaction.Status, transaction.AmountInCents.ToString(CultureInfo.InvariantCulture), timestamp.ToString(CultureInfo.InvariantCulture), secret));
         return JsonSerializer.Serialize(new

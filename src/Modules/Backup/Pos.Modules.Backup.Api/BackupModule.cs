@@ -72,17 +72,30 @@ public sealed class BackupModule : IModule
             .RequirePermission(BackupPermissions.View)
             .WithSummary("Alertas: último backup viejo, destinos fallando, prueba fallida, código sin confirmar");
 
+        group.MapGet("/overview", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetBackupOverviewQuery(), ct)).ToHttpResult())
+            .RequirePermission(BackupPermissions.View)
+            .WithSummary("Carpeta LOCAL, si los backups están configurados en este equipo, último backup y último correcto");
+
+        group.MapPost("/destinations/check-folder", async (CheckFolderRequest r, IDispatcher d, CancellationToken ct) =>
+                (await d.Send(new CheckBackupFolderQuery(r.Kind, r.Path, r.VolumeLabel), ct)).ToHttpResult())
+            .RequirePermission(BackupPermissions.DestinationConfigure)
+            .WithSummary("Comprueba una carpeta antes de guardarla: ruta completa, unidad conectada, etiqueta, escritura y espacio (no deja rastro)");
+
         group.MapGet("/destinations", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ListDestinationsQuery(), ct)).ToHttpResult())
             .RequirePermission(BackupPermissions.View)
             .WithSummary("Destinos configurados (la clave secreta de S3 nunca se devuelve)");
 
         group.MapPost("/destinations", async (DestinationInput input, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new SaveDestinationCommand(null, input), ct)).ToCreatedResult(x => $"/api/v1/backups/destinations/{x.Id}"))
+                await d.Send(new PrecheckDestinationFolderQuery(null, input), ct) is { IsFailure: true } precheck
+                    ? precheck.Error.ToProblem()
+                    : (await d.Send(new SaveDestinationCommand(null, input), ct)).ToCreatedResult(x => $"/api/v1/backups/destinations/{x.Id}"))
             .RequirePermission(BackupPermissions.DestinationConfigure)
             .WithSummary("Agrega un destino: EXTERNAL (USB), NETWORK (carpeta de red) o S3 (MinIO en el VPS)");
 
         group.MapPut("/destinations/{destinationId:guid}", async (Guid destinationId, DestinationInput input, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new SaveDestinationCommand(destinationId, input), ct)).ToHttpResult())
+                await d.Send(new PrecheckDestinationFolderQuery(destinationId, input), ct) is { IsFailure: true } precheck
+                    ? precheck.Error.ToProblem()
+                    : (await d.Send(new SaveDestinationCommand(destinationId, input), ct)).ToHttpResult())
             .RequirePermission(BackupPermissions.DestinationConfigure)
             .WithSummary("Modifica un destino (secreto vacío = conserva el actual)");
 
@@ -103,3 +116,6 @@ public sealed class BackupModule : IModule
 }
 
 public sealed record ConfirmCodeRequest(string Code);
+
+/// <summary>Carpeta a comprobar: <c>Kind</c> EXTERNAL (disco con letra y etiqueta opcional) o NETWORK (ruta UNC).</summary>
+public sealed record CheckFolderRequest(string Kind, string? Path, string? VolumeLabel);

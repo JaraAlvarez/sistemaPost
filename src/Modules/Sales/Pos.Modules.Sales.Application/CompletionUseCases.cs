@@ -289,7 +289,11 @@ internal sealed class SettleSalePaymentsHandler(ISistecreditoPayments sistecredi
 /// queda "Requiere revisión" ("No usado en la venta: reverse el pago en el portal de Sistecrédito"), ya no se ofrece como pago ni bloquea
 /// la venta, y queda en la bitácora con quién autorizó.
 /// </summary>
-public sealed record ReleaseSistecreditoCreditCommand(Guid SaleId, string? TransactionId) : ICommand<SaleDto>, IAllowedWhenRestricted;
+/// <remarks>
+/// Sin <c>TransactionId</c>: todos los créditos usables de la venta, o con <c>OnlyNeeded</c> solo los necesarios (los más grandes primero)
+/// para que lo aprobado quepa en lo que falta por pagar. Repetirlo cuando ya no queda ninguno usable responde OK.
+/// </remarks>
+public sealed record ReleaseSistecreditoCreditCommand(Guid SaleId, string? TransactionId, bool OnlyNeeded = false) : ICommand<SaleDto>, IAllowedWhenRestricted;
 
 internal sealed class ReleaseSistecreditoCreditHandler(
     SaleEditor editor, ISistecreditoPayments sistecredito, IActorContext actor, IAuthorizationScope authorization)
@@ -310,13 +314,21 @@ internal sealed class ReleaseSistecreditoCreditHandler(
             return SalesErrors.NotOpen;
         }
 
+        decimal? keepUpTo = null;
+        if (request.OnlyNeeded && string.IsNullOrWhiteSpace(request.TransactionId))
+        {
+            // Lo que faltaría por pagar con las promociones vigentes (lo mismo que se calcula al recuperar o al cobrar).
+            await editor.RecalculateOnlyAsync(sale, cancellationToken);
+            keepUpTo = Math.Max(0m, sale.Total - sale.ExchangeCredit);
+        }
+
         var released = await sistecredito.ReleaseAsync(
-            sale.Id, request.TransactionId, actor.ActorId!.Value, authorization.Current?.AuthorizedBy, cancellationToken);
+            sale.Id, request.TransactionId, actor.ActorId!.Value, authorization.Current?.AuthorizedBy, keepUpTo, cancellationToken);
         return released.IsFailure ? released.Error : sale.ToDto();
     }
 }
 
-public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>, IAllowedWhenRestricted;
+public sealed record CompleteSaleCommand(Guid SaleId, IReadOnlyList<PaymentRequest> Payments, string? IdempotencyKey) : ICommand<SaleReceiptDto>, IRestrictedSalesWindow;
 
 internal sealed class CompleteSaleHandler(
     ISalesStore store,
@@ -437,6 +449,15 @@ internal sealed class CompleteSaleHandler(
             sale.Total, tenders.Value, await settings.GetAsync(SalesSettings.CashRoundingIncrement, context, cancellationToken));
         if (allocation.IsFailure)
         {
+            // Sistecrédito con otro medio que no da cambio (tarjeta, transferencia…) que juntos se pasan: el crédito no se puede achicar.
+            if (allocation.Error.Code == SalesErrors.NonCashOverpayment.Code && tenders.Value.Where(t => t.Kind == "SISTECREDITO").Sum(t => t.Amount) is > 0m and var creditPaid)
+            {
+                return Error.BusinessRule(
+                    "SALES.NON_CASH_EXCEEDS_TOTAL_WITH_CREDIT",
+                    $"Sistecrédito ({creditPaid:N0}) más los otros medios que no dan cambio superan la venta ({sale.Total:N2}): baje el otro medio a "
+                    + $"${Math.Max(0m, sale.Total - creditPaid):N0}. Si el cliente no va a usar el crédito, use «No usar este crédito» (con autorización de supervisor).");
+            }
+
             return allocation.Error;
         }
 

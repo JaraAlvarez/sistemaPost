@@ -70,6 +70,17 @@ public sealed class PortalCredentials(string email, string password)
         LastStep = step;
         return Authenticator.Code(TotpSecret!, step);
     }
+
+    /// <summary>Como <see cref="NextCode"/>, pero si ya se usaron los códigos de este momento espera el siguiente (hasta 30 s).</summary>
+    public async Task<string> NextCodeAsync()
+    {
+        while (LastStep + 1 > Authenticator.CurrentStep + 1)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        }
+
+        return NextCode();
+    }
 }
 
 /// <summary>Acceso a la API interna /admin como lo haría una herramienta del propietario: contraseña + TOTP → Bearer.</summary>
@@ -90,11 +101,13 @@ public static class PortalApi
     }
 
     /// <summary>El superadministrador crea un usuario (contraseña temporal); el usuario entra, enrola su TOTP y cambia la contraseña.</summary>
+    /// <remarks>PN6: crear un SUPERADMINISTRADOR pide el código TOTP de quien lo crea (<paramref name="confirmation"/>).</remarks>
     public static async Task<(HttpClient Client, PortalCredentials User)> CreateUserAsync(
-        CloudServerFactory factory, HttpClient superadmin, string role, Guid? resellerAccountId = null)
+        CloudServerFactory factory, HttpClient superadmin, string role, Guid? resellerAccountId = null, string? confirmation = null)
     {
         var email = $"{role.ToLowerInvariant()}-{Guid.NewGuid():N}@licencias.co";
-        var created = await PostAsync<TemporaryPasswordDto>(superadmin, "/admin/users", new { email, displayName = $"Usuario {role}", role, resellerAccountId });
+        var created = await PostAsync<TemporaryPasswordDto>(superadmin, "/admin/users",
+            new { email, displayName = $"Usuario {role}", role, resellerAccountId, confirmation });
         var user = new PortalCredentials(email, created.TemporaryPassword);
         return (await SignInAsync(factory, user, changePassword: true), user);
     }

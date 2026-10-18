@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using FluentValidation;
 using Pos.Application.Abstractions.Auditing;
 using Pos.Application.Abstractions.Installation;
+using Pos.Application.Abstractions.Licensing;
 using Pos.Application.Abstractions.Messaging;
 using Pos.Application.Abstractions.Security;
 using Pos.Modules.Identity.Contracts;
@@ -53,7 +54,7 @@ public sealed record PairingOutcome(PairedDeviceDto? Value, Error? Error);
 // ───────────────────────────── Código de emparejamiento ─────────────────────────────
 
 /// <summary>Un administrador genera un código de 6 dígitos, de un solo uso, que vence en 10 minutos.</summary>
-public sealed record CreatePairingCodeCommand(DeviceKind Kind, Guid? PosTerminalId) : ICommand<PairingCodeDto>;
+public sealed record CreatePairingCodeCommand(DeviceKind Kind, Guid? PosTerminalId) : ICommand<PairingCodeDto>, IAllowedWhenRestricted;
 
 internal sealed class CreatePairingCodeValidator : AbstractValidator<CreatePairingCodeCommand>
 {
@@ -102,7 +103,7 @@ internal sealed class CreatePairingCodeHandler(
 
 /// <summary>El equipo nuevo presenta el código y recibe su credencial (que solo se muestra esta vez).</summary>
 public sealed record PairDeviceCommand(string Code, string Hostname, string MachineFingerprintHash, string? OsVersion, string? AppVersion)
-    : ICommand<PairingOutcome>;
+    : ICommand<PairingOutcome>, IAllowedWhenRestricted;
 
 internal sealed partial class PairDeviceValidator : AbstractValidator<PairDeviceCommand>
 {
@@ -183,7 +184,7 @@ internal sealed class ListDevicesHandler(IDeviceStore devices) : IQueryHandler<L
 }
 
 /// <summary>Revoca un equipo: su credencial deja de valer y sus sesiones se cierran de inmediato.</summary>
-public sealed record RevokeDeviceCommand(Guid DeviceId) : ICommand;
+public sealed record RevokeDeviceCommand(Guid DeviceId) : ICommand, IAllowedWhenRestricted;
 
 internal sealed class RevokeDeviceHandler(
     IDeviceStore devices, IOrganizationStore organization, ISessionRevoker sessions, ICurrentUser current, IClock clock) : ICommandHandler<RevokeDeviceCommand>

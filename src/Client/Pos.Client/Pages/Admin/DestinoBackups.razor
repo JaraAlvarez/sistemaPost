@@ -1,0 +1,421 @@
+@* Pantallas faltantes §1 (docs/fases/pantallas-faltantes-propuesta.md): destinos de los backups en Configuración → Backups. Cada backup se
+   crea en la carpeta LOCAL fija del servidor y se copia a los destinos activos (disco externo o carpeta de red). La carpeta se comprueba en
+   el SERVIDOR (cuenta del servicio) antes de guardar; los cambios se auditan y exigen backup.destination.configure. *@
+@using Pos.Modules.Backup.Contracts
+@inject ApiClient Api
+@inject SessionState Session
+@inject ISnackbar Snackbar
+
+<MudPaper Outlined="true" Class="pa-4">
+    <div class="d-flex flex-wrap align-center gap-2">
+        <MudIcon Icon="@Icons.Material.Outlined.Backup" />
+        <MudText Typo="Typo.h6">Dónde se guardan los backups</MudText>
+        @if (_overview is { } o)
+        {
+            <span class="etiqueta @(o.IsConfigured ? "promo" : "neutra")">@(o.IsConfigured ? "Backups automáticos activos" : "Backups no configurados en este equipo")</span>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-2" Dense="true">@_error</MudAlert>
+    }
+
+    @if (_overview is { } overview)
+    {
+        <MudText Typo="Typo.body2" Class="mt-2">
+            Cada backup (programado, nocturno, al cerrar caja o manual) se crea primero en la carpeta del servidor y desde ahí se copia a los destinos
+            de abajo. Agregue un <b>disco externo</b> o una <b>carpeta de red</b> para tener una copia fuera del equipo.
+        </MudText>
+        <MudSimpleTable Dense="true" Class="mt-2">
+            <tbody>
+                <tr><td style="width: 220px;">Carpeta del servidor (fija)</td><td><code>@overview.LocalDirectory</code></td></tr>
+                <tr>
+                    <td>Último backup</td>
+                    <td>
+                        @if (overview.LastRun is { } last)
+                        {
+                            <span>@Format.Date(last.StartedAt) · @TipoBackup(last.Kind) · </span>
+                            <span class="etiqueta @(last.Succeeded ? "promo" : "alerta")">@Resultado(last)</span>
+                            @if (last.Copies.Count > 0)
+                            {
+                                <small class="d-block">@string.Join(" · ", last.Copies.Select(c => $"{c.DestinationName}: {EstadoCopia(c.Status)}{(c.Error is { Length: > 0 } e ? " (" + e + ")" : "")}"))</small>
+                            }
+                        }
+                        else
+                        {
+                            <span>Aún no hay backups.</span>
+                        }
+                    </td>
+                </tr>
+                @if (overview.LastSuccessful is { } ok && ok.Id != overview.LastRun?.Id)
+                {
+                    <tr><td>Último backup correcto</td><td>@Format.Date(ok.StartedAt) · @TipoBackup(ok.Kind)</td></tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            @if (Session.Has("backup.backup.run") && overview.IsConfigured)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Backup" Disabled="_busy" OnClick="RespaldarAsync">Respaldar ahora</MudButton>
+            }
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Outlined.Refresh" Disabled="_busy" OnClick="CargarAsync">Actualizar</MudButton>
+            <MudButton Variant="Variant.Text" Href="/admin/backups">Ver historial</MudButton>
+        </div>
+
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-1">Destinos</MudText>
+        <MudTable Items="_destinations" Dense="true" Hover="true" Striped="true">
+            <HeaderContent>
+                <MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Carpeta</MudTh><MudTh>Copia</MudTh><MudTh>Conserva</MudTh><MudTh>Estado</MudTh><MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@TipoDestino(context.Kind)</MudTd>
+                <MudTd style="white-space: normal;">
+                    @(context.Kind == DestinationKinds.Local ? overview.LocalDirectory : context.Kind == DestinationKinds.S3 ? $"{context.Endpoint} · {context.Bucket}" : context.Path)
+                    @if (!string.IsNullOrWhiteSpace(context.VolumeLabel))
+                    {
+                        <small class="d-block">Disco «@context.VolumeLabel»</small>
+                    }
+                </MudTd>
+                <MudTd>@Cuando(context)</MudTd>
+                <MudTd>@context.KeepDaily d · @context.KeepWeekly sem · @context.KeepMonthly mes</MudTd>
+                <MudTd>
+                    @if (!context.IsActive)
+                    {
+                        <span class="etiqueta neutra">Inactivo</span>
+                    }
+                    else if (context.LastStatus == "FAILED")
+                    {
+                        <span class="etiqueta alerta" title="@context.LastError">Fallando</span>
+                    }
+                    else
+                    {
+                        <span class="etiqueta promo">Activo</span>
+                    }
+                    @if (context.LastSuccessAt is not null)
+                    {
+                        <small class="d-block">Última copia: @Format.Date(context.LastSuccessAt)</small>
+                    }
+                </MudTd>
+                <MudTd>
+                    @if (PuedeConfigurar && context.Kind is DestinationKinds.External or DestinationKinds.Network)
+                    {
+                        <MudButton Size="Size.Small" Disabled="_busy" OnClick="@(() => Editar(context))">Cambiar</MudButton>
+                    }
+                    @if (PuedeConfigurar && context.IsActive)
+                    {
+                        <MudButton Size="Size.Small" Disabled="_busy" OnClick="@(() => ProbarAsync(context))">Probar</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><EstadoVacio Mensaje="No hay destinos." /></NoRecordsContent>
+        </MudTable>
+
+        @if (PuedeConfigurar)
+        {
+            @if (_form is null)
+            {
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Usb" Disabled="_busy" OnClick="@(() => Nuevo(DestinationKinds.External))">Agregar disco externo</MudButton>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Lan" Disabled="_busy" OnClick="@(() => Nuevo(DestinationKinds.Network))">Agregar carpeta de red</MudButton>
+                </div>
+            }
+            else
+            {
+                <MudPaper Outlined="true" Class="pa-3 mt-3">
+                    <MudText Typo="Typo.subtitle2">@(_form.Id is null ? "Nuevo destino" : "Cambiar destino") · @TipoDestino(_form.Kind)</MudText>
+                    <MudGrid Class="mt-1">
+                        <MudItem xs="12" md="4">
+                            <MudTextField @bind-Value="_form.Name" Label="Nombre" Immediate="true" MaxLength="80" />
+                        </MudItem>
+                        <MudItem xs="12" md="@(_form.Kind == DestinationKinds.External ? 5 : 8)">
+                            <MudTextField @bind-Value="_form.Path" Label="Carpeta" Immediate="true" MaxLength="400"
+                                          Placeholder="@(_form.Kind == DestinationKinds.External ? "E:\\BackupsTienda" : "\\\\NAS\\backups\\tienda")"
+                                          HelperText="@(_form.Kind == DestinationKinds.External ? "Letra del disco y carpeta (otro disco, no el del servidor). Debe existir la carpeta o su superior." : "Ruta de red \\\\equipo\\carpeta (no use letras mapeadas como Z:).")"
+                                          OnBlur="@(() => _check = null)" />
+                        </MudItem>
+                        @if (_form.Kind == DestinationKinds.External)
+                        {
+                            <MudItem xs="12" md="3">
+                                <MudTextField @bind-Value="_form.VolumeLabel" Label="Etiqueta del disco (opcional)" Immediate="true"
+                                              HelperText="Así no se copia a otro disco con la misma letra." />
+                            </MudItem>
+                        }
+                        <MudItem xs="12" md="8">
+                            <MudText Typo="Typo.caption" Class="d-block">Copiar los backups:</MudText>
+                            <div class="d-flex flex-wrap gap-2">
+                                <MudCheckBox T="bool" @bind-Value="_form.OnScheduled" Label="Programados (cada pocas horas)" Dense="true" />
+                                <MudCheckBox T="bool" @bind-Value="_form.OnNightly" Label="Nocturno" Dense="true" />
+                                <MudCheckBox T="bool" @bind-Value="_form.OnClosing" Label="Al cerrar caja" Dense="true" />
+                                <MudCheckBox T="bool" @bind-Value="_form.OnManual" Label="Manuales" Dense="true" />
+                            </div>
+                        </MudItem>
+                        <MudItem xs="12" md="4">
+                            <MudCheckBox T="bool" @bind-Value="_form.IsActive" Label="Activo" Dense="true" />
+                        </MudItem>
+                        <MudItem xs="4" md="2">
+                            <MudNumericField T="int" @bind-Value="_form.KeepDaily" Label="Diarios" Min="1" Max="60" />
+                        </MudItem>
+                        <MudItem xs="4" md="2">
+                            <MudNumericField T="int" @bind-Value="_form.KeepWeekly" Label="Semanales" Min="0" Max="52" />
+                        </MudItem>
+                        <MudItem xs="4" md="2">
+                            <MudNumericField T="int" @bind-Value="_form.KeepMonthly" Label="Mensuales" Min="0" Max="120" />
+                        </MudItem>
+                    </MudGrid>
+                    @if (_check is { } check)
+                    {
+                        <MudAlert Severity="@(check.Ok ? Severity.Success : Severity.Warning)" Dense="true" Class="mt-2">@check.Message</MudAlert>
+                    }
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <MudButton Variant="Variant.Outlined" Disabled="@(_busy || string.IsNullOrWhiteSpace(_form.Path))" OnClick="ComprobarAsync"
+                                   StartIcon="@Icons.Material.Outlined.FactCheck">Comprobar carpeta</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_form.Name) || string.IsNullOrWhiteSpace(_form.Path))"
+                                   OnClick="GuardarAsync">Guardar</MudButton>
+                        <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="@(() => { _form = null; _check = null; })">Cancelar</MudButton>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="d-block mt-2">
+                        La comprobación la hace el servidor de la tienda con su propia cuenta: escribe, lee y borra un archivo pequeño (no crea
+                        carpetas). Debe existir la carpeta o su carpeta superior, y estar en un disco distinto al del servidor. Al guardar un destino
+                        activo se comprueba de nuevo. Si después retira el disco, las copias quedan pendientes y se hacen al conectarlo.
+                    </MudText>
+                    @if (_form.Kind == DestinationKinds.Network)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
+                            El servicio de BusinessPost corre como <b>LocalSystem</b>: en la red entra con la <b>cuenta del equipo</b> (EQUIPO$), no con su
+                            usuario de Windows. Dé permiso de escritura a esa cuenta en la carpeta compartida. En un NAS o equipo <b>sin dominio</b> esa
+                            cuenta no existe y la copia puede fallar: en ese caso use un disco externo o pida a soporte configurar el acceso.
+                        </MudAlert>
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                            <b>Seguridad:</b> los backups van cifrados, pero quien tenga acceso a esa carpeta puede borrarlos. Use un equipo de la red de
+                            la tienda (IP privada 10.x, 172.16–31.x o 192.168.x; no se aceptan direcciones de Internet ni este mismo equipo), dé permiso
+                            solo a la cuenta del equipo servidor y no la comparta con «Todos».
+                        </MudAlert>
+                    }
+                </MudPaper>
+            }
+        }
+    }
+</MudPaper>
+
+@code {
+    private BackupOverviewDto? _overview;
+    private IReadOnlyList<BackupDestinationDto> _destinations = [];
+    private Formulario? _form;
+    private BackupFolderCheckDto? _check;
+    private string? _error;
+    private bool _busy;
+
+    private bool PuedeConfigurar => Session.Has("backup.destination.configure");
+
+    protected override Task OnInitializedAsync() => CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        try
+        {
+            _overview = await Api.GetAsync<BackupOverviewDto>("api/v1/backups/overview");
+            _destinations = await Api.GetAsync<IReadOnlyList<BackupDestinationDto>>("api/v1/backups/destinations");
+            _error = null;
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Texto;
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Sin conexión con el servidor de la tienda.";
+        }
+    }
+
+    private void Nuevo(string kind)
+    {
+        _check = null;
+        _form = new Formulario
+        {
+            Kind = kind, Name = kind == DestinationKinds.External ? "Disco externo" : "Carpeta de red",
+            OnScheduled = kind == DestinationKinds.Network, OnNightly = true, OnClosing = kind == DestinationKinds.Network, OnManual = true,
+        };
+    }
+
+    private void Editar(BackupDestinationDto destination)
+    {
+        _check = null;
+        _form = new Formulario
+        {
+            Id = destination.Id, Kind = destination.Kind, Name = destination.Name, Path = destination.Path, VolumeLabel = destination.VolumeLabel,
+            OnScheduled = destination.OnScheduled, OnNightly = destination.OnNightly, OnClosing = destination.OnClosing, OnManual = destination.OnManual,
+            KeepDaily = destination.KeepDaily, KeepWeekly = destination.KeepWeekly, KeepMonthly = destination.KeepMonthly, IsActive = destination.IsActive,
+        };
+    }
+
+    private async Task ComprobarAsync()
+    {
+        if (_form is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _check = await Api.PostAsync<BackupFolderCheckDto>("api/v1/backups/destinations/check-folder",
+                new { kind = _form.Kind, path = _form.Path?.Trim(), volumeLabel = Vacio(_form.VolumeLabel) });
+        }
+        catch (ApiException ex)
+        {
+            _check = new BackupFolderCheckDto(false, ex.Texto, null, null, null);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task GuardarAsync()
+    {
+        if (_form is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var body = new
+            {
+                kind = _form.Kind, name = _form.Name.Trim(), path = _form.Path?.Trim(), volumeLabel = _form.Kind == DestinationKinds.External ? Vacio(_form.VolumeLabel) : null,
+                endpoint = (string?)null, region = (string?)null, bucket = (string?)null, prefix = (string?)null, accessKey = (string?)null, secretKey = (string?)null,
+                onScheduled = _form.OnScheduled, onNightly = _form.OnNightly, onClosing = _form.OnClosing, onManual = _form.OnManual,
+                keepDaily = _form.KeepDaily, keepWeekly = _form.KeepWeekly, keepMonthly = _form.KeepMonthly, isActive = _form.IsActive,
+            };
+            if (_form.Id is { } id)
+            {
+                await Api.PutAsync<BackupDestinationDto>($"api/v1/backups/destinations/{id}", body);
+            }
+            else
+            {
+                await Api.PostAsync<BackupDestinationDto>("api/v1/backups/destinations", body);
+            }
+
+            Snackbar.Add($"Destino «{_form.Name.Trim()}» guardado.", Severity.Success);
+            _form = null;
+            _check = null;
+            await CargarAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task ProbarAsync(BackupDestinationDto destination)
+    {
+        _busy = true;
+        try
+        {
+            var message = await Api.PostAsync<string>($"api/v1/backups/destinations/{destination.Id}/test");
+            Snackbar.Add($"{destination.Name}: {message}", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add($"{destination.Name}: {ex.Texto}", Severity.Warning);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private async Task RespaldarAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.PostAsync("api/v1/backups");
+            Snackbar.Add("Backup en cola: el resultado aparecerá aquí en unos minutos (pulse Actualizar).", Severity.Info);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Texto, Severity.Error);
+        }
+        catch (HttpRequestException)
+        {
+            Snackbar.Add("Sin conexión con el servidor de la tienda.", Severity.Error);
+        }
+
+        _busy = false;
+    }
+
+    private static string Resultado(BackupRunDto run) =>
+        run.Succeeded ? run.Verified ? "Correcto y verificado" : "Correcto" : "Falló" + (run.Error is { Length: > 0 } e ? ": " + e : "");
+
+    private static string Cuando(BackupDestinationDto d)
+    {
+        var partes = new List<string>();
+        if (d.OnScheduled) partes.Add("programados");
+        if (d.OnNightly) partes.Add("nocturno");
+        if (d.OnClosing) partes.Add("cierre de caja");
+        if (d.OnManual) partes.Add("manuales");
+        return partes.Count == 0 ? "Ninguno" : string.Join(", ", partes);
+    }
+
+    private static string TipoDestino(string kind) => kind switch
+    {
+        DestinationKinds.Local => "Carpeta del servidor",
+        DestinationKinds.External => "Disco externo",
+        DestinationKinds.Network => "Carpeta de red",
+        DestinationKinds.S3 => "Nube (S3)",
+        _ => kind,
+    };
+
+    private static string TipoBackup(string kind) => kind switch
+    {
+        BackupKinds.Scheduled => "Programado",
+        BackupKinds.Nightly => "Nocturno",
+        BackupKinds.CashClosing => "Cierre de caja",
+        BackupKinds.PreUpdate => "Antes de actualizar",
+        BackupKinds.PreRestore => "Antes de restaurar",
+        BackupKinds.Manual => "Manual",
+        _ => kind,
+    };
+
+    private static string EstadoCopia(string status) => status switch
+    {
+        "COPIED" => "copiado",
+        "PENDING" => "pendiente",
+        "FAILED" => "falló",
+        "DELETED" => "borrado por retención",
+        _ => status.ToLowerInvariant(),
+    };
+
+    private static string? Vacio(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private sealed class Formulario
+    {
+        public Guid? Id { get; set; }
+        public string Kind { get; set; } = DestinationKinds.External;
+        public string Name { get; set; } = string.Empty;
+        public string? Path { get; set; }
+        public string? VolumeLabel { get; set; }
+        public bool OnScheduled { get; set; }
+        public bool OnNightly { get; set; } = true;
+        public bool OnClosing { get; set; }
+        public bool OnManual { get; set; } = true;
+        public int KeepDaily { get; set; } = 7;
+        public int KeepWeekly { get; set; } = 4;
+        public int KeepMonthly { get; set; } = 12;
+        public bool IsActive { get; set; } = true;
+    }
+}

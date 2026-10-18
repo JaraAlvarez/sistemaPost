@@ -97,7 +97,7 @@ y hasta cuándo está vigente**. Revise que sea su empresa y pulse **Continuar**
   vea el mismo código que muestra el instalador y pulse **Autorizar**. Como Google no funciona sin Internet, el instalador le pide
   crear una **contraseña de BusinessPost** (mínimo 12 caracteres, con letras y números): con su correo y esa contraseña entrará a
   la administración, también sin Internet.
-- **En prueba de 30 días:** escriba su nombre, su correo y una contraseña de mínimo 10 caracteres (dos veces).
+- **En prueba de 30 días:** escriba su nombre, su correo y una contraseña de mínimo 8 caracteres (dos veces; la revisa el servidor de la tienda con su regla de contraseñas).
 
 ![Paso 4 · Tu cuenta: el correo y la contraseña de su portal.](imagenes/instalacion/04-instalador-tu-cuenta.png)
 

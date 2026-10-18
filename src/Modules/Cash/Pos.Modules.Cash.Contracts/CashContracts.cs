@@ -151,10 +151,12 @@ public sealed record CashSessionDto(
     IReadOnlyList<SistecreditoNotUsedDto>? SistecreditoNotUsed = null);
 
 /// <summary>
-/// Crédito de Sistecrédito aprobado que, con autorización de supervisor, NO se usó en una venta de la jornada («No usar este crédito»): no
-/// es plata de la caja; la administración debe reversarlo en el portal de Sistecrédito (<c>Reviewed</c>: ya lo hizo).
+/// Cobro de Sistecrédito de la jornada que la administración debe revisar: no usado en la venta («No usar este crédito»,
+/// <c>Released</c>), aprobado tarde, aprobado después de completar con otro medio o de una venta anulada. No es plata de la caja; se
+/// reversa en el portal de Sistecrédito (<c>Reviewed</c>: ya se revisó). <c>Reason</c>: el motivo en palabras simples.
 /// </summary>
-public sealed record SistecreditoNotUsedDto(Guid AttemptId, decimal Amount, string? TransactionId, string MaskedDocument, DateTimeOffset ReleasedAt, bool Reviewed);
+public sealed record SistecreditoNotUsedDto(
+    Guid AttemptId, decimal Amount, string? TransactionId, string MaskedDocument, DateTimeOffset At, bool Reviewed, bool Released = false, string? Reason = null);
 
 public sealed record CashSessionSummaryDto(
     Guid Id, string Number, string TerminalCode, string CashierName, DateOnly BusinessDate, string Status, decimal? Difference, bool ReviewRequired,

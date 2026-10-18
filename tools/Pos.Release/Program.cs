@@ -9,9 +9,13 @@ using Pos.Updates.Contracts;
 //        Genera la clave de firma de actualizaciones. Guárdela FUERA del VPS (como la de licencias). Imprime kid y x para update-keys.json.
 //   Pos.Release sign --package BusinessPost-1.4.0.zip --version 1.4.0 --key clave.pem --out stable.json
 //                    [--channel stable] [--package-url BusinessPost-1.4.0.zip] [--min-terminal 1.4.0] [--notes "Novedades…"] [--product BusinessPost]
-//        Firma el manifiesto de una versión (huella SHA-256 y tamaño del paquete).
+//                    (sin --min-terminal no hay versión mínima de las cajas: no se avisa de cajas desactualizadas)
+//                    [--expires-days 90] [--sequence N]
+//        Firma el manifiesto de una versión (huella SHA-256 y tamaño del paquete). Lleva caducidad (por defecto 90 días: hay que volver a
+//        firmar antes de que venza) y número de secuencia creciente (por defecto la hora Unix de la firma): el actualizador rechaza un
+//        manifiesto vencido o con una secuencia menor que la última que vio.
 //   Pos.Release verify --manifest stable.json --public-key <x> [--product BusinessPost]
-// Códigos de salida: 0 = correcto, 1 = manifiesto inválido, 2 = uso incorrecto.
+// Códigos de salida: 0 = correcto, 1 = manifiesto inválido, 2 = uso incorrecto, 3 = válido pero vence en menos de 15 días (volver a firmar).
 var options = new Dictionary<string, string>(StringComparer.Ordinal);
 for (var i = 1; i < args.Length; i++)
 {
@@ -61,16 +65,33 @@ try
                 return 2;
             }
 
+            var days = options.TryGetValue("expires-days", out var d) ? int.Parse(d, CultureInfo.InvariantCulture) : (int)ManifestFreshness.DefaultLifetime.TotalDays;
+            if (days is < 1 or > 365)
+            {
+                Console.Error.WriteLine("--expires-days debe estar entre 1 y 365.");
+                return 2;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var sequence = options.TryGetValue("sequence", out var q) ? long.Parse(q, CultureInfo.InvariantCulture) : now.ToUnixTimeSeconds();
+            if (sequence <= 0)
+            {
+                Console.Error.WriteLine("--sequence debe ser mayor que cero.");
+                return 2;
+            }
+
             using var key = LicenseSigningKey.ImportPem(await File.ReadAllTextAsync(Required("key")));
             await using var stream = File.OpenRead(package);
             var sha = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream));
             var manifest = new UpdateManifest(
                 options.GetValueOrDefault("product", "BusinessPost"), channel, version, options.GetValueOrDefault("package-url", Path.GetFileName(package)),
-                sha, stream.Length, options.GetValueOrDefault("min-terminal", version), DateTimeOffset.UtcNow, options.GetValueOrDefault("notes", string.Empty));
+                sha, stream.Length, options.GetValueOrDefault("min-terminal", string.Empty), now, options.GetValueOrDefault("notes", string.Empty),
+                now.AddDays(days), sequence);
             var signed = UpdateSigning.Sign(manifest, key);
             await File.WriteAllTextAsync(Required("out"), UpdateSigning.Serialize(signed));
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                $"Manifiesto {channel} {version} firmado con {key.Kid}: {Required("out")} (paquete {stream.Length / 1024.0 / 1024.0:0.0} MB, SHA-256 {sha[..12]}…)."));
+                $"Manifiesto {channel} {version} firmado con {key.Kid}: {Required("out")} (paquete {stream.Length / 1024.0 / 1024.0:0.0} MB, SHA-256 {sha[..12]}…, " +
+                $"secuencia {sequence}, vence {now.AddDays(days):yyyy-MM-dd})."));
             return 0;
         }
 
@@ -84,9 +105,20 @@ try
             }
 
             var status = UpdateSigning.Verify(signed, new LicenseKeyRing([publicKey]), options.GetValueOrDefault("product", "BusinessPost"), out var manifest);
+            if (status == ManifestStatus.Valid && manifest is not null)
+            {
+                status = ManifestFreshness.Check(manifest, DateTimeOffset.UtcNow, lastSequence: 0, requireNotExpired: true);
+            }
+
             Console.WriteLine(status == ManifestStatus.Valid
                 ? $"Manifiesto válido: {JsonSerializer.Serialize(manifest)}"
                 : $"MANIFIESTO INVÁLIDO: {status}");
+            if (status == ManifestStatus.Valid && manifest?.ExpiresAt is { } expires && expires - DateTimeOffset.UtcNow < ManifestFreshness.RenewalWarning)
+            {
+                // M5: aviso para quien publica (también sirve como tarea programada en el VPS: código 3 = renovar).
+                Console.WriteLine($"ATENCIÓN: el manifiesto vence el {expires:yyyy-MM-dd}: vuelva a firmarlo (sign) y súbalo antes de esa fecha.");
+                return 3;
+            }
             return status == ManifestStatus.Valid ? 0 : 1;
         }
 
@@ -95,7 +127,7 @@ try
             return 2;
     }
 }
-catch (Exception ex) when (ex is ArgumentException or IOException or FormatException or CryptographicException)
+catch (Exception ex) when (ex is ArgumentException or IOException or FormatException or OverflowException or CryptographicException)
 {
     Console.Error.WriteLine(ex.Message);
     return 2;

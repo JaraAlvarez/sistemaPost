@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = CloudPermissions.SyncDataView)]
 @inherits PortalPageBase
 @using System.Globalization
+@inject IDialogService Dialogs
 
 <PageTitle>Datos de las tiendas · BusinessPost</PageTitle>
 <PageHeader Title="Datos de las tiendas" Section="Operación"
@@ -69,7 +70,7 @@ else
         {
             <div class="bp-table-wrap">
                 <MudSimpleTable Dense="true" Hover="true" Elevation="0">
-                    <thead><tr><th scope="col">Sucursal</th><th scope="col">Último lote</th><th scope="col">Vía</th><th scope="col" class="num">Ventas</th><th scope="col" class="num">Cierres</th><th scope="col" class="num">Saldos</th><th scope="col" class="num">Productos</th></tr></thead>
+                    <thead><tr><th scope="col">Sucursal</th><th scope="col">Último lote</th><th scope="col">Vía</th><th scope="col" class="num">Ventas</th><th scope="col" class="num">Cierres</th><th scope="col" class="num">Saldos</th><th scope="col" class="num">Productos</th><th scope="col">Firma de paquetes</th></tr></thead>
                     <tbody>
                         @foreach (var i in _data.Installations)
                         {
@@ -78,6 +79,19 @@ else
                                 <td>@Date(i.LastBatchAt)</td>
                                 <td>@(i.LastVia == "FILE" ? "Paquete" : i.LastVia == "ONLINE" ? "En línea" : "—")</td>
                                 <td class="num">@i.Sales</td><td class="num">@i.CashSessions</td><td class="num">@i.StockRows</td><td class="num">@i.Products</td>
+                                <td>
+                                    <StatusChip Text="@(i.KeyRegistered ? "Clave registrada" : "Sin clave")" Color="@(i.KeyRegistered ? Color.Success : Color.Default)" />
+                                    @if (i.Unverified > 0)
+                                    {
+                                        <StatusChip Text="@($"{i.Unverified} sin verificar")" Color="Color.Warning" />
+                                    }
+                                    @if (i.KeyRegistered)
+                                    {
+                                        <AuthorizeView Policy="@CloudPermissions.SyncPackageReview">
+                                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="Busy" OnClick="@(() => ReiniciarClaveAsync(i))">Reiniciar clave</MudButton>
+                                        </AuthorizeView>
+                                    }
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -85,6 +99,40 @@ else
             </div>
         }
     </MudPaper>
+
+    @if (_data.UnverifiedBatches is { Count: > 0 } unverified)
+    {
+        <MudPaper Elevation="0" Class="bp-card bp-section">
+            <div class="pa-4 pb-0">
+                <MudText Typo="Typo.h6" HtmlTag="h2" Class="bp-section-title"><MudIcon Icon="@Icons.Material.Outlined.GppMaybe" Size="Size.Small" aria-hidden="true" />Paquetes sin verificar</MudText>
+                <MudText Typo="Typo.body2" Class="mb-2">
+                    Se cargaron cuando la tienda aún no había registrado su clave de firma: sus datos ya se ven en el portal, pero no se pudo comprobar
+                    que vengan de la tienda. Cuando la tienda sincronice en línea, verifíquelos; si no los reconoce, descártelos (se borran los datos
+                    que dejaron).
+                </MudText>
+            </div>
+            <div class="bp-table-wrap">
+                <MudSimpleTable Dense="true" Hover="true" Elevation="0">
+                    <thead><tr><th scope="col">Cargado</th><th scope="col">Sucursal</th><th scope="col" class="num">Datos</th><th scope="col">Firma</th><th scope="col"></th></tr></thead>
+                    <tbody>
+                        @foreach (var b in unverified)
+                        {
+                            <tr>
+                                <td>@Date(b.ReceivedAt)</td><td>@(b.BranchName ?? b.InstallationId.ToString())</td><td class="num">@b.Items</td>
+                                <td>@(b.MatchesKey ? "Coincide con la clave registrada" : b.HasSignature ? "Firmado con otra clave o la tienda aún no la registra" : "Sin firma (versión anterior)")</td>
+                                <td>
+                                    <AuthorizeView Policy="@CloudPermissions.SyncPackageReview">
+                                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Disabled="@(Busy || !b.MatchesKey)" OnClick="@(() => VerificarAsync(b))">Verificar</MudButton>
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Disabled="Busy" OnClick="@(() => DescartarAsync(b))">Descartar</MudButton>
+                                    </AuthorizeView>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        </MudPaper>
+    }
 
     <MudPaper Elevation="0" Class="bp-card bp-section">
         <MudTabs Elevation="0" Rounded="false" ApplyEffectsToContainer="true" TabPanelsClass="pa-0" Border="true">
@@ -231,6 +279,44 @@ else
         }
     }
 
+    private const long MaxPackageFileBytes = 200L * 1024 * 1024;
+
+    private async Task VerificarAsync(UnverifiedBatchDto batch)
+    {
+        if (await RunAsync(new VerifySyncBatchCommand(batch.BatchId), "Paquete verificado: lo firmó la clave registrada de la tienda."))
+        {
+            await CargarAsync();
+        }
+    }
+
+    private async Task DescartarAsync(UnverifiedBatchDto batch)
+    {
+        if (!await Dialogs.ConfirmAsync("Descartar paquete",
+                $"Los datos que este paquete reemplazó ({batch.Items} datos) vuelven a su versión anterior y los que creó se borran. Si la tienda es legítima, " +
+                "lo que ya confirmó no se vuelve a subir solo: cuando registre su clave, vuelva a cargar el mismo archivo.",
+                "Descartar"))
+        {
+            return;
+        }
+
+        var result = await RunAsync(new DiscardSyncBatchCommand(batch.BatchId), "Paquete descartado.");
+        if (result.IsSuccess)
+        {
+            await CargarAsync();
+        }
+    }
+
+    private async Task ReiniciarClaveAsync(SyncInstallationStatusDto installation)
+    {
+        var reason = await Dialogs.ConfirmWithReasonAsync("Reiniciar la clave de firma",
+            $"La sucursal {installation.BranchName ?? installation.InstallationId.ToString()} registrará una clave nueva en su próxima sincronización en línea. " +
+            "Mientras tanto, sus paquetes quedarán sin verificar.", "Reiniciar", "Motivo");
+        if (reason is not null && await RunAsync(new ResetSyncSigningKeyCommand(installation.InstallationId, reason), "Clave de firma reiniciada."))
+        {
+            await CargarAsync();
+        }
+    }
+
     private async Task SubirAsync(IBrowserFile? file)
     {
         if (file is null)
@@ -238,8 +324,9 @@ else
             return;
         }
 
+        // El paquete va comprimido y cifrado: el tamaño del archivo se limita aquí y lo descomprimido al abrirlo (SyncLimits, revisión S3).
         using var memory = new MemoryStream();
-        await file.OpenReadStream(maxAllowedSize: 200 * 1024 * 1024).CopyToAsync(memory);
+        await file.OpenReadStream(maxAllowedSize: MaxPackageFileBytes).CopyToAsync(memory);
         var result = await RunAsync(new UploadPackageCommand(memory.ToArray()), "Paquete cargado.");
         if (result.IsSuccess)
         {
@@ -247,6 +334,11 @@ else
             Snackbar.Add(r.Duplicate
                 ? $"Ese paquete ya se había cargado ({r.OrganizationName} · {r.BranchName})."
                 : $"{r.OrganizationName} · {r.BranchName}: {r.Items} datos, {r.Applied} nuevos o actualizados, {r.Ignored} ya estaban.", Severity.Info);
+            if (r.Unverified && !r.Duplicate)
+            {
+                Snackbar.Add("La tienda aún no registró su clave de firma (nunca sincronizó en línea con esta versión): no se pudo comprobar que el " +
+                    "paquete venga de ella. Quedó marcado como «sin verificar».", Severity.Warning);
+            }
             await CargarAsync();
         }
     }

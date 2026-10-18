@@ -254,11 +254,14 @@ internal sealed class ExportCustomerDataHandler(
 
 /// <summary>
 /// Supresión (D8-08, RN-DAT-04): anonimiza el perfil del tercero, revoca las finalidades y deja el rol inactivo. La identificación,
-/// los documentos y los snapshots de las ventas se conservan durante la retención legal.
+/// los documentos y los snapshots de las ventas se conservan durante la retención legal; sus copias en la nube se reemplazan sin el
+/// nombre del cliente (las ventas quedan marcadas y vuelven a subir con versión nueva, revisión S1).
 /// </summary>
 public sealed record AnonymizeCustomerCommand(Guid PartyId, string Reason) : ICommand<CustomerDto>, IAllowedWhenRestricted;
 
-internal sealed class AnonymizeCustomerHandler(ICustomerStore store, IPartyRegistry parties, CustomerService service, IAuditWriter audit, IClock clock)
+internal sealed class AnonymizeCustomerHandler(
+    ICustomerStore store, IPartyRegistry parties, CustomerService service, ICustomerSaleRedaction sales, ISyncOutboxRedaction outbox, IAuditWriter audit,
+    IClock clock)
     : ICommandHandler<AnonymizeCustomerCommand, CustomerDto>
 {
     public async Task<Result<CustomerDto>> Handle(AnonymizeCustomerCommand request, CancellationToken cancellationToken)
@@ -294,9 +297,16 @@ internal sealed class AnonymizeCustomerHandler(ICustomerStore store, IPartyRegis
         }
 
         customer.Anonymize(clock.UtcNow);
+        var redacted = await sales.RedactCustomerAsync(customer.PartyId, clock.UtcNow, cancellationToken);
+
+        // Los cambios del tercero y del cliente ya guardados en el outbox SYNC llevan nombre, identificación, texto de búsqueda y contacto:
+        // se borran sus valores (el cambio de esta supresión se escribe después, ya anonimizado).
+        await outbox.RedactAsync("parties.parties", customer.PartyId, cancellationToken);
+        await outbox.RedactAsync("customers.customers", customer.PartyId, cancellationToken);
         await audit.WriteAsync(
             new AuditEntry("customers", "CUSTOMER_ANONYMIZED", nameof(Customer), customer.PartyId, customer.AuditLabel,
-                $"Datos del titular suprimidos: {request.Reason!.Trim()}", Severity: AuditSeverity.Warning),
+                $"Datos del titular suprimidos: {request.Reason!.Trim()} ({redacted} venta(s) se reenvían a la nube sin el nombre).",
+                Severity: AuditSeverity.Warning),
             cancellationToken);
         return await service.DtoAsync(customer, cancellationToken);
     }

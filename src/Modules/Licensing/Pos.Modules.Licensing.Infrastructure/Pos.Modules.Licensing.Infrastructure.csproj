@@ -20,5 +20,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
+    <InternalsVisibleTo Include="Pos.Infrastructure.UnitTests" />
   </ItemGroup>
 </Project>

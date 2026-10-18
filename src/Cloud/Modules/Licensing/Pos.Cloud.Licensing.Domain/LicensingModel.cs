@@ -49,6 +49,9 @@ public enum SubscriptionEventType
 
     /// <summary>Cambio automático por el paso del tiempo (vence, entra en gracia, expira) o por un cambio de la gracia.</summary>
     StatusChanged,
+
+    /// <summary>La pasarela anuló un pago en línea ya aplicado: se devuelve la vigencia que ese pago había dado (W-bajas).</summary>
+    RenewalReverted,
 }
 
 public enum LicenseStatus

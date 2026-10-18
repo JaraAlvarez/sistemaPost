@@ -1,11 +1,13 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Runtime.Versioning;
+using System.Security.Cryptography;
 using System.ServiceProcess;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Pos.Infrastructure.Security;
+using Pos.Updates.Contracts;
 
 namespace Pos.Server.Updater;
 
@@ -25,37 +27,114 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
 
     private string CurrentFile => Path.Combine(AppDirectory, "current.json");
 
+    /// <summary>
+    /// Versión activa según <c>app\current.json</c>. Si falta o está dañado devuelve <see cref="string.Empty"/> (no "0.0.0": eso hacía que
+    /// cualquier versión pareciera más nueva). El actualizador no actualiza un equipo cuya versión no conoce y lo avisa.
+    /// </summary>
     public string CurrentVersion
     {
         get
         {
+            // ALTA 2: primero el destino REAL de la unión app\current (si apunta a una versión válida de app); current.json, si no hay unión.
+            try
+            {
+                if (Directory.Exists(CurrentLink) && UpdaterSecurity.IsReparsePoint(CurrentLink) && ReadJunctionTarget(CurrentLink) is { } target
+                    && Path.GetFileName(target.TrimEnd(Path.DirectorySeparatorChar)) is { } name && HasVersion(name)
+                    && string.Equals(Path.GetFullPath(Path.Combine(AppDirectory, name)).TrimEnd(Path.DirectorySeparatorChar), target.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                {
+                    return name;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Se sigue con current.json.
+            }
+
             try
             {
                 return File.Exists(CurrentFile)
-                    ? JsonDocument.Parse(File.ReadAllText(CurrentFile)).RootElement.GetProperty("version").GetString() ?? "0.0.0"
-                    : "0.0.0";
+                    && JsonDocument.Parse(File.ReadAllText(CurrentFile)).RootElement.GetProperty("version").GetString() is { } version
+                    && SemanticVersion.TryParse(version, out _)
+                        ? version
+                        : string.Empty;
             }
-            catch (Exception ex) when (ex is JsonException or IOException or KeyNotFoundException)
+            catch (Exception ex) when (ex is JsonException or IOException or KeyNotFoundException or InvalidOperationException)
             {
-                return "0.0.0";
+                return string.Empty;
             }
         }
     }
 
-    public bool IsStaged(string version) => Directory.Exists(Path.Combine(AppDirectory, version));
+    /// <summary>
+    /// U1: la versión está preparada si su carpeta tiene el manifiesto de huellas que dejó <see cref="StageAsync"/> (del paquete verificado)
+    /// y TODOS sus archivos coinciden, sin enlaces. Una carpeta que solo existe (a medio copiar, o alterada) no cuenta.
+    /// </summary>
+    public bool IsStaged(string version, string packageSha256) =>
+        SemanticVersion.IsSafeFolderName(version) && StagedContents.Verify(Path.Combine(AppDirectory, version), packageSha256) is null;
 
-    public async Task StageAsync(string version, string packagePath, CancellationToken cancellationToken)
+    /// <summary>ALTA 1: <c>app\{versión}</c> con versión SemVer estricta, carpeta real (no un enlace), hija directa de <c>app</c> y existente.</summary>
+    public bool HasVersion(string version)
     {
-        var target = Path.Combine(AppDirectory, version);
-        var temporary = target + ".tmp";
-        if (Directory.Exists(temporary))
+        if (!SemanticVersion.IsSafeFolderName(version))
         {
-            Directory.Delete(temporary, recursive: true);
+            return false;
         }
 
-        await ZipFile.ExtractToDirectoryAsync(packagePath, temporary, overwriteFiles: true, cancellationToken);
+        var path = Path.GetFullPath(Path.Combine(AppDirectory, version));
+        return string.Equals(Path.GetDirectoryName(path), Path.GetFullPath(AppDirectory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+            && Directory.Exists(path) && !UpdaterSecurity.IsReparsePoint(path);
+    }
+
+    /// <summary>
+    /// TOCTOU (R5): el paquete se abre UNA vez, en exclusiva (nadie puede cambiarlo mientras tanto); con ese mismo handle se comprueban
+    /// tamaño y huella del manifiesto firmado (U2) y se extrae. Lo extraído queda con su manifiesto de huellas (U1) y recién entonces se
+    /// renombra a <c>app\{versión}</c>.
+    /// </summary>
+    public async Task StageAsync(string version, string packagePath, UpdateManifest manifest, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        var target = Path.Combine(AppDirectory, version);
+        var temporary = target + ".tmp";
+        foreach (var leftover in new[] { temporary, target })
+        {
+            if (SecurityCheckedDelete(leftover) is { } problem)
+            {
+                throw new InvalidOperationException(problem);
+            }
+        }
+
+        await using (var package = new FileStream(packagePath, FileMode.Open, FileAccess.Read, FileShare.None, 81920, FileOptions.Asynchronous))
+        {
+            if (package.Length != manifest.PackageSize
+                || !string.Equals(Convert.ToHexStringLower(await SHA256.HashDataAsync(package, cancellationToken)), manifest.PackageSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("El paquete no coincide con la huella del manifiesto firmado: no se instala.");
+            }
+
+            package.Position = 0;
+            await using var zip = new ZipArchive(package, ZipArchiveMode.Read, leaveOpen: true);
+            await StagedContents.ExtractAsync(zip, temporary, manifest.PackageSha256, cancellationToken);
+        }
+
         Directory.Move(temporary, target);
         await PrecalentarAsync(target, cancellationToken);
+    }
+
+    /// <summary>Borra una carpeta que dejó un intento anterior, sin seguir enlaces (si es un enlace, se quita el enlace y nada más).</summary>
+    private static string? SecurityCheckedDelete(string directory)
+    {
+        if (!Directory.Exists(directory) && !File.Exists(directory))
+        {
+            return null;
+        }
+
+        if (UpdaterSecurity.IsReparsePoint(directory))
+        {
+            Directory.Delete(directory);
+            return null;
+        }
+
+        return StagedContents.DeleteWithoutFollowingLinks(directory);
     }
 
     /// <summary>
@@ -75,6 +154,13 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
             var path = Path.Combine(versionDirectory, folder, exe);
             if (!File.Exists(path))
             {
+                continue;
+            }
+
+            // R5: solo programas que salieron del paquete verificado (su huella está en el manifiesto de la carpeta) y sin enlaces.
+            if (StagedContents.VerifyFile(versionDirectory, Path.Combine(folder, exe)) is { } problema)
+            {
+                LogServiceFailed(logger, exe, $"no se precalienta: {problema}");
                 continue;
             }
 
@@ -182,29 +268,68 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
         }
     }
 
+    /// <summary>
+    /// U3: cambio de versión como en el instalador (IN9): la unión nueva se crea aparte (<c>app\current.nueva</c>) y solo entonces reemplaza
+    /// a la anterior. Si algo falla, <c>app\current</c> sigue (o vuelve a quedar) apuntando a la versión anterior y se lanza la excepción.
+    /// </summary>
     public void Activate(string version)
     {
-        // Unión de NTFS: los servicios apuntan a app\current\… y el cambio no toca sus rutas.
+        if (!HasVersion(version))
+        {
+            throw new InvalidOperationException($"La carpeta de la versión {version} no existe, no es válida o es un enlace.");
+        }
+
+        var target = Path.GetFullPath(Path.Combine(AppDirectory, version));
+
+        // ALTA 2: idempotente según el destino REAL de la unión (no current.json): si ya apunta ahí, solo se deja current.json al día.
+        if (Directory.Exists(CurrentLink) && UpdaterSecurity.IsReparsePoint(CurrentLink)
+            && string.Equals(ReadJunctionTarget(CurrentLink)?.TrimEnd(Path.DirectorySeparatorChar), target.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            WriteCurrentFile(version);
+            return;
+        }
+
+        var staged = CurrentLink + ".nueva";
+        if (Directory.Exists(staged))
+        {
+            if (!UpdaterSecurity.IsReparsePoint(staged))
+            {
+                throw new InvalidOperationException($"{staged} no es una unión: no se borra.");
+            }
+
+            Directory.Delete(staged);
+        }
+
+        Junction(staged, target);
+        var previous = Directory.Exists(CurrentLink) ? ReadJunctionTarget(CurrentLink) : null;
         if (Directory.Exists(CurrentLink))
         {
+            if (!UpdaterSecurity.IsReparsePoint(CurrentLink))
+            {
+                Directory.Delete(staged);
+                throw new InvalidOperationException($"{CurrentLink} no es una unión: no se reemplaza.");
+            }
+
             Directory.Delete(CurrentLink);
         }
 
-        using (var mklink = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{CurrentLink}\" \"{Path.Combine(AppDirectory, version)}\"")
-               {
-                   CreateNoWindow = true,
-                   UseShellExecute = false,
-               })!)
+        try
         {
-            mklink.WaitForExit();
-            if (mklink.ExitCode != 0)
+            Directory.Move(staged, CurrentLink);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Se vuelve a dejar la unión anterior (o, si no se puede, la nueva directamente).
+            TryDeleteLink(staged);
+            if (previous is not null && Directory.Exists(previous))
             {
-                throw new InvalidOperationException($"No se pudo crear el enlace a la versión {version}.");
+                Junction(CurrentLink, previous);
             }
+
+            throw new InvalidOperationException($"No se pudo activar la versión {version} ({ex.Message}); app\\current sigue en la anterior.", ex);
         }
 
-        File.WriteAllText(CurrentFile + ".tmp", JsonSerializer.Serialize(new { version }));
-        File.Move(CurrentFile + ".tmp", CurrentFile, overwrite: true);
+        WriteCurrentFile(version);
 
         // Ventana: los accesos directos nuevos ya apuntan a app\current; los de instalaciones anteriores, a {InstallRoot}\desktop. La
         // ventana abierta no se cierra: sigue funcionando y la versión nueva se usa la próxima vez que se abra (también en la vuelta atrás).
@@ -246,7 +371,7 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
         var current = CurrentVersion;
         var versions = Directory.GetDirectories(AppDirectory)
             .Select(Path.GetFileName)
-            .Where(n => n is not null && n != "current" && !n.EndsWith(".tmp", StringComparison.Ordinal))
+            .Where(n => n is not null && n != "current" && n != "current.nueva" && !n.EndsWith(".tmp", StringComparison.Ordinal))
             .Select(n => (Name: n!, Ok: Pos.Updates.Contracts.SemanticVersion.TryParse(n, out var v), Version: v))
             .Where(v => v.Ok)
             .OrderByDescending(v => v.Version)
@@ -262,9 +387,12 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
 
             try
             {
-                Directory.Delete(Path.Combine(AppDirectory, old.Name), recursive: true);
+                if (SecurityCheckedDelete(Path.Combine(AppDirectory, old.Name)) is { } problema)
+                {
+                    LogServiceFailed(logger, old.Name, problema);
+                }
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 LogServiceFailed(logger, old.Name, ex.Message);
             }
@@ -290,6 +418,45 @@ public sealed partial class WindowsUpdateHost(UpdaterSettings settings, ILogger<
             LogMigrator(logger, version, start.ArgumentList[0], process.ExitCode, stdout, stderr);
         }
         return process.ExitCode;
+    }
+
+    private void WriteCurrentFile(string version)
+    {
+        DurableFile.WriteAllText(CurrentFile, JsonSerializer.Serialize(new { version }));
+    }
+
+    private static void Junction(string link, string target)
+    {
+        using var mklink = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"), $"/c mklink /J \"{link}\" \"{target}\"")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+        })!;
+        mklink.StandardOutput.ReadToEnd();
+        mklink.WaitForExit();
+        if (mklink.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"No se pudo crear la unión {link}.");
+        }
+    }
+
+    private static string? ReadJunctionTarget(string link) =>
+        new DirectoryInfo(link).LinkTarget is { } target ? Path.GetFullPath(target.Replace(@"\??\", string.Empty, StringComparison.Ordinal)) : null;
+
+    private static void TryDeleteLink(string link)
+    {
+        try
+        {
+            if (Directory.Exists(link) && UpdaterSecurity.IsReparsePoint(link))
+            {
+                Directory.Delete(link);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Mejor esfuerzo.
+        }
     }
 
     private static ServiceController? Find(string name) =>

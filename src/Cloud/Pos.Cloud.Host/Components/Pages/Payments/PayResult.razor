@@ -1,5 +1,6 @@
 @page "/pagar/resultado"
 @page "/pagar/resultado/{Reference}"
+@page "/pagar/resultado/{Reference}/{Token}"
 @layout PaymentLayout
 @attribute [AllowAnonymous]
 @using System.Globalization
@@ -7,7 +8,8 @@
 @inject IDispatcher Dispatcher
 
 @* Regreso desde Wompi (agrega ?id=<transacción>). Solo LEE nuestra orden (D12C-04): la renovación la hace el evento firmado
-   o la conciliación. Mientras el pago no sea definitivo, la página se recarga sola unas pocas veces. *@
+   o la conciliación. Mientras el pago no sea definitivo, la página se recarga sola unas pocas veces. Sin el token aleatorio de la orden
+   (la referencia es un consecutivo) no muestra el estado ni el valor. *@
 <PageTitle>Resultado del pago · BusinessPost</PageTitle>
 
 @if (_result is not null && !_result.Final && Attempt < MaxAttempts)
@@ -45,6 +47,9 @@
     [Parameter]
     public string? Reference { get; set; }
 
+    [Parameter]
+    public string? Token { get; set; }
+
     [SupplyParameterFromQuery(Name = "id")]
     private string? TransactionId { get; set; }
 
@@ -57,7 +62,9 @@
     {
         get
         {
-            var path = Reference is null ? "pagar/resultado" : $"pagar/resultado/{Uri.EscapeDataString(Reference)}";
+            var path = Reference is null ? "pagar/resultado"
+                : Token is null ? $"pagar/resultado/{Uri.EscapeDataString(Reference)}"
+                : $"pagar/resultado/{Uri.EscapeDataString(Reference)}/{Uri.EscapeDataString(Token)}";
             var id = TransactionId is null ? string.Empty : $"id={Uri.EscapeDataString(TransactionId)}&";
             return string.Create(CultureInfo.InvariantCulture, $"{path}?{id}intento={Attempt + 1}");
         }
@@ -65,7 +72,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var result = await Dispatcher.Send(new GetPaymentResultQuery(TransactionId, Reference));
+        var result = await Dispatcher.Send(new GetPaymentResultQuery(TransactionId, Reference, Token));
         _result = result.IsSuccess ? result.Value : null;
     }
 }

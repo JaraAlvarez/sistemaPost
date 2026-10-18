@@ -20,6 +20,7 @@ public static class SalesPermissions
     public const string WarrantyRefund = "sales.refund.warranty";
     public const string SaleReprint = "sales.sale.reprint";
     public const string SaleView = "sales.sale.view";
+    public const string ScaleReset = "sales.scale.reset";
 
     public static IEnumerable<PermissionDefinition> All =>
     [
@@ -35,6 +36,7 @@ public static class SalesPermissions
         new(WarrantyRefund, "Reintegrar dinero por garantía (excepción legal, solo el propietario)", isSensitive: true),
         new(SaleReprint, "Reimprimir el tiquete de una venta (marcado COPIA)", isSensitive: false),
         new(SaleView, "Consultar ventas, cambios y reportes de ventas", isSensitive: false),
+        new(ScaleReset, "Reiniciar la báscula de la caja: libera la espera de «retire el producto» (admite autorización de supervisor)", isSensitive: true),
     ];
 }
 
@@ -71,6 +73,30 @@ public sealed record SaleLineDto(
     Guid? PriceListId = null,
     string PriceSource = "DEFAULT",
     string? WeightSource = null);
+
+/// <summary>
+/// Lectura firmada por el agente de la caja que acompaña una línea con <c>WeightSource</c> SCALE (Fase 7-C, D3): <c>Payload</c> es el
+/// texto canónico (<see cref="Pos.SharedKernel.Measurement.ScaleReadingPayload"/>) y <c>Signature</c> su firma ECDSA P-256 en Base64.
+/// La interfaz la reenvía tal como la entregó el agente; el servidor toma el peso, la tara y el retorno a cero de ahí, nunca del cliente.
+/// </summary>
+public sealed record ScaleReadingInfo(string Payload, string Signature);
+
+/// <summary>Retorno a cero de la báscula de la caja en el servidor: <c>AwaitingEmpty</c> = la siguiente pesada exige retirar el producto.</summary>
+public sealed record ScaleInterlockDto(bool AwaitingEmpty);
+
+/// <summary>
+/// Versión mínima de la interfaz de caja que el servidor acepta para pesar (Fase 7-C, BN10): la interfaz envía la cabecera
+/// <see cref="Header"/>; una pantalla vieja guardada en el navegador no la envía y recibe <c>CLIENT.OUTDATED</c> ("recargue la página").
+/// </summary>
+public static class PosClientBuild
+{
+    public const string Header = "X-Pos-Client-Build";
+
+    /// <summary>Primera versión que envía las lecturas firmadas de la báscula.</summary>
+    public const int SignedScaleReadings = 2;
+
+    public const string OutdatedCode = "CLIENT.OUTDATED";
+}
 
 /// <summary>
 /// De dónde salió el peso de una línea (Fase 7-C): SCALE (báscula conectada a la caja), LABEL (etiqueta de la báscula etiquetadora) o
@@ -209,6 +235,16 @@ public sealed record CustomerTopProductDto(Guid ProductId, string Sku, string Na
 public sealed record CustomerSalesSummaryDto(
     int Purchases, decimal TotalPurchased, decimal AverageTicket, DateTimeOffset? FirstPurchaseAt, DateTimeOffset? LastPurchaseAt, string? UsualBranch,
     int VoidedSales, int Exchanges, decimal ReturnedCredit, IReadOnlyList<CustomerTopProductDto> TopProducts);
+
+/// <summary>
+/// Supresión del titular (Customers, RN-DAT-04) en las ventas: la venta local conserva su snapshot durante la retención legal, pero se
+/// marca para que la sincronización suba su copia sin el nombre del cliente (revisión S1).
+/// </summary>
+public interface ICustomerSaleRedaction
+{
+    /// <summary>Marca las ventas del tercero (en la transacción en curso). Devuelve cuántas marcó.</summary>
+    Task<int> RedactCustomerAsync(Guid partyId, DateTimeOffset at, CancellationToken cancellationToken = default);
+}
 
 /// <summary>Historial de compras de un cliente, calculado en línea desde las ventas (D8-13).</summary>
 public interface ICustomerSalesHistory

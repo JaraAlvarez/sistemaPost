@@ -579,7 +579,7 @@ internal sealed class ListVerificationsHandler(IStockVerifier verifier) : IQuery
 }
 
 /// <summary>Reconstruye un saldo desde su kardex (acción explícita, auditada como crítica; nunca automática).</summary>
-public sealed record RebuildStockCommand(Guid WarehouseId, Guid ProductId, string Reason) : ICommand<StockDto>, IAllowedWhenRestricted;
+public sealed record RebuildStockCommand(Guid WarehouseId, Guid ProductId, string Reason) : ICommand<StockDto>;
 
 internal sealed class RebuildStockHandler(
     IInstallationContext installation, InventoryGuards guards, IStockVerifier verifier, IInventoryReadModel readModel, IAuditWriter audit)

@@ -171,7 +171,18 @@ internal static class ServerSetup
         app.UseMiddleware<ContentSecurityPolicyMiddleware>();
         app.UseBlazorFrameworkFiles();
         app.UseDefaultFiles();
-        app.UseStaticFiles();
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            // PN5: el asistente inicial (index.html y asistente.js) se revalida siempre: después de una actualización no queda en la caché
+            // del navegador la página o el script de la versión anterior.
+            OnPrepareResponse = context =>
+            {
+                if (context.Context.Request.Path.StartsWithSegments("/instalacion", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Context.Response.Headers.CacheControl = "no-cache";
+                }
+            },
+        });
 
         // El enrutamiento va DESPUÉS de los archivos estáticos: si no, la ruta de reserva de la interfaz se queda con /css, /_framework…
         app.UseRouting();
@@ -188,6 +199,10 @@ internal static class ServerSetup
         // Asistente inicial mínimo (Fase 13, D13-05): lo abre el instalador; la Fase 15 lo reemplaza con el diseño definitivo.
         app.MapGet("/instalacion", (IWebHostEnvironment environment) =>
                 Results.File(Path.Combine(environment.WebRootPath, "instalacion", "index.html"), "text/html; charset=utf-8"))
+            .ExcludeFromDescription();
+        // Su script va aparte: la política de seguridad de /instalacion no admite scripts en línea.
+        app.MapGet("/instalacion/asistente.js", (IWebHostEnvironment environment) =>
+                Results.File(Path.Combine(environment.WebRootPath, "instalacion", "asistente.js"), "text/javascript; charset=utf-8"))
             .ExcludeFromDescription();
 
         var api = app.MapGroup("/api/v1");

@@ -20,7 +20,8 @@ namespace Pos.Infrastructure.Persistence;
 /// Se ejecuta en cada SaveChanges, DENTRO de la transacción, en este orden:
 /// 1. columnas de control (created/updated), borrado lógico y row_version;
 /// 2. captura de auditoría de las entidades [Audited] (solo campos modificados; [Sensitive] como ***);
-/// 3. cambios de maestros sincronizables → outbox SYNC, campo por campo con su versión base (D4-09);
+/// 3. cambios de maestros sincronizables → outbox SYNC, campo por campo con su versión base (D4-09), sin [Sensitive] y con
+///    [PersonalData] enmascarado (revisión R6);
 /// 4. eventos de dominio → outbox;
 /// 5. reserva del seq de auditoría y cálculo de row_hash de todas las filas de auditoría pendientes.
 /// </summary>
@@ -232,22 +233,43 @@ internal sealed class PosSaveChangesInterceptor(
         var table = StoreObjectIdentifier.Table(entry.Metadata.GetTableName()!, entry.Metadata.GetSchema());
         foreach (var property in entry.Properties)
         {
-            if (ControlProperties.Contains(property.Metadata.Name) || IsLocalOnly(property) || property.Metadata.IsPrimaryKey() || !include(property))
+            if (ControlProperties.Contains(property.Metadata.Name) || IsLocalOnly(property) || property.Metadata.IsPrimaryKey() || !include(property)
+                || IsSensitive(property.Metadata.PropertyInfo))
             {
                 continue;
             }
 
             var converter = property.Metadata.GetValueConverter() ?? property.Metadata.FindTypeMapping()?.Converter;
             var value = property.CurrentValue is { } current && converter is not null ? converter.ConvertToProvider(current) : property.CurrentValue;
-            values[property.Metadata.GetColumnName(table) ?? property.Metadata.Name] = value switch
-            {
-                null => null,
-                JsonDocument doc => JsonNode.Parse(doc.RootElement.GetRawText()),
-                _ => JsonSerializer.SerializeToNode(value, value.GetType(), OutboxJson.Options),
-            };
+            values[property.Metadata.GetColumnName(table) ?? property.Metadata.Name] = SyncValue(property.Metadata.PropertyInfo, value);
         }
 
         return values;
+    }
+
+    /// <summary>
+    /// ¿La propiedad es un secreto (<c>[Sensitive]</c>: hashes de contraseña y PIN, credenciales)? No viaja en el outbox SYNC, ni
+    /// siquiera enmascarada (revisión R6): el outbox no se purga y va en cada backup.
+    /// </summary>
+    internal static bool IsSensitive(PropertyInfo? member) => member?.GetCustomAttribute<SensitiveAttribute>() is not null;
+
+    /// <summary>
+    /// Valor de una columna en el evento SYNC. Los datos personales (<c>[PersonalData]</c>) van enmascarados como en la auditoría
+    /// (D10-07): nadie consume hoy el dato completo y el outbox no se purga (revisión R6).
+    /// </summary>
+    internal static JsonNode? SyncValue(PropertyInfo? member, object? value)
+    {
+        if (member?.GetCustomAttribute<PersonalDataAttribute>() is { } personal)
+        {
+            return JsonValue.Create(MaskPersonal(value as string, personal.Kind));
+        }
+
+        return value switch
+        {
+            null => null,
+            JsonDocument doc => JsonNode.Parse(doc.RootElement.GetRawText()),
+            _ => JsonSerializer.SerializeToNode(value, value.GetType(), OutboxJson.Options),
+        };
     }
 
     private void PublishDomainEvents(DbContext context, List<EntityEntry> entries, DateTimeOffset now)

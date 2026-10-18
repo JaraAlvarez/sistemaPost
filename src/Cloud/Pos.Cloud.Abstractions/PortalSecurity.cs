@@ -51,6 +51,12 @@ public static class CloudPermissions
     /// <summary>Cargar un paquete .possync exportado por una tienda sin Internet.</summary>
     public const string SyncPackageUpload = "sync.package.upload";
 
+    /// <summary>
+    /// Verificar o descartar paquetes cargados sin verificar la firma y reiniciar la clave de firma de una tienda (revisión S2; solo
+    /// superadministrador).
+    /// </summary>
+    public const string SyncPackageReview = "sync.package.review";
+
     /// <summary>Ver los pagos en línea, los enlaces de pago y los precios; "Consultar ahora" una orden en la pasarela (Fase 12-C).</summary>
     public const string PaymentView = "licensing.payment.view";
 
@@ -74,7 +80,7 @@ public static class CloudPermissions
     private static readonly HashSet<string> SuperadminPermissions =
     [
         DashboardView, LicensingView, AccountManage, SubscriptionManage, SubscriptionSupport, LicenseManage, DeviceRelease,
-        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload, PaymentView, PaymentManage,
+        SigningKeyView, SigningKeyManage, PortalUserManage, AuditView, SyncDataView, SyncPackageUpload, SyncPackageReview, PaymentView, PaymentManage,
         PriceManage, DownloadView,
     ];
 
@@ -163,10 +169,19 @@ public enum PortalCustomerCheck
 
     /// <summary>La contraseña del portal sigue siendo la temporal.</summary>
     PasswordChangeRequired,
+
+    /// <summary>Autorizar en el navegador exige un ingreso reciente (contraseña o Google): la sesión es antigua.</summary>
+    ReauthenticationRequired,
+
+    /// <summary>El TOTP es obligatorio (portal con <c>RequireTotp</c>) pero el usuario aún no activó su autenticador.</summary>
+    TotpNotEnrolled,
 }
 
-/// <summary>Usuario CLIENTE validado: correo (en minúsculas) y nombre para mostrar.</summary>
-public sealed record PortalCustomerVerification(PortalCustomerCheck Result, string? Email = null, string? DisplayName = null);
+/// <summary>
+/// Usuario CLIENTE validado: correo (en minúsculas) y nombre para mostrar. <c>TotpRequired</c> (autorización en el navegador): el
+/// usuario debe escribir su código TOTP para autorizar (lo tiene activo o el portal lo exige), sin importar si entró con Google.
+/// </summary>
+public sealed record PortalCustomerVerification(PortalCustomerCheck Result, string? Email = null, string? DisplayName = null, bool TotpRequired = false);
 
 /// <summary>
 /// Lo implementa el módulo de usuarios del portal; lo usa el de licencias para el instalador premium sin depender de él. Cuenta los
@@ -180,11 +195,20 @@ public interface IPortalCustomerVerifier
 
     /// <summary>
     /// "Continuar con Google" del instalador: el usuario YA entró al portal (contraseña o Google, con su sesión normal) y autoriza en el
-    /// navegador. Las mismas reglas de pertenencia: humano, activo, sin bloqueo, rol CLIENTE y atado a la cuenta dueña de la empresa.
-    /// <c>NotOwner</c> queda en la auditoría.
+    /// navegador. Las mismas reglas de pertenencia: humano, activo, sin bloqueo, rol CLIENTE y atado a la cuenta dueña de la empresa;
+    /// además la sesión <paramref name="sessionId"/> debe ser RECIENTE (si no, <c>ReauthenticationRequired</c>). Indica si el TOTP es
+    /// necesario para autorizar (se verifica aparte con <see cref="VerifySignedInTotpAsync"/>). <c>NotOwner</c> solo se audita cuando
+    /// <paramref name="deciding"/> (un POST de decisión): abrir la página (GET) no escribe en la auditoría.
     /// </summary>
     Task<PortalCustomerVerification> VerifySignedInAsync(
-        Guid userId, Guid accountId, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
+        Guid userId, Guid? sessionId, Guid accountId, string organizationLabel, bool deciding, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Código TOTP para autorizar en el navegador (si el usuario lo tiene activo o el portal lo exige, también tras entrar con Google).
+    /// Un código incorrecto cuenta como intento fallido (bloqueo tras N), igual que el ingreso. <c>Valid</c> si no se necesita.
+    /// </summary>
+    Task<PortalCustomerCheck> VerifySignedInTotpAsync(
+        Guid userId, string? totpCode, string organizationLabel, System.Net.IPAddress? ipAddress, CancellationToken cancellationToken);
 }
 
 /// <summary>Instalación del POS autenticada con su token de licencia y la huella de su equipo (sincronización, Fase 16, D16-03).</summary>
@@ -196,6 +220,20 @@ public interface IPosInstallationAuthenticator
     /// <summary><c>null</c> si el token no es válido, la licencia no está activa o el equipo no es el activado.</summary>
     Task<PosInstallationIdentity?> AuthenticateAsync(string token, string fingerprint, CancellationToken cancellationToken);
 
-    /// <summary>La instalación (sin autenticar el equipo): para los paquetes cargados en el portal, que llegan cifrados para la nube.</summary>
+    /// <summary>
+    /// La instalación (sin autenticar el equipo): para los paquetes cargados en el portal, que llegan cifrados para la nube. <c>null</c> si no
+    /// existe, fue liberada o su licencia no está activa.
+    /// </summary>
     Task<PosInstallationIdentity?> FindAsync(Guid installationId, CancellationToken cancellationToken);
+
+    /// <summary>Por qué <see cref="FindAsync"/> no devuelve la instalación (<see cref="PosInstallationInactiveReasons"/>); nulo si está activa.</summary>
+    Task<string?> InactiveReasonAsync(Guid installationId, CancellationToken cancellationToken);
+}
+
+/// <summary>Motivos por los que una instalación no recibe paquetes.</summary>
+public static class PosInstallationInactiveReasons
+{
+    public const string NotFound = "NOT_FOUND";
+    public const string Released = "RELEASED";
+    public const string LicenseInactive = "LICENSE_INACTIVE";
 }

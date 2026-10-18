@@ -6,7 +6,8 @@ namespace Pos.Infrastructure.Messaging.Behaviors;
 
 /// <summary>
 /// Con la licencia restringida rechaza con <c>LICENSE.RESTRICTED</c> todo comando que no esté marcado
-/// <see cref="IAllowedWhenRestricted"/> (D12B-02). Las consultas pasan siempre (RN-LIC-04).
+/// <see cref="IAllowedWhenRestricted"/> (D12B-02). Los de venta (<see cref="IRestrictedSalesWindow"/>) solo pasan durante las primeras
+/// 24 h de la restricción (H6). Las consultas pasan siempre (RN-LIC-04).
 /// </summary>
 internal sealed class LicenseRestrictionBehavior<TRequest, TResponse>(ILicenseGate gate) : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
@@ -15,14 +16,15 @@ internal sealed class LicenseRestrictionBehavior<TRequest, TResponse>(ILicenseGa
     private static readonly bool Filtered = !typeof(IAllowedWhenRestricted).IsAssignableFrom(typeof(TRequest)) && typeof(TRequest).GetInterfaces()
         .Any(i => i == typeof(ICommand) || (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>)));
 
+    private static readonly bool SalesWindow = typeof(IRestrictedSalesWindow).IsAssignableFrom(typeof(TRequest));
+
     public Task<TResponse> Handle(TRequest request, RequestHandlerNext<TResponse> next, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(next);
-        if (Filtered && gate.Current is { Restricted: true } state)
+        if ((Filtered || SalesWindow) && gate.Current is { Restricted: true } state && (Filtered || state.SalesWindowClosed))
         {
-            var error = Error.BusinessRule(LicenseGateErrors.Restricted.Code, state.Reason is null
-                ? LicenseGateErrors.Restricted.Message
-                : $"{state.Reason} {LicenseGateErrors.Restricted.Message}");
+            var basis = Filtered ? LicenseGateErrors.Restricted : LicenseGateErrors.SalesWindowClosed;
+            var error = Error.BusinessRule(basis.Code, state.Reason is null ? basis.Message : $"{state.Reason} {basis.Message}");
             return Task.FromResult(ResultFailureFactory<TResponse>.Create(error));
         }
 

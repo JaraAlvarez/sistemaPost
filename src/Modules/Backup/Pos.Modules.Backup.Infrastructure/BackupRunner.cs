@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -89,6 +90,13 @@ internal sealed class FolderDestination(string path, string? volumeLabel) : IDes
 
     private void EnsureAvailable()
     {
+        // N5: el nombre de un equipo de red puede cambiar de dirección: antes de cada copia se vuelve a exigir un equipo de la red local.
+        if (BackupFolderProbe.IsUnc(path)
+            && BackupFolderProbe.NetworkHostProblem(BackupFolderProbe.HostOf(path), host => System.Net.Dns.GetHostAddresses(host)) is { } problem)
+        {
+            throw new DestinationUnavailableException(problem);
+        }
+
         if (string.IsNullOrWhiteSpace(volumeLabel) || path.StartsWith(@"\\", StringComparison.Ordinal))
         {
             return;
@@ -108,9 +116,25 @@ internal sealed class FolderDestination(string path, string? volumeLabel) : IDes
     }
 }
 
-/// <summary>Almacenamiento compatible S3 (MinIO en el VPS): <c>prefijo/NIT-sucursal/archivo.posbak</c>.</summary>
-internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDestinationClient
+/// <summary>
+/// Almacenamiento compatible S3 (MinIO en el VPS): <c>&lt;prefijo&gt;/&lt;id de la instalación&gt;/archivo.posbak</c>. El prefijo del destino es
+/// la carpeta de la tienda en el bucket (<c>&lt;NIT&gt;-&lt;sucursal&gt;</c>, despliegue-nube.md §14) y la política de su usuario la limita a ella.
+/// La tienda no puede borrar (política sin <c>s3:Delete*</c>, object lock): la retención en S3 la aplica el ciclo de vida del bucket.
+/// </summary>
+internal sealed partial class S3Destination(S3Storage storage, string keyPrefix, ILogger? logger = null) : IDestinationClient
 {
+    /// <summary>
+    /// Prefijo de las claves: la carpeta del destino (sin barras sobrantes ni segmentos <c>.</c>/<c>..</c>) más el id de la instalación, para
+    /// que cada tienda escriba solo bajo su carpeta.
+    /// </summary>
+    internal static string ObjectPrefix(string? prefix, Guid nodeId)
+    {
+        var segments = (prefix ?? string.Empty).Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => s is not ("." or ".."));
+        var folder = string.Join('/', segments);
+        return (folder.Length == 0 ? string.Empty : folder + "/") + nodeId.ToString("N") + "/";
+    }
+
     public async Task<string> UploadAsync(string file, CancellationToken cancellationToken)
     {
         var key = keyPrefix + Path.GetFileName(file);
@@ -126,7 +150,21 @@ internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDest
         return key;
     }
 
-    public Task DeleteAsync(string location, CancellationToken cancellationToken) => storage.DeleteAsync(location, cancellationToken);
+    /// <summary>
+    /// Si la política niega el borrado (403 <c>AccessDenied</c>), la copia vence por el ciclo de vida del bucket: se da por eliminada en la tienda
+    /// con una advertencia. Un 403 por credenciales o reloj falla y la copia NO se marca eliminada (se reintenta).
+    /// </summary>
+    public async Task DeleteAsync(string location, CancellationToken cancellationToken)
+    {
+        if (!await storage.TryDeleteAsync(location, cancellationToken) && logger is not null)
+        {
+            LogDeleteDenied(logger, location);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "El almacenamiento S3 no permite borrar {Location} (política sin s3:Delete*): lo vencerá el ciclo de vida del bucket")]
+    private static partial void LogDeleteDenied(ILogger logger, string location);
 
     public async Task<string?> TestAsync(CancellationToken cancellationToken)
     {
@@ -137,7 +175,9 @@ internal sealed class S3Destination(S3Storage storage, string keyPrefix) : IDest
             var key = keyPrefix + Path.GetFileName(probe);
             await storage.PutAsync(key, probe, cancellationToken);
             File.Delete(probe);
-            await storage.DeleteAsync(key, cancellationToken);
+
+            // Sin permiso de borrar (política recomendada) la prueba igual es válida: el archivo de prueba lo vence el bucket.
+            await storage.TryDeleteAsync(key, cancellationToken);
             return null;
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or IOException)
@@ -367,7 +407,7 @@ internal sealed partial class BackupRunner(
             DestinationKinds.S3 => new S3Destination(
                 new S3Storage(S3Http, new S3Settings(destination.Endpoint!, destination.Region ?? "us-east-1", destination.Bucket!,
                     destination.AccessKey!, secret ?? string.Empty), time),
-                KeyPrefix(destination.Prefix)),
+                KeyPrefix(destination.Prefix), logger),
             _ => new FolderDestination(destination.Path!, destination.Kind == DestinationKinds.External ? destination.VolumeLabel : null),
         };
     }
@@ -388,11 +428,7 @@ internal sealed partial class BackupRunner(
         return (NpgsqlConnection)context.Database.GetDbConnection();
     }
 
-    private string KeyPrefix(string? prefix)
-    {
-        var folder = string.IsNullOrWhiteSpace(prefix) ? string.Empty : prefix.Trim('/') + "/";
-        return folder + installation.NodeId.ToString("N") + "/";
-    }
+    private string KeyPrefix(string? prefix) => S3Destination.ObjectPrefix(prefix, installation.NodeId);
 
     private async Task RecordSuccessAsync(
         Guid runId, Guid companyId, string kind, DateTimeOffset started, Guid? requestedBy, BackupCreated created, BackupVerification verification,
@@ -766,9 +802,70 @@ internal sealed partial class BackupWorker(
 }
 
 /// <summary>Operaciones para los casos de uso (puerto de la capa de aplicación).</summary>
-internal sealed class BackupOperations(BackupRunner runner, BackupWorker worker, BackupEnvironment environment, IServiceScopeFactory scopes) : IBackupOperations
+internal sealed class BackupOperations(
+    BackupRunner runner, BackupWorker worker, BackupEnvironment environment, IServiceScopeFactory scopes, IConfiguration configuration, IHostEnvironment host)
+    : IBackupOperations
 {
     public bool IsConfigured => runner.IsConfigured;
+
+    public string LocalDirectory => environment.LocalDirectory;
+
+    /// <summary>Tiempo máximo de la comprobación (una carpeta de red caída puede tardar decenas de segundos en fallar).</summary>
+    public static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(10);
+
+    public async Task<BackupFolderCheckDto> CheckFolderAsync(string kind, string? path, string? volumeLabel, CancellationToken cancellationToken)
+    {
+        // Solo fuera de producción (pruebas): permite un destino en el mismo disco que la carpeta LOCAL.
+        var allowSameVolume = !host.IsProduction() && bool.TryParse(configuration["Pos:Backup:AllowSameVolumeDestinations"], out var allow) && allow;
+        var folderKind = kind == DestinationKinds.Network ? BackupFolderKind.Network : BackupFolderKind.External;
+
+        // PB9: UNA comprobación a la vez por carpeta. Si una anterior sigue colgada (red caída), se espera esa misma en vez de abrir otro
+        // hilo; el probe recibe un token que vence con el tiempo máximo, y el registro se quita cuando de verdad termina.
+        var key = $"{folderKind}|{path?.Trim().ToUpperInvariant()}|{volumeLabel?.Trim().ToUpperInvariant()}|{allowSameVolume}";
+        var lazy = RunningChecks.GetOrAdd(key, k => new Lazy<Task<BackupFolderProbeResult>>(() => StartCheck(k, path, volumeLabel, folderKind, allowSameVolume)));
+        try
+        {
+            var result = await lazy.Value.WaitAsync(CheckTimeout, cancellationToken);
+            RunningChecks.TryRemove(new KeyValuePair<string, Lazy<Task<BackupFolderProbeResult>>>(key, lazy)); // nunca reutilizar un resultado viejo
+            return new BackupFolderCheckDto(result.Ok, result.Message, result.FullPath, result.VolumeLabel, result.FreeBytes);
+        }
+        catch (TimeoutException)
+        {
+            return new BackupFolderCheckDto(
+                false, "La carpeta no respondió en 10 segundos: revise que el disco o el equipo de la red estén encendidos y conectados.", null, null, null);
+        }
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<BackupFolderProbeResult>>> RunningChecks =
+        new(StringComparer.Ordinal);
+
+    private Task<BackupFolderProbeResult> StartCheck(string key, string? path, string? volumeLabel, BackupFolderKind kind, bool allowSameVolume)
+    {
+        var local = environment.LocalDirectory;
+        var task = Task.Run(async () =>
+        {
+            using var timeout = new CancellationTokenSource(CheckTimeout);
+            try
+            {
+                return await BackupFolderProbe.CheckAsync(path, volumeLabel, local, kind, allowSameVolume, timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return new BackupFolderProbeResult(false, "La carpeta no respondió a tiempo.", null, null, null);
+            }
+        });
+        // Se quita SOLO la entrada de esta comprobación (otra posterior con la misma llave no se toca).
+        _ = task.ContinueWith(
+            _ =>
+            {
+                if (RunningChecks.TryGetValue(key, out var entry) && entry.IsValueCreated && ReferenceEquals(entry.Value, task))
+                {
+                    RunningChecks.TryRemove(new KeyValuePair<string, Lazy<Task<BackupFolderProbeResult>>>(key, entry));
+                }
+            },
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return task;
+    }
 
     public void EnqueueManual(Guid? requestedBy) => worker.Enqueue(requestedBy);
 

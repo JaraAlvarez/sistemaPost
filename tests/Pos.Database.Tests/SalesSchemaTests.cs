@@ -318,6 +318,10 @@ public class SalesSchemaTests(PostgresFixture postgres)
         (await Violation(Scale(TerminalC01, stable: 0))).ShouldBe("ck_terminal_scales__waits");
 
         await harness.Database.ExecuteAsync(Scale(TerminalC01, baud: "9600", parity: "'EVEN'"), app);
+
+        // V2026.10.046: peso mínimo (banda de cero) de 0 a 1000 g, por defecto 20 g.
+        (await harness.Database.ScalarAsync<int>("SELECT min_weight_grams FROM org.terminal_scales")).ShouldBe(20);
+        (await Violation("UPDATE org.terminal_scales SET min_weight_grams = 5000")).ShouldBe("ck_terminal_scales__min_weight");
         await harness.Database.ExecuteAsync(Scale(TerminalC02, "SIMULATED", "NULL"), app);
         (await Violation(Scale(TerminalC01, "CAS"))).ShouldBe("ux_terminal_scales__terminal");
         (await Violation(Scale(Guid.CreateVersion7().ToString()))).ShouldBe("fk_terminal_scales__terminal");

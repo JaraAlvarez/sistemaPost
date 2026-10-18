@@ -296,17 +296,94 @@ public class PaymentTests
     }
 
     [Fact]
-    public void Una_anulacion_despues_de_renovar_pide_revision()
+    public void Una_anulacion_despues_de_renovar_devuelve_la_vigencia_una_sola_vez()
+    {
+        var subscription = Paid();
+        var before = subscription.ValidUntil;
+        var order = Order(subscription);
+        var approved = Transaction(order, GatewayStatuses.Approved);
+        order.Process(approved, subscription, 7, Now).ShouldBe(PaymentOutcome.Renewed);
+        subscription.ValidUntil.ShouldBe(before.AddMonths(1));
+        order.GrantedPeriodEnd.ShouldBe(before.AddMonths(1));
+        order.PreviousPeriodEnd.ShouldBe(before);
+
+        order.Process(approved with { Status = GatewayStatuses.Voided }, subscription, 7, At(Start.AddMinutes(10))).ShouldBe(PaymentOutcome.Reverted);
+
+        order.Status.ShouldBe(PaymentOrderStatus.Voided);
+        order.RevertedAt.ShouldBe(Start.AddMinutes(10));
+        order.IsApplied.ShouldBeTrue();
+        subscription.ValidUntil.ShouldBe(before);
+        subscription.Events.Last().Type.ShouldBe(SubscriptionEventType.RenewalReverted);
+
+        // Repetir el evento de anulación no vuelve a descontar.
+        order.Process(approved with { Status = GatewayStatuses.Voided }, subscription, 7, At(Start.AddMinutes(11))).ShouldBe(PaymentOutcome.Ignored);
+        subscription.ValidUntil.ShouldBe(before);
+    }
+
+    [Fact]
+    public void Una_anulacion_de_una_suscripcion_cancelada_queda_en_revision()
     {
         var subscription = Paid();
         var order = Order(subscription);
         var approved = Transaction(order, GatewayStatuses.Approved);
         order.Process(approved, subscription, 7, Now).ShouldBe(PaymentOutcome.Renewed);
+        subscription.Cancel("El cliente cerró el negocio", Now).IsSuccess.ShouldBeTrue();
 
         order.Process(approved with { Status = GatewayStatuses.Voided }, subscription, 7, Now).ShouldBe(PaymentOutcome.ReviewRequired);
-
         order.Status.ShouldBe(PaymentOrderStatus.ReviewRequired);
-        order.IsApplied.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Una_orden_en_gracia_que_paga_empieza_hoy_y_una_vigente_continua()
+    {
+        // W3: vigente → desde el fin del periodo actual.
+        var active = Paid();
+        var end = active.ValidUntil;
+        var order = Order(active);
+        order.Process(Transaction(order, GatewayStatuses.Approved), active, 7, At(Start.AddDays(3))).ShouldBe(PaymentOutcome.Renewed);
+        active.ValidUntil.ShouldBe(end.AddMonths(1));
+
+        // En gracia → desde hoy.
+        var late = Paid();
+        var today = late.ValidUntil.AddDays(3);
+        var lateOrder = PaymentOrder.Create(Guid.CreateVersion7(), Reference, late, Price(59_900, Start.AddDays(-1)), 1, today).Value;
+        lateOrder.Process(Transaction(lateOrder, GatewayStatuses.Approved), late, 7, At(today)).ShouldBe(PaymentOutcome.Renewed);
+        late.CurrentPeriodStart.ShouldBe(today);
+        late.ValidUntil.ShouldBe(today.AddMonths(1));
+    }
+
+    [Fact]
+    public void La_orden_tiene_un_token_aleatorio_para_su_pagina_de_resultado()
+    {
+        var subscription = Paid();
+        var first = Order(subscription);
+        PaymentRules.IsResultToken(first.ResultToken).ShouldBeTrue();
+        first.ResultToken.ShouldNotBe(Order(subscription).ResultToken);
+    }
+
+    [Fact]
+    public void El_checkout_con_vencimiento_lo_envia_y_lo_firma()
+    {
+        var expires = new DateTimeOffset(2026, 10, 18, 15, 30, 0, TimeSpan.FromHours(-5));
+        var url = WompiProtocol.CheckoutUrl("https://checkout.wompi.co/p/", "llave", "s",
+            new CheckoutRequest(Reference, 100, "COP", "https://portal.example/pagar/resultado/x", expires));
+
+        url.ShouldContain("&expiration-time=2026-10-18T20%3A30%3A00.000Z");
+        url.ShouldContain("&signature:integrity=" + WompiProtocol.IntegritySignature(Reference, 100, "COP", "s", "2026-10-18T20:30:00.000Z"));
+    }
+
+    [Fact]
+    public void El_evento_trae_su_timestamp_y_fuera_de_la_ventana_no_es_fresco()
+    {
+        var body = Event("7a0fa70dad4a5e73d9f9f66a476e08d6d50750f86c3aa70dde51dcdab4fc39cd");
+        var parsed = WompiProtocol.ParseEvent(body, null, EventsSecret);
+        parsed.Timestamp.ShouldBe(DateTimeOffset.FromUnixTimeSeconds(1530291411));
+
+        var at = parsed.Timestamp!.Value;
+        WompiProtocol.IsFresh(at, at.AddHours(71), TimeSpan.FromHours(72), TimeSpan.FromMinutes(5)).ShouldBeTrue();
+        WompiProtocol.IsFresh(at, at.AddHours(73), TimeSpan.FromHours(72), TimeSpan.FromMinutes(5)).ShouldBeFalse();
+        WompiProtocol.IsFresh(at, at.AddMinutes(-6), TimeSpan.FromHours(72), TimeSpan.FromMinutes(5)).ShouldBeFalse();
+        WompiProtocol.IsFresh(null, at, TimeSpan.FromHours(72), TimeSpan.FromMinutes(5)).ShouldBeFalse();
     }
 
     [Fact]

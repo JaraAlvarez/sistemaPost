@@ -6,8 +6,11 @@ using Pos.SharedKernel.Results;
 
 namespace Pos.Api.Abstractions;
 
-/// <summary>Metadato: el endpoint exige este permiso (y opcionalmente admite autorización de supervisor).</summary>
-public sealed record PermissionRequirement(string PermissionCode, bool AllowSupervisor = false);
+/// <summary>
+/// Metadato: el endpoint exige este permiso (y opcionalmente admite autorización de supervisor). <c>Alternatives</c>: otros permisos que
+/// también lo habilitan (basta uno cualquiera).
+/// </summary>
+public sealed record PermissionRequirement(string PermissionCode, bool AllowSupervisor = false, IReadOnlyList<string>? Alternatives = null);
 
 /// <summary>Metadato: el endpoint no exige un permiso concreto, solo un usuario autenticado.</summary>
 public sealed record AuthenticatedOnly;
@@ -46,6 +49,15 @@ public static class EndpointSecurity
         return builder;
     }
 
+    /// <summary>El endpoint se habilita con cualquiera de los permisos (p. ej. leer el catálogo de roles para asignarlos).</summary>
+    public static TBuilder RequireAnyPermission<TBuilder>(this TBuilder builder, string permissionCode, params string[] alternatives)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(permissionCode);
+        builder.WithMetadata(new PermissionRequirement(permissionCode, AllowSupervisor: false, Alternatives: alternatives));
+        return builder;
+    }
+
     public static TBuilder RequireAuthenticatedUser<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder
     {
@@ -74,9 +86,18 @@ public static class EndpointSecurity
         }
 
         var services = http.RequestServices;
-        if (await services.GetRequiredService<IPermissionChecker>().HasPermissionAsync(requirement.PermissionCode, cancellationToken: http.RequestAborted))
+        var checker = services.GetRequiredService<IPermissionChecker>();
+        if (await checker.HasPermissionAsync(requirement.PermissionCode, cancellationToken: http.RequestAborted))
         {
             return null;
+        }
+
+        foreach (var alternative in requirement.Alternatives ?? [])
+        {
+            if (await checker.HasPermissionAsync(alternative, cancellationToken: http.RequestAborted))
+            {
+                return null;
+            }
         }
 
         // Autorización de supervisor de un solo uso, ligada a este permiso, a esta acción y a este objetivo.

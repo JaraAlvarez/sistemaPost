@@ -69,7 +69,19 @@ public sealed record TerminalScaleDto(
     int StableWaitSeconds,
     int EmptyWaitSeconds,
     bool AllowManualWeight,
-    bool FeatureEnabled = true);
+    bool FeatureEnabled = true,
+    int MinWeightGrams = 20,
+    Guid? ReadingKeyId = null,
+    DateTimeOffset? ReadingKeySetAt = null);
+
+/// <summary>
+/// Alerta de báscula para el Tablero: clave vinculada o cambiada hace poco (<c>ChangedAt</c>) o báscula activa sin vincular
+/// (<c>Linked</c> = false: la caja no puede pesar hasta que se vincule con F1 → Vincular báscula).
+/// </summary>
+public sealed record ScaleKeyChangeDto(Guid PosTerminalId, string TerminalCode, DateTimeOffset? ChangedAt, bool Linked = true);
+
+/// <summary><c>PUT /organization/terminals/{id}/scale/reading-key</c>: clave pública con la que el agente de esa caja firma las lecturas.</summary>
+public sealed record ScaleReadingKeyRequest(Guid KeyId, string PublicKey);
 
 /// <summary>Sucursal con sus bodegas y cajas.</summary>
 public sealed record BranchDetailDto(BranchDto Branch, IReadOnlyList<WarehouseDto> Warehouses, IReadOnlyList<TerminalDto> Terminals);

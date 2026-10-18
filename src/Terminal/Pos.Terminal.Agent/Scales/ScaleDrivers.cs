@@ -61,6 +61,12 @@ public interface IScaleDriver
     bool SkipFirstContinuousFrame { get; }
 
     /// <summary>
+    /// Carácter con el que empieza cada trama (Toledo 8217: STX). En modo continuo el lector se sincroniza con él: una trama sin este
+    /// inicio llegó cortada (p. ej. "0.700" de "10.700") y se descarta. Nulo si el protocolo no tiene un inicio fijo.
+    /// </summary>
+    char? FrameStart { get; }
+
+    /// <summary>
     /// Interpreta una trama ya separada (sin CR/LF). Devuelve <c>null</c> si no es una trama válida de este protocolo (basura,
     /// trama cortada o eco): quien lee sigue esperando la siguiente.
     /// </summary>
@@ -76,7 +82,7 @@ public static class ScaleDrivers
     public const string CasCode = "CAS";
     public const string GenericCode = "GENERIC";
 
-    /// <summary>Báscula simulada (solo en desarrollo o con <c>Agent:EnableScaleSimulator</c>): habla Toledo 8217 dentro del agente.</summary>
+    /// <summary>Báscula simulada (solo en compilación Debug: en desarrollo o con <c>Agent:EnableScaleSimulator</c>): habla Toledo 8217 dentro del agente.</summary>
     public const string SimulatedCode = "SIMULATED";
 
     public static IReadOnlyList<IScaleDriver> All { get; } = [new Toledo8217Driver(), new CasDriver(), new GenericAsciiDriver()];
@@ -154,6 +160,9 @@ public sealed partial class Toledo8217Driver : IScaleDriver
     public bool ReportsStability => true;
 
     public bool SkipFirstContinuousFrame => false;
+
+    /// <summary>STX: en modo continuo solo valen las tramas que empiezan con él (una trama cortada no lo trae).</summary>
+    public char? FrameStart => '\x02';
 
     public ScaleReading? Parse(string frame, int impliedDecimals)
     {
@@ -239,6 +248,19 @@ public sealed partial class CasDriver : IScaleDriver
 
     public bool SkipFirstContinuousFrame => false;
 
+    /// <summary>La trama CAS empieza con "ST/US/OL," (encabezado anclado): una trama cortada no coincide y se descarta.</summary>
+    public char? FrameStart => null;
+
+    /// <summary>
+    /// Campo de peso ya separado: signo opcional, espacios de relleno, dígitos y punto opcional (p. ej. "  +0.700", "0000.700", "-  0.120").
+    /// Nunca se busca "el último número" de la trama: así el identificador o el byte de lámparas no se pegan al peso.
+    /// </summary>
+    internal static decimal? ParseWeightField(string field, int impliedDecimals)
+    {
+        var text = field.Trim(' ', '\0');
+        return WeightFieldPattern().IsMatch(text) ? ScaleDrivers.ParseNumber(text, impliedDecimals) : null;
+    }
+
     public ScaleReading? Parse(string frame, int impliedDecimals)
     {
         ArgumentNullException.ThrowIfNull(frame);
@@ -252,11 +274,17 @@ public sealed partial class CasDriver : IScaleDriver
         var rest = match.Groups["rest"].Value;
         var unitMatch = UnitPattern().Match(rest);
         var unit = unitMatch.Success ? unitMatch.Groups["u"].Value : null;
-        var body = unitMatch.Success ? rest[..unitMatch.Index] : rest;
-        var numbers = NumberPattern().Matches(body);
-        decimal? weight = numbers.Count > 0 && ScaleDrivers.ParseNumber(numbers[^1].Value, unit is null ? impliedDecimals : 0) is { } value
-            ? decimal.Round(ScaleDrivers.ToKg(value, unit), 3)
-            : null;
+        var body = (unitMatch.Success ? rest[..unitMatch.Index] : rest).TrimEnd(' ', '\0');
+        var decimals = unit is null ? impliedDecimals : 0;
+
+        // Trama completa de 22 bytes (manual CI-200A §11-3-1): después de "EE,PP," vienen el identificador del equipo (1 byte), el byte
+        // de lámparas (1 byte), una coma opcional según el modelo y el peso en 8 bytes. Se reconoce porque el cuerpo no es un peso por sí
+        // solo (bytes de control o de lámparas) o porque es más largo que el campo de peso y no empieza por signo o espacio.
+        // Variante corta sin identificador ("ST,GS,+0000.700kg"): el cuerpo entero es el peso.
+        var shortWeight = ParseWeightField(body, decimals);
+        var full = body.Length >= 10 && (shortWeight is null || body[0] is not (' ' or '+' or '-'));
+        decimal? value = full ? ParseWeightField(body[2..].TrimStart(','), decimals) : shortWeight;
+        decimal? weight = value is { } v ? decimal.Round(ScaleDrivers.ToKg(v, unit), 3) : null;
 
         if (header == "OL")
         {
@@ -272,14 +300,14 @@ public sealed partial class CasDriver : IScaleDriver
         return new ScaleReading(weight, Stable: header == "ST", UnderZero: weight < 0m, Net: net, CenterOfZero: weight == 0m);
     }
 
-    [GeneratedRegex(@"^(?<h>ST|US|OL)\s*,\s*(?<p>GS|NT|TR)?\s*,?(?<rest>.*)$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    [GeneratedRegex(@"^(?<h>ST|US|OL)\s*,\s*(?<p>GS|NT|TR)?,?(?<rest>.*)$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex FramePattern();
 
     [GeneratedRegex(@"(?<u>kg|lb|oz|g|t)\s*$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex UnitPattern();
 
-    [GeneratedRegex(@"[-+]?\s*\d+(?:[.,]\d+)?", RegexOptions.CultureInvariant)]
-    private static partial Regex NumberPattern();
+    [GeneratedRegex(@"^[-+]?\s*\d+(?:[.,]\d+)?$", RegexOptions.CultureInvariant)]
+    private static partial Regex WeightFieldPattern();
 }
 
 /// <summary>
@@ -298,6 +326,8 @@ public sealed partial class GenericAsciiDriver : IScaleDriver
     public bool ReportsStability => false;
 
     public bool SkipFirstContinuousFrame => true;
+
+    public char? FrameStart => null;
 
     public ScaleReading? Parse(string frame, int impliedDecimals)
     {
@@ -324,8 +354,16 @@ public sealed partial class GenericAsciiDriver : IScaleDriver
 
         var weight = decimal.Round(ScaleDrivers.ToKg(value, unit), 3);
         var unstable = UnstablePattern().IsMatch(text);
-        return new ScaleReading(weight, Stable: !unstable, Overload: overload, UnderZero: weight < 0m, CenterOfZero: weight == 0m);
+
+        // BK4: si la trama dice que el peso es neto ("NET", "NETO", "N.W." o "NT", también pegados al número), la báscula tiene una tara puesta con su tecla: no es el bruto
+        // real y el agente no la toma como báscula vacía. Si la báscula no lo indica, no hay forma de saberlo (por eso el aviso "no use la
+        // tecla de tara de la báscula; use Ins en la caja").
+        var net = NetPattern().IsMatch(text);
+        return new ScaleReading(weight, Stable: !unstable, Overload: overload, UnderZero: weight < 0m, Net: net, CenterOfZero: weight == 0m);
     }
+
+    [GeneratedRegex(@"(?<![A-Z])NETO?(?![A-Z])|\bN\.W\.?|(?<![A-Z])NT(?![A-Z])", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex NetPattern();
 
     /// <summary>Último número (con signo opcional) y su unidad al final de la trama.</summary>
     [GeneratedRegex(@"(?<w>[-+]?\s*\d+(?:[.,]\d+)?)\s*(?<u>kg|lb|oz|g)?\s*[^0-9]*$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]

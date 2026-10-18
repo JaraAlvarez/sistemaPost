@@ -181,6 +181,22 @@ internal sealed class TerminalDirectory(NpgsqlDataSource dataSource) : ITerminal
     }
 }
 
+/// <summary>Clave pública vigente de la báscula de una caja (solo cajas con la báscula vinculada).</summary>
+internal sealed class TerminalScaleKeys(NpgsqlDataSource dataSource) : ITerminalScaleKeys
+{
+    public async Task<ScaleReadingKey?> GetAsync(Guid posTerminalId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<ScaleReadingKey>(new CommandDefinition(
+            """
+            SELECT reading_key_id AS KeyId, reading_public_key AS PublicKey FROM org.terminal_scales
+            WHERE pos_terminal_id = @posTerminalId AND reading_key_id IS NOT NULL AND reading_public_key IS NOT NULL
+            """,
+            new { posTerminalId },
+            cancellationToken: cancellationToken));
+    }
+}
+
 internal sealed class WarehouseDirectory(NpgsqlDataSource dataSource, IInstallationContext installation) : IWarehouseDirectory
 {
     private const string Columns =

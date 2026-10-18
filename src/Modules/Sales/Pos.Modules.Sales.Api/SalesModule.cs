@@ -12,6 +12,7 @@ using Pos.Infrastructure;
 using Pos.Modules.Sales.Application;
 using Pos.Modules.Sales.Contracts;
 using Pos.Modules.Sales.Infrastructure;
+using Pos.SharedKernel.Results;
 
 namespace Pos.Modules.Sales.Api;
 
@@ -31,6 +32,7 @@ public sealed class SalesModule : IModule
         services.AddScoped<StockGuard>();
         services.AddScoped<CustomerResolver>();
         services.AddScoped<SaleEditor>();
+        services.AddScoped<ScaleReadingVerifier>();
         services.AddScoped<SaleInventory>();
         services.AddScoped<SaleReceipts>();
         services.AddScoped<FiscalTicketWait>();
@@ -59,16 +61,26 @@ public sealed class SalesModule : IModule
         group.MapGet("/{saleId:guid}", async (Guid saleId, IDispatcher d, CancellationToken ct) => (await d.Send(new GetSaleQuery(saleId), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleView);
 
-        group.MapPost("/{saleId:guid}/lines", async (Guid saleId, AddLineRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, WeightKg: r.WeightKg, WeightSource: r.WeightSource), ct))
-                .ToHttpResult())
+        group.MapPost("/{saleId:guid}/lines", async (Guid saleId, AddLineRequest r, HttpContext http, IDispatcher d, CancellationToken ct) =>
+                PosClientCheck.Outdated(http, r) is { } outdated
+                    ? ((Result<SaleDto>)outdated).ToHttpResult()
+                    : (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, WeightKg: r.WeightKg, WeightSource: r.WeightSource, Scale: r.Scale), ct))
+                        .ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCreate)
             .WithSummary("Agrega un producto por código (barras, báscula o SKU) o por Id; valida existencias y lotes vencidos");
-        group.MapPost("/{saleId:guid}/lines/expired", async (Guid saleId, AddLineRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, AuthorizeExpired: true, WeightKg: r.WeightKg,
-                    WeightSource: r.WeightSource), ct)).ToHttpResult())
+        group.MapPost("/{saleId:guid}/lines/expired", async (Guid saleId, AddLineRequest r, HttpContext http, IDispatcher d, CancellationToken ct) =>
+                PosClientCheck.Outdated(http, r) is { } outdated
+                    ? ((Result<SaleDto>)outdated).ToHttpResult()
+                    : (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, r.PackagingId, r.Quantity, AuthorizeExpired: true, WeightKg: r.WeightKg,
+                        WeightSource: r.WeightSource, Scale: r.Scale), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.ExpiredSell, allowSupervisor: true)
             .WithSummary("Agrega un producto con existencias de un lote vencido: permiso o autorización de supervisor (RN-SAL-18)");
+        group.MapGet("/scale/interlock", async (IDispatcher d, CancellationToken ct) => (await d.Send(new GetScaleInterlockQuery(), ct)).ToHttpResult())
+            .RequirePermission(SalesPermissions.SaleCreate)
+            .WithSummary("Retorno a cero de la báscula de esta caja según el servidor (la siguiente pesada exige retirar el producto)");
+        group.MapPost("/scale/reset", async (IDispatcher d, CancellationToken ct) => (await d.Send(new ResetScaleInterlockCommand(), ct)).ToHttpResult())
+            .RequirePermission(SalesPermissions.ScaleReset, allowSupervisor: true)
+            .WithSummary("Reiniciar báscula: libera el retorno a cero de esta caja (permiso o supervisor; auditado)");
         group.MapPost("/{saleId:guid}/lines/manual-weight", async (Guid saleId, ManualWeightRequest r, IDispatcher d, CancellationToken ct) =>
                 (await d.Send(new AddLineCommand(saleId, r.Code, r.ProductId, null, null, WeightKg: r.WeightKg, WeightSource: WeightSources.Manual,
                     AuthorizeManualWeight: true), ct)).ToHttpResult())
@@ -126,7 +138,7 @@ public sealed class SalesModule : IModule
             .RequirePermission(SalesPermissions.SaleCreate)
             .WithSummary("Cobra y completa en una transacción (idempotente con Idempotency-Key): número, kardex, caja, comprobante y tiquete; con la facturación electrónica espera ⚙️ hasta 3 s los datos fiscales");
         group.MapPost("/{saleId:guid}/sistecredito/release", async (Guid saleId, ReleaseCreditRequest r, IDispatcher d, CancellationToken ct) =>
-                (await d.Send(new ReleaseSistecreditoCreditCommand(saleId, r.TransactionId), ct)).ToHttpResult())
+                (await d.Send(new ReleaseSistecreditoCreditCommand(saleId, r.TransactionId, r.OnlyNeeded), ct)).ToHttpResult())
             .RequirePermission(SalesPermissions.SaleCancel, allowSupervisor: true)
             .WithSummary("«No usar este crédito»: el crédito de Sistecrédito aprobado no se usa en la venta (con autorización de supervisor) y queda en revisión para reversarlo");
         group.MapPost("/{saleId:guid}/void", async (Guid saleId, ReasonRequest r, IDispatcher d, FiscalTicketWait fiscal, CancellationToken ct) =>
@@ -153,8 +165,27 @@ public sealed class SalesModule : IModule
     }
 }
 
-/// <summary>Producto por código o Id. <c>WeightKg</c> + <c>WeightSource</c> (SCALE o MANUAL): peso leído de la báscula o digitado (Fase 7-C).</summary>
-public sealed record AddLineRequest(string? Code, Guid? ProductId, Guid? PackagingId, decimal? Quantity, decimal? WeightKg = null, string? WeightSource = null);
+/// <summary>Compatibilidad de la interfaz de caja (Fase 7-C, BN10).</summary>
+internal static class PosClientCheck
+{
+    /// <summary>
+    /// Una pantalla de caja vieja (guardada en el navegador) envía el peso sin la lectura firmada y sin la cabecera de versión: se le pide
+    /// recargar en lugar de rechazar el peso con un mensaje que no entiende.
+    /// </summary>
+    public static Error? Outdated(HttpContext http, AddLineRequest request) =>
+        request.WeightKg is null
+        || (int.TryParse(http.Request.Headers[PosClientBuild.Header].ToString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var build)
+            && build >= PosClientBuild.SignedScaleReadings)
+            ? null
+            : Error.Conflict(PosClientBuild.OutdatedCode, "La pantalla de la caja está desactualizada: recárguela (Ctrl+F5) para pesar con la báscula.");
+}
+
+/// <summary>
+/// Producto por código o Id. Con <c>WeightKg</c> es obligatorio <c>WeightSource</c> = SCALE (con la lectura del agente en <c>Scale</c>);
+/// el peso digitado va por <c>/lines/manual-weight</c> (Fase 7-C).
+/// </summary>
+public sealed record AddLineRequest(
+    string? Code, Guid? ProductId, Guid? PackagingId, decimal? Quantity, decimal? WeightKg = null, string? WeightSource = null, ScaleReadingInfo? Scale = null);
 
 /// <summary>Peso digitado en la caja porque la báscula no respondía.</summary>
 public sealed record ManualWeightRequest(string? Code, Guid? ProductId, decimal WeightKg);
@@ -172,7 +203,7 @@ public sealed record HoldRequest(string? Label);
 public sealed record ReasonRequest(string Reason);
 
 /// <summary><c>TransactionId</c> vacío: todos los créditos aprobados de la venta.</summary>
-public sealed record ReleaseCreditRequest(string? TransactionId);
+public sealed record ReleaseCreditRequest(string? TransactionId, bool OnlyNeeded = false);
 
 public sealed record CompleteRequest(IReadOnlyList<PaymentRequest> Payments);
 

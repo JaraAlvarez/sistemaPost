@@ -110,7 +110,7 @@ public abstract class PortalPageBase : ComponentBase
         }
     }
 
-    private void Notify(Result result, string successMessage)
+    protected void Notify(Result result, string successMessage)
     {
         if (result.IsSuccess)
         {

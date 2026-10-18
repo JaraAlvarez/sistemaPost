@@ -201,3 +201,84 @@ La guía `docs/guia-instalacion.md` tiene la lista de pasos.
    quieres una contraseña de soporte que se te muestre al instalar?
 5. **Actualizaciones:** ¿**automáticas en la ventana segura** con aviso (**recomendado**), o solo cuando el propietario pulse
    "Actualizar"?
+
+## 12. Revisión de seguridad del actualizador (2026-10-17)
+
+- **R5 (caja adicional):** la carpeta de datos queda solo para SYSTEM y Administradores también en la caja (el instalador y el
+  actualizador al arrancar aplican la misma ACL que el migrador en el equipo principal), con lectura para los usuarios solo de
+  `config\updater.json` y `desktop.json`, que necesita la ventana. `Pos:Updates:InstallRoot` ya no se lee de la configuración: la carpeta
+  de la instalación sale de la ubicación del actualizador y de la clave de Inno, y si un usuario sin privilegios puede escribir en ella
+  no se instala nada. La descarga va a un archivo nuevo (`CreateNew`) y el paquete se verifica y se extrae desde el mismo handle
+  exclusivo. Copiar, borrar y precalentar no siguen uniones NTFS, y solo se ejecutan programas cuya huella está en el manifiesto de la
+  carpeta.
+- **U1-U4:**
+  - **U1:** una versión está "preparada" solo si su manifiesto de huellas (`.paquete-verificado.json`) coincide archivo por archivo.
+  - **U2:** la firma y la huella se vuelven a revisar justo antes de instalar.
+  - **U3:** `app\current` se cambia con una unión aparte (`current.nueva`) y, si falla, se recrea la anterior.
+  - **U4:** `updates\update-in-progress.json` registra cada paso, y al arrancar una actualización a medias se deshace (versión anterior,
+    BD del backup previo si ya se había migrado). El servidor no atiende con un esquema que no es el suyo (SCHEMA_OUTDATED).
+- **Bajas:**
+  - El manifiesto vence (`expiresAt`, obligatorio en el servidor) y lleva una secuencia creciente (`sequence`, la última vista se guarda en
+    `updates\manifest-sequence.json`). Pos.Release las pone por defecto (90 días, hora Unix).
+  - El manifiesto y el paquete van solo por https.
+  - Las claves `REVOKED` no se cargan.
+  - Las preliminares se ordenan por SemVer (`beta.2 < beta.10`).
+  - Si `current.json` falta o está dañado no se actualiza y se avisa.
+  - En la caja también se espera la madrugada (o "instalar ahora"), así el agente no se detiene en plena venta.
+  - Si no se detienen los servicios o falla algo sin cambios, se reintenta con espera creciente (5, 10, 20… minutos, hasta 6 h), con un
+    solo backup PRE_UPDATE por intento.
+  - Si la migración falla, se vuelve a la BD del backup previo antes de arrancar la versión anterior.
+
+**Segunda ronda (ALTA 1-4, M1-M5, B1-B3).**
+- **ALTA 1:**
+  - La versión es SemVer estricta: preliminar y metadatos solo con `[0-9A-Za-z.-]`, sin espacios ni rutas.
+  - El registro en curso solo se usa si sus versiones tienen su carpeta real como hija directa de `app`.
+  - Los archivos de control (registro en curso, secuencias, versión fallida y, en la caja, un `config\server.json`) que no son de SYSTEM
+    ni de los Administradores se borran o se ignoran.
+  - Al restringir la carpeta de datos de la caja (instalador y actualizador) primero se pasa la propiedad a los Administradores
+    (`/setowner /T`), se quitan los permisos propios de cada archivo (`/reset /T`) y recién entonces se corta la herencia.
+- **ALTA 2:** al deshacer, desde "detenido" siempre se activa la versión anterior. `Activate` es idempotente: decide por el destino real
+  de la unión y la recrea si falta. La versión activa sale de la unión, no de `current.json`.
+- **ALTA 3:**
+  - Hay un paso nuevo, "Restored": el backup no se restaura dos veces.
+  - Se hacen como máximo 3 intentos de deshacer. Después queda "requiere soporte": no se toca la BD y los servicios se arrancan siempre.
+  - No se empieza otra actualización mientras haya un registro pendiente.
+  - El instalador archiva el registro pendiente.
+- **ALTA 4:**
+  - La caja instala lo descargado en los primeros 15 minutos después de encender el equipo, antes de vender.
+  - "Instalar ahora" del equipo principal llega a las cajas durante 24 h (cabecera `X-Pos-Install-Now` del manifiesto).
+  - El backoffice avisa qué cajas tienen una versión anterior a la mínima de la versión instalada.
+  - No se implementó instalar cuando el agente lleva un rato inactivo: el agente no sabe si hay una venta abierta.
+- **M1-M5:**
+  - Si falla `Activate`, se vuelve atrás y los servicios arrancan.
+  - La espera creciente es solo para los fallos de instalación; "instalar ahora" se atiende igual.
+  - La versión que volvió atrás se guarda en el disco.
+  - `IsStaged` compara la huella del paquete.
+  - La secuencia se guarda por canal y después de validar el canal.
+  - Los manifiestos vencen a los 90 días y `Pos.Release verify` avisa (código 3) cuando faltan menos de 15 (tarea en
+    docs/guia-instalacion.md).
+- **B1-B3:**
+  - Se consideran también los permisos genéricos de escritura y se revisan `updater\` y la versión activa.
+  - Con un problema de seguridad tampoco se deshace nada al arrancar.
+  - Un registro dañado se avisa y se archiva.
+  - El instalador deja el manifiesto y el paquete de su versión para las cajas (solo si la instalación terminó bien), y una caja sin
+    manifiesto en el equipo principal no muestra un error permanente.
+
+**Tercera ronda.**
+- **Fallas después de detener:** cualquier falla que no sea una cancelación (excepciones del sistema al migrar o activar, errores al
+  escribir el registro) va por la vuelta atrás y los servicios arrancan siempre. Si igual quedó un registro a medias, el actualizador lo
+  deshace en el mismo ciclo, sin esperar al próximo arranque.
+- **Escrituras de control:** el registro en curso, `current.json` y los archivos de control se escriben a un temporal, se fuerzan al
+  disco (`Flush(true)`) y se renombran.
+- **Archivos de control en la caja:** el instalador y el actualizador borran los que no son de SYSTEM ni de los Administradores antes de
+  pasar la propiedad. Son: registro en curso, secuencias, versión fallida, pedidos "instalar ahora", `server.json` y `desktop.json`.
+- **Versión de las cajas:** cada caja informa su versión al pedir el manifiesto (`X-Pos-Terminal-Version` y `X-Pos-Terminal-Host`). El
+  equipo principal la guarda normalizada a tres partes en `org.devices.app_version`. `--min-terminal` ya no toma por defecto la propia
+  versión.
+- **Encendido de la caja:** se combinan el arranque del sistema, el arranque del servicio y un salto del reloj entre ciclos (inicio
+  rápido de Windows). Hay que probarlo en una caja real.
+- **"Instalar ahora" en la caja:** solo se atiende en los 30 minutos siguientes al pedido o al encender. La cabecera lleva la hora del
+  pedido y, mientras está vigente, la caja consulta cada 15 minutos. Además, "instalar ahora" vuelve a intentar una versión que había
+  vuelto atrás.
+- **Estado del actualizador:** el campo `needsSupport` se publica mientras exista un registro que requiere soporte, y el backoffice lo
+  muestra.

@@ -23,18 +23,25 @@ public static class WompiProtocol
         Sha256Hex(string.Concat(reference, amountInCents.ToString(CultureInfo.InvariantCulture), currency, expirationTime ?? string.Empty, integritySecret));
 
     /// <summary>
-    /// Redirección al Web Checkout: <c>…/p/?public-key=…&amp;currency=COP&amp;amount-in-cents=…&amp;reference=…&amp;signature:integrity=…&amp;redirect-url=…</c>.
+    /// Redirección al Web Checkout: <c>…/p/?public-key=…&amp;currency=COP&amp;amount-in-cents=…&amp;reference=…&amp;signature:integrity=…&amp;redirect-url=…</c>
+    /// y, si la orden vence, <c>&amp;expiration-time=…</c> (ISO 8601 UTC), que también entra en la firma de integridad.
     /// </summary>
     public static string CheckoutUrl(string checkoutUrl, string publicKey, string integritySecret, CheckoutRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var signature = IntegritySignature(request.Reference, request.AmountInCents, request.Currency, integritySecret);
+        var expiration = request.ExpiresAt is { } expires ? ExpirationTime(expires) : null;
+        var signature = IntegritySignature(request.Reference, request.AmountInCents, request.Currency, integritySecret, expiration);
         var separator = checkoutUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-        return string.Create(CultureInfo.InvariantCulture,
+        var url = string.Create(CultureInfo.InvariantCulture,
             $"{checkoutUrl}{separator}public-key={Uri.EscapeDataString(publicKey)}&currency={Uri.EscapeDataString(request.Currency)}" +
             $"&amount-in-cents={request.AmountInCents}&reference={Uri.EscapeDataString(request.Reference)}" +
             $"&signature:integrity={signature}&redirect-url={Uri.EscapeDataString(request.RedirectUrl)}");
+        return expiration is null ? url : $"{url}&expiration-time={Uri.EscapeDataString(expiration)}";
     }
+
+    /// <summary>Fecha de expiración del checkout en el formato de Wompi: ISO 8601 en UTC con milisegundos (<c>2026-10-17T20:28:50.000Z</c>).</summary>
+    public static string ExpirationTime(DateTimeOffset expiresAt) =>
+        expiresAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Verifica un evento: concatena los valores de <c>signature.properties</c> (rutas dentro de <c>data</c>, en su orden), el
@@ -63,6 +70,7 @@ public static class WompiProtocol
 
             var eventType = Text(root, "event");
             var environment = Text(root, "environment");
+            var timestamp = Timestamp(root);
             var transaction = root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
                 && data.TryGetProperty("transaction", out var tx) && tx.ValueKind == JsonValueKind.Object
                     ? ReadTransaction(tx)
@@ -71,7 +79,7 @@ public static class WompiProtocol
             var expected = ComputeChecksum(root, eventsSecret, out var problem);
             if (expected is null)
             {
-                return new GatewayEvent(false, eventType, transaction, environment, problem);
+                return new GatewayEvent(false, eventType, transaction, environment, problem, timestamp);
             }
 
             var received = root.TryGetProperty("signature", out var signature) && signature.ValueKind == JsonValueKind.Object
@@ -80,12 +88,12 @@ public static class WompiProtocol
             received ??= checksumHeader;
             if (string.IsNullOrWhiteSpace(received))
             {
-                return new GatewayEvent(false, eventType, transaction, environment, "El evento no trae checksum.");
+                return new GatewayEvent(false, eventType, transaction, environment, "El evento no trae checksum.", timestamp);
             }
 
             return SameHex(expected, received.Trim())
-                ? new GatewayEvent(true, eventType, transaction, environment, null)
-                : new GatewayEvent(false, eventType, transaction, environment, "El checksum no coincide.");
+                ? new GatewayEvent(true, eventType, transaction, environment, null, timestamp)
+                : new GatewayEvent(false, eventType, transaction, environment, "El checksum no coincide.", timestamp);
         }
     }
 
@@ -143,6 +151,37 @@ public static class WompiProtocol
         }
 
         return new GatewayTransaction(id, reference, cents, Text(element, "currency") ?? string.Empty, status.ToUpperInvariant(), Text(element, "payment_method_type"));
+    }
+
+    /// <summary>
+    /// ¿El evento está dentro de la ventana de tiempo admitida? (antirrepetición: el <c>timestamp</c> va firmado). Sin timestamp legible: no.
+    /// </summary>
+    public static bool IsFresh(DateTimeOffset? timestamp, DateTimeOffset now, TimeSpan maxAge, TimeSpan maxFuture) =>
+        timestamp is { } at && at >= now - maxAge && at <= now + maxFuture;
+
+    /// <summary><c>timestamp</c> del evento: segundos Unix (número o texto).</summary>
+    private static DateTimeOffset? Timestamp(JsonElement root)
+    {
+        if (!root.TryGetProperty("timestamp", out var value))
+        {
+            return null;
+        }
+
+        long seconds;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number))
+        {
+            seconds = number;
+        }
+        else if (value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed))
+        {
+            seconds = parsed;
+        }
+        else
+        {
+            return null;
+        }
+
+        return seconds is > 0 and < 253_402_300_799 ? DateTimeOffset.FromUnixTimeSeconds(seconds) : null;
     }
 
     public static string Sha256Hex(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));

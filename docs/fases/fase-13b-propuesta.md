@@ -232,3 +232,131 @@ formulario, cancelar, vencimiento, slow_down, secreto ajeno, un solo uso, enlace
 `EsperaAutorizacionTests`/`IngresoGoogleReglasTests` en el instalador. **Despliegue:** requiere publicar la nube (la migración
 `V2026.10.010` se aplica sola con `MigrateOnStartup`) y un instalador nuevo; sin la nube nueva, "Continuar con Google" responde 404 y el
 instalador lo muestra como error (el correo y la contraseña siguen funcionando).
+
+### 9.6 Revisión de seguridad y robustez del instalador, del enlace del dueño y del portal (2026-10-17)
+
+**Instalador premium.** El final espera `/health/ready` ("Preparando la base de datos…", hasta 20 min) y no `/health/live`: en una
+actualización (1.1.x → 1.2.0) el servidor responde 503 mientras migra y el instalador mostraba "Ocurrió un error inesperado" aunque
+BusinessPost quedaba instalado; `ConfiguradoAsync` reintenta los 503/errores pasajeros y devuelve un resultado tipado. La espera de
+"Continuar con Google" ya no queda "Esperando autorización" para siempre (captura cualquier falla, un 200 con HTML de una red con portal
+cautivo y un cuerpo nulo; la página ofrece **Reintentar**). El enlace del dueño queda **atado a la clave** con la que se obtuvo (si el
+dueño vuelve y escribe otra clave hay que validar la cuenta de nuevo) y antes de instalar se revisan, sin conexión, el NIT y el
+vencimiento. El backup final de la desinstalación se guarda donde el dueño elige, empezando en **sus** Documentos (usuario de
+`explorer.exe`, no el administrador del `runas`), con la ruta EXACTA que informa el migrador. Cancelar detiene el paquete y lo que lanzó;
+el archivo del código de recuperación se borra solo cuando el paquete terminó. La lectura del registro de Inno guarda la posición exacta
+y no parte letras con tilde. La copia temporal del desinstalador se borra al salir (y si no, al reiniciar).
+
+**Paquete Inno (`installer/BusinessPost.iss`).** `PrepareToInstall` detiene TODOS los servicios (actualizador, servidor, agente y base de
+datos) y **espera** a que queden detenidos antes de copiar archivos (antes: "archivo en uso" o binarios mezclados); si no se detienen,
+la instalación se cancela con un mensaje claro. Los servicios existentes se **reconfiguran** con `sc config` (antes `stop`+`delete`+
+`create` sin esperar dejaba el servicio "marcado para eliminación" y el equipo SIN servicio); el servidor depende de `BusinessPost-DB`,
+`sc failureflag 1` y los fallos de `sc failure` quedan en el registro. El código de recuperación va al migrador en un **archivo** que se lee
+y se borra (`--recovery-code-file`, nunca en la línea de comandos ni en el registro). En una actualización el migrador hace un backup
+**PRE_UPDATE** antes de migrar; si la migración falla no se cambia `app\current` (la versión anterior sigue activa y sus servicios vuelven
+a arrancar). El paquete recuerda el **modo** instalado (y lo deduce de la configuración en instalaciones anteriores): lo propone al
+actualizar y cambiarlo exige confirmación (`/CAMBIARMODO=si` desde el premium), quitando los servicios, la regla del firewall y la
+configuración que el modo nuevo no usa (los datos se conservan). Firewall: se borra la regla antes de crearla, solo `remoteip=localsubnet`,
+perfiles privado y de dominio; si la red está como **Pública** queda un aviso (página final del premium y mensaje del clásico). Si la
+recuperación desde un backup falla, ya no se sigue con una base vacía. Al desinstalar se espera a que los servicios se detengan y se borran
+todas las versiones de `app\` (también las del actualizador) y PostgreSQL; los datos solo si se pidió. La URL del equipo principal se
+normaliza (origen exacto para el agente) y el JSON se escapa.
+
+**Futuro (I10, no se cambia ahora): cuentas de servicio con menos privilegios.** El servidor, el actualizador y el agente corren como
+`LocalSystem` aunque escuchan en la LAN. Pasarlos a cuentas virtuales (`NT SERVICE\BusinessPost-Server`, etc.) exige: permisos de lectura
+sobre `ProgramData\BusinessPost\config` (hoy solo SYSTEM y Administradores, a propósito: DPAPI de máquina), acceso a la llave privada del
+certificado HTTPS de la LAN, reservar las URL (`netsh http add urlacl`) para 5443/5444, que el actualizador pueda cambiar `app\current`,
+detener/iniciar servicios (permisos SCM) y escribir en `Program Files`, y que los backups lleguen a carpetas de red. Es un cambio de
+arquitectura con riesgo de dejar tiendas sin servicio: se hará con una fase propia y pruebas en equipos reales (primero el agente, que no
+necesita la configuración cifrada).
+
+**Nube.** "Continuar con Google": el dueño **escribe** en el portal el código que muestra su instalador (la página ya no lo muestra; 5
+intentos y la solicitud se cancela), su ingreso debe ser **reciente** (10 min; si no, "Ingresar de nuevo"), escribe su **TOTP** si lo tiene
+activo o el portal lo exige (también después de Google), ve cuándo y desde qué IP se creó la solicitud, la solicitud vence a los **5
+minutos** y las decisiones tienen límite por usuario (migración `V2026.10.012`, `code_attempts`). Inexistente y "de otra cuenta" se ven
+igual y abrir la página no escribe en la auditoría (solo las decisiones). Al entregar el enlace se revisa también la suscripción. Portal:
+restablecer la contraseña o el TOTP de otro usuario exige ingreso reciente o confirmar con la contraseña/TOTP; a otro superadministrador,
+siempre el TOTP; nunca sobre sí mismo; restablecer el TOTP también restablece la contraseña (temporal) por defecto; desactivar el TOTP
+propio consume el código. Asistente `/instalacion`: confirmación de la contraseña y "Mostrar", regla real (mínimo 8), correo propio del
+propietario, script aparte sin `innerHTML` y CSP sin scripts en línea, manejo de sesión vencida y de "configurada pero sin ingreso".
+
+**Segunda revisión (IN1-IN10, PN1-PN8).** *Paquete Inno:* el desinstalador volvió a detener los servicios (la ruta de PowerShell había
+perdido sus barras invertidas; una prueba revisa ahora los `.iss` y `.ps1` del instalador: caracteres de control, `{sys}`/`{app}`/`{tmp}`
+sin barra y el BOM). Detener los servicios ya no usa `Stop-Service -Force` (esperaba sin límite a un servicio trabado): pide parar sin
+bloquear, espera 90 s y, si vence, cierra el proceso del servicio (PID de `Win32_Service`) y la instalación se cancela; también cierra los
+procesos sueltos (actualizador, migrador, `discover`, servidor o agente) que corren desde la carpeta de la instalación. Si se cancela,
+vuelven a arrancar SOLO los servicios que estaban en marcha (base de datos → agente → servidor → actualizador). Si una migración falla a
+mitad, el migrador **restaura automáticamente el backup PRE_UPDATE** en una BD nueva (sin migrarla: queda en el esquema anterior), revisa
+sello y conteos y cambia `server.json` a ella antes de que el paquete vuelva a la versión anterior (código 3); si esa restauración también
+falla (o no había backup), sale con el código **8 = restaurar con soporte**: el paquete NO arranca el servidor ni el actualizador
+anteriores, el mensaje dice dónde está el backup y queda un archivo `logs\actualizacion-fallida-*.txt` (va en el paquete de soporte).
+Cuando la base de datos, la recuperación o el cambio de `app\current` fallan, el paquete termina con código distinto de cero
+(`GetCustomSetupExitCode`: 20 base de datos o recuperación, 21 restaurar con soporte, 22 versión activa), conserva en el registro de
+Windows la versión y el modo de antes (`DisplayVersion` y `Inno Setup CodeFile: Modo`) y el premium muestra el error con un texto claro.
+La vuelta atrás (también en una reinstalación cuya recuperación falla) recupera el actualizador anterior y vuelve a arrancar los servicios
+que había. El cambio de modo (quitar servicios y la regla del firewall, renombrar `updater.json`, deshabilitar la base de datos) se hace
+recién después de que la base de datos quedó lista y la versión nueva activa; antes de migrar solo se habilita la base de datos de una
+caja adicional que pasa a equipo principal (y se vuelve a deshabilitar si falla). `app\current` se cambia creando primero la unión nueva
+aparte (`app\current.nueva`): si algo falla, la anterior sigue (o se recrea) y no se registran servicios hacia una ruta inexistente.
+
+*`pgsql\` y `updater\` (IN5).* Se eligió lo más simple y seguro: antes de copiar se guarda `updater\Pos.Server.Updater.exe.anterior` y la
+vuelta atrás lo recupera (se borra cuando la instalación termina bien). `pgsql\` **no** se respalda ni se versiona: el paquete trae siempre
+PostgreSQL 18 y dentro de la misma versión mayor los binarios son compatibles con el directorio de datos y con la versión anterior de
+BusinessPost (que solo usa la conexión). Un cambio de versión MAYOR de PostgreSQL exige `pg_upgrade` y tendrá su propia fase; ese paquete
+deberá versionar `pgsql` igual que `app\<versión>`.
+
+*Instalador premium:* detecta el modo instalado igual que el paquete (primero el valor que guardó Inno en
+`HKLM\…\Uninstall\{ED01E874-…}_is1`, después la configuración); al cerrar espera (hasta 45 s) a que termine de detener el paquete y borra
+los archivos temporales del código de recuperación; busca los Documentos del usuario abriendo `explorer.exe` solo con
+`PROCESS_QUERY_LIMITED_INFORMATION` y sin cortar la búsqueda si un proceso falla. *Nube y servidor:* un texto que no tiene la forma del
+código del instalador no gasta intentos; al agotar los 5 intentos la página dice "se canceló por demasiados códigos incorrectos"; la
+re-autenticación reciente (o confirmar con la contraseña/TOTP; siempre el TOTP si la cuenta es o pasa a ser de superadministrador) se
+exige también para crear un superadministrador, cambiar el rol, desactivar y desbloquear usuarios; `/instalacion` y su script se sirven con
+`Cache-Control: no-cache`. Las pruebas que adelantan el reloj usan su propio servidor y lo devuelven a la hora real.
+
+**Pendiente (decisión de producto, M14):** revocar los enlaces del dueño ya autorizados (hoy, una vez entregado, el enlace firmado vale
+hasta que vence) y exigir el TOTP (`Portal:RequireTotp`) a los usuarios Cliente dueños de una cuenta. No se implementa sin decidirlo.
+
+**Tercera revisión (IL1-IL10).** *Vuelta atrás de la base de datos:* la BD restaurada desde el backup PRE_UPDATE (`pos_rb…`, sin dueños
+ni privilegios en el volcado y sin los scripts "always" de la versión nueva) recibe ahora los privilegios que tenía la BD activa para
+`pos_app`, `pos_backup` y `pos_migrator`, que son los de la versión ANTERIOR (la migración fallida no llegó a sus scripts "always"); los de
+objetos que solo creó la migración fallida se omiten. Antes `pos_app` quedaba sin permisos y el servidor anterior respondía 503. La
+revisión posterior usa solo lo que trae el backup (sello y conteos de su encabezado, tolerando objetos que no existen) y no el verificador
+de auditoría de la versión nueva. Antes de restaurar se revisa el espacio libre (BD actual + 20 % en el disco de los datos, el doble del
+paquete en la carpeta temporal) y hay un límite de 60 minutos (pg_restore se cierra si vence). Hay una prueba con PostgreSQL 18 real
+(`Pos.Database.Tests/PreUpdateRollbackTests`): esquema anterior, backup, migración que falla a mitad, restauración y `pos_app` leyendo y
+escribiendo con las mismas restricciones de antes. *Paquete:* con los códigos 21 y 22 el servidor y el actualizador quedan en inicio
+manual (`sc config start= demand`, con aviso en el registro y en el mensaje) hasta que una instalación termine bien (vuelven a `auto`). Si
+en una actualización a otra versión falla la recuperación del backup elegido después de que la base ya se migró, no se arranca el servidor
+anterior (código 22). Si la base de datos no se detiene en 90 s se usa `pg_ctl stop -m fast` y luego `-m immediate` antes de cerrar el
+proceso; `postgres.exe`/`pg_ctl.exe` de `{app}\pgsql` se cierran solo si siguen vivos. La página final del asistente clásico ya no dice
+"completado" cuando algo falló, y una instalación NUEVA que falla no deja registrada la versión nueva. *Premium:* al cerrar la ventana
+durante la base de datos ya no se corta el paquete (ni el migrador ni pg_restore): se espera a que termine; si hay que cortarlo antes,
+queda el mismo estado del código 22. *Portal:* reactivar, cambiar la cuenta asociada y desactivar a un usuario bloqueado por intentos
+también piden confirmar; cambiarse el propio rol, la cuenta o desactivarse da `PORTAL.CANNOT_CHANGE_SELF`; el motivo "se canceló por
+demasiados códigos incorrectos" se mantiene al recargar la página (se deduce de `code_attempts`). `confirmation` quedó documentado en
+`http/fase-12a.http`.
+
+**Cuarta revisión (IR1-IR6).** La prueba de la vuelta atrás con PostgreSQL real ya no depende de las últimas migraciones del producto: la
+"versión anterior" es el catálogo actual y la "versión nueva" son migraciones propias de la prueba. Si la migración falla en un repetible
+posterior a `R__reporting__views` (que borra y recrea las vistas) o en los scripts "always", las vistas de `reporting` quedaban sin
+privilegios: la restauración (y, sin cambios de esquema, la BD activa) devuelve la lectura de `reporting` a `pos_app`, y después el
+instalador corre `apply-always` con el migrador de la versión ANTERIOR (comando nuevo: solo los scripts "always", y solo si la BD está en
+su versión). Los migradores viejos no lo tienen (responden 2) y quedan los privilegios copiados. Mientras se migra, el servidor y el
+actualizador quedan en inicio manual y el registro de Windows conserva la versión y el modo anteriores; ambos se actualizan recién cuando
+la instalación terminó bien (`CreateService` los devuelve a automático; la vuelta atrás también). El servidor, al arrancar, compara el
+estado completo de las migraciones (no solo la última versión): con migraciones desconocidas o pendientes no atiende operaciones de negocio
+(503 en `/health/ready`) y explica qué hacer. Se eligió no cerrar el proceso: Windows lo reiniciaría en bucle por las acciones de
+recuperación y no quedaría dónde leer el motivo. Si la instalación se cancela o se aborta después de detener los servicios y antes de
+`ssPostInstall`, `DeinitializeSetup` recupera el actualizador anterior y vuelve a arrancar los servicios que estaban en marcha; el premium
+hace lo mismo si se cierra antes de la base de datos. Si vence la espera del premium con el paquete trabajando, no se borra el archivo del
+código de recuperación (lo borra Inno, o la próxima ejecución si tiene más de 2 horas). La guía de recuperación explica cómo devolver los
+servicios a automático después de restaurar con soporte.
+
+**Ronda corta antes de unir (P1-P6).** El premium ya no corta el paquete desde que entró en la base de datos (o, en una caja, desde que
+activa la versión nueva, que ahora deja su propia línea "Paso:"), aunque el registro diga que falló: mientras esté vivo, espera. Justo
+antes de cortarlo vuelve a leer el registro, y solo recupera el actualizador anterior si el paquete ya había empezado a copiar. Con el
+código 3 el instalador corre primero `migrate --no-backup` del migrador ANTERIOR (existe desde la Fase 13): sobre la BD restaurada solo
+aplica sus privilegios, y si la falla no traía cambios de esquema vuelve a aplicar sus repetibles y privilegios. Si no funciona, se
+intenta `apply-always`; los migradores sin ese comando quedan como aviso en el registro, no como error. La contraseña del administrador
+en la prueba de 30 días sigue la regla del servidor de la tienda, que es quien la valida: mínimo 8 caracteres, sin el correo y no
+trivial, con los mismos textos.

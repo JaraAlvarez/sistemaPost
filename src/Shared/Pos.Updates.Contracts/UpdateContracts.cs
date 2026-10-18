@@ -31,6 +31,14 @@ public static class UpdateChannels
 /// <param name="MinimumTerminalVersion">Versión mínima del agente de caja que funciona con este servidor.</param>
 /// <param name="PublishedAt">Fecha de publicación.</param>
 /// <param name="Notes">Novedades en español para el propietario.</param>
+/// <param name="ExpiresAt">
+/// Caducidad del manifiesto: después de esa fecha el actualizador del servidor no lo acepta (así un manifiesto viejo, aunque esté bien
+/// firmado, no se puede volver a servir para frenar las actualizaciones). Obligatoria.
+/// </param>
+/// <param name="Sequence">
+/// Número de secuencia creciente de cada publicación (Pos.Release usa la hora Unix de la firma). El actualizador guarda el último que vio y
+/// rechaza uno menor (ataque de repetición o vuelta atrás). Obligatorio (mayor que cero).
+/// </param>
 public sealed record UpdateManifest(
     [property: JsonPropertyName("product")] string Product,
     [property: JsonPropertyName("channel")] string Channel,
@@ -40,7 +48,9 @@ public sealed record UpdateManifest(
     [property: JsonPropertyName("packageSize")] long PackageSize,
     [property: JsonPropertyName("minimumTerminalVersion")] string MinimumTerminalVersion,
     [property: JsonPropertyName("publishedAt")] DateTimeOffset PublishedAt,
-    [property: JsonPropertyName("notes")] string Notes);
+    [property: JsonPropertyName("notes")] string Notes,
+    [property: JsonPropertyName("expiresAt")] DateTimeOffset? ExpiresAt = null,
+    [property: JsonPropertyName("sequence")] long Sequence = 0);
 
 /// <summary>
 /// Manifiesto firmado: <c>payload</c> es el JSON del manifiesto en base64url y <c>signature</c> la firma Ed25519 de esos bytes con la clave
@@ -58,6 +68,44 @@ public enum ManifestStatus
     UnknownKey,
     BadSignature,
     WrongProduct,
+
+    /// <summary>Le falta la caducidad o el número de secuencia (manifiesto de un generador viejo).</summary>
+    MissingFreshness,
+
+    /// <summary>Venció (<see cref="UpdateManifest.ExpiresAt"/>).</summary>
+    Expired,
+
+    /// <summary>Su número de secuencia es menor que el último visto en este equipo.</summary>
+    Replayed,
+}
+
+/// <summary>
+/// Frescura del manifiesto (además de la firma): caducidad y número de secuencia. En las cajas no se exige la caducidad: el servidor de la
+/// tienda les sirve el manifiesto de la versión que instaló, que puede ser de hace meses; sí la secuencia.
+/// </summary>
+public static class ManifestFreshness
+{
+    /// <summary>Vigencia que pone Pos.Release por defecto (M5: 90 días; hay que volver a firmar antes, ver docs/guia-instalacion.md).</summary>
+    public static readonly TimeSpan DefaultLifetime = TimeSpan.FromDays(90);
+
+    /// <summary>Con menos de esto por vencer, Pos.Release verify avisa que hay que volver a firmar.</summary>
+    public static readonly TimeSpan RenewalWarning = TimeSpan.FromDays(15);
+
+    public static ManifestStatus Check(UpdateManifest manifest, DateTimeOffset now, long lastSequence, bool requireNotExpired)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (manifest.ExpiresAt is not { } expiresAt || manifest.Sequence <= 0)
+        {
+            return ManifestStatus.MissingFreshness;
+        }
+
+        if (requireNotExpired && now >= expiresAt)
+        {
+            return ManifestStatus.Expired;
+        }
+
+        return manifest.Sequence < lastSequence ? ManifestStatus.Replayed : ManifestStatus.Valid;
+    }
 }
 
 /// <summary>Firma y verificación de manifiestos con la clave de actualizaciones (distinta de la de licencias).</summary>
@@ -145,19 +193,35 @@ public static class UpdateSigning
 /// <summary>Versión <c>MAYOR.MENOR.PARCHE</c>; ignora los metadatos de compilación (<c>+abc</c>) y ordena las preliminares (<c>-beta.1</c>) antes.</summary>
 public readonly record struct SemanticVersion(int Major, int Minor, int Patch, string? PreRelease) : IComparable<SemanticVersion>
 {
+    /// <summary>
+    /// SemVer ESTRICTA: <c>MAYOR.MENOR.PARCHE</c> con dígitos, preliminar y metadatos opcionales con identificadores no vacíos de
+    /// <c>[0-9A-Za-z-]</c>, sin espacios ni otros caracteres y de hasta 64 caracteres. La versión se usa como nombre de carpeta
+    /// (<c>app\{versión}</c>): nada de <c>..</c>, barras, dos puntos ni espacios.
+    /// </summary>
     public static bool TryParse(string? text, out SemanticVersion version)
     {
         version = default;
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrEmpty(text) || text.Length > 64 || !text.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+'))
         {
             return false;
         }
 
-        var core = text.Trim().Split('+')[0];
+        var plus = text.Split('+');
+        if (plus.Length > 2 || (plus.Length == 2 && !Identifiers(plus[1])))
+        {
+            return false;
+        }
+
+        var core = plus[0];
         var dash = core.IndexOf('-', StringComparison.Ordinal);
         var pre = dash >= 0 ? core[(dash + 1)..] : null;
+        if (pre is not null && !Identifiers(pre))
+        {
+            return false;
+        }
+
         var parts = (dash >= 0 ? core[..dash] : core).Split('.');
-        if (parts.Length != 3
+        if (parts.Length != 3 || parts.Any(p => p.Length == 0)
             || !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var major)
             || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var minor)
             || !int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var patch))
@@ -169,6 +233,13 @@ public readonly record struct SemanticVersion(int Major, int Minor, int Patch, s
         return true;
     }
 
+    /// <summary>Identificadores separados por puntos, cada uno no vacío y solo con <c>[0-9A-Za-z-]</c>.</summary>
+    private static bool Identifiers(string text) =>
+        text.Length > 0 && text.Split('.').All(i => i.Length > 0 && i.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'));
+
+    /// <summary>¿Sirve como nombre de la carpeta de una versión (<c>app\{versión}</c>)? SemVer estricta.</summary>
+    public static bool IsSafeFolderName(string? text) => TryParse(text, out _);
+
     public int CompareTo(SemanticVersion other)
     {
         var result = Major.CompareTo(other.Major);
@@ -179,7 +250,36 @@ public readonly record struct SemanticVersion(int Major, int Minor, int Patch, s
             return result;
         }
 
-        return PreRelease is null ? 1 : other.PreRelease is null ? -1 : string.CompareOrdinal(PreRelease, other.PreRelease);
+        return PreRelease is null ? 1 : other.PreRelease is null ? -1 : ComparePreRelease(PreRelease, other.PreRelease);
+    }
+
+    /// <summary>
+    /// Precedencia de las versiones preliminares según SemVer 2.0 (§11): identificadores separados por puntos; los numéricos se comparan
+    /// como números y van antes que los alfanuméricos; con todo igual, la que tiene menos identificadores va antes
+    /// (<c>beta.2 &lt; beta.10</c>, que como texto quedaba al revés).
+    /// </summary>
+    private static int ComparePreRelease(string left, string right)
+    {
+        var a = left.Split('.');
+        var b = right.Split('.');
+        for (var i = 0; i < Math.Min(a.Length, b.Length); i++)
+        {
+            var leftNumeric = long.TryParse(a[i], NumberStyles.None, CultureInfo.InvariantCulture, out var x);
+            var rightNumeric = long.TryParse(b[i], NumberStyles.None, CultureInfo.InvariantCulture, out var y);
+            var result = (leftNumeric, rightNumeric) switch
+            {
+                (true, true) => x.CompareTo(y),
+                (true, false) => -1,
+                (false, true) => 1,
+                _ => string.CompareOrdinal(a[i], b[i]),
+            };
+            if (result != 0)
+            {
+                return result;
+            }
+        }
+
+        return a.Length.CompareTo(b.Length);
     }
 
     public static bool operator <(SemanticVersion left, SemanticVersion right) => left.CompareTo(right) < 0;
@@ -219,7 +319,8 @@ public sealed record UpdaterState(
     [property: JsonPropertyName("ready")] bool Ready,
     [property: JsonPropertyName("lastCheckAt")] DateTimeOffset? LastCheckAt,
     [property: JsonPropertyName("lastError")] string? LastError,
-    [property: JsonPropertyName("nextWindow")] DateTimeOffset? NextWindow);
+    [property: JsonPropertyName("nextWindow")] DateTimeOffset? NextWindow,
+    [property: JsonPropertyName("needsSupport")] bool NeedsSupport = false);
 
 /// <summary>Archivos compartidos entre el actualizador y el servidor bajo <c>{DataRoot}\updates</c>.</summary>
 public static class UpdateFiles
@@ -235,6 +336,18 @@ public static class UpdateFiles
     public const string InstalledManifest = "installed-manifest.json";
 
     public const string InstalledPackage = "installed-package.zip";
+
+    /// <summary>U4: actualización en curso (se escribe al empezar y se borra al terminar; si queda, al arrancar se vuelve atrás).</summary>
+    public const string InProgress = "update-in-progress.json";
+
+    /// <summary>Último número de secuencia de manifiesto aceptado en este equipo, por canal (M4).</summary>
+    public const string LastSequence = "manifest-sequence.json";
+
+    /// <summary>M2: versión que tuvo que volver atrás en este equipo (no se reintenta hasta que haya una más nueva).</summary>
+    public const string FailedVersion = "failed-version.json";
+
+    /// <summary>ALTA 4: el propietario pidió "instalar ahora": el servidor lo propaga a las cajas (24 h) en el manifiesto que les sirve.</summary>
+    public const string TerminalsInstallNow = "terminals-install-now.request";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

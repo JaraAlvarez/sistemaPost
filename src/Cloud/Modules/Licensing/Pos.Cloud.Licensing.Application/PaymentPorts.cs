@@ -28,6 +28,20 @@ public sealed class PaymentsOptions
     /// <summary>Órdenes pendientes que admite una suscripción en las últimas 24 h (evita llenar la tabla desde el enlace público).</summary>
     public int MaxPendingOrdersPerSubscription { get; set; } = 10;
 
+    /// <summary>
+    /// Días en que la conciliación sigue revisando las órdenes RECHAZADAS o VENCIDAS (W1: un pago aprobado tarde igual se aplica).
+    /// </summary>
+    public int RecheckClosedOrdersDays { get; set; } = 7;
+
+    /// <summary>
+    /// Antigüedad máxima del <c>timestamp</c> de un evento de la pasarela (antirrepetición). Cubre los reintentos de Wompi cuando la nube
+    /// respondió error (W1).
+    /// </summary>
+    public int EventMaxAgeHours { get; set; } = 72;
+
+    /// <summary>Cuánto puede adelantarse el <c>timestamp</c> de un evento a la hora del servidor (relojes desfasados).</summary>
+    public int EventMaxFutureMinutes { get; set; } = 5;
+
     public WompiOptions Wompi { get; set; } = new();
 }
 
@@ -77,10 +91,15 @@ public sealed class WompiOptions
 /// <param name="Transaction">Datos de la transacción que trae el evento (se confirman después consultando la pasarela).</param>
 /// <param name="Environment"><c>test</c> o <c>prod</c>.</param>
 /// <param name="RejectionReason">Por qué no es válido (sin datos secretos).</param>
-public sealed record GatewayEvent(bool SignatureValid, string? EventType, GatewayTransaction? Transaction, string? Environment, string? RejectionReason);
+/// <param name="Timestamp">Momento del evento según la pasarela (<c>timestamp</c>, firmado): antirrepetición.</param>
+public sealed record GatewayEvent(
+    bool SignatureValid, string? EventType, GatewayTransaction? Transaction, string? Environment, string? RejectionReason, DateTimeOffset? Timestamp = null);
 
-/// <summary>Datos para armar la redirección al checkout alojado por la pasarela.</summary>
-public sealed record CheckoutRequest(string Reference, long AmountInCents, string Currency, string RedirectUrl);
+/// <summary>
+/// Datos para armar la redirección al checkout alojado por la pasarela. <c>ExpiresAt</c>: después de esa hora la pasarela ya no acepta el
+/// pago (va firmado en la integridad).
+/// </summary>
+public sealed record CheckoutRequest(string Reference, long AmountInCents, string Currency, string RedirectUrl, DateTimeOffset? ExpiresAt = null);
 
 /// <summary>
 /// Pasarela de pagos (D12C-01). Hoy solo Wompi (<c>WompiGateway</c>); cambiar de pasarela es escribir otro adaptador. Nunca se
@@ -140,7 +159,14 @@ public interface IPaymentStore
     /// <summary>Bloquea la fila de la orden hasta el fin de la transacción y la lee de nuevo (evento y conciliación a la vez).</summary>
     Task<PaymentOrder?> LockOrderAsync(string reference, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<Guid>> GetPendingOrderIdsAsync(int limit, CancellationToken cancellationToken);
+    /// <summary>
+    /// Órdenes a conciliar: las pendientes y las rechazadas o vencidas creadas desde <paramref name="recheckSince"/> (W1). Primero las
+    /// pendientes.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> GetOrderIdsToReconcileAsync(int limit, DateTimeOffset recheckSince, CancellationToken cancellationToken);
+
+    /// <summary>Eventos con firma inválida de esa IP desde <paramref name="since"/> (limita la auditoría y las filas guardadas por IP).</summary>
+    Task<int> CountRecentRejectedEventsAsync(System.Net.IPAddress? ip, DateTimeOffset since, CancellationToken cancellationToken);
 
     Task<int> CountRecentPendingOrdersAsync(Guid subscriptionId, DateTimeOffset since, CancellationToken cancellationToken);
 
@@ -242,6 +268,9 @@ public interface IPaymentReadModel
     Task<PaymentOrderRowDto?> FindOrderByTransactionAsync(string transactionId, CancellationToken cancellationToken);
 
     Task<PaymentOrderRowDto?> FindOrderByReferenceAsync(string reference, CancellationToken cancellationToken);
+
+    /// <summary>La orden SOLO si el token de su página de resultado coincide (anti enumeración).</summary>
+    Task<PaymentOrderRowDto?> FindOrderForResultAsync(string reference, string token, CancellationToken cancellationToken);
 
     Task<(int ReviewRequired, int Pending)> CountAlertsAsync(CancellationToken cancellationToken);
 

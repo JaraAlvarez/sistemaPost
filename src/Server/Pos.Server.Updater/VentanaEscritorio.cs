@@ -33,8 +33,24 @@ internal static class VentanaEscritorio
             return avisos;
         }
 
+        // R5: el actualizador corre como SYSTEM: no sigue enlaces (una unión en {app}\desktop o en la versión haría que copie o borre
+        // archivos en otro lugar).
+        foreach (var carpeta in new[] { anterior, nueva, versionDirectory })
+        {
+            if (UpdaterSecurity.IsReparsePoint(carpeta))
+            {
+                avisos.Add($"{carpeta} es un enlace: no se refresca la copia de la ventana.");
+                return avisos;
+            }
+        }
+
         foreach (var resto in Directory.EnumerateFiles(anterior, "*" + SufijoAnterior).Concat(Directory.EnumerateFiles(anterior, "*" + SufijoNuevo)))
         {
+            if (UpdaterSecurity.IsReparsePoint(resto))
+            {
+                continue;
+            }
+
             try
             {
                 File.Delete(resto);
@@ -48,6 +64,12 @@ internal static class VentanaEscritorio
         foreach (var origen in Directory.EnumerateFiles(nueva))
         {
             var destino = Path.Combine(anterior, Path.GetFileName(origen));
+            if (UpdaterSecurity.IsReparsePoint(origen) || UpdaterSecurity.IsReparsePoint(destino) || UpdaterSecurity.IsReparsePoint(destino + SufijoNuevo))
+            {
+                avisos.Add($"{destino}: hay un enlace; no se toca.");
+                continue;
+            }
+
             try
             {
                 if (Iguales(origen, destino))

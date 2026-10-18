@@ -28,7 +28,8 @@ public sealed record SistecreditoVerificationDto(bool Ok, string Message, string
 /// <summary>
 /// Un cobro con Sistecrédito. <c>Status</c>: PENDING, APPROVED, REJECTED, EXPIRED, CANCELLED o REVIEW_REQUIRED. El documento va
 /// enmascarado (solo los últimos 4). <c>Warning</c>: aviso temporal (p. ej. sin conexión con Sistecrédito; se sigue intentando).
-/// <c>Usable</c>: aprobado y sin usar (aunque esté en REVIEW_REQUIRED): la caja lo agrega como pago de su venta.
+/// <c>Usable</c>: aprobado y sin usar (aunque esté en REVIEW_REQUIRED): la caja lo agrega como pago de su venta. <c>ReviewUpdate</c>:
+/// novedad posterior de un cobro que ya estaba en revisión (el motivo con que entró sigue en <c>Message</c>).
 /// </summary>
 public sealed record SistecreditoPaymentDto(
     Guid Id,
@@ -50,7 +51,8 @@ public sealed record SistecreditoPaymentDto(
     DateTimeOffset? ReviewRequiredAt,
     DateTimeOffset? ReviewedAt,
     string? ReviewNote,
-    bool Usable = false);
+    bool Usable = false,
+    string? ReviewUpdate = null);
 
 /// <summary>
 /// Sistecrédito visto por ventas (D7B-05): al completar una venta pagada con Sistecrédito, el pago debe corresponder a un cobro APROBADO
@@ -71,9 +73,11 @@ public interface ISistecreditoPayments
 
     /// <summary>
     /// «No usar este crédito»: con autorización de supervisor, el cobro aprobado de la venta queda en revisión y ya no se usa. Sin
-    /// <paramref name="transactionId"/>, todos los créditos usables de la venta.
+    /// <c>transactionId</c>, todos los créditos usables de la venta o, con <c>keepUpTo</c>, solo los necesarios (los más grandes primero)
+    /// para que lo aprobado que queda no supere ese valor (lo que falta por pagar). Repetirlo cuando ya no queda ninguno usable: OK.
     /// </summary>
-    Task<Result> ReleaseAsync(Guid saleId, string? transactionId, Guid userId, Guid? authorizedBy, CancellationToken cancellationToken = default);
+    Task<Result> ReleaseAsync(
+        Guid saleId, string? transactionId, Guid userId, Guid? authorizedBy, decimal? keepUpTo = null, CancellationToken cancellationToken = default);
 
     /// <summary>Después de completar la venta, FUERA de su transacción: cancela (o revisa, si ya se aprobaron) los cobros que seguían pendientes.</summary>
     Task SettleAfterSaleAsync(Guid saleId, CancellationToken cancellationToken = default);

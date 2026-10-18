@@ -7,14 +7,28 @@ namespace Pos.Client.Services;
 
 /// <summary>
 /// Lectura del agente (<c>GET /scale/weight</c>). <c>Status</c>: OK, UNSTABLE, ZERO, NEGATIVE, OVERLOAD o ERROR; <c>Unavailable</c> = el agente
-/// o la báscula no respondieron (sin báscula configurada en el agente, cable suelto, agente apagado).
+/// o la báscula no respondieron (sin báscula configurada en el agente, cable suelto, agente apagado). <c>GrossKg</c> = lo que marca la
+/// báscula; <c>WeightKg</c> = bruto menos la tara manual (<c>TareKg</c>); <c>ScaleNet</c> = la báscula ya descontó una tara; <c>At</c> =
+/// cuándo se leyó (viajan al servidor con la línea).
 /// </summary>
-public sealed record ScaleRead(string Status, string Message, decimal? WeightKg, decimal TareKg, bool Stable, string Display, bool Unavailable = false)
+public sealed record ScaleRead(
+    string Status, string Message, decimal? WeightKg, decimal TareKg, bool Stable, string Display, bool Unavailable = false, decimal? GrossKg = null,
+    bool ScaleNet = false, DateTimeOffset? At = null, Guid? ReadingId = null, bool EmptiedSinceLastAccepted = true, SignedScaleReading? SignedReading = null,
+    string? SigningProblem = null)
 {
     public bool IsOk => Status == "OK" && WeightKg > 0m;
 
     public static ScaleRead Down(string message) => new("ERROR", message, null, 0m, false, "--", Unavailable: true);
 }
+
+/// <summary>Lectura firmada por el agente (D3): se reenvía al servidor tal cual.</summary>
+public sealed record SignedScaleReading(string Payload, string Signature, Guid KeyId);
+
+/// <summary>Clave pendiente de confirmar y clave vigente del agente.</summary>
+public sealed record AgentPendingKey(Guid? PendingKeyId, Guid? KeyId);
+
+/// <summary>Clave pública que el agente creó al vincular la caja.</summary>
+public sealed record ScalePairing(Guid TerminalId, Guid KeyId, string PublicKey, string Algorithm);
 
 /// <summary>Driver que ofrece el agente con sus valores de fábrica.</summary>
 public sealed record ScaleDriverInfo(string Code, string Name, int BaudRate, int DataBits, string Parity, int StopBits, string ReadMode, string? RequestCommand);
@@ -41,6 +55,7 @@ public sealed class AgentScale(ApiClient api)
     /// </summary>
     public bool Enabled => Config is { Configured: true, Enabled: true, FeatureEnabled: true };
 
+
     /// <summary>Lee la báscula de la caja en el servidor y se la entrega al agente. Devuelve un aviso si el agente no la aceptó.</summary>
     public async Task<string?> LoadAsync(Guid terminalId)
     {
@@ -54,7 +69,40 @@ public sealed class AgentScale(ApiClient api)
             return null;
         }
 
-        return Config is { Configured: true, FeatureEnabled: true } config ? await PushAsync(config) : null;
+        if (Config is not { Configured: true, FeatureEnabled: true } config)
+        {
+            return null;
+        }
+
+        var aviso = await PushAsync(config);
+
+        // BS2: la vinculación quedó a medias (el servidor ya tiene la clave pendiente del agente, pero el agente no la activó).
+        var pendiente = await PendingAsync();
+        PendingToComplete = pendiente is { PendingKeyId: { } p } && p == config.ReadingKeyId && pendiente.KeyId != p ? p : null;
+        return aviso ?? (PendingToComplete is not null
+            ? "La vinculación de la báscula quedó a medias: pulse F1 → Completar vinculación."
+            : config is { Enabled: true, ReadingKeyId: null }
+                ? "Báscula no vinculada: vincule con F1 → Vincular báscula (con un supervisor). Mientras tanto el servidor no acepta sus pesos."
+                : null);
+    }
+
+    /// <summary>
+    /// BS2: clave que el servidor ya registró y que el agente tiene pendiente sin activar: "Completar vinculación" solo la confirma (sin
+    /// otro registro ni supervisor).
+    /// </summary>
+    public Guid? PendingToComplete { get; private set; }
+
+    /// <summary>Clave pendiente y vigente del agente (<c>GET /scale/pairing/pending</c>); nulo si el agente no responde o es viejo.</summary>
+    public static async Task<AgentPendingKey?> PendingAsync()
+    {
+        try
+        {
+            return await Agent.GetFromJsonAsync<AgentPendingKey>("scale/pairing/pending", ApiClient.Json);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Entrega la configuración al agente (<c>PUT /scale/config</c>); el agente la guarda en el equipo.</summary>
@@ -73,8 +121,79 @@ public sealed class AgentScale(ApiClient api)
 
     public static Task<ScaleRead> ReadAsync() => SendAsync(HttpMethod.Get, "scale/weight", null);
 
-    /// <summary>Aplica la configuración en el agente sin guardarla y lee una vez ("Probar báscula").</summary>
+    /// <summary>
+    /// "Probar báscula": abre en el agente una prueba con esta configuración (sin guardarla ni cambiar la báscula en uso ni su tara) y lee
+    /// una vez.
+    /// </summary>
     public static Task<ScaleRead> TestAsync(object settings) => SendAsync(HttpMethod.Post, "scale/test", settings);
+
+    /// <summary>La caja agregó la línea con esta lectura: la siguiente pesada exige ver la báscula vacía (D1).</summary>
+    public static Task AcceptedAsync(Guid readingId) => FireAsync("scale/accepted", new { readingId });
+
+    /// <summary>Se eliminó la última pesada para volver a pesar (BN1).</summary>
+    public static Task ReleaseAcceptedAsync() => FireAsync("scale/accepted", new { release = true });
+
+    /// <summary>
+    /// Vincula el agente de ESTE computador con la caja (D3): crea la clave que firma las lecturas y devuelve la pública para registrarla en
+    /// el servidor. Nulo y el mensaje si el agente no respondió.
+    /// </summary>
+    public static async Task<(ScalePairing? Pairing, string? Error)> PairAsync(Guid terminalId)
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync("scale/pairing", new { terminalId }, ApiClient.Json);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<ScalePairing>(ApiClient.Json), null)
+                : (null, await ProblemAsync(response));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return (null, "No se pudo hablar con el agente de esta caja para vincular la báscula.");
+        }
+    }
+
+    /// <summary>
+    /// BK1: el servidor ya registró la clave pendiente: el agente la activa. <c>Outdated</c> = el agente es de una versión anterior (no
+    /// tiene la confirmación, BQ9); <c>Error</c> = no se pudo activar (se puede reintentar); ambos nulos/false = quedó activa.
+    /// </summary>
+    public static async Task<(bool Outdated, string? Error)> CommitPairingAsync(Guid keyId)
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync("scale/pairing/commit", new { keyId }, ApiClient.Json);
+            if (response.IsSuccessStatusCode)
+            {
+                return (false, null);
+            }
+
+            return response.StatusCode == HttpStatusCode.NotFound || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                ? (true, "Actualice el programa de la caja (agente de BusinessPost): esta versión no puede vincular la báscula.")
+                : (false, await ProblemAsync(response));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (false, "No se pudo hablar con el agente de esta caja.");
+        }
+    }
+
+    /// <summary>Otra lectura de la prueba abierta.</summary>
+    public static Task<ScaleRead> TestReadAsync() => SendAsync(HttpMethod.Get, "scale/test", null);
+
+    /// <summary>Tara de la prueba (no toca la báscula en uso).</summary>
+    public static Task<ScaleRead> TestTareAsync(bool clear) => SendAsync(HttpMethod.Post, "scale/test/tare", new { clear });
+
+    /// <summary>Cierra la prueba en el agente.</summary>
+    public static async Task TestStopAsync()
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync("scale/test/stop", new { }, ApiClient.Json);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // El agente no responde: la prueba se cierra sola al minuto.
+        }
+    }
 
     /// <summary>Tara manual por software (bolsa o bandeja que no está en el producto); <paramref name="clear"/> la quita.</summary>
     public static Task<ScaleRead> TareAsync(bool clear) => SendAsync(HttpMethod.Post, "scale/tare", new { clear });
@@ -88,6 +207,18 @@ public sealed class AgentScale(ApiClient api)
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             return null;
+        }
+    }
+
+    private static async Task FireAsync(string path, object body)
+    {
+        try
+        {
+            using var response = await Agent.PostAsJsonAsync(path, body, ApiClient.Json);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            // El agente no responde: el servidor igual exige el retorno a cero con la lectura firmada.
         }
     }
 

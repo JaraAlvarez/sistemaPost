@@ -72,6 +72,11 @@ Source: "{#PackageDir}\updater\Pos.Server.Updater.exe"; DestDir: "{app}\updater"
 Source: "{#PackageDir}\app\{#AppVersion}\desktop\*"; DestDir: "{app}\app\{#AppVersion}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist
 Source: "{#PackageDir}\app\{#AppVersion}\desktop\*"; DestDir: "{app}\desktop"; Flags: recursesubdirs ignoreversion restartreplace uninsrestartdelete skipifsourcedoesntexist; Check: HasLegacyDesktopApp
 ; Ayudantes del primer arranque (Fase 13-B): no se instalan; se usan desde la carpeta temporal durante la instalación.
+; B3: manifiesto firmado y paquete de esta versión (los deja build-installer.ps1 en {#PackageDir}\update): el equipo principal los ofrece a
+; sus cajas desde el primer día, sin esperar una actualización automática. Se copian SOLO cuando la instalación terminó bien (si vuelve
+; atrás, las cajas no deben recibir una versión más nueva que la del equipo principal). Si la versión no se firmó, no existen.
+Source: "{#PackageDir}\update\installed-manifest.json"; Flags: dontcopy skipifsourcedoesntexist
+Source: "{#PackageDir}\update\installed-package.zip";   Flags: dontcopy skipifsourcedoesntexist nocompression
 Source: "scripts\precalentar.ps1";      Flags: dontcopy
 Source: "scripts\esperar-servicio.ps1"; Flags: dontcopy
 
@@ -87,13 +92,10 @@ Name: "{commonprograms}\BusinessPost\BusinessPost"; Filename: "{code:EdgePath}";
 Name: "{commonprograms}\BusinessPost\Paquete de soporte"; Filename: "{app}\app\current\migrator\Pos.Server.Migrator.exe"; Parameters: "support-bundle"; Check: IsServerMode
 
 [UninstallRun]
-Filename: "{sys}\sc.exe"; Parameters: "stop {#Product}-Updater"; Flags: runhidden; RunOnceId: "StopUpdater"
-Filename: "{sys}\sc.exe"; Parameters: "stop {#Product}-TerminalAgent"; Flags: runhidden; RunOnceId: "StopAgent"
-Filename: "{sys}\sc.exe"; Parameters: "stop {#Product}-Server"; Flags: runhidden; RunOnceId: "StopServer"
+; Los servicios ya se DETUVIERON (esperando a que paren) en CurUninstallStepChanged(usUninstall); aquí solo se quitan.
 Filename: "{sys}\sc.exe"; Parameters: "delete {#Product}-Updater"; Flags: runhidden; RunOnceId: "DelUpdater"
 Filename: "{sys}\sc.exe"; Parameters: "delete {#Product}-TerminalAgent"; Flags: runhidden; RunOnceId: "DelAgent"
 Filename: "{sys}\sc.exe"; Parameters: "delete {#Product}-Server"; Flags: runhidden; RunOnceId: "DelServer"
-Filename: "{sys}\sc.exe"; Parameters: "stop {#Product}-DB"; Flags: runhidden; RunOnceId: "StopDb"
 Filename: "{app}\pgsql\bin\pg_ctl.exe"; Parameters: "unregister -N {#Product}-DB"; Flags: runhidden skipifdoesntexist; RunOnceId: "DelDb"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#Product} LAN"""; Flags: runhidden; RunOnceId: "DelFirewall"
 Filename: "{cmd}"; Parameters: "/c rmdir ""{app}\app\current"""; Flags: runhidden; RunOnceId: "DelJunction"
@@ -101,8 +103,25 @@ Filename: "{cmd}"; Parameters: "/c rmdir ""{app}\app\current"""; Flags: runhidde
 [UninstallDelete]
 ; Copia del instalador premium que deja la instalación para desinstalar con el mismo diseño (Fase 13-B §8).
 Type: filesandordirs; Name: "{app}\instalador"
+; Todas las versiones de app\ (también las que instaló el actualizador, que Inno no conoce), current.json y PostgreSQL. La unión
+; app\current se quita antes en [UninstallRun]. Los DATOS (ProgramData) solo se borran si el usuario lo pidió.
+Type: filesandordirs; Name: "{app}\app"
+Type: filesandordirs; Name: "{app}\pgsql"
+Type: filesandordirs; Name: "{app}\updater"
+Type: filesandordirs; Name: "{app}\desktop"
+Type: dirifempty; Name: "{app}"
 
 [Code]
+const
+  // Clave de desinstalación que crea Inno con el AppId de [Setup] (aquí sin la doble llave de esa sección). Ahí quedan DisplayVersion y
+  // los datos previos ("Inno Setup CodeFile: Modo"); el instalador premium lee la misma clave (Sistema.cs).
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{ED01E874-EA07-4102-813B-7DAD1DE455D9}_is1';
+  // Códigos de salida del paquete cuando algo falló después de copiar los archivos (IN7; GetCustomSetupExitCode). Con ellos el instalador
+  // premium muestra el error en vez de "instalado".
+  ExitDatabaseFailed = 20;   // la base de datos o la recuperación fallaron; los datos y la versión anterior quedaron como estaban
+  ExitNeedsSupport = 21;     // la migración falló y NO se pudo volver a los datos de antes: restaurar con soporte (no arranca el servidor)
+  ExitActivationFailed = 22; // no se pudo cambiar app\current a la versión nueva
+
 var
   ModePage: TInputOptionWizardPage;
   RecoveryPage: TInputQueryWizardPage;
@@ -110,6 +129,25 @@ var
   TerminalPage: TInputQueryWizardPage;
   DeleteData: Boolean;
   LastProgress: Integer;
+  // Modo con el que ya estaba instalado el equipo (-1 = instalación nueva) y si el usuario confirmó cambiarlo (I5).
+  PreviousMode: Integer;
+  ModeChangeConfirmed: Boolean;
+  PublicNetwork: Boolean;
+  // Lo que había antes de esta instalación, para la vuelta atrás (IN3, IN5, IN7): versión guardada por Inno (el modo anterior es
+  // PreviousMode) y los servicios que estaban EN MARCHA cuando se detuvieron (lista "|nombre|nombre|").
+  PreviousVersion: String;
+  StoppedServices: String;
+  // IN6: la base de datos de una caja adicional que pasa a equipo principal se habilita antes de migrar; si falla, se vuelve a deshabilitar.
+  DbReEnabled: Boolean;
+  // IN7: distinto de cero si algo falló después de copiar los archivos (código de salida del paquete).
+  FailureCode: Integer;
+  // IR3: la instalación terminó bien (recién entonces se registran la versión y el modo nuevos). IR4: se llegó a ssPostInstall y
+  // PrepareToInstall detuvo los servicios (si se aborta antes, DeinitializeSetup los vuelve a arrancar). IR3: el servidor y el actualizador
+  // se pasaron a inicio manual mientras se migra.
+  InstallSucceeded: Boolean;
+  PostInstallReached: Boolean;
+  ServicesStoppedForInstall: Boolean;
+  ServicesSetManual: Boolean;
 
 // ------------------------------------------------------------------------------------------------------------------------------------
 // Instalador premium (Fase 13-B, D13B-08): BusinessPost-Setup.exe recoge los datos con su propio diseño y ejecuta ESTE paquete en
@@ -120,6 +158,7 @@ var
 //   /SERVIDOR=https://...:5443/ /HUELLA=...   caja adicional: equipo principal y huella de su certificado
 //   /BACKUP=ruta.posbak /RECUPERACION=archivo  recuperar: el archivo con el código se borra apenas se lee (el código no va en la línea
 //                                               de comandos)
+//   /CAMBIARMODO=si                     el usuario confirmó cambiar el modo de un equipo ya instalado (sin él, en silencio, se cancela)
 // Desinstalar: /BORRARDATOS=si (solo en silencio; el premium ya pidió la doble confirmación).
 // ------------------------------------------------------------------------------------------------------------------------------------
 function Premium: Boolean;
@@ -150,6 +189,8 @@ begin
   end;
   if Mode <> '' then
     Log('Instalador premium: modo ' + Mode);
+  if Lowercase(ExpandConstant('{param:CAMBIARMODO|no}')) = 'si' then
+    ModeChangeConfirmed := True;
 end;
 
 // Avance real de la copia de archivos para el instalador premium (una línea por cada punto porcentual).
@@ -204,6 +245,308 @@ begin
   Result := FileExists(ExpandConstant('{app}\desktop\BusinessPost.exe'));
 end;
 
+function ModeName(Index: Integer): String;
+begin
+  case Index of
+    0: Result := 'unica';
+    1: Result := 'principal';
+    2: Result := 'adicional';
+  else
+    Result := '';
+  end;
+end;
+
+function ModeLabel(Index: Integer): String;
+begin
+  case Index of
+    0: Result := 'la única caja (Caja Única)';
+    1: Result := 'el equipo principal (Multicaja)';
+    2: Result := 'una caja adicional (Multicaja)';
+  else
+    Result := 'otro modo';
+  end;
+end;
+
+// Modo con el que YA está instalado este equipo (I5): lo recuerda Inno (datos previos de la instalación) y, en instalaciones anteriores a
+// este cambio, se deduce de la configuración: updater.json en modo "Terminal" = caja adicional; server.json con edición MULTI = equipo
+// principal, SINGLE = única caja. -1 si es una instalación nueva.
+function DetectPreviousMode: Integer;
+var
+  Saved, Data: String;
+  Text: AnsiString;
+begin
+  Result := -1;
+  Saved := GetPreviousData('Modo', '');
+  if Saved = 'unica' then Result := 0;
+  if Saved = 'principal' then Result := 1;
+  if Saved = 'adicional' then Result := 2;
+  if Result >= 0 then
+    exit;
+  Data := ExpandConstant('{#DataDir}\config');
+  if LoadStringFromFile(Data + '\updater.json', Text) and (Pos('"Terminal"', String(Text)) > 0) then
+    Result := 2
+  else if LoadStringFromFile(Data + '\server.json', Text) then
+  begin
+    if Pos('"MULTI"', String(Text)) > 0 then Result := 1 else Result := 0;
+  end;
+end;
+
+// IN7/IR3: el modo nuevo solo se recuerda si la instalación terminó bien; mientras tanto (o si falló) queda el de antes.
+function ModeToRemember: String;
+begin
+  if (not InstallSucceeded) and (PreviousMode >= 0) then
+    Result := ModeName(PreviousMode)
+  else
+    Result := ModeName(ModePage.SelectedValueIndex);
+end;
+
+procedure RegisterPreviousData(PreviousDataKey: Integer);
+begin
+  // Una instalación NUEVA que todavía no terminó bien no recuerda ningún modo (al terminar lo escribe RegisterNewInstallData).
+  if InstallSucceeded or (PreviousMode >= 0) then
+    SetPreviousData(PreviousDataKey, 'Modo', ModeToRemember);
+end;
+
+// IN7/IR3: Inno registra la versión y los datos previos ANTES de ssPostInstall. Al empezar ssPostInstall (y en la vuelta atrás) se dejan
+// la versión y el modo de ANTES en la clave de desinstalación; los nuevos se escriben solo cuando la instalación terminó bien
+// (RegisterNewInstallData). Así un apagón a mitad no deja registrada una versión que no quedó instalada.
+procedure KeepPreviousInstallData;
+begin
+  if PreviousMode >= 0 then
+  begin
+    if RegWriteStringValue(HKLM, UninstallKey, 'Inno Setup CodeFile: Modo', ModeToRemember) then
+      Log('Registro de Windows: queda el modo ' + ModeToRemember + ' hasta que la instalación termine bien');
+  end;
+  if PreviousVersion <> '' then
+  begin
+    if RegWriteStringValue(HKLM, UninstallKey, 'DisplayVersion', PreviousVersion) then
+      Log('Registro de Windows: queda la versión ' + PreviousVersion + ' hasta que la instalación termine bien');
+  end
+  else
+  begin
+    // Instalación NUEVA sin terminar: no queda registrada como si la versión nueva estuviera instalada (sigue en "Aplicaciones" para
+    // poder desinstalarla).
+    RegDeleteValue(HKLM, UninstallKey, 'DisplayVersion');
+    if PreviousMode < 0 then
+      RegDeleteValue(HKLM, UninstallKey, 'Inno Setup CodeFile: Modo');
+    Log('Instalación nueva: la versión {#AppVersion} se registra cuando termine bien.');
+  end;
+end;
+
+// IR3: la instalación terminó bien: ahora sí la versión y el modo nuevos.
+procedure RegisterNewInstallData;
+begin
+  InstallSucceeded := True;
+  RegWriteStringValue(HKLM, UninstallKey, 'DisplayVersion', '{#AppVersion}');
+  RegWriteStringValue(HKLM, UninstallKey, 'Inno Setup CodeFile: Modo', ModeName(ModePage.SelectedValueIndex));
+  Log('Registro de Windows: versión {#AppVersion}, modo ' + ModeName(ModePage.SelectedValueIndex));
+end;
+
+// IN7: el paquete termina con un código distinto de cero si algo falló después de copiar (Inno solo llama a esta función si la
+// instalación llegó al final; con 0 devuelve su propio código).
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := FailureCode;
+end;
+
+procedure MarkFailed(Code: Integer; const Step: String);
+begin
+  if Code > FailureCode then
+    FailureCode := Code;
+  Log('Resultado: ERROR ' + Step);
+end;
+
+// Texto para JSON (comillas y barras invertidas escapadas) (I11).
+function JsonText(const Value: String): String;
+begin
+  Result := Value;
+  StringChangeEx(Result, '\', '\\', True);
+  StringChangeEx(Result, '"', '\"', True);
+end;
+
+// Origen (esquema://host:puerto, sin ruta ni barra final) de la dirección del equipo principal (I11): antes se cortaba el último
+// carácter suponiendo una "/" final y https://192.168.1.10:5443 quedaba como https://192.168.1.10:544.
+function OriginOf(const Url: String): String;
+var
+  Rest: String;
+  P: Integer;
+begin
+  Result := Trim(Url);
+  P := Pos('://', Result);
+  if P = 0 then
+    exit;
+  Rest := Copy(Result, P + 3, Length(Result));
+  if Pos('/', Rest) > 0 then
+    Rest := Copy(Rest, 1, Pos('/', Rest) - 1);
+  Result := Copy(Result, 1, P + 2) + Rest;
+end;
+
+// La dirección del equipo principal siempre con "/" final (la usa el actualizador como base).
+function WithSlash(const Url: String): String;
+begin
+  Result := Trim(Url);
+  if (Result <> '') and (Copy(Result, Length(Result), 1) <> '/') then
+    Result := Result + '/';
+end;
+
+// Texto entre comillas simples para PowerShell (duplica las comillas simples internas).
+function PsText(const Value: String): String;
+begin
+  Result := Value;
+  StringChangeEx(Result, '''', '''''', True);
+  Result := '''' + Result + '''';
+end;
+
+// PowerShell en línea (sin archivo: también sirve en el desinstalador) para DETENER los servicios de BusinessPost y ESPERAR a que queden
+// detenidos (I1, I2, I9): primero el actualizador (puede estar cambiando archivos), luego el servidor, el agente y la base de datos.
+// IN2: Stop-Service -Force se quedaba esperando SIN LÍMITE a un servicio trabado en "deteniéndose" (el tiempo de WaitForStatus nunca
+// llegaba a contar). Ahora se pide parar sin bloquear ($s.Stop()), se espera con límite y, si vence, se cierra el proceso del servicio
+// (PID de Win32_Service) y se marca el fallo.
+// IN8: después se cierran los procesos sueltos que corren desde la carpeta de la instalación (actualizador, migrador, "discover", servidor
+// o agente lanzados a mano) y que dejarían archivos en uso.
+// Escribe "Deteniendo <servicio>" por cada servicio que estaba en marcha (para volver a arrancarlo si se cancela, IN3).
+// IL8: si la base de datos no se detiene a tiempo, antes de cerrar su proceso se le pide a PostgreSQL que pare (pg_ctl stop -m fast y,
+// como último recurso, -m immediate: la próxima vez arranca con recuperación). Si así se detiene, no cuenta como fallo.
+// Código 0 = todos detenidos (o no existen); 1 = alguno no se detuvo a tiempo y se cerró su proceso a la fuerza (nombres en el registro).
+function StopServicesCommand(const Seconds: Integer; const AppDir: String): String;
+begin
+  Result := '$ErrorActionPreference = ''SilentlyContinue''; $fallos = @(); ' +
+    '$pgctl = ' + PsText(AddBackslash(AppDir) + 'pgsql\bin\pg_ctl.exe') + '; $pgdata = ' + PsText(ExpandConstant('{#DataDir}\data\pg')) + '; ' +
+    'foreach ($n in @(''{#Product}-Updater'', ''{#Product}-Server'', ''{#Product}-TerminalAgent'', ''{#Product}-DB'')) { ' +
+    '$s = Get-Service -Name $n; if ($s -and $s.Status -ne ''Stopped'') { Write-Output (''Deteniendo '' + $n); ' +
+    'try { $s.Stop() } catch { }; ' +
+    'try { $s.WaitForStatus(''Stopped'', [TimeSpan]::FromSeconds(' + IntToStr(Seconds) + ')) } catch { ' +
+    'if (($n -eq ''{#Product}-DB'') -and (Test-Path $pgctl)) { foreach ($modo in @(''fast'', ''immediate'')) { $s.Refresh(); ' +
+    'if ($s.Status -ne ''Stopped'') { Write-Output (''La base de datos no se detuvo: pg_ctl stop -m '' + $modo); ' +
+    '& $pgctl stop -D $pgdata -m $modo -w -t 60 2>&1 | Out-Null; try { $s.WaitForStatus(''Stopped'', [TimeSpan]::FromSeconds(20)) } catch { } } } }; ' +
+    '$s.Refresh(); if ($s.Status -eq ''Stopped'') { continue }; ' +
+    '$p = (Get-CimInstance -ClassName Win32_Service | Where-Object { $_.Name -eq $n }).ProcessId; ' +
+    'if ($p -gt 0) { Write-Output (''Cerrando a la fuerza '' + $n + '' (proceso '' + $p + '')''); Stop-Process -Id $p -Force }; ' +
+    '$fallos += $n } } }; ' +
+    '$carpeta = ' + PsText(AddBackslash(AppDir)) + '; ' +
+    'Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($carpeta, [StringComparison]::OrdinalIgnoreCase) -and ' +
+    '($_.ProcessName -in @(''Pos.Server.Updater'', ''Pos.Server.Migrator'', ''Pos.Server.Host'', ''Pos.Terminal.Agent'', ''postgres'', ''pg_ctl'')) } | ' +
+    'ForEach-Object { Write-Output (''Cerrando '' + $_.Path); Stop-Process -Id $_.Id -Force }; ' +
+    'if ($fallos.Count -gt 0) { Write-Output (''No se detuvieron a tiempo: '' + ($fallos -join '', '')); exit 1 }; exit 0';
+end;
+
+// Salida de StopServicesCommand: va al registro y anota los servicios que estaban en marcha.
+procedure StopServicesOutput(const S: String; const Error, FirstLine: Boolean);
+begin
+  Log(S);
+  if Pos('Deteniendo ', S) = 1 then
+    StoppedServices := StoppedServices + '|' + Trim(Copy(S, Length('Deteniendo ') + 1, Length(S))) + '|';
+end;
+
+function StopServices: Boolean;
+var
+  Code: Integer;
+begin
+  StoppedServices := '';
+  try
+    Result := ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -Command "' + StopServicesCommand(90, ExpandConstant('{app}')) + '"', '', SW_HIDE, ewWaitUntilTerminated, Code,
+      @StopServicesOutput) and (Code = 0);
+  except
+    Log('No se pudo ejecutar PowerShell para detener los servicios: ' + GetExceptionMessage);
+    Result := False;
+  end;
+end;
+
+procedure StartService(const Name: String);
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\sc.exe'), 'start ' + Name, '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Log('sc start ' + Name + ': código ' + IntToStr(Code));
+end;
+
+// IN3: vuelve a arrancar SOLO los servicios que estaban en marcha antes de detenerlos, en orden: base de datos, agente, servidor y
+// actualizador. Sin StartServer no arranca el servidor ni el actualizador (la base quedó para restaurar con soporte, IN4).
+procedure RestartStoppedServices(const StartServer: Boolean);
+begin
+  if StoppedServices = '' then
+    exit;
+  Log('Vuelta atrás: se vuelven a iniciar los servicios que estaban en marcha (' + StoppedServices + ')');
+  if Pos('|{#Product}-DB|', StoppedServices) > 0 then
+    StartService('{#Product}-DB');
+  if Pos('|{#Product}-TerminalAgent|', StoppedServices) > 0 then
+    StartService('{#Product}-TerminalAgent');
+  if StartServer and (Pos('|{#Product}-Server|', StoppedServices) > 0) then
+    StartService('{#Product}-Server');
+  if StartServer and (Pos('|{#Product}-Updater|', StoppedServices) > 0) then
+    StartService('{#Product}-Updater');
+end;
+
+// IN5: el actualizador ({app}\updater) se sobrescribe al copiar los archivos, antes de migrar. Se guarda una copia para recuperarlo si la
+// instalación vuelve atrás. pgsql\ NO se respalda: el paquete trae siempre PostgreSQL 18 y dentro de la misma versión mayor los binarios
+// son compatibles con los datos y con la versión anterior de BusinessPost (ver docs/fases/fase-13b-propuesta.md §9.6).
+function UpdaterFile: String;
+begin
+  Result := ExpandConstant('{app}\updater\Pos.Server.Updater.exe');
+end;
+
+procedure BackupUpdater;
+begin
+  if FileExists(UpdaterFile) then
+  begin
+    if FileCopy(UpdaterFile, UpdaterFile + '.anterior', False) then
+      Log('Copia del actualizador anterior: ' + UpdaterFile + '.anterior')
+    else
+      Log('Advertencia: no se pudo copiar el actualizador anterior.');
+  end;
+end;
+
+procedure RestoreUpdater;
+begin
+  if FileExists(UpdaterFile + '.anterior') then
+  begin
+    if FileCopy(UpdaterFile + '.anterior', UpdaterFile, False) then
+      Log('Vuelta atrás: se recuperó el actualizador anterior')
+    else
+      Log('Advertencia: no se pudo recuperar el actualizador anterior.');
+  end;
+end;
+
+// Antes de copiar archivos (I1): con los servicios en marcha, pgsql\*, el actualizador y app\<versión>\server están en uso ("archivo en
+// uso"; en silencio se cancelaba o quedaban binarios mezclados). Además revisa el cambio de modo de un equipo ya instalado (I5).
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if (PreviousMode >= 0) and (ModePage.SelectedValueIndex <> PreviousMode) and not ModeChangeConfirmed then
+  begin
+    Result := 'Este equipo ya está instalado como ' + ModeLabel(PreviousMode) + '. Para cambiarlo a ' + ModeLabel(ModePage.SelectedValueIndex) +
+      ' confirme el cambio en el instalador (o elija el mismo modo).';
+    Log('Resultado: ERROR Cambio de modo sin confirmar (' + ModeName(PreviousMode) + ' a ' + ModeName(ModePage.SelectedValueIndex) + ')');
+    exit;
+  end;
+
+  Log('Paso: Deteniendo BusinessPost para actualizar sus archivos…');
+  if not StopServices then
+  begin
+    // IN3: se cancela sin tocar nada: lo que se detuvo vuelve a arrancar (antes el equipo quedaba con BusinessPost apagado).
+    RestartStoppedServices(True);
+    Result := 'No se pudieron detener los servicios de BusinessPost para actualizar sus archivos. Reinicie el computador e intente de nuevo.';
+    Log('Resultado: ERROR Detener los servicios de BusinessPost');
+    exit;
+  end;
+  ServicesStoppedForInstall := True;
+  BackupUpdater;
+end;
+
+// IR4: si la instalación se cancela o se aborta DESPUÉS de detener los servicios pero ANTES de ssPostInstall (por ejemplo, durante la copia
+// de archivos), app\current sigue en la versión anterior: se recupera el actualizador anterior y vuelven a arrancar los servicios que
+// estaban en marcha (antes quedaban detenidos).
+procedure DeinitializeSetup;
+begin
+  if ServicesStoppedForInstall and not PostInstallReached then
+  begin
+    Log('La instalación terminó antes de copiar todo: se recupera el actualizador y vuelven a arrancar los servicios.');
+    RestoreUpdater;
+    RestartStoppedServices(True);
+  end;
+end;
+
 procedure InitializeWizard;
 begin
   // No cambie el orden de las opciones: el código usa SelectedValueIndex (0 = única caja, 1 = equipo principal, 2 = caja adicional).
@@ -231,6 +574,25 @@ begin
   TerminalPage.Add('Huella del certificado (SHA-256):', False);
 
   LastProgress := -1;
+  ModeChangeConfirmed := False;
+  PublicNetwork := False;
+  // Actualizar o reinstalar: se propone el modo con el que ya está instalado (antes el asistente clásico proponía siempre "única caja"
+  // y pasaba MULTI→SINGLE, quitaba el firewall y creaba el agente; en una caja adicional instalaba PostgreSQL y un servidor vacío).
+  FailureCode := 0;
+  InstallSucceeded := False;
+  PostInstallReached := False;
+  ServicesStoppedForInstall := False;
+  ServicesSetManual := False;
+  DbReEnabled := False;
+  StoppedServices := '';
+  if not RegQueryStringValue(HKLM, UninstallKey, 'DisplayVersion', PreviousVersion) then
+    PreviousVersion := '';
+  PreviousMode := DetectPreviousMode;
+  if PreviousMode >= 0 then
+  begin
+    ModePage.SelectedValueIndex := PreviousMode;
+    Log('Instalación existente en modo ' + ModeName(PreviousMode));
+  end;
   ApplyPremiumParams;
 end;
 
@@ -251,6 +613,24 @@ var
   Tmp, Url, Print: String;
   P: Integer;
 begin
+  // IN7: si algo falló después de copiar, la página final no dice "completado".
+  if (CurPageID = wpFinished) and (FailureCode <> 0) then
+  begin
+    WizardForm.FinishedHeadingLabel.Caption := 'BusinessPost no quedó listo';
+    case FailureCode of
+      ExitNeedsSupport:
+        WizardForm.FinishedLabel.Caption := 'La actualización de la base de datos falló y no se pudo volver a los datos de antes. No use ' +
+          'BusinessPost: genere un paquete de soporte (menú Inicio → BusinessPost → Paquete de soporte) y contacte a soporte.';
+      ExitActivationFailed:
+        WizardForm.FinishedLabel.Caption := 'No se pudo activar la versión nueva (código 22). Reinicie el computador y vuelva a ejecutar el ' +
+          'instalador; si sigue igual, genere un paquete de soporte. El backup PRE_UPDATE de antes de actualizar está en la carpeta ' +
+          'backups\local de los datos de BusinessPost.';
+    else
+      WizardForm.FinishedLabel.Caption := 'No se pudo preparar la base de datos o recuperar el backup. Revise el mensaje anterior y el ' +
+        'registro de la instalación; vuelva a ejecutar el instalador o genere un paquete de soporte.';
+    end;
+    exit;
+  end;
   if (CurPageID = TerminalPage.ID) and (TerminalPage.Values[0] = '') then
   begin
     ExtractTemporaryFile('Pos.Server.Updater.exe');
@@ -279,6 +659,14 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  if (CurPageID = ModePage.ID) and (PreviousMode >= 0) and (ModePage.SelectedValueIndex <> PreviousMode) then
+  begin
+    ModeChangeConfirmed := MsgBox('Este equipo ya está instalado como ' + ModeLabel(PreviousMode) + '.' + #13#10#13#10 +
+      '¿Cambiarlo a ' + ModeLabel(ModePage.SelectedValueIndex) + '? Se quitarán los servicios y las reglas del modo anterior que ya no se ' +
+      'usen. Los datos de la tienda se conservan.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+    Result := ModeChangeConfirmed;
+    exit;
+  end;
   if (CurPageID = TerminalPage.ID) and ((TerminalPage.Values[0] = '') or (TerminalPage.Values[1] = '')) then
   begin
     MsgBox('Escriba la dirección del equipo principal y la huella de su certificado (las muestra la administración del equipo ' +
@@ -292,11 +680,27 @@ begin
   end;
 end;
 
+// Oculta en el texto del registro el valor de las opciones con secretos (I3): el registro de la instalación se envía a soporte.
+function MaskSecrets(const Params: String): String;
+var
+  P, Q: Integer;
+begin
+  Result := Params;
+  P := Pos('--recovery-code "', Result);
+  if P > 0 then
+  begin
+    Q := P + Length('--recovery-code "');
+    while (Q <= Length(Result)) and (Result[Q] <> '"') do
+      Q := Q + 1;
+    Result := Copy(Result, 1, P + Length('--recovery-code "') - 1) + '***' + Copy(Result, Q, Length(Result));
+  end;
+end;
+
 function Run(const FileName, Params, Step: String): Boolean;
 var
   ResultCode: Integer;
 begin
-  Log(Step + ': ' + FileName + ' ' + Params);
+  Log(Step + ': ' + FileName + ' ' + MaskSecrets(Params));
   Result := Exec(FileName, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
   if not Result then
   begin
@@ -305,19 +709,289 @@ begin
   end;
 end;
 
+procedure MigratorOutput(const S: String; const Error, FirstLine: Boolean);
+begin
+  if Trim(S) <> '' then
+    Log('Migrador: ' + S);
+end;
+
+// El migrador, con su salida en el registro de la instalación (IN4: ahí queda el mensaje de "restaurar con soporte" y la ruta del
+// backup). Devuelve su código de salida (-1 si no se pudo ejecutar); no muestra mensajes: los decide quien llama.
+// Ejecuta el migrador sin dejar "Resultado: ERROR" en el registro (lo decide quien llama): para pasos de mejor esfuerzo (P4).
+function RunMigratorQuiet(const FileName, Params, Step: String): Integer;
+begin
+  Log(Step + ': ' + FileName + ' ' + MaskSecrets(Params));
+  try
+    if not ExecAndLogOutput(FileName, Params, '', SW_HIDE, ewWaitUntilTerminated, Result, @MigratorOutput) then
+      Result := -1;
+  except
+    Log('No se pudo ejecutar el migrador: ' + GetExceptionMessage);
+    Result := -1;
+  end;
+end;
+
+function RunMigrator(const FileName, Params, Step: String): Integer;
+begin
+  Result := RunMigratorQuiet(FileName, Params, Step);
+  if Result <> 0 then
+    Log('Resultado: ERROR ' + Step + ' (código ' + IntToStr(Result) + ')');
+end;
+
 // Inicio "auto" (no "delayed-auto") para todos: con los programas ya precalentados el arranque al encender el equipo es rápido, y un
 // inicio retrasado haría esperar unos 2 minutos a la caja cada mañana. Si el servicio no alcanza a iniciar, la espera del final de la
 // instalación lo vuelve a iniciar (WaitForService) y, si se cae después, Windows lo reinicia solo (acciones de recuperación).
-procedure CreateService(const Name, Exe, Params: String);
+function ServiceExists(const Name: String): Boolean;
 var
-  ResultCode: Integer;
+  Code: Integer;
 begin
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop ' + Name, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\sc.exe'), 'delete ' + Name, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Run(ExpandConstant('{sys}\sc.exe'), 'create ' + Name + ' start= auto binPath= "\"' + Exe + '\"' + Params + '"', 'Servicio ' + Name);
+  Result := Exec(ExpandConstant('{sys}\sc.exe'), 'query ' + Name, '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+end;
+
+// sc que no detiene la instalación si falla, pero deja el aviso en el registro (antes el resultado se ignoraba).
+procedure ScOptional(const Params, What: String);
+var
+  Code: Integer;
+begin
+  if not Exec(ExpandConstant('{sys}\sc.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Log('Advertencia: no se pudo ' + What + ' (sc ' + Params + ', código ' + IntToStr(Code) + ').');
+end;
+
+// B3: el manifiesto firmado y el paquete de esta versión quedan como "versión instalada" del equipo principal (las cajas se actualizan
+// desde aquí). Mejor esfuerzo: si la versión no se firmó, no vienen en el instalador.
+procedure PublishInstalledRelease(const Data: String);
+begin
+  try
+    ExtractTemporaryFile('installed-manifest.json');
+    ExtractTemporaryFile('installed-package.zip');
+  except
+    Log('Esta versión no trae manifiesto firmado: las cajas se actualizarán cuando el equipo principal se actualice solo.');
+    exit;
+  end;
+  ForceDirectories(Data + '\updates');
+  if FileCopy(ExpandConstant('{tmp}\installed-package.zip'), Data + '\updates\installed-package.zip', False)
+    and FileCopy(ExpandConstant('{tmp}\installed-manifest.json'), Data + '\updates\installed-manifest.json', False) then
+    Log('Manifiesto y paquete de la versión {#AppVersion} listos para las cajas.')
+  else
+    Log('Advertencia: no se pudieron copiar el manifiesto y el paquete para las cajas.');
+end;
+
+procedure IcaclsOptional(const Params: String);
+var
+  Code: Integer;
+begin
+  if not Exec(ExpandConstant('{sys}\icacls.exe'), Params, '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Log('Advertencia: icacls ' + Params + ' (código ' + IntToStr(Code) + ').');
+end;
+
+// R5: en una caja adicional la carpeta de datos (configuración, descargas y estado del actualizador, que corre como SYSTEM) queda solo para
+// SYSTEM y Administradores, como el migrador la deja en el equipo principal (RestrictDataRootAsync). La ventana BusinessPost.exe (usuario
+// normal) solo necesita LEER updater.json (dirección y huella del equipo principal). El actualizador vuelve a aplicarlo al arrancar.
+// Ronda 3 (3): antes de pasar la propiedad a los Administradores (después ya no se distinguiría), se borran los archivos de control que no
+// son de SYSTEM ni de los Administradores: los pudo dejar un usuario normal mientras la carpeta no tenía la ACL.
+procedure PurgeUntrustedControlFiles(const Data: String);
+var
+  Files: String;
+  Code: Integer;
+begin
+  Files := PsText(Data + '\updates\update-in-progress.json') + ', ' + PsText(Data + '\updates\manifest-sequence.json') + ', ' +
+    PsText(Data + '\updates\failed-version.json') + ', ' + PsText(Data + '\updates\install-now.request') + ', ' +
+    PsText(Data + '\updates\terminals-install-now.request') + ', ' + PsText(Data + '\config\server.json') + ', ' +
+    PsText(Data + '\config\desktop.json');
+  try
+    ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -Command "$ErrorActionPreference = ''SilentlyContinue''; foreach ($f in @(' + Files + ')) { ' +
+      'if (Test-Path -LiteralPath $f) { $o = (Get-Acl -LiteralPath $f).GetOwner([System.Security.Principal.SecurityIdentifier]).Value; ' +
+      'if (($o -ne ''S-1-5-18'') -and ($o -ne ''S-1-5-32-544'')) { Remove-Item -LiteralPath $f -Force; ' +
+      'Write-Output (''Se borró (no era de SYSTEM ni de los Administradores): '' + $f) } } }"',
+      '', SW_HIDE, ewWaitUntilTerminated, Code, nil);
+  except
+    Log('No se pudieron revisar los dueños de los archivos de control: ' + GetExceptionMessage);
+  end;
+end;
+
+procedure RestrictTerminalDataRoot(const Data: String);
+begin
+  PurgeUntrustedControlFiles(Data);
+  // ALTA 1: primero la propiedad a los Administradores y sin permisos propios en cada archivo (un usuario dueño podría volver a darse
+  // permisos); después, sin herencia y solo SYSTEM y Administradores.
+  IcaclsOptional('"' + Data + '" /setowner *S-1-5-32-544 /T /C /Q');
+  IcaclsOptional('"' + Data + '" /reset /T /C /Q');
+  IcaclsOptional('"' + Data + '" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /Q');
+  if FileExists(Data + '\config\updater.json') then
+    IcaclsOptional('"' + Data + '\config\updater.json" /grant *S-1-5-32-545:R /Q');
+  if FileExists(Data + '\config\desktop.json') then
+    IcaclsOptional('"' + Data + '\config\desktop.json" /grant *S-1-5-32-545:R /Q');
+end;
+
+// I2: si el servicio ya existe se RECONFIGURA (sc config) en vez de borrarlo y crearlo: "sc delete" de un servicio que todavía se está
+// deteniendo lo deja "marcado para eliminación" y el "sc create" siguiente fallaba (1072): el equipo quedaba SIN servicio.
+// I7: dependencia de la base de datos (el servidor no arranca antes que PostgreSQL), recuperación ante fallos también cuando el proceso
+// termina con error (failureflag) y el resultado de cada paso queda en el registro.
+procedure CreateService(const Name, Exe, Depends: String);
+var
+  Binary, Dependency: String;
+begin
+  Binary := ' start= auto binPath= "\"' + Exe + '\""';
+  if Depends <> '' then Dependency := ' depend= ' + Depends else Dependency := '';
+  if ServiceExists(Name) then
+  begin
+    if Depends = '' then Dependency := ' depend= /';
+    Run(ExpandConstant('{sys}\sc.exe'), 'config ' + Name + Binary + Dependency, 'Servicio ' + Name);
+  end
+  else
+    Run(ExpandConstant('{sys}\sc.exe'), 'create ' + Name + Binary + Dependency, 'Servicio ' + Name);
   // Recuperación automática ante fallos: reinicia a los 5 s (tres veces), el contador se reinicia cada día.
-  Exec(ExpandConstant('{sys}\sc.exe'), 'failure ' + Name + ' reset= 86400 actions= restart/5000/restart/5000/restart/5000', '', SW_HIDE,
-    ewWaitUntilTerminated, ResultCode);
+  ScOptional('failure ' + Name + ' reset= 86400 actions= restart/5000/restart/5000/restart/5000', 'configurar la recuperación de ' + Name);
+  ScOptional('failureflag ' + Name + ' 1', 'activar la recuperación ante errores de ' + Name);
+end;
+
+// Quita un servicio que el modo elegido ya no usa (cambio de modo, I5). Los servicios ya están detenidos (PrepareToInstall).
+procedure RemoveService(const Name: String);
+begin
+  if ServiceExists(Name) then
+  begin
+    Log('Cambio de modo: se quita el servicio ' + Name);
+    ScOptional('delete ' + Name, 'quitar el servicio ' + Name);
+  end;
+end;
+
+// Regla del firewall de la LAN (I6): se borra antes por nombre (sin duplicados al reinstalar), solo la subred local y en redes privadas y
+// de dominio. Si la red activa es "Pública", Windows bloquea a las cajas: queda un aviso claro.
+procedure RemoveFirewallRule;
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall delete rule name="{#Product} LAN"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
+procedure AddFirewallRules;
+var
+  Code: Integer;
+begin
+  RemoveFirewallRule;
+  Run(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall add rule name="{#Product} LAN" dir=in action=allow protocol=TCP localport=5443 ' +
+    'remoteip=localsubnet profile=private,domain', 'Firewall (HTTPS)');
+  Run(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall add rule name="{#Product} LAN" dir=in action=allow protocol=UDP localport=5444 ' +
+    'remoteip=localsubnet profile=private,domain', 'Firewall (descubrimiento)');
+  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -Command "if (Get-NetConnectionProfile | Where-Object { $_.NetworkCategory -eq ''Public'' }) { exit 1 } else { exit 0 }"',
+    '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 1) then
+  begin
+    PublicNetwork := True;
+    Log('Aviso: La red de este equipo está marcada como "Pública" y Windows no deja que las cajas se conecten. En Configuración → Red e ' +
+      'Internet → (su red) → Propiedades, elija "Red privada".');
+  end;
+end;
+
+// Vuelta atrás cuando algo falla después de copiar los archivos (I4, I8, IN3-IN7): app\current sigue en la versión anterior; se recupera
+// el actualizador anterior (IN5), se deshace lo que se cambió del modo (IN6), se conservan la versión y el modo de antes en el registro
+// de Windows (IN7) y se vuelven a iniciar los servicios que estaban en marcha (IN3). Sin StartServer el servidor y el actualizador
+// quedan detenidos: la base de datos quedó para restaurar con soporte (IN4) y la versión anterior no debe arrancar sobre ella.
+// IL4: con la base de datos para restaurar con soporte (código 21) o la versión nueva sin activar (código 22) el servidor y el
+// actualizador quedan en inicio MANUAL: ni al reiniciar el equipo arrancan sobre una base que no les corresponde. La próxima instalación o
+// actualización que termine bien los vuelve a dejar automáticos (CreateService usa "start= auto").
+procedure SetServerStart(const Mode: String);
+begin
+  if ServiceExists('{#Product}-Server') then
+    ScOptional('config {#Product}-Server start= ' + Mode, 'cambiar el inicio del servidor a ' + Mode);
+  if ServiceExists('{#Product}-Updater') then
+    ScOptional('config {#Product}-Updater start= ' + Mode, 'cambiar el inicio del actualizador a ' + Mode);
+end;
+
+procedure LeaveServicesManual;
+begin
+  SetServerStart('demand');
+  Log('Aviso: El servidor y el actualizador de BusinessPost quedaron en inicio MANUAL hasta que una instalación termine bien.');
+end;
+
+procedure RollBack(const StartServer: Boolean);
+begin
+  Log('Vuelta atrás: la instalación no terminó; se deja la versión anterior.');
+  RestoreUpdater;
+  if DbReEnabled then
+    ScOptional('config {#Product}-DB start= disabled', 'volver a deshabilitar la base de datos de la caja adicional');
+  KeepPreviousInstallData;
+  if not StartServer then
+    LeaveServicesManual
+  else if ServicesSetManual then
+    SetServerStart('auto');
+  RestartStoppedServices(StartServer);
+end;
+
+// Cambio de modo (I5), DESPUÉS de que la base de datos quedó lista (IN6): se quitan los servicios, la regla del firewall y la configuración
+// del modo anterior que ya no se usan. Antes iba antes del migrador y, si éste fallaba, el equipo quedaba sin los servicios del modo
+// anterior. Los datos de la tienda (ProgramData) se conservan; en una caja adicional la base de datos queda deshabilitada, no borrada.
+procedure ApplyModeChange(const Data: String);
+begin
+  if ModePage.SelectedValueIndex = 1 then
+    RemoveService('{#Product}-TerminalAgent');
+  if not IsServerMode then
+  begin
+    RemoveService('{#Product}-Server');
+    if ServiceExists('{#Product}-DB') then
+      ScOptional('config {#Product}-DB start= disabled', 'deshabilitar la base de datos del modo anterior');
+  end
+  else if FileExists(Data + '\config\updater.json') then
+  begin
+    DeleteFile(Data + '\config\updater.json.anterior');
+    if RenameFile(Data + '\config\updater.json', Data + '\config\updater.json.anterior') then
+      Log('Cambio de modo: updater.json de caja adicional guardado como updater.json.anterior');
+  end;
+  if not (IsServerMode and IsMulti) then
+    RemoveFirewallRule;
+end;
+
+// Versión de app\current según app\current.json ('' si no se sabe).
+function ActiveVersion(const App: String): String;
+var
+  Text: AnsiString;
+  P: Integer;
+begin
+  Result := '';
+  if not LoadStringFromFile(App + '\app\current.json', Text) then
+    exit;
+  P := Pos('"version":"', String(Text));
+  if P = 0 then
+    exit;
+  Result := Copy(String(Text), P + Length('"version":"'), 64);
+  Result := Copy(Result, 1, Pos('"', Result) - 1);
+end;
+
+// Versión activa: unión NTFS app\current → app\<versión> (ADR-0056); los servicios apuntan a app\current.
+// IN9: la unión nueva se crea primero aparte (app\current.nueva) y solo entonces se cambia por la anterior. Si algo falla, app\current
+// sigue (o vuelve a quedar) en la versión anterior y se devuelve False: no se registran servicios apuntando a una ruta que no existe.
+function ActivateVersion(const App, Version: String): Boolean;
+var
+  Code: Integer;
+  Current, Staged, Previous: String;
+begin
+  Result := False;
+  Current := App + '\app\current';
+  Staged := App + '\app\current.nueva';
+  Previous := ActiveVersion(App);
+  Exec(ExpandConstant('{cmd}'), '/c rmdir "' + Staged + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if not Run(ExpandConstant('{cmd}'), '/c mklink /J "' + Staged + '" "' + Version + '"', 'Versión activa') then
+    exit;
+  Exec(ExpandConstant('{cmd}'), '/c rmdir "' + Current + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if DirExists(Current) then
+  begin
+    Log('Resultado: ERROR Versión activa (no se pudo quitar ' + Current + ')');
+    Exec(ExpandConstant('{cmd}'), '/c rmdir "' + Staged + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    exit;
+  end;
+  if RenameFile(Staged, Current) then
+  begin
+    SaveStringToFile(App + '\app\current.json', '{"version":"{#AppVersion}"}', False);
+    Result := True;
+    exit;
+  end;
+  Log('Resultado: ERROR Versión activa (no se pudo renombrar ' + Staged + ')');
+  Exec(ExpandConstant('{cmd}'), '/c rmdir "' + Staged + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  if (Previous <> '') and DirExists(App + '\app\' + Previous) then
+  begin
+    Exec(ExpandConstant('{cmd}'), '/c mklink /J "' + Current + '" "' + App + '\app\' + Previous + '"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Log('Vuelta atrás: app\current vuelve a ' + Previous + ' (código ' + IntToStr(Code) + ')');
+  end;
 end;
 
 // ------------------------------------------------------------------------------------------------------------------------------------
@@ -332,14 +1006,6 @@ begin
   WizardForm.FilenameLabel.Caption := Detail;
   // Barra en movimiento: estos pasos no tienen un avance medible, pero se ve que el instalador sigue trabajando.
   WizardForm.ProgressGauge.Style := npbstMarquee;
-end;
-
-// Texto entre comillas simples para PowerShell (duplica las comillas simples internas).
-function PsText(const Value: String): String;
-begin
-  Result := Value;
-  StringChangeEx(Result, '''', '''''', True);
-  Result := '''' + Result + '''';
 end;
 
 // Ejecuta un ayudante de installer\scripts (extraído a {tmp}) con PowerShell, oculto, y deja su salida en el registro de la instalación.
@@ -380,14 +1046,6 @@ begin
     Log('Precalentamiento terminado; programas que no alcanzaron: ' + IntToStr(Code))
   else
     Log('No se pudo precalentar; la instalación sigue.');
-end;
-
-procedure StartService(const Name: String);
-var
-  Code: Integer;
-begin
-  Exec(ExpandConstant('{sys}\sc.exe'), 'start ' + Name, '', SW_HIDE, ewWaitUntilTerminated, Code);
-  Log('sc start ' + Name + ': código ' + IntToStr(Code));
 end;
 
 // Espera hasta unos 5 minutos (15 rondas de 20 s) a que el programa responda en Url. Si encuentra el servicio detenido (por ejemplo,
@@ -437,73 +1095,196 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  App, Data, Migrator, Edition, Items: String;
+  App, Data, Version, Migrator, Edition, Items, CodeFile: String;
   Code: Integer;
 begin
   if CurStep <> ssPostInstall then
     exit;
 
+  PostInstallReached := True;
+  // IR3: hasta que todo termine bien, el registro de Windows conserva la versión y el modo de antes.
+  KeepPreviousInstallData;
   App := ExpandConstant('{app}');
   Data := ExpandConstant('{#DataDir}');
+  // ALTA 3: una actualización automática que quedó a medias la resuelve esta instalación: su registro se archiva (el actualizador ya no la
+  // intenta deshacer otra vez ni deja de buscar versiones nuevas).
+  if FileExists(Data + '\updates\update-in-progress.json') then
+  begin
+    if RenameFile(Data + '\updates\update-in-progress.json',
+      Data + '\updates\update-in-progress.json.' + GetDateTimeString('yyyymmddhhnnss', #0, #0) + '.archivado') then
+      Log('Se archivó el registro de una actualización automática a medias (la resuelve esta instalación).')
+    else
+      DeleteFile(Data + '\updates\update-in-progress.json');
+  end;
+  // Se trabaja con la versión NUEVA por su carpeta (app\<versión>); la unión app\current se cambia recién cuando la base de datos quedó
+  // lista (I4): si la actualización de la base falla, app\current sigue en la versión anterior y sus servicios vuelven a arrancar.
+  Version := App + '\app\{#AppVersion}';
   ExtractTemporaryFile('precalentar.ps1');
   ExtractTemporaryFile('esperar-servicio.ps1');
-  // Versión activa: unión NTFS app\current → app\<versión> (ADR-0056); los servicios apuntan a app\current.
-  Exec(ExpandConstant('{cmd}'), '/c rmdir "' + App + '\app\current"', '', SW_HIDE, ewWaitUntilTerminated, Code);
-  Run(ExpandConstant('{cmd}'), '/c mklink /J "' + App + '\app\current" "' + App + '\app\{#AppVersion}"', 'Versión activa');
-  SaveStringToFile(App + '\app\current.json', '{"version":"{#AppVersion}"}', False);
   ForceDirectories(Data + '\config');
+
+  // 0. La base de datos de una caja adicional que pasa a equipo principal estaba deshabilitada: se habilita ANTES de migrar (el migrador la
+  //    inicia). Si la instalación falla, la vuelta atrás la deja deshabilitada otra vez (IN6). El resto del cambio de modo va después de
+  //    que la base de datos quedó lista (ApplyModeChange).
+  if IsServerMode and ServiceExists('{#Product}-DB') then
+  begin
+    ScOptional('config {#Product}-DB start= auto', 'habilitar la base de datos');
+    DbReEnabled := PreviousMode = 2;
+  end;
 
   // 1. Precalentar, antes de la base de datos (usa el migrador) y de crear los servicios. El actualizador es un solo .exe y no tiene
   //    --precalentar: basta con abrirlo una vez ("discover" de 1 s busca equipos en la red y termina).
   Items := WarmupItem(App + '\updater\Pos.Server.Updater.exe', 'discover --seconds 1');
   if IsServerMode then
-    Items := Items + ', ' + WarmupItem(App + '\app\current\server\Pos.Server.Host.exe', '--precalentar') +
-      ', ' + WarmupItem(App + '\app\current\migrator\Pos.Server.Migrator.exe', '--precalentar');
+    Items := Items + ', ' + WarmupItem(Version + '\server\Pos.Server.Host.exe', '--precalentar') +
+      ', ' + WarmupItem(Version + '\migrator\Pos.Server.Migrator.exe', '--precalentar');
   if ModePage.SelectedValueIndex <> 1 then
-    Items := Items + ', ' + WarmupItem(App + '\app\current\agent\Pos.Terminal.Agent.exe', '--precalentar');
+    Items := Items + ', ' + WarmupItem(Version + '\agent\Pos.Terminal.Agent.exe', '--precalentar');
   // Ventana propia BusinessPost.exe (D13B-07): así abre rápido la primera vez que el dueño pulsa "Abrir BusinessPost".
-  if FileExists(App + '\app\current\desktop\BusinessPost.exe') then
-    Items := Items + ', ' + WarmupItem(App + '\app\current\desktop\BusinessPost.exe', '--precalentar');
+  if FileExists(Version + '\desktop\BusinessPost.exe') then
+    Items := Items + ', ' + WarmupItem(Version + '\desktop\BusinessPost.exe', '--precalentar');
   Warmup(Items);
 
-  // 2. Base de datos (y recuperación, si se eligió un backup).
+  // 2. Base de datos (y recuperación, si se eligió un backup). En una actualización el migrador hace antes un backup PRE_UPDATE y, si
+  //    una migración falla, lo restaura él mismo antes de que aquí se vuelva a la versión anterior (I4, IN4). Código 8 del migrador: no
+  //    se pudo volver a los datos de antes; el servidor anterior NO se arranca y queda para restaurar con soporte.
   if IsServerMode then
   begin
     ShowStep('Creando la base de datos…', 'Prepara la base de datos de la tienda en este equipo. Puede tardar unos minutos.');
     if IsMulti then Edition := 'MULTI' else Edition := 'SINGLE';
-    Migrator := App + '\app\current\migrator\Pos.Server.Migrator.exe';
-    if not Run(Migrator, 'install --pg-bin "' + App + '\pgsql\bin" --data-root "' + Data + '" --edition ' + Edition +
-      ' --license-server "{#LicenseServer}" --update-manifest "{#UpdateManifest}"', 'Base de datos') then
+    Migrator := Version + '\migrator\Pos.Server.Migrator.exe';
+    // IR3: mientras se migra, el servidor y el actualizador quedan en inicio manual: si se corta la luz a mitad, al encender no arranca
+    // el servidor anterior sobre una base a medio migrar. Al terminar bien CreateService los deja automáticos; la vuelta atrás también.
+    if (PreviousVersion <> '') and ServiceExists('{#Product}-Server') then
+    begin
+      SetServerStart('demand');
+      ServicesSetManual := True;
+      Log('El servidor y el actualizador quedan en inicio manual mientras se actualiza la base de datos.');
+    end;
+    Code := RunMigrator(Migrator, 'install --pg-bin "' + App + '\pgsql\bin" --data-root "' + Data + '" --edition ' + Edition +
+      ' --license-server "{#LicenseServer}" --update-manifest "{#UpdateManifest}"', 'Base de datos');
+    if Code = 8 then
+    begin
+      MarkFailed(ExitNeedsSupport, 'Restaurar con soporte');
+      RollBack(False);
+      if not Premium then
+        MsgBox('La actualización de la base de datos falló y no se pudo volver automáticamente a los datos de antes.' + #13#10#13#10 +
+          'NO use BusinessPost hasta que soporte restaure el backup previo (está en ' + Data + '\backups; el detalle quedó en el registro de ' +
+          'la instalación y en ' + Data + '\logs). Genere un paquete de soporte y contacte a soporte.' + #13#10#13#10 +
+          'El servidor y el actualizador de BusinessPost quedaron en inicio manual (no arrancan solos) hasta que se resuelva.', mbCriticalError, MB_OK);
+      WizardForm.ProgressGauge.Style := npbstNormal;
       exit;
+    end;
+    if Code <> 0 then
+    begin
+      MarkFailed(ExitDatabaseFailed, 'Base de datos');
+      // IR2/P5: el migrador volvió a los datos de antes (código 3). El migrador de la versión ANTERIOR (app\current sigue en ella) deja la
+      // base como la dejaba esa versión con "migrate --no-backup" (existe desde la Fase 13, la primera con instalador): sobre la BD
+      // restaurada no hay nada pendiente y solo corre sus scripts "always" (privilegios); si la falla no traía cambios de esquema, vuelve
+      // a aplicar sus repetibles (vistas, catálogos) y sus "always". No borra datos: solo aplica lo que esa versión ya tenía. Si no
+      // funciona, se intenta "apply-always" (solo privilegios); los migradores viejos no lo tienen (código 2): quedan los privilegios que
+      // copió la vuelta atrás. Son pasos de mejor esfuerzo: van al registro como avisos, no como "Resultado: ERROR".
+      if (Code = 3) and FileExists(App + '\app\current\migrator\Pos.Server.Migrator.exe') then
+      begin
+        if RunMigratorQuiet(App + '\app\current\migrator\Pos.Server.Migrator.exe', 'migrate --no-backup --data-root "' + Data + '"',
+          'Base de datos como la dejaba la versión anterior') = 0 then
+          Log('La versión anterior volvió a aplicar sus repetibles y sus privilegios.')
+        else
+          case RunMigratorQuiet(App + '\app\current\migrator\Pos.Server.Migrator.exe', 'apply-always --data-root "' + Data + '"',
+            'Privilegios de la versión anterior') of
+            0: Log('Privilegios de la versión anterior aplicados.');
+            2: Log('Aviso: El migrador anterior no tiene "apply-always": quedan los privilegios copiados de la base activa.');
+          else
+            Log('Aviso: No se pudieron aplicar los privilegios de la versión anterior: quedan los copiados de la base activa.');
+          end;
+      end;
+      RollBack(True);
+      if not Premium then
+        MsgBox('No se pudo preparar la base de datos (código ' + IntToStr(Code) + '). BusinessPost sigue con la versión anterior y sus ' +
+          'datos de antes.' + #13#10#13#10 + 'Revise el registro de la instalación y genere un paquete de soporte.', mbError, MB_OK);
+      WizardForm.ProgressGauge.Style := npbstNormal;
+      exit;
+    end;
     if RecoveryFilePage.Values[0] <> '' then
     begin
       ShowStep('Recuperando los datos desde el backup…', 'Restaura el backup elegido y revisa que esté completo.');
-      Run(Migrator, 'restore --file "' + RecoveryFilePage.Values[0] + '" --recovery-code "' + RecoveryPage.Values[0] + '" --data-root "' + Data + '" --yes',
-        'Recuperación desde el backup');
+      // I3: el código va en un archivo temporal que el migrador lee y BORRA; nunca en la línea de comandos ni en el registro.
+      CodeFile := ExpandConstant('{tmp}\recuperacion-') + GetDateTimeString('yyyymmddhhnnss', #0, #0) + '.txt';
+      SaveStringToFile(CodeFile, RecoveryPage.Values[0], False);
+      Code := RunMigrator(Migrator, 'restore --file "' + RecoveryFilePage.Values[0] + '" --recovery-code-file "' + CodeFile + '" --data-root "' +
+        Data + '" --yes', 'Recuperación desde el backup');
+      DeleteFile(CodeFile);
+      if (Code <> 0) and (PreviousVersion <> '') and (PreviousVersion <> '{#AppVersion}') then
+      begin
+        // IL3: actualización a otra versión: "install" ya dejó la BD activa en el esquema NUEVO (la restauración no la tocó: restaura en
+        // una BD aparte). El servidor anterior no sirve sobre ese esquema: no se arranca y queda el estado de fallo de la versión activa
+        // (código 22, inicio manual). Volver a ejecutar el instalador termina el cambio de versión con los datos actuales.
+        MarkFailed(ExitActivationFailed, 'Recuperación desde el backup');
+        RollBack(False);
+        if not Premium then
+          MsgBox('No se pudo recuperar el backup (revise el archivo y el código de recuperación). La base de datos de este equipo ya quedó ' +
+            'en la versión nueva, así que la versión anterior de BusinessPost no se volvió a iniciar.' + #13#10#13#10 +
+            'Vuelva a ejecutar el instalador (con el backup y el código correctos, o sin backup para seguir con los datos actuales). El ' +
+            'servidor y el actualizador quedaron en inicio manual hasta entonces (código 22).' + #13#10#13#10 +
+            'Si hace falta volver a los datos de antes de la actualización, el backup PRE_UPDATE está en ' + Data + '\backups\local.', mbError, MB_OK);
+        WizardForm.ProgressGauge.Style := npbstNormal;
+        exit;
+      end;
+      if Code <> 0 then
+      begin
+        // I8: sin los datos del backup no se sigue con una base vacía (antes se abría /instalacion como si fuera una tienda nueva). Instalación
+        // nueva o reinstalación de la MISMA versión: la restauración no tocó la BD activa y su esquema es el de estos programas, así que
+        // vuelven a arrancar los servicios que había.
+        MarkFailed(ExitDatabaseFailed, 'Recuperación desde el backup');
+        RollBack(True);
+        if not Premium then
+          MsgBox('No se pudo recuperar el backup (revise el archivo y el código de recuperación). BusinessPost NO quedó listo: ' +
+            'vuelva a ejecutar el instalador con el backup y el código correctos, o genere un paquete de soporte.', mbError, MB_OK);
+        WizardForm.ProgressGauge.Style := npbstNormal;
+        exit;
+      end;
     end;
   end;
+
+  // Versión activa (IN9): si no se pudo cambiar app\current no se registran servicios apuntando a una ruta que no existe. La base de datos
+  // ya quedó en la versión nueva: no se arranca el servidor anterior; volver a ejecutar el instalador termina el cambio.
+  // P2: con su propia línea "Paso:", el instalador premium sabe que desde aquí no se corta (en una caja no hubo paso de base de datos).
+  ShowStep('Activando la versión nueva de BusinessPost…', '');
+  if not ActivateVersion(App, Version) then
+  begin
+    MarkFailed(ExitActivationFailed, 'Versión activa');
+    RollBack(not IsServerMode);
+    if not Premium then
+      MsgBox('No se pudo activar la versión nueva de BusinessPost (app\current). Reinicie el computador y vuelva a ejecutar el instalador; ' +
+        'si el problema sigue, genere un paquete de soporte (código 22).' + #13#10#13#10 +
+        'Mientras tanto el servidor y el actualizador quedaron en inicio manual. Si hace falta volver a los datos de antes de la ' +
+        'actualización, el backup PRE_UPDATE está en ' + Data + '\backups\local.', mbError, MB_OK);
+    WizardForm.ProgressGauge.Style := npbstNormal;
+    exit;
+  end;
+
+  // Cambio de modo (I5, IN6): recién ahora, con la base de datos lista y la versión nueva activa.
+  ApplyModeChange(Data);
+  // Ya no hay vuelta atrás: la copia del actualizador anterior (IN5) sobra.
+  DeleteFile(UpdaterFile + '.anterior');
 
   // 3. Servicios de Windows (mantienen BusinessPost funcionando aunque se cierre la ventana).
   ShowStep('Registrando los servicios de BusinessPost…', 'Así BusinessPost se inicia solo cada vez que se enciende el equipo.');
   if IsServerMode then
   begin
-    CreateService('{#Product}-Server', App + '\app\current\server\Pos.Server.Host.exe', '');
+    CreateService('{#Product}-Server', App + '\app\current\server\Pos.Server.Host.exe', '{#Product}-DB');
     if IsMulti then
-    begin
-      Run(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall add rule name="{#Product} LAN" dir=in action=allow protocol=TCP localport=5443 profile=private',
-        'Firewall (HTTPS)');
-      Run(ExpandConstant('{sys}\netsh.exe'), 'advfirewall firewall add rule name="{#Product} LAN" dir=in action=allow protocol=UDP localport=5444 profile=private',
-        'Firewall (descubrimiento)');
-    end;
+      AddFirewallRules;
   end
   else
   begin
     // Caja: el actualizador se actualiza desde el servidor de la tienda con la huella fijada (D13-09).
-    // El agente de impresión acepta la interfaz servida por el servidor (CORS).
+    // El agente de impresión acepta la interfaz servida por el servidor (CORS): el ORIGEN exacto (sin ruta ni barra final).
     SaveStringToFile(Data + '\config\agent.json', '{ "Agent": { "AllowedOrigins": [ "http://localhost:5480", "' +
-      Copy(TerminalPage.Values[0], 1, Length(TerminalPage.Values[0]) - 1) + '" ] } }', False);
-    SaveStringToFile(Data + '\config\updater.json', '{ "Pos": { "Updates": { "Mode": "Terminal", "ServerUrl": "' + TerminalPage.Values[0] +
-      '", "ServerCertificateThumbprint": "' + TerminalPage.Values[1] + '" } } }', False);
+      JsonText(OriginOf(TerminalPage.Values[0])) + '" ] } }', False);
+    SaveStringToFile(Data + '\config\updater.json', '{ "Pos": { "Updates": { "Mode": "Terminal", "ServerUrl": "' + JsonText(WithSlash(TerminalPage.Values[0])) +
+      '", "ServerCertificateThumbprint": "' + JsonText(Trim(TerminalPage.Values[1])) + '" } } }', False);
+    RestrictTerminalDataRoot(Data);
   end;
 
   if ModePage.SelectedValueIndex <> 1 then
@@ -517,6 +1298,10 @@ begin
   if ModePage.SelectedValueIndex <> 1 then
     StartService('{#Product}-TerminalAgent');
   StartService('{#Product}-Updater');
+  // IR3: todo quedó instalado (aunque todavía no responda): ahora sí se registran la versión y el modo nuevos.
+  RegisterNewInstallData;
+  if IsServerMode then
+    PublishInstalledRelease(Data);
 
   // 5. Esperar a que responda y solo entonces abrir el navegador (antes: "localhost rechazó la conexión").
   if Premium then
@@ -536,6 +1321,9 @@ begin
   end
   else if IsServerMode then
   begin
+    if PublicNetwork then
+      MsgBox('La red de este equipo está marcada como "Pública": Windows no deja que las demás cajas se conecten a este equipo principal.' + #13#10#13#10 +
+        'En Configuración → Red e Internet → (su red) → Propiedades, elija "Red privada".', mbInformation, MB_OK);
     if WaitForService('{#Product}-Server', 'http://localhost:5480/health/live') then
       OpenPage('http://localhost:5480/instalacion')
     else
@@ -553,7 +1341,7 @@ begin
       MsgBox('La caja quedó instalada, pero el programa de impresión de este equipo todavía no responde.' + #13#10#13#10 +
         'Puede vender igual. Si al cobrar no imprime, reinicie el computador; si sigue sin imprimir, contacte a soporte.',
         mbInformation, MB_OK);
-    OpenPage(TerminalPage.Values[0]);
+    OpenPage(WithSlash(TerminalPage.Values[0]));
   end;
   WizardForm.ProgressGauge.Style := npbstNormal;
 end;
@@ -576,8 +1364,21 @@ begin
       DeleteData := True;
 end;
 
+// I9: antes de quitar archivos se DETIENEN los servicios y se espera a que queden detenidos (sc stop no esperaba: PostgreSQL seguía
+// cerrándose mientras se borraban pgsql y app, y quedaban restos).
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Code: Integer;
 begin
+  if CurUninstallStep = usUninstall then
+  begin
+    // IN1: la ruta había perdido las barras invertidas (y "\v" se había vuelto un carácter de control): PowerShell no se ejecutaba y los
+    // servicios no se detenían antes de borrar. RevisionInstaladorTests revisa que no vuelva a pasar.
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -Command "' + StopServicesCommand(90, ExpandConstant('{app}')) + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      Log('Aviso: algún servicio de BusinessPost no se detuvo a tiempo (código ' + IntToStr(Code) + '); pueden quedar archivos hasta reiniciar.');
+  end;
   if (CurUninstallStep = usPostUninstall) and DeleteData then
     DelTree(ExpandConstant('{#DataDir}'), True, True, True);
 end;

@@ -24,8 +24,22 @@ public interface IFiscalDocumentStore
 
     Task<IReadOnlyList<FiscalDocument>> ListAsync(DocumentFilter filter, CancellationToken cancellationToken);
 
-    /// <summary>Ids de los documentos que la cola debe enviar ya, en orden de llegada.</summary>
-    Task<IReadOnlyList<Guid>> ListDueAsync(DateTimeOffset now, int limit, CancellationToken cancellationToken);
+    /// <summary>
+    /// Ids de los documentos que la cola debe enviar ya, en orden de llegada. Con <paramref name="heldBefore"/> se excluye el atraso
+    /// retenido: los emitidos antes de ese momento esperan "Enviar ahora" o "No enviar" (PA1).
+    /// </summary>
+    /// <remarks>Solo los del <paramref name="environment"/> vigente (PB1): un documento de otro ambiente nunca sale.</remarks>
+    Task<IReadOnlyList<Guid>> ListDueAsync(
+        DateTimeOffset now, int limit, DateTimeOffset? heldBefore, FiscalEnvironment environment, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Atraso retenido (pendientes, con error, en contingencia o reclamados): del ambiente vigente emitidos antes de
+    /// <paramref name="heldBefore"/>, y los de OTRO ambiente.
+    /// </summary>
+    Task<FiscalHeldCount> CountHeldAsync(DateTimeOffset? heldBefore, FiscalEnvironment environment, CancellationToken cancellationToken);
+
+    /// <summary>Los mismos, cargados para cambiarlos ("No enviar").</summary>
+    Task<IReadOnlyList<FiscalDocument>> ListHeldAsync(DateTimeOffset? heldBefore, FiscalEnvironment environment, CancellationToken cancellationToken);
 }
 
 public sealed record DocumentFilter(
@@ -82,7 +96,18 @@ public interface IFiscalReadModel
 {
     Task<IReadOnlyList<FiscalReconciliationDayDto>> ReconcileAsync(Guid branchId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
 
-    Task<FiscalAttention> AttentionAsync(Guid companyId, DateTimeOffset overdueBefore, CancellationToken cancellationToken);
+    /// <remarks>Sin contar como pendiente vencido lo retenido: emitido antes de <paramref name="heldBefore"/> o de otro ambiente.</remarks>
+    Task<FiscalAttention> AttentionAsync(
+        Guid companyId, DateTimeOffset overdueBefore, DateTimeOffset? heldBefore, FiscalEnvironment? environment, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Atraso retenido: del ambiente vigente de antes de conectar, y de otro ambiente. <c>InReview</c> (incluido en los anteriores): ya se
+/// intentaron enviar o están reclamados; "No enviar" no los toca (N1).
+/// </summary>
+public sealed record FiscalHeldCount(int BeforeConnection, int OtherEnvironment, int InReview)
+{
+    public int Total => BeforeConnection + OtherEnvironment;
 }
 
 public sealed record FiscalAttention(int PendingOverdue, int Rejected, int WithoutRange, DateTimeOffset? OldestPendingAt);
@@ -287,8 +312,8 @@ public sealed class BillingService(
         }
         else
         {
-            // Una nota crédito solo es electrónica si corrige una factura electrónica vigente (D11B-07).
-            electronic = related is { IsElectronic: true, Status: not (FiscalStatus.Cancelled or FiscalStatus.Voided) };
+            // Una nota crédito solo es electrónica si corrige una factura electrónica vigente (D11B-07); no si la factura quedó NO ENVIADA.
+            electronic = related is { IsElectronic: true, Status: not (FiscalStatus.Cancelled or FiscalStatus.Voided or FiscalStatus.NotSent) };
         }
 
         var document = FiscalDocument.Issue(
@@ -297,7 +322,7 @@ public sealed class BillingService(
                 source, request.SourceId, request.SourceNumber, request.BranchId, request.PosTerminalId, request.BusinessDate,
                 request.BuyerName, request.BuyerIdentificationType, request.BuyerIdentification, request.BuyerEmail, request.Subtotal, request.TaxTotal, request.Total,
                 related?.Id),
-            electronic, clock.UtcNow, actor.ActorId, ids.NewId);
+            electronic, clock.UtcNow, actor.ActorId, ids.NewId, related?.Environment ?? await EnvironmentAsync(companyId, cancellationToken));
         store.Add(document);
         Enqueue(document);
         return document.ToInfo();
@@ -328,7 +353,7 @@ public sealed class BillingService(
             new FiscalIssue(
                 FiscalSource.Purchase, request.PurchaseId, request.PurchaseNumber, request.BranchId, null, request.BusinessDate, Truncate(supplier.Name, 200),
                 supplier.IdentificationType, supplier.IdentificationNumber, supplier.Email, request.Subtotal, request.TaxTotal, request.Total),
-            electronic: true, clock.UtcNow, actor.ActorId, ids.NewId);
+            electronic: true, clock.UtcNow, actor.ActorId, ids.NewId, await EnvironmentAsync(companyId, cancellationToken));
         store.Add(document);
         Enqueue(document);
         return document.ToInfo();
@@ -354,7 +379,7 @@ public sealed class BillingService(
             new FiscalIssue(
                 FiscalSource.SaleVoid, sourceId, document.SourceNumber, document.BranchId, document.PosTerminalId, clock.Today, document.BuyerName,
                 document.BuyerIdentificationType, document.BuyerIdentification, document.BuyerEmail, document.Subtotal, document.TaxTotal, document.Total, document.Id),
-            electronic: true, clock.UtcNow, actor.ActorId, ids.NewId);
+            electronic: true, clock.UtcNow, actor.ActorId, ids.NewId, document.Environment ?? await EnvironmentAsync(document.CompanyId, cancellationToken));
         store.Add(credit);
         Enqueue(credit);
         return credit.ToInfo();
@@ -385,7 +410,7 @@ public sealed class BillingService(
             new FiscalIssue(
                 FiscalSource.PurchaseVoid, purchaseId, support.SourceNumber, support.BranchId, null, clock.Today, support.BuyerName,
                 support.BuyerIdentificationType, support.BuyerIdentification, support.BuyerEmail, support.Subtotal, support.TaxTotal, support.Total, support.Id),
-            electronic: true, clock.UtcNow, actor.ActorId, ids.NewId);
+            electronic: true, clock.UtcNow, actor.ActorId, ids.NewId, support.Environment ?? await EnvironmentAsync(support.CompanyId, cancellationToken));
         store.Add(note);
         Enqueue(note);
         return note.ToInfo();
@@ -405,6 +430,10 @@ public sealed class BillingService(
         signal.Notify();
         return await waiter.WaitAsync(documentId, wait < TimeSpan.Zero ? TimeSpan.Zero : wait, cancellationToken);
     }
+
+    /// <summary>Ambiente con que se emite un documento electrónico nuevo (PB1): el vigente de la empresa.</summary>
+    private async Task<FiscalEnvironment> EnvironmentAsync(Guid companyId, CancellationToken cancellationToken) =>
+        (await providerSettings.GetAsync(companyId, cancellationToken))?.Environment ?? FiscalEnvironment.Sandbox;
 
     private void Enqueue(FiscalDocument document)
     {

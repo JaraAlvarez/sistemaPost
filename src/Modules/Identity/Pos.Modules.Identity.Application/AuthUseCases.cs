@@ -79,9 +79,10 @@ public sealed class AuthServices(
             identifier.Length > 60 ? identifier[..60] : identifier, user?.Id, client.DeviceId, client.IpAddress, succeeded, failure));
 
     /// <summary>Verifica la credencial del usuario y aplica contador, bloqueo, auditoría y rehash. Devuelve el error o <c>null</c>.</summary>
-    public async Task<Error?> VerifyAsync(User? user, string identifier, string secret, SecretKind kind, string attemptKind, CancellationToken cancellationToken)
+    public async Task<Error?> VerifyAsync(
+        User? user, string identifier, string secret, SecretKind kind, string attemptKind, CancellationToken cancellationToken, string? channel = null)
     {
-        var error = await VerifyCoreAsync(user, identifier, secret, kind, attemptKind, cancellationToken);
+        var error = await VerifyCoreAsync(user, identifier, secret, kind, attemptKind, channel, cancellationToken);
         if (user is not null)
         {
             await store.SaveAuthenticationStateAsync(user, cancellationToken);
@@ -90,7 +91,8 @@ public sealed class AuthServices(
         return error;
     }
 
-    private async Task<Error?> VerifyCoreAsync(User? user, string identifier, string secret, SecretKind kind, string attemptKind, CancellationToken cancellationToken)
+    private async Task<Error?> VerifyCoreAsync(
+        User? user, string identifier, string secret, SecretKind kind, string attemptKind, string? channel, CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
         var withPin = kind == SecretKind.Pin;
@@ -100,7 +102,7 @@ public sealed class AuthServices(
             _dummyHash ??= await hasher.HashAsync("contraseña-inexistente", SecretKind.Password, cancellationToken);
             await hasher.VerifyAsync(secret, _dummyHash, SecretKind.Password, cancellationToken);
             RecordAttempt(attemptKind, identifier, user, false, "UNKNOWN_OR_NO_CREDENTIAL");
-            await AuditFailureAsync(user, identifier, attemptKind, "usuario inexistente o sin credencial", cancellationToken);
+            await AuditFailureAsync(user, identifier, channel ?? attemptKind, "usuario inexistente o sin credencial", cancellationToken);
             return IdentityErrors.InvalidCredentials;
         }
 
@@ -109,7 +111,7 @@ public sealed class AuthServices(
         {
             var locked = allowed.Error.Code == IdentityErrors.UserLocked.Code;
             RecordAttempt(attemptKind, identifier, user, false, locked ? "LOCKED" : "DISABLED");
-            await AuditFailureAsync(user, identifier, attemptKind, locked ? "usuario bloqueado" : "usuario inactivo", cancellationToken);
+            await AuditFailureAsync(user, identifier, channel ?? attemptKind, locked ? "usuario bloqueado" : "usuario inactivo", cancellationToken);
             return allowed.Error;
         }
 
@@ -120,7 +122,7 @@ public sealed class AuthServices(
             var lockMinutes = await SettingAsync(SecuritySettings.LockoutMinutes, null, cancellationToken);
             var locked = user.RecordFailure(now, max, lockMinutes, withPin);
             RecordAttempt(attemptKind, identifier, user, false, "BAD_SECRET");
-            await AuditFailureAsync(user, identifier, attemptKind, withPin ? "PIN incorrecto" : "contraseña incorrecta", cancellationToken);
+            await AuditFailureAsync(user, identifier, channel ?? attemptKind, withPin ? "PIN incorrecto" : "contraseña incorrecta", cancellationToken);
             if (locked)
             {
                 await AuditAsync(user, "USER_LOCKED", $"{user.DisplayName} quedó bloqueado {lockMinutes} min por {max} intentos fallidos ({(withPin ? "PIN" : "contraseña")}).",
@@ -199,7 +201,7 @@ public sealed class AuthServices(
     /// <summary>Ingreso fallido (Fase 10, §5.1): queda en la bitácora además de <c>identity.login_attempts</c>.</summary>
     private Task AuditFailureAsync(User? user, string identifier, string attemptKind, string reason, CancellationToken cancellationToken)
     {
-        var channel = attemptKind switch { "PIN" => "caja", "SUPERVISOR" => "autorización de supervisor", _ => "backoffice" };
+        var channel = attemptKind switch { "PIN" => "caja", "SUPERVISOR" => "autorización de supervisor", "PASSWORD" => "backoffice", _ => attemptKind };
         return audit.WriteAsync(
             new AuditEntry("identity", "LOGIN_FAILED", nameof(User), user?.Id, user?.AuditLabel ?? identifier,
                 $"Ingreso fallido ({channel}) con '{identifier}': {reason}."),
@@ -332,63 +334,142 @@ internal sealed class GetMeHandler(ICurrentUser current, IIdentityStore store, A
     }
 }
 
-public sealed record ChangePasswordCommand(string CurrentPassword, string NewPassword) : ICommand, IAllowedWhenRestricted;
+/// <summary>Éxito sin contenido de un caso de uso de credenciales (el intento fallido también se confirma, ver <see cref="AuthOutcome{T}"/>).</summary>
+public sealed class AuthDone
+{
+    public static readonly AuthDone Instance = new();
+
+    private AuthDone()
+    {
+    }
+}
+
+/// <summary>
+/// Verificación de la credencial ACTUAL en los cambios de contraseña o PIN (PU5): mismo contador, bloqueo y auditoría que el ingreso.
+/// El error se traduce para no responder 401 (la sesión sigue siendo válida).
+/// </summary>
+internal static class CurrentCredential
+{
+    public static readonly Error Locked = Error.BusinessRule(
+        "IDENTITY.CREDENTIAL_LOCKED", "Demasiados intentos fallidos: espere unos minutos o pida a un administrador que lo desbloquee.");
+
+    public static async Task<Error?> VerifyAsync(AuthServices auth, User user, string? secret, SecretKind kind, string channel, CancellationToken cancellationToken)
+    {
+        var withPin = kind == SecretKind.Pin;
+        var error = await auth.VerifyAsync(
+            user, withPin ? user.PosCode ?? user.Username : user.Username, secret ?? string.Empty, kind, withPin ? "PIN" : "PASSWORD", cancellationToken, channel);
+        return error switch
+        {
+            null => null,
+            _ when error.Code == IdentityErrors.UserLocked.Code => Locked,
+            _ when error.Code == IdentityErrors.InvalidCredentials.Code => withPin ? IdentityErrors.CurrentPinInvalid : IdentityErrors.CurrentPasswordInvalid,
+            _ => error,
+        };
+    }
+}
+
+public sealed record ChangePasswordCommand(string CurrentPassword, string NewPassword) : ICommand<AuthOutcome<AuthDone>>, IAllowedWhenRestricted;
 
 internal sealed class ChangePasswordHandler(ICurrentUser current, AuthServices auth, CredentialPolicy policy, ISessionStore sessions)
-    : ICommandHandler<ChangePasswordCommand>
+    : ICommandHandler<ChangePasswordCommand, AuthOutcome<AuthDone>>
 {
-    public async Task<Result> Handle(ChangePasswordCommand request, CancellationToken cancellationToken)
+    public async Task<Result<AuthOutcome<AuthDone>>> Handle(ChangePasswordCommand request, CancellationToken cancellationToken)
     {
         var user = await auth.Store.GetUserAsync(current.UserId!.Value, cancellationToken);
-        if (user?.PasswordHash is null
-            || await auth.Hasher.VerifyAsync(request.CurrentPassword, user.PasswordHash, SecretKind.Password, cancellationToken) == SecretVerification.Failed)
+        if (user?.PasswordHash is null)
         {
-            return IdentityErrors.CurrentPasswordInvalid;
+            return AuthOutcome.Fail<AuthDone>(IdentityErrors.CurrentPasswordInvalid);
+        }
+
+        // PU5: el intento fallido se confirma (contador, bloqueo y auditoría): por eso la falla va dentro de un resultado exitoso.
+        if (await CurrentCredential.VerifyAsync(auth, user, request.CurrentPassword, SecretKind.Password, "cambio de contraseña", cancellationToken) is { } invalid)
+        {
+            return AuthOutcome.Fail<AuthDone>(invalid);
         }
 
         var changed = await policy.ChangePasswordAsync(user, request.NewPassword, mustChange: false, cancellationToken);
         if (changed.IsFailure)
         {
-            return changed;
+            return changed.Error;
         }
 
         // Las demás sesiones del usuario se cierran: la contraseña anterior podría estar comprometida.
+        user.ResetFailedAttempts();
         await sessions.RevokeAllForUserAsync(user.Id, user.Id, "PASSWORD_CHANGED", current.SessionId, cancellationToken);
         await auth.AuditAsync(user, "PASSWORD_CHANGED", $"{user.DisplayName} cambió su contraseña.", AuditSeverity.Info, cancellationToken);
-        return Result.Success();
+        return AuthOutcome.Ok(AuthDone.Instance);
     }
 }
 
-public sealed record ChangePinCommand(string? CurrentPin, string NewPin) : ICommand, IAllowedWhenRestricted;
+/// <summary>
+/// El usuario cambia su propio PIN (con el PIN actual) o, si aún no tiene (p. ej. el Propietario creado por el instalador premium), lo
+/// define confirmando su contraseña y, si tampoco tiene código de caja, eligiéndolo (DU-03). El código existente no se cambia por aquí.
+/// La credencial actual pasa por el contador y el bloqueo (PU5); al cambiar, se cierran sus OTRAS sesiones de caja (PU6).
+/// </summary>
+public sealed record ChangePinCommand(string? CurrentPin, string NewPin, string? PosCode = null, string? CurrentPassword = null)
+    : ICommand<AuthOutcome<AuthDone>>, IAllowedWhenRestricted;
 
-internal sealed class ChangePinHandler(ICurrentUser current, AuthServices auth, CredentialPolicy policy) : ICommandHandler<ChangePinCommand>
+internal sealed class ChangePinHandler(ICurrentUser current, AuthServices auth, CredentialPolicy policy, ISessionStore sessions)
+    : ICommandHandler<ChangePinCommand, AuthOutcome<AuthDone>>
 {
-    public async Task<Result> Handle(ChangePinCommand request, CancellationToken cancellationToken)
+    public async Task<Result<AuthOutcome<AuthDone>>> Handle(ChangePinCommand request, CancellationToken cancellationToken)
     {
         var user = await auth.Store.GetUserAsync(current.UserId!.Value, cancellationToken);
-        if (user is null)
+        if (user is not { IsHuman: true })
         {
             return IdentityErrors.UserNotFound;
         }
 
-        if (user.PosCode is null)
+        var firstTime = user.PinHash is null;
+        var invalid = firstTime
+            ? await CurrentCredential.VerifyAsync(auth, user, request.CurrentPassword, SecretKind.Password, "definición del PIN", cancellationToken)
+            : await CurrentCredential.VerifyAsync(auth, user, request.CurrentPin, SecretKind.Pin, "cambio de PIN", cancellationToken);
+        if (invalid is not null)
         {
-            return IdentityErrors.InvalidPosCode;
+            return AuthOutcome.Fail<AuthDone>(invalid);
         }
 
-        if (user.PinHash is not null
-            && await auth.Hasher.VerifyAsync(request.CurrentPin ?? string.Empty, user.PinHash, SecretKind.Pin, cancellationToken) == SecretVerification.Failed)
+        var posCode = IdentityRules.ResolveOwnPosCode(user.PosCode, request.PosCode);
+        if (posCode.IsFailure)
         {
-            return Error.Validation("IDENTITY.CURRENT_PIN_INVALID", "El PIN actual no es correcto.");
+            return posCode.Error;
         }
 
-        var changed = await policy.SetPinAsync(user, user.PosCode, request.NewPin, cancellationToken);
-        if (changed.IsSuccess)
+        var changed = await policy.SetPinAsync(user, posCode.Value, request.NewPin, cancellationToken);
+        if (changed.IsFailure)
         {
-            await auth.AuditAsync(user, "PIN_CHANGED", $"{user.DisplayName} cambió su PIN.", AuditSeverity.Info, cancellationToken);
+            return changed.Error;
         }
 
-        return changed;
+        user.ResetFailedAttempts();
+        await sessions.RevokeTerminalSessionsForUserAsync(user.Id, user.Id, "PIN_CHANGED", current.SessionId, cancellationToken);
+        var summary = firstTime
+            ? $"{user.DisplayName} definió su código de caja ({posCode.Value}) y su PIN."
+            : $"{user.DisplayName} cambió su PIN.";
+        await auth.AuditAsync(user, "PIN_CHANGED", summary, AuditSeverity.Info, cancellationToken);
+        return AuthOutcome.Ok(AuthDone.Instance);
+    }
+}
+
+/// <summary>Código de caja y PIN del usuario de la sesión, con las longitudes de PIN y contraseña configuradas (DU-04).</summary>
+public sealed record GetMyCredentialsQuery : IQuery<CredentialStatusDto>;
+
+internal sealed class GetMyCredentialsHandler(ICurrentUser current, IIdentityStore store, ISettingsReader settings)
+    : IQueryHandler<GetMyCredentialsQuery, CredentialStatusDto>
+{
+    public async Task<Result<CredentialStatusDto>> Handle(GetMyCredentialsQuery request, CancellationToken cancellationToken)
+    {
+        var user = await store.GetUserAsync(current.UserId!.Value, cancellationToken);
+        if (user is not { IsHuman: true })
+        {
+            return IdentityErrors.UserNotFound;
+        }
+
+        var context = new SettingContext(user.CompanyId);
+        var pinLength = await settings.GetAsync(SecuritySettings.PinLength, context, cancellationToken);
+        var passwordMinLength = await settings.GetAsync(SecuritySettings.PasswordMinLength, context, cancellationToken);
+        var passwordHistory = await settings.GetAsync(SecuritySettings.PasswordHistory, context, cancellationToken);
+        return new CredentialStatusDto(user.PosCode, user.PinHash is not null, pinLength, passwordMinLength, passwordHistory);
     }
 }
 
