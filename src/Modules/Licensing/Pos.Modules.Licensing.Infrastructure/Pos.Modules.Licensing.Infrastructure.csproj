@@ -19,6 +19,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Demo por equipo: día UTC de la compilación (ningún inicio de demo anterior es creíble). Cambia una vez al día. -->
+    <AssemblyMetadata Include="PosBuildDate" Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Pos.Server.IntegrationTests" />
     <InternalsVisibleTo Include="Pos.Infrastructure.UnitTests" />
   </ItemGroup>

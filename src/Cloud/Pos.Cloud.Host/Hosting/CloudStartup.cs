@@ -104,10 +104,18 @@ internal sealed partial class SubscriptionStatusRefresher(
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
-                var result = await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send(new RefreshSubscriptionStatusesCommand(), stoppingToken);
+                var dispatcher = scope.ServiceProvider.GetRequiredService<IDispatcher>();
+                var result = await dispatcher.Send(new RefreshSubscriptionStatusesCommand(), stoppingToken);
                 if (result.IsSuccess && result.Value > 0)
                 {
                     LogRefreshed(logger, result.Value);
+                }
+
+                // Demo por equipo: limpieza de los equipos vistos una sola vez hace más de ⚙️ 90 días.
+                var purged = await dispatcher.Send(new PurgeStaleDemoDevicesCommand(), stoppingToken);
+                if (purged.IsSuccess && purged.Value > 0)
+                {
+                    LogPurged(logger, purged.Value);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -117,6 +125,9 @@ internal sealed partial class SubscriptionStatusRefresher(
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Count} equipos de la demo vistos una sola vez hace más de 90 días se borraron")]
+    private static partial void LogPurged(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{Count} suscripciones cambiaron de estado por fecha")]
     private static partial void LogRefreshed(ILogger logger, int count);

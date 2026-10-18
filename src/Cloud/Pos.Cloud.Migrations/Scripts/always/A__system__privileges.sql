@@ -1,7 +1,8 @@
 -- =====================================================================================================
 -- A__system__privileges · Privilegios de la BD de la NUBE. Se ejecuta al final de CADA migración.
---   pos_app    : SELECT/INSERT/UPDATE en portal, licensing y sync (nada se borra: ningún DELETE, L-09; única excepción sync.documents,
---                copia de los datos de las tiendas que se borra al descartar un paquete no verificado);
+--   pos_app    : SELECT/INSERT/UPDATE en portal, licensing y sync (nada se borra: ningún DELETE, L-09; excepciones sync.documents,
+--                copia de los datos de las tiendas que se borra al descartar un paquete no verificado, y licensing.demo_devices, cuya
+--                limpieza borra los equipos vistos una sola vez hace más de 90 días);
 --                solo SELECT/INSERT en los eventos de suscripción, los check-ins y la auditoría.
 --   pos_backup : lectura total (pg_read_all_data, otorgado al crear la BD).
 -- =====================================================================================================
@@ -29,6 +30,10 @@ GRANT USAGE ON SEQUENCE licensing.payment_order_number_seq TO pos_app;
 -- Sincronización (revisión S2): descartar un paquete no verificado borra los documentos que dejó. Es el único DELETE: sync.documents
 -- es una copia de lo que mandan las tiendas, no un registro de la nube.
 GRANT DELETE ON sync.documents TO pos_app;
+
+-- Demo por equipo (docs/fases/fase-demo-por-equipo.md): la limpieza borra los equipos vistos UNA sola vez hace más de 90 días (un
+-- registro sin valor de auditoría que, si no, crecería sin límite con registros abusivos). Es el único DELETE del esquema licensing.
+GRANT DELETE ON licensing.demo_devices TO pos_app;
 
 -- Auditoría: solo agregar y leer.
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA audit TO pos_app;

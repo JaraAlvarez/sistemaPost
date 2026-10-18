@@ -87,7 +87,11 @@ public sealed record ScaleReadingKeyRequest(Guid KeyId, string PublicKey);
 public sealed record BranchDetailDto(BranchDto Branch, IReadOnlyList<WarehouseDto> Warehouses, IReadOnlyList<TerminalDto> Terminals);
 
 /// <summary>Estado del asistente inicial y edición instalada.</summary>
-public sealed record SetupStatusDto(bool IsCompleted, string Edition, Guid NodeId, Guid? CompanyId, Guid? BranchId, bool OwnerPending);
+/// <summary>
+/// Estado de la configuración inicial (anónimo). <c>DemoEnded</c>: la prueba gratuita de ESTE equipo ya terminó (también si se reinstaló
+/// borrando los datos; docs/fases/fase-demo-por-equipo.md): el asistente y la pantalla de ingreso lo dicen y no ofrecen seguir en demo.
+/// </summary>
+public sealed record SetupStatusDto(bool IsCompleted, string Edition, Guid NodeId, Guid? CompanyId, Guid? BranchId, bool OwnerPending, bool DemoEnded = false);
 
 /// <summary>Resultado del asistente inicial.</summary>
 public sealed record SetupResultDto(

@@ -3,8 +3,11 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Pos.Modules.Licensing.Infrastructure;
 
 namespace Pos.Server.IntegrationTests;
 
@@ -32,6 +35,9 @@ public class PosServerFactory : WebApplicationFactory<Program>
     /// <summary>Edición instalada: SINGLE (Caja Única) o MULTI (Multicaja).</summary>
     protected virtual string Edition => "MULTI";
 
+    /// <summary>Marca de la demo del equipo (en memoria). Una prueba la siembra para simular un equipo reinstalado borrando los datos.</summary>
+    internal virtual IDeviceDemoMark DemoMark { get; } = new MemoryDeviceDemoMark();
+
     /// <summary>Configuración adicional de una fábrica derivada.</summary>
     protected virtual IEnumerable<KeyValuePair<string, string?>> ExtraSettings => [];
 
@@ -50,6 +56,9 @@ public class PosServerFactory : WebApplicationFactory<Program>
             ["Pos:Server:LanDiscovery"] = "false",
         }).AddInMemoryCollection(ExtraSettings));
         builder.ConfigureServices(services => services.AddSingleton<IStartupFilter, SimulatedNetworkStartupFilter>());
+
+        // La marca de la demo del equipo vive en memoria por servidor de prueba (en Release iría al registro de Windows y se compartiría).
+        builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton<IDeviceDemoMark>(DemoMark)));
     }
 
     public override async ValueTask DisposeAsync()

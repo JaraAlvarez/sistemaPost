@@ -25,8 +25,9 @@ namespace Pos.Modules.Licensing.Infrastructure;
 /// firmada que ya está confirmada (no la escribió la transacción en curso).</item>
 /// </list>
 /// </summary>
-internal sealed class LicenseStateStore(PosDbContext context, IInstallationContext installation, LicenseVault vault, ILicenseKeys keys)
-    : ILicenseStateStore
+internal sealed class LicenseStateStore(
+    PosDbContext context, IInstallationContext installation, LicenseVault vault, ILicenseKeys keys, IDeviceIdentity? device = null,
+    IDeviceDemoMark? demoMark = null, LicensePolicy? policy = null) : ILicenseStateStore
 {
     private const string SealedColumns =
         """
@@ -48,7 +49,7 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
                    s.reactivation_required AS ReactivationRequired, s.deactivated AS Deactivated, s.clock_offset_seconds AS ClockOffsetSeconds,
                    s.max_observed_utc AS MaxObservedUtc, i.created_at AS InstalledAt, s.payment_url AS PaymentUrl,
                    s.restricted_since AS RestrictedSince, s.demo_started_at AS DemoStartedAt, s.offline_floor_utc AS OfflineFloorUtc,
-                   s.state_mac AS StateMac,
+                   s.state_mac AS StateMac, s.demo_token AS DemoToken,
                    (SELECT c.identification_number || COALESCE('-' || c.check_digit, '') FROM org.companies c WHERE c.id = @company) AS CompanyNit,
                    NOT COALESCE(s.xmin = pg_current_xact_id_if_assigned()::xid, false) AS IsCommitted
             FROM licensing.license_state s
@@ -78,6 +79,12 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
 
         var maxObserved = Max(Utc(row.MaxObservedUtc), vault.Watermark)!.Value;
         var demoStartedAt = Min(Min(Utc(row.InstalledAt), tampered ? null : Utc(row.DemoStartedAt)), vault.DemoStartedAt)!.Value;
+
+        // Con licencia (token) la demo no cuenta: no se toca la marca ni la compilación más antigua.
+        if (row.Token is null)
+        {
+            demoStartedAt = DemoStart(demoStartedAt, row.DemoToken, Utc(row.InstalledAt));
+        }
         var restrictedSince = tampered ? vault.RestrictedSince : Min(Utc(row.RestrictedSince), vault.RestrictedSince);
         var offlineFloor = vault.OfflineFloor ?? (tampered ? null : Utc(row.OfflineFloorUtc));
 
@@ -160,6 +167,54 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
             """,
             new { node = installation.NodeId }, trusted: true, cancellationToken);
         vault.Flag(deactivated: true);
+    }
+
+    /// <summary>Guarda el token de la demo firmado por la nube (va firmado: no entra en la MAC; se verifica en cada lectura).</summary>
+    public Task SaveDemoTokenAsync(string token, CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            "UPDATE licensing.license_state SET demo_token = @token, updated_at = now() WHERE node_id = @node",
+            new { token, node = installation.NodeId }, cancellationToken);
+
+    /// <summary>
+    /// Inicio de la demo por equipo (docs/fases/fase-demo-por-equipo.md): el más antiguo entre lo local (BD, archivo protegido y marca del
+    /// registro), nunca anterior a la compilación MÁS ANTIGUA vista del programa (un reloj atrasado al instalar no deja la demo quemada), y
+    /// el inicio que firmó la nube para este equipo (de confianza: no se recorta). Si soporte reinició la demo, vale el de la nube aunque
+    /// sea posterior, y se anula la marca local.
+    /// </summary>
+    private DateTimeOffset DemoStart(DateTimeOffset local, string? demoToken, DateTimeOffset installedAt)
+    {
+        var fingerprint = device?.Fingerprint;
+        var build = policy?.BuildDate;
+        var mark = fingerprint is null ? null : demoMark?.Read(fingerprint);
+        if (mark is not null && mark.StartedAt < local)
+        {
+            local = mark.StartedAt;
+        }
+
+        if (build is { } current)
+        {
+            // Primera vez con la compilación anotada: si el archivo ya traía estado de una versión anterior, la compilación más antigua es
+            // a lo sumo el inicio de la demo que ya conocía (o la creación de la instalación); si no, una actualización regalaría la demo.
+            vault.NoteBuild(current, Min(vault.DemoStartedAt, installedAt)!.Value);
+        }
+
+        var floor = Min(Min(build, mark?.FirstBuild), vault.FirstBuild);
+        if (floor is { } credible && local < credible)
+        {
+            local = credible;
+        }
+
+        var cloud = fingerprint is not null && demoToken is not null && DemoToken.Verify(demoToken, keys.Ring) is { IsValid: true, Claims: { } claims }
+            && DeviceFingerprint.TryParse(claims.DeviceFingerprint, out var signed) && DemoDeviceIdentity.SameDevice(signed, fingerprint)
+                ? claims
+                : null;
+        var start = cloud is { Reset: true } ? cloud.StartedAt : cloud is not null && cloud.StartedAt < local ? cloud.StartedAt : local;
+        if (fingerprint is not null)
+        {
+            demoMark?.Note(fingerprint, start, build, reset: cloud?.Reset == true);
+        }
+
+        return start;
     }
 
     public async Task RaiseMaxObservedAsync(DateTimeOffset value, CancellationToken cancellationToken)
@@ -305,7 +360,8 @@ internal sealed class LicenseStateStore(PosDbContext context, IInstallationConte
     private sealed record StateRow(
         Guid NodeId, string? Token, string? LicenseKeyPrefix, DateTime? ActivatedAt, DateTime? LastCheckinAt, string? LastCheckinError, bool Revoked,
         bool ReactivationRequired, bool Deactivated, long ClockOffsetSeconds, DateTime MaxObservedUtc, DateTime InstalledAt, string? PaymentUrl,
-        DateTime? RestrictedSince, DateTime? DemoStartedAt, DateTime? OfflineFloorUtc, string? StateMac, string? CompanyNit, bool IsCommitted);
+        DateTime? RestrictedSince, DateTime? DemoStartedAt, DateTime? OfflineFloorUtc, string? StateMac, string? DemoToken, string? CompanyNit,
+        bool IsCommitted);
 
     private sealed record SealedRow(
         Guid NodeId, string? Token, bool Revoked, bool ReactivationRequired, bool Deactivated, long ClockOffsetSeconds, DateTime MaxObservedUtc,

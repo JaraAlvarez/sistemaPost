@@ -8,6 +8,9 @@ public static class LicensingRoutes
     public const string Deactivations = "/v1/deactivations";
     public const string PublicKeys = "/v1/public-keys";
 
+    /// <summary>Demo por equipo: la nube guarda el primer inicio de la demo por huella y lo devuelve firmado (<see cref="DemoToken"/>).</summary>
+    public const string DemoDevices = "/v1/demo-devices";
+
     /// <summary>Instalador premium (Fase 13-B): datos públicos de la empresa de una clave, para no volver a escribirlos.</summary>
     public const string LicensePreviews = "/v1/license-previews";
 

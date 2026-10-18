@@ -230,6 +230,39 @@ public sealed class LicenseHardeningTests : IDisposable
         ((ILicenseGate)_cache).Current.SalesWindowClosed.ShouldBeFalse();
     }
 
+    // ------------------------------------------------------------------------------------------------ Demo por equipo
+
+    [Fact]
+    public async Task La_nube_adelanta_el_inicio_de_la_demo_de_este_equipo_pero_nunca_lo_atrasa()
+    {
+        _clock.UtcNow = Installed.AddDays(2);
+        _store.Record = Record(token: null, maxObserved: Installed.AddDays(2));
+        var service = Service();
+        (await service.StatusAsync(Ct)).Value.State.ShouldBe(LicenseStates.Demo);
+
+        // Un inicio más reciente (o de otro equipo) no cambia nada.
+        _cloud.DemoStartedAt = Installed.AddDays(1);
+        (await service.RegisterDemoAsync(Ct)).Value.ShouldBeTrue();
+        _store.Record.DemoStartedAt.ShouldBe(Installed);
+        _cloud.DemoStartedAt = Installed.AddDays(-40);
+        _cloud.DemoFingerprint = DeviceFingerprint.FromHardware("OTRA", "OTRO", "OTRA").ToString();
+        (await service.RegisterDemoAsync(Ct)).Value.ShouldBeFalse();
+        _store.Record.DemoStartedAt.ShouldBe(Installed);
+
+        // El equipo ya tuvo una demo hace 40 días (reinstalado borrando los datos): terminó.
+        _cloud.DemoFingerprint = null;
+        (await service.RegisterDemoAsync(Ct)).Value.ShouldBeTrue();
+        _store.Record.DemoStartedAt.ShouldBe(Installed.AddDays(-40));
+        var status = (await service.StatusAsync(Ct)).Value;
+        status.State.ShouldBe(LicenseStates.Restricted);
+        status.Reason.ShouldBe(LicenseEvaluator.DemoEndedMessage);
+        ((ILicenseGate)_cache).Current.DemoEnded.ShouldBeTrue();
+
+        // Con licencia no se consulta.
+        _store.Record = Record(Token(issuedAt: Installed.AddDays(2)), lastCheckin: Installed.AddDays(2), maxObserved: Installed.AddDays(2));
+        (await service.RegisterDemoAsync(Ct)).Value.ShouldBeFalse();
+    }
+
     // ------------------------------------------------------------------------------------------------ H5
 
     [Fact]
@@ -284,7 +317,8 @@ public sealed class LicenseHardeningTests : IDisposable
         // Demo vencida + archivo ilegible: no abre.
         var demoEnded = Evaluate(Record(token: null) with { VaultUnavailable = VaultMessage }, Installed.AddDays(31));
         (demoEnded.State, demoEnded.Recoverable).ShouldBe((LicenseStates.Restricted, false));
-        demoEnded.Reason.ShouldContain("Terminó la demostración");
+        demoEnded.Reason.ShouldBe(LicenseEvaluator.DemoEndedMessage);
+        demoEnded.Notices.ShouldContain(n => n.Code == LicenseEvaluator.DemoEndedCode);
 
         // Suspendida + archivo ilegible: no abre (aunque además figure alterada: sin el archivo eso no se puede juzgar).
         var suspended = Evaluate(
@@ -475,6 +509,17 @@ public sealed class LicenseHardeningTests : IDisposable
             return Task.CompletedTask;
         }
 
+        /// <summary>Como el almacén real (sin verificar la firma): el token solo adelanta el inicio, salvo un reinicio de soporte.</summary>
+        public Task SaveDemoTokenAsync(string token, CancellationToken cancellationToken)
+        {
+            var payload = System.Text.Json.JsonSerializer.Deserialize<DemoClaims>(System.Buffers.Text.Base64Url.DecodeFromChars(token.Split('.')[1]))!;
+            Record = Record with
+            {
+                DemoStartedAt = payload.Reset || payload.StartedAt < Record.DemoStartedAt ? payload.StartedAt : Record.DemoStartedAt,
+            };
+            return Task.CompletedTask;
+        }
+
         public Task RecordCheckinAsync(LicenseCheckinDto checkin, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<IReadOnlyList<LicenseCheckinDto>> ListCheckinsAsync(int limit, CancellationToken cancellationToken) =>
@@ -498,6 +543,20 @@ public sealed class LicenseHardeningTests : IDisposable
         public Task<CloudResult> CheckinAsync(CheckinRequest request, CancellationToken cancellationToken) => Respond();
 
         public Task<CloudResult> DeactivateAsync(DeactivationRequest request, CancellationToken cancellationToken) => Task.FromResult(CloudResult.Ok(null));
+
+        /// <summary>Primer inicio de la demo que la nube conoce para el equipo (<c>null</c> = sin conexión).</summary>
+        public DateTimeOffset? DemoStartedAt { get; set; }
+
+        /// <summary>Huella con la que responde la nube (otra = respuesta de otro equipo).</summary>
+        public string? DemoFingerprint { get; set; }
+
+        public Task<DemoDeviceResponse?> RegisterDemoAsync(DemoDeviceRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(DemoStartedAt is { } start
+                ? new DemoDeviceResponse(DemoToken.Sign(new DemoClaims
+                {
+                    DeviceFingerprint = DemoFingerprint ?? request.Fingerprint, StartedAt = start, IssuedAt = Today,
+                }, Key!))
+                : null);
 
         private Task<CloudResult> Respond()
         {

@@ -83,6 +83,25 @@ internal sealed partial class LicenseCloudClient(HttpClient? http, ILogger<Licen
     public Task<CloudResult> DeactivateAsync(DeactivationRequest request, CancellationToken cancellationToken) =>
         PostAsync(LicensingRoutes.Deactivations, request, cancellationToken);
 
+    public async Task<DemoDeviceResponse?> RegisterDemoAsync(DemoDeviceRequest request, CancellationToken cancellationToken)
+    {
+        if (http is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var response = await http.PostAsJsonAsync(LicensingRoutes.DemoDevices.TrimStart('/'), request, Json, cancellationToken);
+            return response.StatusCode == HttpStatusCode.OK ? await response.Content.ReadFromJsonAsync<DemoDeviceResponse>(Json, cancellationToken) : null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException && !cancellationToken.IsCancellationRequested)
+        {
+            LogUnreachable(logger, LicensingRoutes.DemoDevices, ex.Message);
+            return null;
+        }
+    }
+
     private async Task<CloudResult> PostAsync<T>(string route, T body, CancellationToken cancellationToken)
     {
         if (http is null)
@@ -277,6 +296,7 @@ internal sealed partial class LicenseWorker(
     private DateTimeOffset _nextCheckin = DateTimeOffset.MinValue;
     private int _failures;
     private long? _lastTick;
+    private DateTimeOffset _nextDemoCheck = DateTimeOffset.MinValue;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -313,6 +333,13 @@ internal sealed partial class LicenseWorker(
         }
 
         var now = time.GetUtcNow();
+
+        // Demo por equipo: sin licencia, al arrancar y cada 24 h (reintento a la hora) se registra la huella en la nube.
+        if (status.IsSuccess && status.Value.LicenseKeyPrefix is null && cloud.IsConfigured && now >= _nextDemoCheck)
+        {
+            var registered = await dispatcher.Send(new RegisterDemoDeviceCommand(), cancellationToken);
+            _nextDemoCheck = now + (registered is { IsSuccess: true, Value: true } ? TimeSpan.FromHours(24) : TimeSpan.FromHours(1));
+        }
 
         // Restringida: se vuelve a verificar al menos cada hora (un pago aplicado o un estado alterado se corrige pronto).
         if (status.IsSuccess && LicenseStates.IsRestricted(status.Value.State) && _nextCheckin > now + TimeSpan.FromHours(1))
@@ -374,7 +401,7 @@ public static class LicensingInfrastructureRegistration
         // La configuración se lee al construir los servicios (la de las pruebas y la del instalador llegan después del registro).
         services.AddSingleton(sp => Read(
             sp.GetRequiredService<IConfiguration>(), LicensingDevelopment.Enabled(sp.GetRequiredService<IHostEnvironment>())));
-        services.AddSingleton(sp => new LicensePolicy(sp.GetRequiredService<LicensingOptions>().MaxOfflineDays));
+        services.AddSingleton(sp => new LicensePolicy(sp.GetRequiredService<LicensingOptions>().MaxOfflineDays, LicenseBuild.Date));
         services.AddSingleton(sp => new LicenseStateCache(sp.GetService<TimeProvider>()));
         services.AddSingleton<ILicenseGate>(sp => sp.GetRequiredService<LicenseStateCache>());
         services.AddSingleton<ILicenseStatus>(sp => sp.GetRequiredService<LicenseStateCache>());
@@ -389,6 +416,7 @@ public static class LicensingInfrastructureRegistration
                 ? new HttpClient { BaseAddress = new Uri(url.ToString().TrimEnd('/') + "/"), Timeout = TimeSpan.FromSeconds(20) }
                 : null,
             sp.GetRequiredService<ILogger<LicenseCloudClient>>()));
+        services.AddSingleton<IDeviceDemoMark>(sp => DemoMark(sp));
         services.AddScoped<LicenseStateStore>();
         services.AddScoped<ILicenseStateStore>(sp => sp.GetRequiredService<LicenseStateStore>());
         services.AddScoped<LicenseService>();
@@ -396,6 +424,30 @@ public static class LicensingInfrastructureRegistration
         services.AddSingleton<IPortalOwnerLinkVerifier, PortalOwnerLinkVerifier>();
         services.AddSingleton<LicenseWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<LicenseWorker>());
+    }
+
+    /// <summary>
+    /// Marca del equipo con el inicio de la demo: en el registro de Windows (HKLM) solo en Release; en Debug (desarrollo y pruebas) en
+    /// memoria, para que el equipo del desarrollador no acumule una demo vencida.
+    /// </summary>
+#pragma warning disable CA1859 // En Debug siempre es la de memoria; en Release, la del registro (Windows).
+    private static IDeviceDemoMark DemoMark(IServiceProvider services)
+#pragma warning restore CA1859
+    {
+#if DEBUG
+        _ = services;
+        return new MemoryDeviceDemoMark();
+#else
+        if (!System.OperatingSystem.IsWindows())
+        {
+            return new MemoryDeviceDemoMark();
+        }
+
+        var product = Assembly.GetEntryAssembly()?.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "PosProductName")?.Value ?? "BusinessPost";
+        return new RegistryDeviceDemoMark(
+            Registry.LocalMachine, $@"SOFTWARE\{product}\Demo", restrictAccess: true, services.GetRequiredService<ILogger<RegistryDeviceDemoMark>>());
+#endif
     }
 
     /// <summary>

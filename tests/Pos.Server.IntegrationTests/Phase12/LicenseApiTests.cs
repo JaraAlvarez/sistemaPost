@@ -43,6 +43,17 @@ internal sealed class FakeLicenseCloud : HttpMessageHandler
 
     public int Checkins { get; private set; }
 
+    /// <summary>Primer inicio de la demo que la nube conoce para el equipo (demo por equipo); <c>null</c> = la nube no responde ese registro.</summary>
+    public DateTimeOffset? DemoStartedAt { get; set; }
+
+    public int DemoRequests { get; private set; }
+
+    /// <summary>Soporte reinició la demo de este equipo en el portal.</summary>
+    public bool DemoReset { get; set; }
+
+    /// <summary>Última fecha de compilación que mandó la tienda.</summary>
+    public DateTimeOffset? LastBuildDate { get; private set; }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var path = request.RequestUri!.AbsolutePath;
@@ -53,6 +64,19 @@ internal sealed class FakeLicenseCloud : HttpMessageHandler
             return LicenseKey.TryNormalize(activation.LicenseKey, out var key) && key == ValidKey
                 ? Token(activation.InstallationId, activation.Fingerprint, activation.DeviceRole, activation.OrganizationNit)
                 : Problem(LicenseErrorCodes.KeyInvalid);
+        }
+
+        if (path == LicensingRoutes.DemoDevices && DemoStartedAt is { } demoStart)
+        {
+            var demo = JsonSerializer.Deserialize<DemoDeviceRequest>(body, Web)!;
+            DemoRequests++;
+            LastBuildDate = demo.BuildDate;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(
+                    new DemoDeviceResponse(DemoToken.Sign(new DemoClaims { DeviceFingerprint = demo.Fingerprint, StartedAt = demoStart, IssuedAt = DateTimeOffset.UtcNow, Reset = DemoReset }, Key)),
+                    options: Web),
+            };
         }
 
         if (path == LicensingRoutes.Checkins)

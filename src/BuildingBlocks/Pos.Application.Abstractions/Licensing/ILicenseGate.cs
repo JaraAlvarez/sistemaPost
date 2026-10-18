@@ -13,12 +13,15 @@ namespace Pos.Application.Abstractions.Licensing;
 /// Restringida desde hace más de 24 h: los comandos <see cref="IRestrictedSalesWindow"/> (vender) también se bloquean y solo queda
 /// cerrar la jornada.
 /// </param>
+/// <param name="DemoEnded">La prueba gratuita de este equipo ya terminó (lo muestran el asistente y la pantalla de ingreso).</param>
 /// <param name="AllowsOpeningSessions">
 /// Integración 1.2.0 (ALTA 2): restringida porque el estado local quedó "alterado" (vuelta atrás o backup restaurado) o porque no se
 /// pudo leer el archivo de la licencia. No es un problema de pago: durante la misma ventana de 24 h también se pueden ABRIR jornadas
-/// (<see cref="IRestrictedSessionOpening"/>), si no la tienda no podría vender aunque la ventana siga abierta.
+/// (<see cref="IRestrictedSessionOpening"/>), si no la tienda no podría vender aunque la ventana siga abierta. Una demo vencida nunca
+/// lo permite.
 /// </param>
-public sealed record LicenseGateState(bool Restricted, bool Demo, string? Reason, bool SalesWindowClosed = false, bool AllowsOpeningSessions = false)
+public sealed record LicenseGateState(
+    bool Restricted, bool Demo, string? Reason, bool SalesWindowClosed = false, bool DemoEnded = false, bool AllowsOpeningSessions = false)
 {
     public static readonly LicenseGateState Unrestricted = new(Restricted: false, Demo: false, Reason: null);
 }
