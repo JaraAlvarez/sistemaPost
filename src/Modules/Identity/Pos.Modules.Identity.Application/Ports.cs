@@ -150,14 +150,16 @@ public interface IPermissionEvaluator
 public static class SecuritySettings
 {
     public static readonly SettingDefinition<int> BackofficeIdleMinutes = new(
-        "security.backoffice_idle_minutes", 30, SettingScope.Company, "Minutos de inactividad que cierran una sesión de backoffice.", Between(5, 480));
+        "security.backoffice_idle_minutes", 0, SettingScope.Company,
+        "Minutos de inactividad que cierran una sesión de backoffice (0 = no se cierra por inactividad).", Between(0, 480));
 
     public static readonly SettingDefinition<int> TerminalIdleMinutes = new(
-        "security.terminal_idle_minutes", 15, SettingScope.Company | SettingScope.Branch,
-        "Minutos de inactividad que cierran una sesión de caja (la venta en curso se conserva).", Between(1, 240));
+        "security.terminal_idle_minutes", 0, SettingScope.Company | SettingScope.Branch,
+        "Minutos de inactividad que cierran una sesión de caja; la venta en curso se conserva (0 = no se cierra por inactividad).", Between(0, 240));
 
     public static readonly SettingDefinition<int> SessionMaxHours = new(
-        "security.session_max_hours", 12, SettingScope.Company, "Duración máxima de una sesión.", Between(1, 24));
+        "security.session_max_hours", 720, SettingScope.Company,
+        "Duración máxima de una sesión en horas (720 = 30 días; al vencer hay que volver a ingresar).", Between(1, 720));
 
     public static readonly SettingDefinition<int> MaxFailedAttempts = new(
         "security.max_failed_attempts", 5, SettingScope.Company, "Intentos fallidos de contraseña antes de bloquear.", Between(3, 20));

@@ -159,7 +159,9 @@ public sealed class AuthServices(
         var sessionId = ids.NewId();
         sessions.Add(new NewSession(
             sessionId, user.CompanyId, installation.NodeId, user.Id, SecureTokens.Hash(token), terminal, client.DeviceId,
-            posTerminalId, branchId, client.IpAddress, client.UserAgent, user.SecurityVersion, idleMinutes * 60, now, now.AddHours(maxHours)));
+            posTerminalId, branchId, client.IpAddress, client.UserAgent, user.SecurityVersion,
+            // 0 = sin cierre por inactividad: la sesión dura hasta su máximo (la columna exige un valor positivo).
+            idleMinutes > 0 ? idleMinutes * 60 : maxHours * 3600, now, now.AddHours(maxHours)));
 
         actor.Use(user.Id, user.DisplayName, user.CompanyId, branchId);
         RecordAttempt(terminal ? "PIN" : "PASSWORD", terminal ? user.PosCode ?? user.Username : user.Username, user, true, null);
