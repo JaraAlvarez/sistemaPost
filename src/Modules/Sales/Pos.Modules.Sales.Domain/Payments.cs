@@ -60,7 +60,7 @@ public static class PaymentAllocator
         var adjustment = 0m;
         if (tenders.FirstOrDefault(t => t.GivesChange) is { } cash)
         {
-            var due = cashIncrement > 0m ? new RoundingPolicy(2, cashIncrement).RoundToCash(remaining) : remaining;
+            var due = CashDue(remaining, cashIncrement);
             adjustment = due - remaining;
             if (cash.Amount < due)
             {
@@ -82,4 +82,12 @@ public static class PaymentAllocator
         var payable = total + adjustment;
         return new PaymentAllocation(payments, adjustment, payable, payments.Sum(p => p.Tender.Amount), payments.Sum(p => p.Change));
     }
+
+    /// <summary>
+    /// Lo que se cobra en efectivo cuando el efectivo cubre <paramref name="remaining"/> (lo que dejan los medios sin cambio): el
+    /// múltiplo de <paramref name="cashIncrement"/> más cercano (punto medio hacia arriba); sin múltiplo (0), el valor exacto. Es la
+    /// misma regla con la que <see cref="Allocate"/> valida el cobro; la caja la recibe ya calculada en la venta.
+    /// </summary>
+    public static decimal CashDue(decimal remaining, decimal cashIncrement) =>
+        cashIncrement > 0m ? new RoundingPolicy(2, cashIncrement).RoundToCash(remaining) : remaining;
 }

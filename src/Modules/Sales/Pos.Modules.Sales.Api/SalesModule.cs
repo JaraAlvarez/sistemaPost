@@ -32,6 +32,7 @@ public sealed class SalesModule : IModule
         services.AddScoped<StockGuard>();
         services.AddScoped<CustomerResolver>();
         services.AddScoped<SaleEditor>();
+        services.AddScoped<SaleViewer>();
         services.AddScoped<ScaleReadingVerifier>();
         services.AddScoped<SaleInventory>();
         services.AddScoped<SaleReceipts>();

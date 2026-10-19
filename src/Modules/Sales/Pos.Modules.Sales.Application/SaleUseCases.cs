@@ -15,7 +15,7 @@ using Pos.SharedKernel.Time;
 namespace Pos.Modules.Sales.Application;
 
 /// <summary>Carga una venta de esta caja para editarla y la recalcula con las promociones vigentes.</summary>
-public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, PromotionRules promotions, ISistecreditoPayments sistecredito)
+public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, PromotionRules promotions, ISistecreditoPayments sistecredito, SaleViewer viewer)
 {
     /// <summary>Lo que faltaba por pagar de cada venta al cargarla (antes del cambio), para saber si el cambio la baja.</summary>
     private readonly Dictionary<Guid, decimal> _loadedDue = [];
@@ -76,6 +76,10 @@ public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, Pr
         sale.Recalculate(await promotions.ActiveAsync(sale.BranchId, cancellationToken));
         return await GuardApprovedCreditAsync(sale, cancellationToken);
     }
+
+    /// <summary>La venta para la API, con el cobro en efectivo según el múltiplo vigente.</summary>
+    public Task<SaleDto> ViewAsync(Sale sale, CancellationToken cancellationToken, IReadOnlyList<string>? warnings = null) =>
+        viewer.ViewAsync(sale, cancellationToken, warnings);
 }
 
 // ─────────────────────────────── Iniciar y consultar la venta en curso ───────────────────────────────
@@ -86,7 +90,7 @@ public sealed class SaleEditor(ISalesStore store, TerminalResolver terminals, Pr
 /// </summary>
 public sealed record StartSaleCommand : ICommand<SaleDto>, IRestrictedSalesWindow;
 
-internal sealed class StartSaleHandler(ISalesStore store, TerminalResolver terminals, CustomerResolver customers, IIdGenerator ids, IClock clock)
+internal sealed class StartSaleHandler(ISalesStore store, TerminalResolver terminals, CustomerResolver customers, SaleViewer viewer, IIdGenerator ids, IClock clock)
     : ICommandHandler<StartSaleCommand, SaleDto>
 {
     public async Task<Result<SaleDto>> Handle(StartSaleCommand request, CancellationToken cancellationToken)
@@ -108,14 +112,14 @@ internal sealed class StartSaleHandler(ISalesStore store, TerminalResolver termi
             ids.NewId(), scope.Value.CompanyId, scope.Value.BranchId, scope.Value.PosTerminalId, scope.Value.WarehouseId, session.Id, scope.Value.UserId,
             session.BusinessDate, clock.UtcNow, consumer);
         store.Add(sale);
-        return sale.ToDto();
+        return await viewer.ViewAsync(sale, cancellationToken);
     }
 }
 
 /// <summary>Venta en curso de esta caja (para retomarla tras un corte de luz o de red).</summary>
 public sealed record GetCurrentSaleQuery : IQuery<SaleDto>;
 
-internal sealed class GetCurrentSaleHandler(ISalesStore store, TerminalResolver terminals) : IQueryHandler<GetCurrentSaleQuery, SaleDto>
+internal sealed class GetCurrentSaleHandler(ISalesStore store, TerminalResolver terminals, SaleViewer viewer) : IQueryHandler<GetCurrentSaleQuery, SaleDto>
 {
     public async Task<Result<SaleDto>> Handle(GetCurrentSaleQuery request, CancellationToken cancellationToken)
     {
@@ -126,7 +130,7 @@ internal sealed class GetCurrentSaleHandler(ISalesStore store, TerminalResolver 
         }
 
         return await store.GetOpenSaleAsync(scope.Value.PosTerminalId, cancellationToken) is { } sale
-            ? sale.ToDto()
+            ? await viewer.ViewAsync(sale, cancellationToken)
             : Error.NotFound("SALES.NO_OPEN_SALE", "La caja no tiene una venta en curso.");
     }
 }
@@ -291,7 +295,7 @@ internal sealed class AddLineHandler(
         {
             return guarded.Error;
         }
-        return sale.ToDto(item.UnitPrice is null ? [$"{item.Name}: fije el precio (precio abierto) antes de cobrar."] : null);
+        return await editor.ViewAsync(sale, cancellationToken, item.UnitPrice is null ? [$"{item.Name}: fije el precio (precio abierto) antes de cobrar."] : null);
     }
 
     private static bool IsScale(string? weightSource) => string.Equals(weightSource, WeightSources.Scale, StringComparison.OrdinalIgnoreCase);
@@ -403,7 +407,7 @@ internal sealed class ChangeQuantityHandler(SaleEditor editor, StockGuard stock)
         {
             return guarded.Error;
         }
-        return sale.ToDto();
+        return await editor.ViewAsync(sale, cancellationToken);
     }
 }
 
@@ -446,7 +450,7 @@ internal sealed class VoidLineHandler(SaleEditor editor, IActorContext actor, IC
         {
             return guarded.Error;
         }
-        return sale.ToDto();
+        return await editor.ViewAsync(sale, cancellationToken);
     }
 }
 
@@ -481,7 +485,7 @@ internal sealed class OverridePriceHandler(SaleEditor editor, IAuthorizationScop
         {
             return guarded.Error;
         }
-        return sale.ToDto();
+        return await editor.ViewAsync(sale, cancellationToken);
     }
 }
 
@@ -534,7 +538,7 @@ internal sealed class ApplyDiscountHandler(
                 + (request.Percent is { } p ? $" ({p:0.##} %)" : string.Empty) + $": {applied.Value.Reason}",
                 AuthorizedBy: authorization.Current?.AuthorizedBy, Severity: AuditSeverity.Warning),
             cancellationToken);
-        return sale.ToDto();
+        return await editor.ViewAsync(sale, cancellationToken);
     }
 }
 
@@ -562,7 +566,7 @@ internal sealed class RemoveDiscountHandler(SaleEditor editor) : ICommandHandler
         {
             return guarded.Error;
         }
-        return sale.ToDto();
+        return await editor.ViewAsync(sale, cancellationToken);
     }
 }
 
@@ -614,7 +618,7 @@ internal sealed class SetCustomerHandler(SaleEditor editor, CustomerResolver cus
         {
             return guarded.Error;
         }
-        return sale.ToDto(warnings);
+        return await editor.ViewAsync(sale, cancellationToken, warnings);
     }
 }
 
@@ -639,7 +643,7 @@ internal sealed class HoldSaleHandler(SaleEditor editor, ISalesStore store, ISet
         }
 
         var held = sale.Hold(request.Label, clock.UtcNow);
-        return held.IsSuccess ? sale.ToDto() : held.Error;
+        return held.IsSuccess ? await editor.ViewAsync(sale, cancellationToken) : held.Error;
     }
 }
 
@@ -673,7 +677,7 @@ internal sealed class ResumeSaleHandler(SaleEditor editor, ISalesStore store) : 
         {
             return guarded.Error;
         }
-        return sale.ToDto();
+        return await editor.ViewAsync(sale, cancellationToken);
     }
 }
 
@@ -719,6 +723,6 @@ internal sealed class CancelSaleHandler(
                 $"Venta cancelada ({sale.ActiveLines.Count()} productos, {sale.Total:N2}): {sale.CancelReason}", AuthorizedBy: authorization.Current?.AuthorizedBy,
                 Severity: AuditSeverity.Warning),
             cancellationToken);
-        return sale.ToDto();
+        return await editor.ViewAsync(sale, cancellationToken);
     }
 }

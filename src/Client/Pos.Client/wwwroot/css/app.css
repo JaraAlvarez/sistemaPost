@@ -468,6 +468,8 @@ html[data-tema="oscuro"] .etiqueta.promo { color: #86EFAC; }
 .caja-total-caja { border-radius: var(--bp-radio-xl); padding: 14px 18px 16px; background: var(--bp-caja-barra); color: #F8FAFC; }
 .caja-total-etiqueta { font-size: .78rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #A5B4FC; display: flex; justify-content: space-between; }
 .caja-total { font-size: clamp(40px, 4.6vw, 64px); font-weight: 800; letter-spacing: -.03em; text-align: right; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.caja-total-efectivo { margin-top: 4px; color: #C7D2FE; font-size: .95rem; }
+.caja-total-efectivo b { color: #F8FAFC; }
 .caja-desglose { display: grid; gap: 4px; font-size: .95rem; }
 .caja-subtotal { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
 .caja-subtotal span:first-child { color: var(--mud-palette-text-secondary); }
@@ -505,6 +507,7 @@ html[data-tema="oscuro"] .etiqueta.promo { color: #86EFAC; }
 .cobro-cifra.total { background: var(--bp-caja-barra); color: #F8FAFC; }
 .cobro-cifra.total small { color: #A5B4FC; }
 .cobro-cifra.total b { font-size: 2.6rem; }
+.cobro-cifra.total small.cobro-redondeo { text-transform: none; letter-spacing: 0; font-weight: 500; text-align: right; margin-top: 2px; color: #C7D2FE; }
 .cobro-cifra.cambio { background: rgba(var(--mud-palette-success-rgb), .12); border: 2px solid var(--mud-palette-success); }
 .cobro-cifra.cambio small, .cobro-cifra.cambio b { color: var(--mud-palette-success); }
 .cobro-cifra.falta { background: rgba(var(--mud-palette-warning-rgb), .12); border: 2px solid var(--mud-palette-warning); }

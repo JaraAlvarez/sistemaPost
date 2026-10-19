@@ -43,7 +43,8 @@ public sealed record SaleCustomer(Guid? PartyId, string Name, string Identificat
 public sealed record Sale(
     Guid Id, string? Number, string Status, SaleCustomer Customer, string? HoldLabel, decimal Gross, decimal PromotionTotal, decimal DiscountTotal,
     decimal Subtotal, decimal TaxTotal, decimal RoundingAdjustment, decimal Total, decimal AmountDue, decimal PaidTotal, decimal ChangeTotal,
-    IReadOnlyList<SaleLine> Lines, IReadOnlyList<SalePayment> Payments, IReadOnlyList<string> Warnings)
+    IReadOnlyList<SaleLine> Lines, IReadOnlyList<SalePayment> Payments, IReadOnlyList<string> Warnings,
+    decimal CashAmountDue = 0, decimal CashRoundingAdjustment = 0, decimal CashRoundingIncrement = 0)
 {
     public IEnumerable<SaleLine> ActiveLines => Lines.Where(l => l.Status == "ACTIVE");
 }

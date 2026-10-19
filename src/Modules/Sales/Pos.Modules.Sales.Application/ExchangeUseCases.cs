@@ -112,6 +112,7 @@ internal sealed class StartExchangeHandler(
     ISalesStore store,
     TerminalResolver terminals,
     ISettingsReader settings,
+    SaleViewer viewer,
     IAuthorizationScope authorization,
     IActorContext actor,
     IAuditWriter audit,
@@ -186,7 +187,7 @@ internal sealed class StartExchangeHandler(
                 $"Cambio de la venta {original.Number}: crédito {exchange.Value.CreditTotal:N2} ({exchange.Value.Lines.Count} productos). Motivo: {exchange.Value.Reason}",
                 AuthorizedBy: authorization.Current?.AuthorizedBy, Severity: AuditSeverity.Warning),
             cancellationToken);
-        return new ExchangeStartedDto(exchange.Value.ToDto(), sale.ToDto());
+        return new ExchangeStartedDto(exchange.Value.ToDto(), await viewer.ViewAsync(sale, cancellationToken));
     }
 }
 

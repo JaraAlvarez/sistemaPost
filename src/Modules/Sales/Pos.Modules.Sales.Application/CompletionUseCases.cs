@@ -118,7 +118,7 @@ public sealed class SaleInventory(IInventoryPosting posting, IWarehouseDirectory
 /// <see cref="AwaitFiscalDataAsync(SaleReceiptDto, CancellationToken)"/>, que espera hasta ⚙️ <c>billing.ticket_wait_seconds</c> a que la
 /// cola obtenga el número, el CUFE y el QR y vuelve a armar el tiquete (la cola solo ve lo confirmado).
 /// </summary>
-public sealed class SaleReceipts(ISalesStore store, ISalesReadModel readModel, IBillingService billing)
+public sealed class SaleReceipts(ISalesStore store, ISalesReadModel readModel, IBillingService billing, SaleViewer viewer)
 {
     public async Task<SaleReceiptDto> BuildAsync(Sale sale, bool copy, bool openDrawer, CancellationToken cancellationToken)
     {
@@ -136,7 +136,7 @@ public sealed class SaleReceipts(ISalesStore store, ISalesReadModel readModel, I
         // El documento que respalda el tiquete: en una venta anulada, su nota crédito electrónica si la hay.
         var main = sale.Status == SaleStatus.Voided && SaleTicketBuilder.IsElectronic(creditNote) ? creditNote : document;
         return new SaleReceiptDto(
-            sale.ToDto(), ticket, TicketLayout.ToText(ticket, TicketLayout.Columns80Mm), openDrawer, main?.DocumentType, main?.Status, main?.Id, main?.FiscalNumber,
+            await viewer.ViewAsync(sale, cancellationToken), ticket, TicketLayout.ToText(ticket, TicketLayout.Columns80Mm), openDrawer, main?.DocumentType, main?.Status, main?.Id, main?.FiscalNumber,
             main?.Cufe);
     }
 
@@ -324,7 +324,7 @@ internal sealed class ReleaseSistecreditoCreditHandler(
 
         var released = await sistecredito.ReleaseAsync(
             sale.Id, request.TransactionId, actor.ActorId!.Value, authorization.Current?.AuthorizedBy, keepUpTo, cancellationToken);
-        return released.IsFailure ? released.Error : sale.ToDto();
+        return released.IsFailure ? released.Error : await editor.ViewAsync(sale, cancellationToken);
     }
 }
 
@@ -342,6 +342,7 @@ internal sealed class CompleteSaleHandler(
     IBillingService billing,
     IDocumentNumberAllocator numbers,
     ISettingsReader settings,
+    SaleViewer viewer,
     CustomerResolver customers,
     ICustomerCreditGate credit,
     ILoyaltyProgram loyalty,
@@ -409,7 +410,6 @@ internal sealed class CompleteSaleHandler(
                 + "supervisor) y cobre con otro medio, o agregue productos hasta cubrir el crédito.");
         }
 
-        var context = new SettingContext(sale.CompanyId, sale.BranchId, sale.PosTerminalId);
         var limit = await settings.GetAsync(SalesSettings.AnonymousSaleLimit, new SettingContext(sale.CompanyId), cancellationToken);
         if (limit > 0m && sale.CustomerId is null && sale.Total > limit)
         {
@@ -445,8 +445,7 @@ internal sealed class CompleteSaleHandler(
                 + "Sistecrédito está inactivo, use «No usar este crédito» (con autorización de supervisor).");
         }
 
-        var allocation = PaymentAllocator.Allocate(
-            sale.Total, tenders.Value, await settings.GetAsync(SalesSettings.CashRoundingIncrement, context, cancellationToken));
+        var allocation = PaymentAllocator.Allocate(sale.Total, tenders.Value, await viewer.CashIncrementAsync(sale, cancellationToken));
         if (allocation.IsFailure)
         {
             // Sistecrédito con otro medio que no da cambio (tarjeta, transferencia…) que juntos se pasan: el crédito no se puede achicar.
@@ -727,10 +726,10 @@ internal sealed class ReprintSaleHandler(ISalesStore store, SaleReceipts receipt
 
 public sealed record GetSaleQuery(Guid SaleId) : IQuery<SaleDto>;
 
-internal sealed class GetSaleHandler(ISalesStore store) : IQueryHandler<GetSaleQuery, SaleDto>
+internal sealed class GetSaleHandler(ISalesStore store, SaleViewer viewer) : IQueryHandler<GetSaleQuery, SaleDto>
 {
     public async Task<Result<SaleDto>> Handle(GetSaleQuery request, CancellationToken cancellationToken) =>
-        await store.GetSaleAsync(request.SaleId, cancellationToken) is { } sale ? sale.ToDto() : SalesErrors.SaleNotFound;
+        await store.GetSaleAsync(request.SaleId, cancellationToken) is { } sale ? await viewer.ViewAsync(sale, cancellationToken) : SalesErrors.SaleNotFound;
 }
 
 /// <summary>Ventas de la sucursal con filtros (fechas de negocio, estado, número, caja, jornada).</summary>

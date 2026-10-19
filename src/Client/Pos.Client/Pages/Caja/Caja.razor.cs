@@ -155,8 +155,36 @@ public sealed partial class Caja
 
     private decimal Pagado => _payments.Sum(p => p.Amount);
 
-    /// <summary>Lo pagado más el valor escrito y aún no agregado (Enter/F10 lo toma con el medio seleccionado).</summary>
-    private decimal PagadoConEscrito => Pagado + (_payments.Count == 0 && _methodSelected is not null && !EsSistecredito(_methodSelected) ? _amount : 0);
+    /// <summary>Medio de pago en efectivo (da cambio), si está activo.</summary>
+    private PaymentMethod? MedioEfectivo => _methods.FirstOrDefault(m => m.AffectsCashDrawer);
+
+    /// <summary>
+    /// Estado del cobro con los pagos agregados más el valor escrito y aún no agregado (Enter/F10 lo toma con el medio seleccionado
+    /// cuando todavía no hay pagos; con Sistecrédito no, porque entra solo al aprobarse).
+    /// </summary>
+    private EstadoCobro Cobro => EstadoDelCobro(incluirEscrito: true, _methodSelected);
+
+    private EstadoCobro EstadoDelCobro(bool incluirEscrito, PaymentMethod? medio)
+    {
+        var pagos = _payments.Select(p => new PagoCobro(EsEfectivo(p.PaymentMethodId), p.Amount)).ToList();
+        if (incluirEscrito && _payments.Count == 0 && medio is not null && !EsSistecredito(medio) && _amount > 0)
+        {
+            pagos.Add(new PagoCobro(medio.AffectsCashDrawer, _amount));
+        }
+
+        return EstadoCobro.Calcular(_sale!, pagos, medio?.AffectsCashDrawer == true, MedioEfectivo is not null);
+    }
+
+    private bool EsEfectivo(Guid paymentMethodId) => _methods.FirstOrDefault(m => m.Id == paymentMethodId)?.AffectsCashDrawer == true;
+
+    /// <summary>
+    /// Valor sugerido para <paramref name="medio"/> según los pagos ya agregados: en efectivo, lo que falta con el redondeo del servidor;
+    /// con otro medio (sin redondeo), lo exacto que falta.
+    /// </summary>
+    private decimal FaltaCon(PaymentMethod? medio) =>
+        medio?.AffectsCashDrawer == true
+            ? Math.Max(0, EstadoDelCobro(incluirEscrito: false, medio).Diferencia)
+            : Math.Max(0, (_sale?.AmountDue ?? 0) - Pagado);
 
     private bool HayLineas => _sale is not null && _sale.ActiveLines.Any();
 
@@ -1343,8 +1371,8 @@ public sealed partial class Caja
         _payments.Clear();
         NuevoSistecredito();
         _completionKey = Guid.NewGuid().ToString();
-        _methodSelected = _methods.FirstOrDefault(m => m.AffectsCashDrawer) ?? (_methods.Count > 0 ? _methods[0] : null);
-        _amount = _sale.AmountDue;
+        _methodSelected = MedioEfectivo ?? (_methods.Count > 0 ? _methods[0] : null);
+        _amount = FaltaCon(_methodSelected);
         _reference = null;
         _panel = Panel.Cobro;
         _ = RestaurarSistecreditoAsync(_sale.Id);
@@ -1360,7 +1388,7 @@ public sealed partial class Caja
         if (_methodSelected != method)
         {
             _methodSelected = method;
-            _amount = Math.Max(0, _sale!.AmountDue - Pagado);
+            _amount = FaltaCon(method);
             if (EsSistecredito(method))
             {
                 // Sistecrédito cobra pesos enteros: se propone lo que falta sin centavos (los centavos van con otro medio).
@@ -1393,15 +1421,29 @@ public sealed partial class Caja
             return;
         }
 
-        _payments.Add(new PaymentLine(method.Id, _amount, method.RequiresReference ? _reference : null));
-        _amount = Math.Max(0, _sale!.AmountDue - Pagado);
+        // Un solo pago en efectivo (regla del servidor): otro valor en efectivo se suma al que ya estaba.
+        if (method.AffectsCashDrawer && _payments.FirstOrDefault(p => p.PaymentMethodId == method.Id) is { } previo)
+        {
+            _payments[_payments.IndexOf(previo)] = previo with { Amount = previo.Amount + _amount };
+        }
+        else
+        {
+            _payments.Add(new PaymentLine(method.Id, _amount, method.RequiresReference ? _reference : null));
+        }
+
+        _amount = FaltaCon(method);
         _reference = null;
     }
 
-    /// <summary>Valores rápidos para el efectivo: el exacto y los billetes que cubren lo que falta.</summary>
+    /// <summary>Valores rápidos para el efectivo: el exacto (ya redondeado como lo cobra el servidor) y los billetes que lo cubren.</summary>
     private IEnumerable<decimal> ValoresRapidos()
     {
-        var falta = Math.Max(0, (_sale?.AmountDue ?? 0) - Pagado);
+        if (_sale is null || MedioEfectivo is not { } efectivo)
+        {
+            return [];
+        }
+
+        var falta = FaltaCon(efectivo);
         if (falta <= 0)
         {
             return [];
@@ -1449,15 +1491,28 @@ public sealed partial class Caja
             AgregarPago(_methodSelected);
         }
 
-        if (Pagado < _sale.AmountDue)
+        var estado = EstadoDelCobro(incluirEscrito: false, _methodSelected);
+        if (!estado.Completo)
         {
+            if (estado.Bloqueo is { } motivo)
+            {
+                Snackbar.Add(motivo, Severity.Warning);
+            }
+
             return;
+        }
+
+        // Un resto menor que medio múltiplo lo absorbe el redondeo con un efectivo de $0 (así lo espera el servidor).
+        var pagos = _payments.ToList();
+        if (estado.EfectivoEnCero && MedioEfectivo is { } efectivo)
+        {
+            pagos.Add(new PaymentLine(efectivo.Id, 0, null));
         }
 
         await RunAsync(async grant =>
         {
             var receipt = await Api.PostAsync<Receipt>($"api/v1/sales/{_sale.Id}/complete",
-                new { payments = _payments.Select(p => new { paymentMethodId = p.PaymentMethodId, amount = p.Amount, reference = p.Reference }) }, grant, _completionKey);
+                new { payments = pagos.Select(p => new { paymentMethodId = p.PaymentMethodId, amount = p.Amount, reference = p.Reference }) }, grant, _completionKey);
             _lastReceipt = receipt;
             _lastChange = receipt.Sale.ChangeTotal;
             _sale = null;
@@ -1636,15 +1691,15 @@ public sealed partial class Caja
 
         Snackbar.Add($"Sistecrédito aprobó el crédito{(cobro.Installments is { } cuotas ? $" a {cuotas} cuotas" : "")}.", Severity.Success);
         NuevoSistecredito();
-        if (_sale is not null && Pagado >= _sale.AmountDue)
+        if (_sale is not null && EstadoDelCobro(incluirEscrito: false, medio: null).Completo)
         {
             await CobrarAsync();
         }
         else if (_sale is not null)
         {
-            // Pago mixto: falta una parte, que se cobra con otro medio.
-            _methodSelected = _methods.FirstOrDefault(m => m.AffectsCashDrawer) ?? _methodSelected;
-            _amount = Math.Max(0, _sale.AmountDue - Pagado);
+            // Pago mixto: falta una parte, que se cobra con otro medio (en efectivo, con su redondeo).
+            _methodSelected = MedioEfectivo ?? _methodSelected;
+            _amount = FaltaCon(_methodSelected);
         }
     }
 
@@ -1704,7 +1759,7 @@ public sealed partial class Caja
                     restaurados += cobro.Amount;
                 }
 
-                _amount = Math.Max(0, _sale.AmountDue - Pagado);
+                _amount = FaltaCon(_methodSelected);
                 if (restaurados > 0)
                 {
                     Snackbar.Add($"Se recuperó el pago ya aprobado con Sistecrédito por {Format.Money(restaurados)}: cobre solo lo que falta.", Severity.Info);
@@ -1800,7 +1855,7 @@ public sealed partial class Caja
         if (!await SigueUsableAsync(_sale.Id, payment.Reference))
         {
             _payments.Remove(payment);
-            _amount = Math.Max(0, _sale.AmountDue - Pagado);
+            _amount = FaltaCon(_methodSelected);
             return;
         }
 
@@ -1849,7 +1904,7 @@ public sealed partial class Caja
                 _payments.RemoveAll(p => p.Reference is not null && liberados.Contains(p.Reference));
                 if (_sale?.Id == saleId)
                 {
-                    _amount = Math.Max(0, _sale.AmountDue - Pagado);
+                    _amount = FaltaCon(_methodSelected);
                 }
 
                 Snackbar.Add("Crédito de Sistecrédito no usado: quedó en revisión para que la administración lo reverse. Cobre con otro medio.", Severity.Info);

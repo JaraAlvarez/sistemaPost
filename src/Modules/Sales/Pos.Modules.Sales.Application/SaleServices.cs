@@ -1,4 +1,5 @@
 using Pos.Application.Abstractions.Security;
+using Pos.Application.Abstractions.Settings;
 using Pos.Modules.Billing.Contracts;
 using Pos.Modules.Cash.Contracts;
 using Pos.Modules.Catalog.Contracts;
@@ -206,17 +207,35 @@ public sealed class CustomerResolver(IPartyDirectory parties, IPartyRegistry reg
     }
 }
 
-/// <summary>Venta → DTO de la API.</summary>
-public static class SaleViews
+/// <summary>
+/// Venta → DTO de la API, con el cobro en efectivo calculado con el múltiplo vigente (⚙️ <c>sales.cash_rounding_increment</c>, el
+/// mismo que usa el cobro).
+/// </summary>
+public sealed class SaleViewer(ISettingsReader settings)
 {
-    public static SaleDto ToDto(this Sale sale, IReadOnlyList<string>? warnings = null)
+    public Task<decimal> CashIncrementAsync(Sale sale, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sale);
+        return settings.GetAsync(SalesSettings.CashRoundingIncrement, new SettingContext(sale.CompanyId, sale.BranchId, sale.PosTerminalId), cancellationToken);
+    }
+
+    public async Task<SaleDto> ViewAsync(Sale sale, CancellationToken cancellationToken, IReadOnlyList<string>? warnings = null) =>
+        sale.ToDto(await CashIncrementAsync(sale, cancellationToken), warnings);
+}
+
+public static class SaleViews
+{
+    /// <summary><paramref name="cashIncrement"/>: múltiplo de redondeo del efectivo vigente para la venta (0 = sin redondeo).</summary>
+    public static SaleDto ToDto(this Sale sale, decimal cashIncrement, IReadOnlyList<string>? warnings = null)
+    {
+        ArgumentNullException.ThrowIfNull(sale);
+        var amountDue = Math.Max(0m, sale.Total - sale.ExchangeCredit);
+        var cashDue = sale.Status == SaleStatus.Open && amountDue > 0m ? PaymentAllocator.CashDue(amountDue, cashIncrement) : amountDue;
         return new SaleDto(
             sale.Id, sale.Number, sale.Status.Db(), sale.ReturnStatus.Db(), sale.BranchId, sale.PosTerminalId, sale.CashSessionId, sale.CashierId, sale.BusinessDate,
             new SaleCustomerDto(sale.CustomerId, sale.CustomerName, sale.CustomerIdentificationType, sale.CustomerIdentification, sale.CustomerEmail),
             sale.OpenedAt, sale.CompletedAt, sale.HoldLabel, sale.ExchangeId, sale.ExchangeCredit, sale.Gross, sale.PromotionTotal, sale.DiscountTotal, sale.Subtotal,
-            sale.TaxTotal, sale.RoundingAdjustment, sale.Total, Math.Max(0m, sale.Total - sale.ExchangeCredit), sale.PaidTotal, sale.ChangeTotal, sale.VoidReason,
+            sale.TaxTotal, sale.RoundingAdjustment, sale.Total, amountDue, sale.PaidTotal, sale.ChangeTotal, sale.VoidReason,
             [.. sale.Lines.OrderBy(l => l.LineNo).Select(l => new SaleLineDto(
                 l.Id, l.LineNo, l.ProductId, l.Sku, l.Name, l.ScannedCode, l.Source, l.BaseUnitCode, l.PackagingId, l.PackagingName, l.Factor, l.Quantity, l.UnitPrice,
                 l.PriceOverridden, l.Gross, l.PromotionId, l.PromotionName, l.PromotionDiscount, l.LineDiscount, l.GlobalDiscountShare, l.TaxBase, l.TaxTotal, l.Total,
@@ -226,7 +245,7 @@ public static class SaleViews
             [.. sale.Payments.OrderBy(p => p.LineNo).Select(p => new SalePaymentDto(
                 p.Id, p.PaymentMethodId, p.MethodCode, p.MethodKind, p.Tendered, p.Applied, p.Change, p.Reference, p.CardFranchise, p.CardLast4))],
             [.. sale.Discounts.Select(d => new SaleDiscountDto(d.Id, d.Scope.Db(), d.SaleLineId, d.Percent, d.Amount, d.Reason, d.AuthorizedBy, d.Status.Db()))],
-            warnings ?? [], sale.PriceListId, sale.PriceListCode, sale.CustomerGroupCode, sale.InvoiceRequested);
+            warnings ?? [], sale.PriceListId, sale.PriceListCode, sale.CustomerGroupCode, sale.InvoiceRequested, cashDue, cashDue - amountDue, cashIncrement);
     }
 }
 

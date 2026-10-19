@@ -129,6 +129,12 @@ public sealed record SaleCustomerDto(Guid? PartyId, string Name, string Identifi
 /// <summary>
 /// Venta. <c>AmountDue</c>: lo que falta pagar descontando el crédito de un cambio. <c>Warnings</c>: avisos para la caja
 /// (p. ej. un producto con pocas existencias o una promoción que dejó de regir).
+/// <para>
+/// Cobro en efectivo (D7-09, misma regla del cobro): <c>CashAmountDue</c> es lo que se cobra si <c>AmountDue</c> se paga TODO en
+/// efectivo (redondeado al múltiplo configurado), <c>CashRoundingAdjustment</c> = <c>CashAmountDue − AmountDue</c> y
+/// <c>CashRoundingIncrement</c> el múltiplo vigente (0 = sin redondeo). Con medios mixtos el redondeo aplica solo a la parte en
+/// efectivo (lo que dejan la tarjeta, la transferencia, etc.). En una venta que no está abierta, <c>CashAmountDue</c> = <c>AmountDue</c>.
+/// </para>
 /// </summary>
 public sealed record SaleDto(
     Guid Id,
@@ -164,7 +170,10 @@ public sealed record SaleDto(
     Guid? PriceListId = null,
     string? PriceListCode = null,
     string? CustomerGroupCode = null,
-    bool InvoiceRequested = false);
+    bool InvoiceRequested = false,
+    decimal CashAmountDue = 0m,
+    decimal CashRoundingAdjustment = 0m,
+    decimal CashRoundingIncrement = 0m);
 
 /// <summary>
 /// Resultado de cobrar, anular o reimprimir: la venta, el tiquete en el modelo neutro (lo imprime el agente de caja) y si hay

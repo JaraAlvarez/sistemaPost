@@ -288,20 +288,32 @@ else
         <aside class="caja-lateral @(_panel is Panel.Cobro or Panel.Cliente or Panel.Suspendidas ? "modo" : null)" aria-label="Total y acciones">
             @if (_panel == Panel.Cobro && _sale is not null)
             {
-                var diferencia = _sale.AmountDue - PagadoConEscrito;
+                var cobro = Cobro;
+                var diferencia = cobro.Diferencia;
                 @* ---------------------------------------------------------------------------------------- Cobro (F10) *@
                 <div class="lateral-encabezado">
                     <h2 id="t-cobro">Cobrar</h2>
                     <MudButton Size="Size.Small" OnClick="CerrarPanel">Volver <kbd class="ml-2">Esc</kbd></MudButton>
                 </div>
-                <div class="cobro-cifra total"><small>Total a pagar</small><b>@Format.Money(_sale.AmountDue)</b></div>
+                <div class="cobro-cifra total">
+                    <small>@(cobro.TodoEnEfectivo ? "Total en efectivo" : "Total a pagar")</small>
+                    <b>@Format.Money(cobro.TotalAPagar)</b>
+                    @if (cobro.Redondeo != 0)
+                    {
+                        <small class="cobro-redondeo">Venta @Format.Money(_sale.AmountDue) · redondeo del efectivo @(cobro.Redondeo > 0 ? "+" : "−")@Format.Money(Math.Abs(cobro.Redondeo))</small>
+                    }
+                </div>
                 <div class="cobro-dos">
-                    <div class="cobro-cifra"><small>Recibido</small><b>@Format.Money(PagadoConEscrito)</b></div>
+                    <div class="cobro-cifra"><small>Recibido</small><b>@Format.Money(cobro.Recibido)</b></div>
                     <div class="cobro-cifra @(diferencia <= 0 ? "cambio" : "falta")" aria-live="polite">
                         <small>@(diferencia <= 0 ? "Cambio" : "Falta")</small>
                         <b>@Format.Money(Math.Abs(diferencia))</b>
                     </div>
                 </div>
+                @if (cobro.Bloqueo is { } bloqueo)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" role="alert">@bloqueo</MudAlert>
+                }
                 @if (_payments.Count > 0)
                 {
                     <div class="cobro-pagos">
@@ -389,7 +401,7 @@ else
                     <MudTextField @bind-Value="_reference" Label="Referencia (aprobación del datáfono)" Variant="Variant.Outlined" Immediate="true" />
                 }
                 <MudText Typo="Typo.caption" Class="d-block texto-secundario">Pago mixto: escriba el valor, pulse otra vez el medio para agregarlo y elija el siguiente.</MudText>
-                <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Large" FullWidth="true" Class="caja-cobrar" Disabled="@(_busy || PagadoConEscrito < _sale.AmountDue)"
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Large" FullWidth="true" Class="caja-cobrar" Disabled="@(_busy || !cobro.Completo)"
                            OnClick="CobrarAsync" StartIcon="@Icons.Material.Outlined.CheckCircle">Confirmar cobro <kbd>F10</kbd></MudButton>
             }
             else if (_panel == Panel.Cliente)
@@ -476,6 +488,10 @@ else
                             <span>@(_sale?.ActiveLines.Sum(l => l.Quantity).ToString("0.###", Format.Colombia) ?? "0") art.</span>
                         </div>
                         <div class="caja-total" aria-live="polite">@Format.Money(_sale?.AmountDue ?? 0)</div>
+                        @if (_sale is { CashRoundingAdjustment: not 0 } enCurso && enCurso.ActiveLines.Any())
+                        {
+                            <div class="caja-subtotal caja-total-efectivo"><span>En efectivo</span><b>@Format.Money(enCurso.CashAmountDue)</b></div>
+                        }
                     </div>
                 }
 
@@ -489,6 +505,10 @@ else
                     @if ((_sale?.RoundingAdjustment ?? 0) != 0)
                     {
                         <div class="caja-subtotal"><span>Redondeo</span><span>@Format.Money(_sale!.RoundingAdjustment)</span></div>
+                    }
+                    else if ((_sale?.CashRoundingAdjustment ?? 0) != 0)
+                    {
+                        <div class="caja-subtotal"><span>Redondeo (si paga en efectivo)</span><span>@Format.Money(_sale!.CashRoundingAdjustment)</span></div>
                     }
                 </div>
 
